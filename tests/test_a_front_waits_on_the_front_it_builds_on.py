@@ -160,13 +160,17 @@ def test_a_position_outside_its_own_breakdown_is_read_as_no_dependency_and_logge
     assert '"builds_on": [int]' in harness.prompts[0], "the decomposition is never asked"
 
 
-@pytest.mark.parametrize("language", ["pt-BR", "en"])
-def test_the_held_sentence_names_both_fronts_in_each_language(language):
+@pytest.mark.parametrize("language, held", [
+    ("pt-BR", f"“{STORAGE}” não foi aberta, então segurei “{HISTORY}”"),
+    ("en", f"“{STORAGE}” was not opened, so I held “{HISTORY}”")])
+def test_the_held_sentence_names_both_fronts_in_each_language(language, held):
+    """The base is named as the front NOT OPENED — the sentence names it a second time, in what
+    to wait for, so its mere presence proves nothing (review of #586)."""
     from openfactory.product.voice import breakdown_said
 
     said = breakdown_said("held", title=HISTORY, base=STORAGE, language=language)
 
-    assert STORAGE in said and HISTORY in said and "{" not in said
+    assert said.startswith(held) and "{" not in said
 
 
 @pytest.mark.parametrize("language, waits", [
