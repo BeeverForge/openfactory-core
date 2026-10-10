@@ -1415,7 +1415,7 @@ def clone_repo(project) -> tuple[Path, bool]:
         # RAISES on a forge kind it does not know, correctly, and a tech-lead that answered a
         # question with that ValueError would have traded a thin answer for no answer.
         url = clone_url_for(project, repo, token=token)
-        subprocess.run(["git", "clone", "--depth", "1", url, str(tmp)],
+        subprocess.run(["git", "clone", "--no-local", "--depth", "1", url, str(tmp)],
                        check=True, capture_output=True, timeout=120)
         # SCRUB THE CREDENTIAL: the clone URL (with the token) is persisted in .git/config, and
         # the read-only chat agent CAN read that file — a prompt-injected question could exfiltrate
