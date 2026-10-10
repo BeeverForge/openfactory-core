@@ -921,12 +921,22 @@ def test_a_late_yes_hears_it_expired_from_this_process_when_the_store_did_not_ta
     talk = _Conversation(project, module)
     talk.say(REQUEST, user=CLIENT)
     _age_out(monkeypatch)
-    monkeypatch.setattr(messages, "hold", lambda *a, **k: False)
+    offered: list[str] = []
+
+    def _refuses(*_a, token: str = "", **_k) -> bool:
+        offered.append(token)
+        return False
+
+    monkeypatch.setattr(messages, "hold", _refuses)
 
     reply = talk.say("sim", user=ADMIN)
 
     assert reply == voice.proposal_expired(language=LANG)
     assert not module.asked("propose")
+    # TIED TO THE SEAM IT NAMES (review of #591): the store was OFFERED the expiry notice and said
+    # no. Were the refusal to become an exception, or the notice to stop being offered, the reply
+    # above would still be measured — but not under the condition this test exists for
+    assert offered and all(t.startswith(staging.EXPIRY_NOTICE) for t in offered), offered
 
 
 def test_the_same_proposal_asked_for_again_after_it_expired_is_confirmed(table, ledger,
