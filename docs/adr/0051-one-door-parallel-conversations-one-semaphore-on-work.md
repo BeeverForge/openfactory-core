@@ -448,8 +448,10 @@ covering the same scope:
 | the conversation's `breakdown` intent; the acceptance's second act in the conversation | `module.break_down` in the turn's own process (`engine.py`, `confirm.py::_also_broke_it_down`) — the worker's activity, or the panel's process for a click | nothing shared with the row above |
 | the conversation's requested card | `file_ticket` under the semaphore, `against=("ticket", "defect")` | the card's title; it never asks which requirement the card names, and writes it as having none |
 
-And inside a breakdown, the board is read once, before the drafting pass; each card's own check is
-its exact title (`module._file_one`), outside the semaphore.
+And inside a breakdown, the board is read once, before the drafting pass. Each card's own check is
+the decomposition's `already_on_board` claim, verified against that early read
+(`module._reused_card`), and then its exact title (`module._file_one`); the card is filed outside
+the semaphore.
 
 **The decision.**
 
@@ -458,6 +460,11 @@ its exact title (`module._file_one`), outside the semaphore.
    `module.break_down` in its own process. The input carries the conversation and the requester the
    conversation's doors already pass (`confirm._whose`), so the delivery loop is the same whichever
    door started it.
+
+   **Once means one at a time.** The engine refuses a second start while one runs and allows one
+   after it ends — no id-reuse policy is set, and none is added — so a failed or partial breakdown
+   is retried, as its failure sentence promises. What keeps a later breakdown from filing what an
+   earlier one filed is item 4's question, never the id.
 2. **A breakdown already running is news, not a failure.** Every door that meets the engine's
    refusal of a second start says the breakdown is running and where its cards will be said — the
    sentence differs by door, never into "nothing was filed".
@@ -470,14 +477,32 @@ its exact title (`module._file_one`), outside the semaphore.
 4. **Every door that files for a requirement asks it first: is a breakdown of it running, and
    which open cards execute it?** "Running" is the engine's answer for the shared id; "executes" is
    the card's source (`Executes REQ-NNNN`, `module._cited_requirement`). The answer decides:
-   - **a breakdown door**: running → item 2; cards already there → the breakdown files only what
-     they do not carry, as `already_on_board` does today, now told which cards those are;
+   - **a breakdown door**: running → item 2. Otherwise the decomposition is handed **the list of
+     open cards that execute the requirement** — a fact read from their sources, not the whole
+     board and a model's claim against it — and drafts only the fronts they do not carry. Its cards
+     are then filed **through the semaphore**, like every other card (D7), and inside it, just
+     before each card, the list is read again: a card that executes the requirement and appeared
+     since the drafting began (filed by hand, or by another surface) stops the fronts not yet
+     filed. They are said as held, naming that card, and the next breakdown starts from the list
+     that now includes it. The re-read is a read of card sources and a comparison, so it fits D8's
+     hold;
    - **the requested-card door**, when the card names an accepted requirement (`REQ-NNNN` in its
      title or body, the requirement live and promised): running → said, nothing filed; cards there →
      listed, nothing filed; neither → the person is offered the breakdown, not a free-standing card.
-     A requested card that names no requirement is filed as today.
+     **In no case does this door file a card for an accepted requirement**, so there is no window
+     between its check and a breakdown's start in which it could: the work of an accepted
+     requirement is filed by its breakdown alone. On the run, the requested card carried
+     `(REQ-0066)` in its title and "the first two bullets of REQ-0066" in its body, so this check
+     catches it from the card's own text, with no model involved.
+
+     A requested card that names no requirement is not guarded here: by what it says it is a
+     free-standing card, and it is filed as today, checked by title under the semaphore. Item 5 is
+     not a guard. It makes the role name the requirement when it knows one, so the card falls under
+     this check rather than past it.
 5. **The role is told.** The breakdown's state is part of what the role reads about a requirement
-   (running, its cards), so it never proposes a card for one whose breakdown is running.
+   (running, its cards), so it proposes the breakdown, never a free-standing card, for an accepted
+   requirement — and names the requirement in a card it drafts about one, which item 4 then
+   checks.
 
 *Why the engine and not the semaphore:* the semaphore is held for seconds and never across a model
 call (D8); a breakdown is minutes of drafting. The engine already holds one execution per id, on
@@ -596,8 +621,13 @@ loads, and warns.
 - **18c. The requested-card door asks the requirement.** `file_ticket` reads the requirement a
   card names; running → said; cards → listed; neither → the breakdown offered.
   *Acceptance:* a requested card naming a requirement whose breakdown is running is not filed, and
-  the sentence says why; the run's three cards come out as the breakdown's two.
-- **18d. The role reads the breakdown's state** with the requirement, and the acceptance from the
+  the sentence says why; the run's requested card — `(REQ-0066)` in its title — is not filed, and
+  the run's three cards come out as the breakdown's two, with no change to the role.
+- **18d. The breakdown is handed the cards that execute its requirement, and files through the
+  semaphore** with the re-read of item 4.
+  *Acceptance:* a card executing the requirement filed by hand while a breakdown drafts stops the
+  fronts not yet filed, and they are said as held, naming it.
+- **18e. The role reads the breakdown's state** with the requirement, and the acceptance from the
   panel is told in the conversation the requirement was written from when one is recorded.
 
 ## What this does NOT mean
