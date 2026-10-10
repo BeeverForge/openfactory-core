@@ -19,8 +19,10 @@ characters of git's answer, which cut inside the object's path: the words before
 
 from __future__ import annotations
 
+import ast
 import logging
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -52,3 +54,56 @@ def test_a_clone_that_failed_logs_gits_whole_sentence(tmp_path, caplog):
     failed = [r.getMessage() for r in caplog.records
               if "OPENFACTORY_CACHE: clone failed for p" in r.getMessage()]
     assert failed and "fatal:" in failed[0] and str(nowhere) in failed[0], failed
+
+
+# ── the guard: every git the suite starts sees the suite's config ───────────────────────────────
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _replaces_the_environment(node: ast.AST) -> bool:
+    """A dict literal with no `**` unpacking: an environment built from nothing."""
+    return isinstance(node, ast.Dict) and None not in node.keys
+
+
+def _gits_on_their_own_environment(source: str) -> list[str]:
+    """`<line>` for every `git` argv started with an `env=` that does not carry the process's own
+    — a dict literal, or a name assigned one in the same function — so `GIT_CONFIG_GLOBAL` is
+    lost and git's automatic maintenance runs."""
+    found = []
+    for scope in ast.walk(ast.parse(source)):
+        if not isinstance(scope, ast.FunctionDef | ast.AsyncFunctionDef | ast.Module):
+            continue
+        built = {t.id for n in ast.walk(scope) if isinstance(n, ast.Assign)
+                 and _replaces_the_environment(n.value) for t in n.targets
+                 if isinstance(t, ast.Name)}
+        for call in (n for n in ast.walk(scope) if isinstance(n, ast.Call)):
+            argv = call.args[0] if call.args else None
+            first = argv.elts[0] if isinstance(argv, ast.List) and argv.elts else None
+            if not (isinstance(first, ast.Constant) and first.value == "git"):
+                continue
+            for kw in call.keywords:
+                if kw.arg == "env" and (_replaces_the_environment(kw.value) or (
+                        isinstance(kw.value, ast.Name) and kw.value.id in built)):
+                    found.append(call.lineno)
+    return [str(n) for n in sorted(set(found))]
+
+
+def test_no_git_the_suite_starts_loses_the_suites_config():
+    """A GUARD ON THE CLASS (review of #595): the fixture above reaches only a git that inherits
+    the environment, and a fixture that built its own committed, pushed and was cloned by path."""
+    lost = [f"{path.relative_to(ROOT)}:{line}"
+            for path in sorted((ROOT / "tests").rglob("*.py"))
+            for line in _gits_on_their_own_environment(path.read_text(encoding="utf-8"))]
+    assert lost == [], f"a git runs without the suite's config, maintenance on: {lost}"
+
+
+def test_the_guard_sees_the_fixture_it_was_written_for():
+    """THE GUARD CALLS ITS OWN RULE on the shape that escaped, and passes the shape that merges."""
+    before = (
+        "def context_repo():\n"
+        "    env = {'GIT_AUTHOR_NAME': 't', 'PATH': os.environ['PATH']}\n"
+        "    subprocess.run(['git', *args], cwd=seed, env=env)\n"
+        "    subprocess.run(['git', 'push'], env={'HOME': '/x'})\n"
+        "    subprocess.run(['git', 'push'], env={**os.environ, 'HOME': '/x'})\n")
+    assert _gits_on_their_own_environment(before) == ["3", "4"]

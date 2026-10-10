@@ -512,6 +512,7 @@ def test_deleting_the_conversation_erases_its_files(monkeypatch, tmp_path):
 @pytest.fixture
 def context_repo(tmp_path):
     """A real bare context repository with one commit on `main`, and its clone URL."""
+    import os
     import subprocess
 
     origin = tmp_path / "context.git"
@@ -520,8 +521,11 @@ def context_repo(tmp_path):
     seed = tmp_path / "seed"
     seed.mkdir()
     (seed / "README.md").write_text("context\n")
-    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@t", "PATH": __import__("os").environ["PATH"]}
+    # OVER THE PROCESS'S ENVIRONMENT, NEVER IN PLACE OF IT (#592): a git started with an
+    # environment of its own never sees the suite's `GIT_CONFIG_GLOBAL`, and runs git's automatic
+    # maintenance in the repository this test then clones by path
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
     for args in (["init", "-b", "main"], ["add", "-A"], ["commit", "-m", "seed"],
                  ["push", str(origin), "HEAD:main"]):
         subprocess.run(["git", *args], cwd=seed, check=True, capture_output=True, env=env)
