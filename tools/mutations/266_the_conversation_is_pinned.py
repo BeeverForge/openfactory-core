@@ -737,10 +737,13 @@ MUTATIONS = [
      '    title = (getattr(answer, "ticket_title", "") or "").strip()'),
 
     # RE-PINNED 2026-09-28: the confirmation now carries the drafted card (#383)
+    # PROVED ELSEWHERE 2026-10-10: this suite's module drafts no card, so it reaches only the
+    # title-only staging and survived this cut; the drafted card's own suite holds it
     ("an admin's own card is told to ask the admins", ENGINE,
      "                              disputed=disputed, language=lang)\n"
      "    if not may_act(project, user):",
-     "                              disputed=disputed, language=lang)\n    if True:"),
+     "                              disputed=disputed, language=lang)\n    if True:",
+     "tests/test_a_card_is_drafted_and_judged_before_the_yes.py"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("an order for the backlog is never staged", ENGINE,
