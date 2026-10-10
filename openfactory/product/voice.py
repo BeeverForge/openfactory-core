@@ -3185,11 +3185,56 @@ _SURVIVOR_UNCLEAR = {
 }
 
 
+#: A CLOSE IN FAVOUR OF A CARD THAT DOES NOT CARRY EVERYTHING (#567). "They ask for the same
+#: thing" was said over two cards the role had compared by title, and the closed one was the only
+#: card carrying a requirement's first front. When the closed card states what the survivor does
+#: not, the yes is asked on that list, never on the claim that the two are the same.
+_CLOSE_CONFIRM_OVERLAP = {
+    "pt-BR": ("Só para confirmar antes: o *{number}* e o *{other}* se sobrepõem, mas não são "
+              "iguais — o *{number}* pede o que o *{other}* não pede:\n{items}\n\nSe encerrar o "
+              "*{number}*, isso sai da lista de trabalho; o *{other}* continua como está. Eu "
+              "escrevo nos dois qual foi a decisão. Nada do que o produto promete muda com isso."
+              "\n\nConfirma?"),
+    "en": ("To confirm first: *{number}* and *{other}* overlap, but they are not the same — "
+           "*{number}* asks for what *{other}* does not:\n{items}\n\nClosing *{number}* takes "
+           "that off the list of work; *{other}* stays as it is. I write the decision on both. "
+           "Nothing the product promises changes.\n\nConfirm?"),
+}
+_CLOSE_EXECUTES_ITEM = {
+    "pt-BR": "• ele executa o requisito {number}; o *{other}* não",
+    "en": "• it executes requirement {number}; *{other}* does not",
+}
+#: How every close question ends; the unread line goes before it.
+_CONFIRM_TAIL = {"pt-BR": "\n\nConfirma?", "en": "\n\nConfirm?"}
+#: The two cards could not be read to compare — said, so the person looks before the yes.
+_CLOSE_UNREAD_LINE = {
+    "pt-BR": ("\n\n(Não consegui ler os dois cartões agora para comparar o que cada um pede — "
+              "vale abrir os dois antes de confirmar.)"),
+    "en": ("\n\n(I could not read the two cards just now to compare what each asks for — worth "
+           "opening both before you confirm.)"),
+}
+
+
 def close_confirmation(*, number: str, in_favour_of: str | None = None, reason: str = "",
+                       carried=None, unread: bool = False,
                        language: str | None = None) -> str:
-    catalogue = _CLOSE_CONFIRM_DUPLICATE if in_favour_of else _CLOSE_CONFIRM
-    text = _pick(catalogue, language).format(number=ref_label(number),
-                                             other=ref_label(in_favour_of))
+    """The question a close is staged under. `carried` is what the closed card carries and
+    `in_favour_of` does not (`module.Carried`, #567): with anything in it, the yes is asked on that
+    list. `unread` says the two cards could not be compared."""
+    other = ref_label(in_favour_of)
+    if in_favour_of and carried:
+        items = [f"• {c}" for c in carried.criteria]
+        if carried.executes is not None:
+            items.append(_pick(_CLOSE_EXECUTES_ITEM, language).format(
+                number=carried.executes, other=other))
+        text = _pick(_CLOSE_CONFIRM_OVERLAP, language).format(
+            number=ref_label(number), other=other, items="\n".join(items))
+    else:
+        catalogue = _CLOSE_CONFIRM_DUPLICATE if in_favour_of else _CLOSE_CONFIRM
+        text = _pick(catalogue, language).format(number=ref_label(number), other=other)
+        if in_favour_of and unread:
+            text = text.removesuffix(_pick(_CONFIRM_TAIL, language)) \
+                + _pick(_CLOSE_UNREAD_LINE, language) + _pick(_CONFIRM_TAIL, language)
     if reason.strip():
         text += _pick(_CLOSE_REASON_LINE, language).format(reason=reason.strip())
     return text

@@ -70,10 +70,10 @@ MUTATIONS = [
 
     ("the close composer hands the raw ref to a table that no longer has a `#`, so `#12` reads "
      "`12`", VOICE,
-     "    text = _pick(catalogue, language).format(number=ref_label(number),\n"
-     "                                             other=ref_label(in_favour_of))",
-     "    text = _pick(catalogue, language).format(number=number,\n"
-     '                                             other=in_favour_of or "")'),
+     # RE-PINNED 2026-10-10 (#567): the composer gained a branch for an overlap; this is the
+     # duplicate's and the plain close's, the one the tests here read
+     "        text = _pick(catalogue, language).format(number=ref_label(number), other=other)",
+     '        text = _pick(catalogue, language).format(number=number, other=in_favour_of or "")'),
 
     ("the pass a requester is told is ready names its card `#CONT-412`", VOICE,
      '"pass_ready": ("{sig}Pass {pass_number} of {ref}{title} is ready',
