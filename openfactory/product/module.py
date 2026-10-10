@@ -795,14 +795,14 @@ def _filing_order(fronts) -> list[int]:
     cannot be true."""
     order: list[int] = []
     left = list(range(len(fronts)))
+    unordered: set[int] = set()
     while left:
-        ready = [i for i in left
-                 if all(b - 1 in order for b in getattr(fronts[i], "builds_on", []) or [])]
+        ready = [i for i in left if i in unordered
+                 or all(b - 1 in order for b in getattr(fronts[i], "builds_on", []) or [])]
         if not ready:
             log.info("the breakdown's fronts %s build on one another in a circle; filed in their "
                      "own order", [i + 1 for i in left])
-            for i in left:
-                fronts[i].builds_on = [b for b in fronts[i].builds_on or [] if b - 1 in order]
+            unordered.update(left)
             ready = left
         order.append(ready[0])
         left.remove(ready[0])
@@ -831,6 +831,15 @@ def _could_not(sentence: str, *, act: str, cause: object = "", ref: str = "") ->
     """
     log.warning("OPENFACTORY_PRODUCT_WRITE_FAILED act=%s ref=%s — %s", act, ref or "-", cause)
     return WriteResult(ok=False, ref=ref, detail=sentence)
+
+
+def _held(sentence: str, *, act: str, why: str) -> WriteResult:
+    """A write the module DECIDED not to start — a front held on the one it builds on (#576), a
+    front past the breakdown's budget — reported as `_could_not` reports one that failed, and
+    logged as what it is (review of #586): whoever counts `OPENFACTORY_PRODUCT_WRITE_FAILED` counts
+    writes that were tried and did not happen, never a hold."""
+    log.info("OPENFACTORY_PRODUCT_WRITE_HELD act=%s — %s", act, why)
+    return WriteResult(ok=False, detail=sentence)
 
 
 #: What the client is told when the board cannot be read for an act about ONE card is
@@ -2923,17 +2932,17 @@ class ProductModule:
             waits_on = next((fronts[b - 1] for b in getattr(draft, "builds_on", None) or []
                              if b - 1 in filed and not filed[b - 1].ok), None)
             if waits_on is not None:
-                filed[index] = _could_not(
+                filed[index] = _held(
                     breakdown_said("held", title=draft.title.strip()[:80],
                                    base=waits_on.title.strip()[:80], language=lang),
                     act="break a requirement into work",
-                    cause=f"front {index + 1} builds on one that was not filed")
+                    why=f"front {index + 1} builds on one that was not filed")
             elif time.monotonic() - started > BREAKDOWN_BUDGET_SECONDS:
                 # PAST THE BUDGET, NOTHING NEW IS STARTED (review of #390): the fronts not reached
                 # are said, and nothing of them was written — asking again files what is missing
-                filed[index] = _could_not(
+                filed[index] = _held(
                     breakdown_said("out_of_time", title=draft.title.strip()[:80], language=lang),
-                    act="break a requirement into work", cause="breakdown budget spent")
+                    act="break a requirement into work", why="breakdown budget spent")
             else:
                 filed[index] = self._file_one(draft, requirement, tracker, board, vet=vet,
                                               known_open=known_open, by=actor)

@@ -2327,12 +2327,15 @@ _BREAKDOWN_SAID = {
     "title_exists": {"pt-BR": "já existe um cartão com esse título",
                      "en": "a card with that title already exists"},
     # A FRONT HELD WITH THE ONE IT WAITS ON (#576), in one sentence: filed alone, it stood on a
-    # foundation nobody had filed, and the pre-flight parked it a move later
+    # foundation nobody had filed, and the pre-flight parked it a move later. IT PROMISES NOTHING
+    # (review of #586): a base the review refused is refused again by the same review on a second
+    # ask, so "both are opened" was false in the very case this exists for. What makes the base
+    # openable is said by the base's own sentence beside it
     "held": {
         "pt-BR": ("“{base}” não foi aberta, então segurei “{title}”, que é construída em cima "
-                  "dela — peça a quebra de novo e as duas são abertas, nessa ordem."),
+                  "dela — peça a quebra de novo quando “{base}” puder ser aberta."),
         "en": ("“{base}” was not opened, so I held “{title}”, which builds on it — ask for the "
-               "breakdown again and both are opened, in that order.")},
+               "breakdown again once “{base}” can be opened.")},
     "file_failed": {
         "pt-BR": ("não consegui registrar “{title}” agora. O time foi avisado e resolve — as "
                   "outras frentes seguiram."),

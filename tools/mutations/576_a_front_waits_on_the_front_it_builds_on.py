@@ -11,7 +11,9 @@ anyway; the pre-flight parked it a move later. The claims, each a row:
      read as no dependency;
   2. a front on one that was not filed is held, down the chain, and filed after its base when it
      was listed first; the results keep the decomposition's order; a circle files in its own order;
-  3. the reply names every front that was not opened, the held one with the one it waits on.
+  3. the reply names every front that was not opened, the held one with the one it waits on, and
+     promises nothing a second ask cannot keep;
+  4. a hold is logged as a hold, never as a write that failed (review of #586).
 """
 
 TEST = "tests/test_a_front_waits_on_the_front_it_builds_on.py"
@@ -43,6 +45,15 @@ MUTATIONS = [
     ("a circle files nothing at all", MODULE,
      "            ready = left\n",
      "            return order\n"),
+    # ADDED 2026-10-10 (review of #586)
+    ("ordering a circle strips what the fronts said they build on", MODULE,
+     "            unordered.update(left)\n",
+     "            unordered.update(left)\n"
+     "            for i in left:\n"
+     "                fronts[i].builds_on = []\n"),
+    ("a position written as 2.0 is no position", ROLE,
+     "            if number.is_integer():\n",
+     "            if str(item).strip().lstrip(\"#\").isdigit():\n"),
 
     # 3. the reply
     ("the reply names the first front not opened, and no other", CONFIRM,
@@ -54,4 +65,15 @@ MUTATIONS = [
     ("the held sentence does not say which front it waits on", VOICE,
      '        "en": ("“{base}” was not opened, so I held “{title}”, which builds on it — ask for the "',
      '        "en": ("a front was not opened, so I held “{title}”, which builds on it — ask for the "'),
+    # ADDED 2026-10-10 (review of #586)
+    ("TODAY'S CASE, PROMISED: asking again opens both, though the review refused the base",
+     VOICE,
+     '"breakdown again once “{base}” can be opened.")},',
+     '"breakdown again and both are opened, in that order.")},'),
+
+    # 4. the log
+    ("a hold is logged as a write that failed", MODULE,
+     '    log.info("OPENFACTORY_PRODUCT_WRITE_HELD act=%s — %s", act, why)',
+     '    log.warning("OPENFACTORY_PRODUCT_WRITE_FAILED act=%s ref=- — %s", '
+     'act, why)'),
 ]

@@ -329,16 +329,18 @@ class IssueDraft(BaseModel):
     @field_validator("builds_on", mode="before")
     @classmethod
     def _positions(cls, v):
-        """Positions as whole numbers — a model answers `2`, `"2"` and `null` alike; anything that
-        is not one is no position at all."""
+        """Positions as whole numbers — a model answers `2`, `"2"`, `2.0` and `null` alike; anything
+        that is not a whole number is no position at all."""
         if not isinstance(v, list):
             return []
         out = []
         for item in v:
             try:
-                out.append(int(str(item).strip().lstrip("#")))
+                number = float(str(item).strip().lstrip("#"))
             except (TypeError, ValueError):
                 continue
+            if number.is_integer():
+                out.append(int(number))
         return out
 
     @field_validator("already_on_board", mode="before")

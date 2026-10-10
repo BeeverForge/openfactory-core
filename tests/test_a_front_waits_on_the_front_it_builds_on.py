@@ -167,3 +167,63 @@ def test_the_held_sentence_names_both_fronts_in_each_language(language):
     said = breakdown_said("held", title=HISTORY, base=STORAGE, language=language)
 
     assert STORAGE in said and HISTORY in said and "{" not in said
+
+
+@pytest.mark.parametrize("language, waits", [
+    ("pt-BR", f"peça a quebra de novo quando “{STORAGE}” puder ser aberta"),
+    ("en", f"ask for the breakdown again once “{STORAGE}” can be opened")])
+def test_the_held_sentence_promises_nothing_a_second_ask_cannot_keep(language, waits):
+    """THE ISSUE'S OWN CASE (review of #586): the base was refused by the review, and asking again
+    runs the same review on the same requirement. "Ask again and both are opened" was a promise
+    of two cards to a person who would get the same refusal and the same hold."""
+    from openfactory.product.voice import breakdown_said
+
+    said = breakdown_said("held", title=HISTORY, base=STORAGE, language=language)
+
+    assert waits in said
+    assert "as duas são abertas" not in said and "both are opened" not in said
+
+
+def test_a_hold_is_logged_as_a_hold_never_as_a_write_that_failed(tmp_path, monkeypatch, caplog):
+    """`OPENFACTORY_PRODUCT_WRITE_FAILED` counts writes that were tried and did not happen (review
+    of #586): a front held on its base, and a front past the budget, were never tried."""
+    with caplog.at_level(logging.INFO, logger="openfactory.product"):
+        _breakdown(tmp_path, monkeypatch, [_front(STORAGE), _front(HISTORY, 1)],
+                   refused={STORAGE})
+
+    held = [r for r in caplog.records if "OPENFACTORY_PRODUCT_WRITE_HELD" in r.getMessage()]
+    assert [r.levelno for r in held] == [logging.INFO]
+    assert "front 2 builds on one that was not filed" in held[0].getMessage()
+    assert not [r for r in caplog.records if "WRITE_FAILED" in r.getMessage()
+                and "builds on" in r.getMessage()]
+
+
+def test_a_front_past_the_budget_is_logged_as_held(tmp_path, monkeypatch, caplog):
+    from openfactory.product import cards
+
+    monkeypatch.setattr(cards, "BREAKDOWN_BUDGET_SECONDS", -1)
+    with caplog.at_level(logging.INFO, logger="openfactory.product"):
+        results, tracker, _reply = _breakdown(tmp_path, monkeypatch, [_front(STORAGE)])
+
+    assert tracker.created == [] and [r.ok for r in results] == [False]
+    assert "OPENFACTORY_PRODUCT_WRITE_HELD act=break a requirement into work — breakdown " \
+           "budget spent" in caplog.text
+    assert "WRITE_FAILED" not in caplog.text
+
+
+def test_a_position_written_as_a_whole_float_is_read_and_a_fraction_is_not():
+    """Models emit `2.0` for an integer (review of #586); `2.5` is no position."""
+    draft = IssueDraft(title=HISTORY, objective="o", acceptance_criteria=["c"],
+                       builds_on=[2.0, "2.0", 2.5, "#3", "nan", "inf"])
+
+    assert draft.builds_on == [2, 2, 3]
+
+
+def test_ordering_the_fronts_does_not_edit_them():
+    """A circle is filed in its own order without stripping what each front said it builds on."""
+    from openfactory.product.module import _filing_order
+
+    fronts = [_front(STORAGE, 2), _front(HISTORY, 1)]
+
+    assert _filing_order(fronts) == [0, 1]
+    assert [f.builds_on for f in fronts] == [[2], [1]]
