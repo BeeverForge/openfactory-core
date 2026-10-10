@@ -10,7 +10,8 @@ Run:  .venv/bin/python tools/mutate.py \
 kept a third copy of the classes that had already lost `gate`. The claims, each a row:
 
   1. the classes are every class the classifier answers, and the states past the merge are the
-     machine's own from `MERGED` to `DONE`;
+     machine's own from `MERGED` to `DONE` — the eight named by the test, never a failed or parked
+     one, whatever order the enum declares them in;
   2. no reader keeps a copy;
   3. a store's own error exits the command 2 with what failed.
 """
@@ -30,6 +31,15 @@ MUTATIONS = [
     ("a state at the end of the merge's tail stops counting as past it", STATE,
      "_ORDER[_ORDER.index(JobState.MERGED):_ORDER.index(JobState.DONE) + 1])",
      "_ORDER[_ORDER.index(JobState.MERGED):_ORDER.index(JobState.DONE)])"),
+    # ADDED 2026-10-10 (review of #589): the slice is only as right as the enum's order, and a guard
+    # that recomputed the slice compared equal. A second member with `failed`'s value declared
+    # before `DONE` makes `JobState.FAILED` its alias, so "failed" sits inside the merge's tail.
+    ("the enum is reordered and a failed job sits inside the merge's tail", STATE,
+     '    ROLLING_BACK = "rolling_back"  # safe pre-defined action; re-deploy last-good tag\n'
+     '    DONE = "done"',
+     '    ROLLING_BACK = "rolling_back"  # safe pre-defined action; re-deploy last-good tag\n'
+     '    FAILED_FIRST = "failed"\n'
+     '    DONE = "done"'),
     ("TODAY'S DEFECT, BACK: the outcomes keep a copy of the classes", QUERY,
      "    parks: dict[str, int] = dict.fromkeys(CLASSES, 0)",
      '    parks: dict[str, int] = dict.fromkeys(("transient", "credential", "environment",\n'

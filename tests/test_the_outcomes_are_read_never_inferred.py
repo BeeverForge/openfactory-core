@@ -416,7 +416,10 @@ def _roles_the_orchestrator_counts() -> set[str]:
 def test_the_shared_definitions_are_the_codes_own_vocabulary():
     """Held to what the code actually records: every repair role is a role the orchestrator counts
     a pass under, the classes are every class the classifier can answer — each rule's and each
-    declaration's — and the states past the merge are the machine's own, `MERGED` to `DONE`."""
+    declaration's — and the states past the merge are the eight a delivery passes through, named
+    HERE and not read off the enum: `PAST_THE_MERGE` is a slice of the enum's declaration order, so
+    the witness must not be one (review of #589 — a guard that recomputed the slice compared equal
+    with `FAILED` moved before `DONE`, and every failed job counted as landed)."""
     import importlib
 
     from openfactory.contracts.state import PAST_THE_MERGE, JobState
@@ -427,8 +430,12 @@ def test_the_shared_definitions_are_the_codes_own_vocabulary():
     assert query.REPAIR_ROLES <= _roles_the_orchestrator_counts()
     assert set(classify.CLASSES) == set(classify._DECLARED)
     assert {cause for cause, _pattern, _detail in classify._RULES} <= set(classify.CLASSES)
-    order = [s.value for s in JobState]
-    assert PAST_THE_MERGE == set(order[order.index("merged"):order.index("done") + 1])
+    assert PAST_THE_MERGE == {"merged", "staging_deploying", "staging_verifying",
+                              "awaiting_prod_approval", "prod_releasing", "prod_verifying",
+                              "rolling_back", "done"}
+    never_landed = {JobState.FAILED, JobState.SKIPPED, JobState.ON_HOLD, JobState.PAUSED,
+                    JobState.BLOCKED, JobState.PR_OPEN, JobState.CI_WAITING}
+    assert not PAST_THE_MERGE & {s.value for s in never_landed}
     assert set(query.ENDINGS) <= {s.value for s in JobState}
 
 
