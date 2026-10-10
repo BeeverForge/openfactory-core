@@ -50,6 +50,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -108,6 +109,7 @@ def _nothing_staged_nothing_cached():
 
     pc._PENDING.clear()
     demand._CACHE.clear()
+    _STAMPED.clear()
     yield
     pc._PENDING.clear()
     demand._CACHE.clear()
@@ -410,13 +412,37 @@ async def _at_the_production_gate(h):
     return await _until(look, what="the job parked at its production gate")
 
 
+#: When each preview the requester tried was recorded — each a second after the one before.
+_STAMPED: list[datetime] = []
+
+
+class _At:
+    """`datetime` for `preview.record`, whose `now` is the stamp it is given."""
+
+    def __init__(self, when: datetime):
+        self.when = when
+
+    def now(self, tz=None) -> datetime:
+        return self.when
+
+
 def _tried(ref: str, pr: str, head: str) -> None:
-    """The card's preview, up and built from `head` for `pr` — what the requester tries."""
+    """The card's preview, up and built from `head` for `pr` — what the requester tries.
+
+    STAMPED AFTER THE ONE BEFORE, NOT BY THE WALL CLOCK. `preview.latest` reads the newest record
+    by its stamp, and this test records the second preview a moment after the first, where a
+    deployment rebuilds it minutes later. Under a loaded suite the machine's wall clock steps back
+    (measured on WSL2: tens of milliseconds, every half minute), and the PR 10 preview was stamped
+    BEFORE the PR 9 one: the yes was refused as "untried", 3 runs in 48 under parallel load."""
     from openfactory import preview
 
-    assert preview.record(preview.Preview(
-        project=ROOM, unit=ref, cards=(ref,), state=preview.LIVE, services={"web": 3000},
-        heads={pr: head}, pr_urls=(pr,), expires_at=int(time.time()) + 3600))
+    now = datetime.now(UTC)
+    _STAMPED.append(max(now, _STAMPED[-1] + timedelta(seconds=1)) if _STAMPED else now)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(preview, "datetime", _At(_STAMPED[-1]))
+        assert preview.record(preview.Preview(
+            project=ROOM, unit=ref, cards=(ref,), state=preview.LIVE, services={"web": 3000},
+            heads={pr: head}, pr_urls=(pr,), expires_at=int(time.time()) + 3600))
 
 
 def _module(project):
@@ -1037,3 +1063,24 @@ async def test_a_product_admins_release_is_released_through_the_card_s_door(depl
     assert calls == [(ref, ADMIN)]
     assert _history(deployment, ref).rows[-1].event == "released"
     assert _releases(deployment, ref) == {(events.room_of(deployment), "run-1"): "worked"}
+
+
+def test_the_preview_tried_last_is_the_newest_when_the_clock_steps_back(tmp_path, monkeypatch):
+    """THE HELPER'S OWN PROOF: the machine's wall clock reads EARLIER at every look, as this
+    machine's did under load, and the preview read back is still the one tried last."""
+    import itertools
+    import sys
+
+    from openfactory import preview
+
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "metrics.db"))
+    start, looks = datetime.now(UTC), itertools.count()
+    backwards = SimpleNamespace(now=lambda tz=None: start - timedelta(milliseconds=90 * next(looks)))
+    for module in (sys.modules[__name__], preview):
+        monkeypatch.setattr(module, "datetime", backwards)
+
+    _tried("1", PR9, HEADS["pass 2"])
+    _tried("1", PR10, HEADS["change 2"])
+
+    assert preview.latest(ROOM, "1").heads == {PR10: HEADS["change 2"]}
