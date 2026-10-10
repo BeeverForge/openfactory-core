@@ -4,6 +4,10 @@
   together with its review's recommendations, with slice 0 the first to be built. No code changes
   with this ADR.
 - **Date:** 2026-09-23
+- **Amended:** 2026-10-10, from a run on a live deployment where one requirement got three cards
+  through three doors at once (#563): **D18** makes a requirement's breakdown one piece of work
+  wherever it is asked, and has every door that files for a requirement ask what the requirement
+  already has. Proposed for review; its slices are listed under *Slices*.
 - **Relates to:** ADR-0019 (the product role and its context repository; §7 and §8 declare the
   product this record keys everything by), ADR-0021 (the open loop, closed by observation — D11
   scopes who may close one), ADR-0024 (conversational memory — **this record moves §1's partition
@@ -431,6 +435,59 @@ The pull request that brings a slice in also removes the path that slice replace
 *Why:* the three doors drifted apart because old and new paths stayed live side by side; and a
 deletion nobody can verify is how judgement is lost on the way.
 
+### D18 — A requirement is broken down once, and every door asks it what it already has
+
+*Added 2026-10-10 (#563).* D7 guards what becomes work one write at a time. A requirement's cards
+are not one write: a breakdown drafts for minutes and then files several cards, and on a live run
+(v0.5.0-rc.1) one requirement got three cards through three doors in seven minutes, two of them
+covering the same scope:
+
+| door | how it files | what it checks |
+|---|---|---|
+| the acceptance from the panel, CLI or API; the `product_break_down` row | `ProductBreakdownWorkflow`, id `openfactory-product-breakdown-<project>-<N>` (`actions/catalog.py::_broken_down_on_the_worker`) | the shared id: a second start is refused by the engine — and then reported as a failure ("nothing was filed"), because no caller tells that refusal apart |
+| the conversation's `breakdown` intent; the acceptance's second act in the conversation | `module.break_down` in the turn's own process (`engine.py`, `confirm.py::_also_broke_it_down`) — the worker's activity, or the panel's process for a click | nothing shared with the row above |
+| the conversation's requested card | `file_ticket` under the semaphore, `against=("ticket", "defect")` | the card's title; it never asks which requirement the card names, and writes it as having none |
+
+And inside a breakdown, the board is read once, before the drafting pass; each card's own check is
+its exact title (`module._file_one`), outside the semaphore.
+
+**The decision.**
+
+1. **One breakdown per requirement, through the engine, from every door.** The conversation's two
+   doors start `ProductBreakdownWorkflow` with the shared id, as the catalog's do; none calls
+   `module.break_down` in its own process. The input carries the conversation and the requester the
+   conversation's doors already pass (`confirm._whose`), so the delivery loop is the same whichever
+   door started it.
+2. **A breakdown already running is news, not a failure.** Every door that meets the engine's
+   refusal of a second start says the breakdown is running and where its cards will be said — the
+   sentence differs by door, never into "nothing was filed".
+3. **The conversation does not wait on a breakdown.** A breakdown drafts for minutes, longer than a
+   turn's ceiling (D6) and far longer than a panel request should hold. The door starts it and
+   says so; the workflow tells the conversation that started it what was filed — every front, the
+   ones not filed named (#564) — when it ends. A breakdown with no conversation (a panel button, a
+   CLI verb) is told to the conversation the requirement was written from when the record names
+   one, and is the panel's toast otherwise.
+4. **Every door that files for a requirement asks it first: is a breakdown of it running, and
+   which open cards execute it?** "Running" is the engine's answer for the shared id; "executes" is
+   the card's source (`Executes REQ-NNNN`, `module._cited_requirement`). The answer decides:
+   - **a breakdown door**: running → item 2; cards already there → the breakdown files only what
+     they do not carry, as `already_on_board` does today, now told which cards those are;
+   - **the requested-card door**, when the card names an accepted requirement (`REQ-NNNN` in its
+     title or body, the requirement live and promised): running → said, nothing filed; cards there →
+     listed, nothing filed; neither → the person is offered the breakdown, not a free-standing card.
+     A requested card that names no requirement is filed as today.
+5. **The role is told.** The breakdown's state is part of what the role reads about a requirement
+   (running, its cards), so it never proposes a card for one whose breakdown is running.
+
+*Why the engine and not the semaphore:* the semaphore is held for seconds and never across a model
+call (D8); a breakdown is minutes of drafting. The engine already holds one execution per id, on
+every host — the file lock holds on one host only — and the panel, the CLI and the API already use
+it. What the doors lacked was asking it, and saying its answer.
+
+*Not this:* a similarity check between a requested card's title and a breakdown's titles (on the
+run they differed; the overlap was in the criteria), or a prompt line telling the role not to file
+tickets for accepted requirements (the doors would stay open to the next caller).
+
 ## The decisions taken on review
 
 The sixteen questions #266 put to review, as answered. Two of them (2 and 7) were confirmed by the
@@ -523,6 +580,25 @@ subscriber; asked on card #42's page, "why did this stop?" is answered about #42
 *Acceptance:* a guard fails on a vendor name outside comments in `openfactory/`; the whole
 conversation works with no add-on installed; an existing configuration with the old keys still
 loads, and warns.
+
+**D18's slices (#563).** Each merges on its own; the order is the order of the risk they remove.
+
+- **18a. The engine's refusal is said as "running".** `_with_the_work_filed` and
+  `_product_break_down` catch the second start, wait for nothing, and say the breakdown is
+  running. One reader, `breakdown_running(project, number)`, asks the engine for the shared id.
+  *Acceptance:* a second start from the panel while one runs answers "running", and files nothing.
+- **18b. The conversation starts the workflow.** The `breakdown` intent and `_also_broke_it_down`
+  start `ProductBreakdownWorkflow` with the conversation and the requester; the reply says it
+  started; the workflow tells that conversation what it filed when it ends. The in-process
+  `module.break_down` calls are removed in the same pull request (D17).
+  *Acceptance:* accepting from the panel while the conversation asks for the same breakdown files
+  one set of cards, and the conversation hears that set.
+- **18c. The requested-card door asks the requirement.** `file_ticket` reads the requirement a
+  card names; running → said; cards → listed; neither → the breakdown offered.
+  *Acceptance:* a requested card naming a requirement whose breakdown is running is not filed, and
+  the sentence says why; the run's three cards come out as the breakdown's two.
+- **18d. The role reads the breakdown's state** with the requirement, and the acceptance from the
+  panel is told in the conversation the requirement was written from when one is recorded.
 
 ## What this does NOT mean
 
