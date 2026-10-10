@@ -142,6 +142,12 @@ def salt_id(salt: bytes) -> str:
     return hashlib.sha256(b"openfactory.certify/salt-id\0" + salt).hexdigest()[:16]
 
 
+#: What a pack carries as it was typed, past every rule, and why each is not a customer's: the
+#: practitioner is the partner's engineer (`what_a_name_carries` holds it to a name), the partner
+#: a slug the partners repository gave it, the profile one of the program's own words.
+KEPT = ("practitioner", "partner", "profile")
+
+
 class Redactor(Pseudonyms):
     """The pack's pseudonyms, its scrubber, and the log of everything it replaced or dropped.
 
@@ -322,12 +328,6 @@ def what_a_name_carries(name: str) -> list[str]:
     called it a kept name, in a pack whose own promise is "no URLs, hostnames, e-mail addresses or
     any credential". So the rules are asked of it before it is kept."""
     return Redactor(salt=b"practitioner", identifiers={}).survivors(name)
-
-
-#: What a pack carries as it was typed, past every rule, and why each is not a customer's: the
-#: practitioner is the partner's engineer (`what_a_name_carries` holds it to a name), the partner
-#: a slug the partners repository gave it, the profile one of the program's own words.
-KEPT = ("practitioner", "partner", "profile")
 
 
 def _is_a_digest(core: str, long: re.Match[str]) -> bool:
