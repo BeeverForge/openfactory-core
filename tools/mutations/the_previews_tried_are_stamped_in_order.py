@@ -5,7 +5,7 @@ Run:  .venv/bin/python tools/mutate.py tools/mutations/the_previews_tried_are_st
 
 `preview.latest` reads the newest record by its stamp. The scenario records the PR 10 preview a
 moment after the PR 9 one; under a loaded suite this machine's wall clock stepped back between
-them, the PR 9 preview read as the newest, and the second yes was refused as untried (3 runs in 48
+them, the PR 9 preview read as the newest, and the second yes was refused as untried (3 runs in 96
 under parallel load). The claims, each a row:
 
   1. each preview tried is stamped after the one before;

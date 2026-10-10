@@ -433,7 +433,7 @@ def _tried(ref: str, pr: str, head: str) -> None:
     by its stamp, and this test records the second preview a moment after the first, where a
     deployment rebuilds it minutes later. Under a loaded suite the machine's wall clock steps back
     (measured on WSL2: tens of milliseconds, every half minute), and the PR 10 preview was stamped
-    BEFORE the PR 9 one: the yes was refused as "untried", 3 runs in 48 under parallel load."""
+    BEFORE the PR 9 one: the yes was refused as "untried", 3 runs in 96 under parallel load."""
     from openfactory import preview
 
     now = datetime.now(UTC)
