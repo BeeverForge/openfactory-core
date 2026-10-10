@@ -462,6 +462,13 @@ class ProductBreakdownInput(BaseModel):
     asked_for: bool = False
 
 
+def breakdown_workflow_id(project: str, number: int) -> str:
+    """The one execution a requirement's breakdown runs as, whichever door starts it (ADR-0051
+    D18, #563). The engine holds one RUNNING execution per id, on every host, and refuses a
+    second start while it runs; after it ends, a new start runs again — a retry is allowed."""
+    return f"openfactory-product-breakdown-{project}-{number}"
+
+
 class ProductQueueInput(BaseModel):
     """What should start next, proposed ON THE WORKER.
 
