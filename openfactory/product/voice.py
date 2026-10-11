@@ -2989,10 +2989,38 @@ _DROPPED_PROMISE = {
 }
 
 
+#: THE REASON A DROP IS WRITTEN WITH, SHOWN BEFORE THE YES (#565). It goes on the record in the
+#: person's name and is read back months later, and the role carries it from their words into the
+#: marker — so what they confirm is the sentence that will be written, as a decision's
+#: confirmation shows its own.
+_DROP_REASON = {
+    "pt-BR": "O motivo fica registrado assim, em seu nome:\n\n> {reason}",
+    "en": "The reason is recorded as this, in your name:\n\n> {reason}",
+}
+
+
 def drop_confirmation(*, number: int, title: str, was_a_promise: bool = False,
-                      language: str | None = None) -> str:
+                      reason: str = "", language: str | None = None) -> str:
     catalogue = _DROP_CONFIRM_PROMISE if was_a_promise else _DROP_CONFIRM
-    return _pick(catalogue, language).format(number=number, title=title)
+    text = _pick(catalogue, language).format(number=number, title=title)
+    if not reason.strip():
+        return text
+    body, question = text.rsplit("\n\n", 1)
+    return f"{body}\n\n{_pick(_DROP_REASON, language).format(reason=reason.strip())}\n\n{question}"
+
+
+#: TWO ACTS IN ONE REPLY, ONE STAGED (#565): the conversation holds one entry for a yes, and a
+#: person who asked for both would otherwise believe the second was on its way.
+_ONE_ACT_AT_A_TIME = {
+    "pt-BR": ("Um de cada vez: só o primeiro está preparado para a sua resposta abaixo — me peça o "
+              "outro depois de responder."),
+    "en": ("One at a time: only the first is prepared for your answer below — ask me for the "
+           "other once you have answered."),
+}
+
+
+def one_act_at_a_time(*, language: str | None = None) -> str:
+    return _pick(_ONE_ACT_AT_A_TIME, language)
 
 
 def dropped(*, number: int, was_a_promise: bool = False, language: str | None = None,
@@ -4055,16 +4083,20 @@ _ALIGN_TO_DROPPED = {
 #: every alignment onto the old number lands here. It is not a broken chain (the text is there and
 #: reads fine) and it is not an abandonment (somebody decided the opposite), and being told either
 #: sends a client to look for a problem that does not exist. What it is, is one confirmation away —
-#: so the sentence names both steps, in the order they have to happen.
+#: so the sentence names both steps, in the order they have to happen. The first is said in plain
+#: words, not quoted (#565): agreeing is an act the role proposes from whatever words the person
+#: uses, so there is no sentence to copy for it — and it is itself staged for a yes, which the
+#: sentence says, or the person would type the second step to a question still open.
 _ALIGN_TO_UNAGREED = {
     "pt-BR": ("o *requisito {requirement}* foi substituído pelo *requisito {successor}*, e o "
               "{successor} ainda não foi acordado — escrever o *{number}* a partir de uma "
-              "proposta seria decidir por vocês. Se ele já vale, me diga «aceita o requisito "
-              "{successor}» e depois «alinha o {number} ao requisito {successor}»."),
+              "proposta seria decidir por vocês. Se ele já vale, me diga que o {successor} "
+              "está acordado e confirme quando eu perguntar; depois, «alinha o {number} ao "
+              "requisito {successor}»."),
     "en": ("*Requirement {requirement}* was replaced by *requirement {successor}*, and "
            "{successor} has not been agreed yet — writing *{number}* from a proposal would be "
-           "deciding for you. If it holds, say \"accept requirement {successor}\" and then "
-           "\"align {number} to requirement {successor}\"."),
+           "deciding for you. If it holds, tell me {successor} is agreed and confirm when I "
+           "ask; then say \"align {number} to requirement {successor}\"."),
 }
 #: Replaced by a text that was ITSELF taken off the table — REQ-0004 `superseded-by 0006` with 0006
 #: `dropped`. None of the sentences around it can say that: the chain is not broken (both texts read

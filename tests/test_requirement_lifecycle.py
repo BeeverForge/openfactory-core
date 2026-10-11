@@ -50,7 +50,7 @@ from openfactory.product.authoring import (
 )
 from openfactory.product.corpus import _status_of, parse_requirement
 from openfactory.product.intents import match_intent
-from openfactory.product.role import Conflict, RequirementDraft
+from openfactory.product.role import Conflict, RequirementDraft, read_answer
 from openfactory.product.voice import accept_confirmation, accepted, written_up
 
 
@@ -250,16 +250,19 @@ def test_a_real_asker_is_kept_and_only_the_unrecorded_placeholder_is_filled():
     assert "unrecorded" not in updated
 
 
-@pytest.mark.parametrize("phrase", [
-    "aceita o requisito 1",
-    "aprova o requisito 12",
-    "acorda o requisito 3",
-    "dá o requisito 1 como acordado",
-    "dar o requisito 12 como aceito",
+@pytest.mark.parametrize(("marker", "number"), [
+    ("[[ACORDO: REQ-0001]]", 1),
+    ("[[ACORDO: REQ-12]]", 12),
+    ("[[ACORDO: 3]]", 3),
 ])
-def test_a_person_can_ASK_for_acceptance_in_their_own_words(phrase):
-    matched = match_intent(phrase)
-    assert matched and matched[0] == "accept", f"{phrase!r} -> {matched}"
+def test_a_person_can_ASK_for_acceptance_in_their_own_words(marker, number):
+    """However the person says it — "aceita o requisito 1", "dá o 1 como acordado", "pode aceitar
+    o 66", "sim, concordo com o requisito 66" — the role that read it proposes the act with
+    `[[ACORDO: REQ-N]]` (#565), and the stage reads that. The patterns that stood here read the
+    first two and not the last two, which is what a live run said."""
+    answer = read_answer(f"Entendi, fica acordado.\n{marker}")
+    assert answer.gesture == "agree", (marker, answer.gesture)
+    assert int(answer.gesture_args["number"]) == number, answer.gesture_args
 
 
 @pytest.mark.parametrize("phrase", [

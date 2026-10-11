@@ -166,6 +166,65 @@ ACCEPT_MARKER = "[[ACEITE"
 _ACCEPT_RE = re.compile(
     r"\[\[ACEITE:\s*#?(?P<number>[A-Za-z][A-Za-z0-9_]*-\d+|\d{1,12})\s*\]\]")
 
+#: THE ACTS ON A REQUIREMENT, PROPOSED BY THE ROLE FROM WHAT IT UNDERSTOOD (#565). Agreeing to a
+#: requirement, dropping it, writing a decision into it and noting a fact were reached by a fixed
+#: sentence alone (`intents.py`), run before the model: on a live run "pode aceitar o 66" and
+#: "sim, concordo com o requisito 66" matched nothing, so the model that understood them had no act
+#: to hand them to. Each is now a marker the role writes, staged for the person's yes by the same
+#: branch the sentence reached (`engine._run_intent`), so what is checked before the question and
+#: what the yes executes did not change.
+#:
+#: `[[ACORDO: REQ-NNNN]]` — the person says the requirement is agreed: it becomes a promise.
+AGREE_MARKER = "[[ACORDO"
+#: `[[DESCARTE: REQ-NNNN; <why, in their words>]]` — the requirement is taken off the table.
+DROP_MARKER = "[[DESCARTE"
+#: `[[REGISTRO: REQ-NNNN; <the decision, in their words>]]` — a decision written into its register.
+RECORD_MARKER = "[[REGISTRO"
+#: `[[FATO: <the fact, in their words>]]` — a fact about the business, kept in the glossary.
+FACT_MARKER = "[[FATO"
+#: A requirement as the role writes one: `REQ-0066`, `REQ-66`, `66`.
+_REQUIREMENT_WRITTEN = r"(?:REQ-?)?#?(?P<number>\d{1,6})"
+#: The words a marker carries after its `;`: anything up to the closing `]]`, on one line.
+_THEIR_WORDS = r"(?:(?!\]\])[^\n])"
+_AGREE_RE = re.compile(r"\[\[ACORDO:\s*" + _REQUIREMENT_WRITTEN + r"\s*\]\]", re.IGNORECASE)
+_DROP_RE = re.compile(r"\[\[DESCARTE:\s*" + _REQUIREMENT_WRITTEN
+                      + rf"\s*(?:;\s*(?P<reason>{_THEIR_WORDS}*))?\]\]", re.IGNORECASE)
+_RECORD_RE = re.compile(r"\[\[REGISTRO:\s*" + _REQUIREMENT_WRITTEN
+                        + rf"\s*;\s*(?P<decision>{_THEIR_WORDS}{{5,}})\]\]", re.IGNORECASE)
+_FACT_RE = re.compile(rf"\[\[FATO:\s*(?P<fact>{_THEIR_WORDS}{{10,}})\]\]", re.IGNORECASE)
+#: The quotation a person's words arrive in — «…», "…" — taken off what an act carries: a reason
+#: or a decision is written on the record in the person's name, and a stray » must not become the
+#: grounds somebody decided on. ONLY A PAIR AROUND THE WHOLE VALUE, and only when neither of its
+#: marks is inside it: a reason that ends on a quoted word — `porque ele disse "não"` — or holds
+#: two quotations keeps every mark it was written with.
+_QUOTE_PAIRS = {"«": "»", '"': '"', "“": "”", "'": "'", "‘": "’"}
+
+
+def _unquoted(value: str) -> str:
+    value = value.strip()
+    while (len(value) >= 2 and _QUOTE_PAIRS.get(value[0]) == value[-1]
+           and value[0] not in value[1:-1] and value[-1] not in value[1:-1]):
+        value = value[1:-1].strip()
+    return value
+
+
+#: Each act's marker, the `gesture` it is read as, and the intent `engine._run_intent` stages it
+#: through — ONE table, read by the parser and by the engine, so a marker cannot be parsed into a
+#: gesture nothing stages. In this order when a reply carries two: one entry is staged per
+#: conversation (`staging.remember`), and agreeing to a requirement outranks what is said about it.
+REQUIREMENT_ACTS: tuple[tuple[str, re.Pattern[str], str, str], ...] = (
+    (AGREE_MARKER, _AGREE_RE, "agree", "accept"),
+    (DROP_MARKER, _DROP_RE, "drop", "drop"),
+    (RECORD_MARKER, _RECORD_RE, "record", "decision"),
+    (FACT_MARKER, _FACT_RE, "fact", "fact"),
+)
+#: The intent each act's gesture is staged through, read off the table above.
+GESTURE_INTENT = {gesture: intent for _marker, _pattern, gesture, intent in REQUIREMENT_ACTS}
+#: An act's opener, which the safety net reads as an act that did not parse: `[[ACORDO: o 66]]`.
+_ACT_SHAPED_RE = re.compile(
+    r"\[\[(?:" + "|".join(re.escape(marker[2:]) for marker, *_rest in REQUIREMENT_ACTS) + r")\b",
+    re.IGNORECASE)
+
 #: WHAT EVERY STAGING MARKER'S INSTRUCTION TELLS THE MODEL ABOUT THE NEXT STEP (#430). A marker that
 #: stages something is described twice in one message: by the model, before the marker, and by the
 #: frame the code appends after it, with its own question. They agree only when the model knows the
@@ -184,7 +243,8 @@ STAGED_AFTER_YOUR_REPLY = (
 #: A marker added here must carry `STAGED_AFTER_YOUR_REPLY` in its instruction; one that stages
 #: nothing (teach, evidence, decision) must not be here.
 STAGING_MARKERS = (REQUEST_MARKER, DEFECT_MARKER, TICKET_MARKER, ORDER_MARKER, QUEUE_MARKER,
-                   ADJUST_MARKER, ACCEPT_MARKER)
+                   ADJUST_MARKER, ACCEPT_MARKER,
+                   *(marker for marker, _pattern, _gesture, _intent in REQUIREMENT_ACTS))
 
 #: THE ROLE ASKS THE ENGINE TO SEARCH THE PRODUCT'S MEMORY (#269 slice 2, ADR-0053 D8) — in the
 #: family of `[[DECISAO: …]]`: text the model writes, so it works on every harness, with no tool
@@ -455,6 +515,13 @@ class ProductAnswer(BaseModel):
     #: THE CARD A GESTURE IS ABOUT, when it names one — the `#N` of `[[AJUSTE: #N]]` and of
     #: `[[ACEITE: #N]]` (#448); "" for a gesture about no card, which is every other one today
     gesture_card: str = ""
+    #: WHAT AN ACT ON A REQUIREMENT CARRIES (`REQUIREMENT_ACTS`, #565): its `number`, and the
+    #: `reason`, `decision` or `fact` in the person's words — the captures `engine._run_intent`
+    #: stages it with. Empty for every other gesture.
+    gesture_args: dict[str, str] = Field(default_factory=dict)
+    #: HOW MANY MORE ACTS the reply carried, which were not staged (#565): one entry is staged per
+    #: conversation, and the person who asked for two is told the rest waits for this one.
+    acts_not_staged: int = 0
     #: the brownfield reading, when this answer came from `survey`
     baseline: object | None = None
     #: the requirement the role believes is violated — None when it could not name one
@@ -570,6 +637,128 @@ def requirement_index(corpus: Corpus, *, include_superseded: bool = False) -> st
         lines.append(f"| REQ-{r.number:04d} | {status} | {r.title or r.slug} | "
                      f"{', '.join(r.affects) or '—'} | `{r.path}` |")
     return "\n".join(lines)
+
+
+def read_answer(text: str, *, raw: str = "", harness: str = "") -> ProductAnswer:
+    """What the model wrote, read: its markers parsed into the answer's fields and stripped,
+    and anything marker-shaped left over stripped too, loudly.
+
+    PURE, AND OUT OF `ProductRole.answer` (#565), so a test reads a reply with the parser the
+    turn uses — a module double that answers through it is answering as the role does, and a
+    marker a test writes is read the way the model's is."""
+    text = (text or "").strip()
+    asked_for_something = REQUEST_MARKER in text
+    # PARSED HERE AND NOT LATER. The safety net below strips anything marker-shaped it does not
+    # recognise; a gesture read after it would be read from text the net had already emptied,
+    # and the change would be built, tested and reached by nothing — this codebase's signature
+    # defect, fifteen times over.
+    # ANOTHER PASS NAMES ITS CARD, and outranks a queue: it is about work already waiting on
+    # the person, never a request to start something (#448)
+    adjusted = _ADJUST_RE.search(text)
+    # …AND SO DOES A YES TO IT (#448 slice 3). Both at once is a reply that could not decide,
+    # and "not yet" wins: nothing is recorded that the person may still want changed
+    accepted = None if adjusted else _ACCEPT_RE.search(text)
+    # AN ACT ON A REQUIREMENT (#565), after the two about a change waiting on the person and before
+    # a start: agreeing to a requirement is not asking for work to begin. One is staged; a second
+    # in the same reply is said in the log, never staged over the first
+    acts = [(gesture, found) for _marker, pattern, gesture, _intent in REQUIREMENT_ACTS
+            for found in pattern.finditer(text)]
+    act = None if (adjusted or accepted) or not acts else acts[0]
+    if act and len(acts) > 1:
+        log.warning("OPENFACTORY_PRODUCT_ONE_ACT_PER_REPLY staged %s; not staged: %s", act[0],
+                    "; ".join(found.group(0)[:120] for _gesture, found in acts[1:4]))
+    gesture = ("adjust" if adjusted else "accept" if accepted
+               else act[0] if act else "queue" if QUEUE_MARKER in text else "")
+    defect = _DEFECT_RE.search(text)
+    violates = int(defect.group("req")) if defect and defect.group("req") else None
+    ticket = _TICKET_RE.search(text)
+    ordered = _ORDER_RE.search(text)
+    teach = _TEACH_RE.search(text)
+    evidence = _EVIDENCE_RE.search(text)
+    # IN THE ORDER GIVEN, never sorted (`contracts.refs.ref_numbers` sorts, and is exactly the
+    # helper NOT to use here); a card said twice keeps its first place — and each one AS THE
+    # TRACKER SPELLS IT (#515): `DAR-7` on Jira, `acme/web#1` across repositories
+    order = refs_written(ordered.group("numbers")) if ordered else []
+    # the markers are plumbing between the role and the channel — never let them reach a person
+    text = text.replace(QUEUE_MARKER, "").rstrip()
+    text = _ADJUST_RE.sub("", text).rstrip()
+    text = _ACCEPT_RE.sub("", text).rstrip()
+    for _marker, pattern, _gesture, _intent in REQUIREMENT_ACTS:
+        text = pattern.sub("", text).rstrip()
+    text = text.replace(REQUEST_MARKER, "").rstrip()
+    text = _DEFECT_RE.sub("", text).rstrip()
+    text = _TICKET_RE.sub("", text).rstrip()
+    text = _ORDER_RE.sub("", text).rstrip()
+    text = _TEACH_RE.sub("", text).rstrip()
+    text = _EVIDENCE_RE.sub("", text).rstrip()
+    # a search the bound did not run: the answer stands, and the marker never reaches a person
+    text = _SEARCH_RE.sub("", text).rstrip()
+    reading = _reading_of(defect=defect is not None, request=asked_for_something,
+                          teach=teach, evidence=evidence)
+    decisions = [m.group("label").strip() for m in _DECISION_RE.finditer(text)]
+    text = _DECISION_RE.sub("", text).rstrip()
+    # the safety net: anything marker-SHAPED that survived the specific parsers above is
+    # plumbing we did not recognise, and it goes — loudly, because a marker we could not read
+    # is information we just lost, and silence would make this exact bug invisible again
+    leftover = _ANY_MARKER_RE.findall(text)
+    if leftover:
+        lost = [x for x in leftover if _DECISION_SHAPED_RE.match(x)]
+        if lost:
+            # a DECISION the agent asked for that the parser could not read: it will never be
+            # recorded and never chased, so the loss has to be loud rather than a warning in a
+            # list of warnings
+            log.error("OPENFACTORY_PRODUCT_LOST_MARKER a decision-shaped marker did not parse "
+                      "and was "
+                      "dropped: %s", "; ".join(x[:200] for x in lost[:3]))
+        _say_lost_acts(leftover)
+        log.warning("unparsed marker(s) stripped before reaching the client: %s",
+                    "; ".join(x[:120] for x in leftover[:4]))
+        text = _ANY_MARKER_RE.sub("", text)
+    # AFTER the balanced net, never before: an opener that DOES close belongs to the net above,
+    # which knows where the marker ends. Running this first would cut the rest of the line off
+    # a marker that was perfectly well formed.
+    unclosed = _UNCLOSED_MARKER_RE.findall(text)
+    if unclosed:
+        if any(_DECISION_SHAPED_RE.match(x) for x in unclosed):
+            log.error("OPENFACTORY_PRODUCT_LOST_MARKER an unclosed decision marker "
+                      "was dropped: "
+                      ""
+                      "%s",
+                      "; ".join(x[:200] for x in unclosed[:3]))
+        _say_lost_acts(unclosed)
+        log.warning("unclosed marker(s) stripped before reaching the client: %s",
+                    "; ".join(x[:120] for x in unclosed[:4]))
+        text = _UNCLOSED_MARKER_RE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    # AN ACT IS AN ANSWER ON ITS OWN (#565): the question it is staged with is the platform's, so
+    # a reply that carried the marker and nothing else still has something to say
+    return ProductAnswer(ok=bool(text) or act is not None, text=text, raw=raw,
+                         harness=harness,
+                         is_request=asked_for_something, decisions=decisions,
+                         gesture=gesture,
+                         gesture_card=(adjusted or accepted).group("number")
+                         if (adjusted or accepted) else "",
+                         gesture_args={key: _unquoted(value)
+                                       for key, value in act[1].groupdict().items()
+                                       if value and _unquoted(value)} if act else {},
+                         acts_not_staged=len(acts) - 1 if act else 0,
+                         is_defect=defect is not None, violates=violates,
+                         is_ticket=ticket is not None,
+                         ticket_title=((ticket.group("title") or "").strip()
+                                       if ticket else ""),
+                         is_reorder=bool(order), order=order,
+                         is_misuse=teach is not None, reading=reading,
+                         error="" if text or act else "the harness returned nothing")
+
+
+def _say_lost_acts(markers: list[str]) -> None:
+    """An ACT the role proposed that the parser could not read (#565): the person read what it
+    understood, and no question follows it — nothing was staged for their yes. As loud as a lost
+    decision, and for the same reason."""
+    lost = [x for x in markers if _ACT_SHAPED_RE.match(x)]
+    if lost:
+        log.error("OPENFACTORY_PRODUCT_LOST_MARKER an act-shaped marker did not parse and was "
+                  "dropped, so nothing was staged: %s", "; ".join(x[:200] for x in lost[:3]))
 
 
 class ProductRole:
@@ -714,6 +903,40 @@ class ProductRole:
             "version they tried in its preview. Do NOT use it when they still want something "
             "different (that is [[AJUSTE: #N]]), nor for a card no change of which waits on them, "
             "nor for agreeing to a requirement.\n\n"
+            "THE ACTS ON A REQUIREMENT below are read from what they mean, in whatever language "
+            "and words they use — never from a fixed sentence. ONE ACT PER REPLY: when they ask "
+            "for two at once, end with the first and say in your reply that the other comes after "
+            "they answer this one.\n\n"
+            "IF THEY SAY A REQUIREMENT IS AGREED — \"you can accept 66\", \"yes, I agree with "
+            "requirement 66\", \"done, 66 is agreed\" — end with [[ACORDO: REQ-NNNN]] on its own "
+            f"line, NNNN the requirement's number. {STAGED_AFTER_YOUR_REPLY} Agreeing turns the "
+            "written text into a promise the factory defends and builds from, the most "
+            "consequential act in this conversation: use it only when they SAY it is agreed. NOT "
+            "for a question about it (\"is 66 good to go?\"), a plan (\"we will accept 66 "
+            "tomorrow\"), a refusal (\"do not accept 66 yet\"), nor for a change they tried in "
+            "its preview (that is [[ACEITE: #N]]).\n\n"
+            "IF THEY SAY A REQUIREMENT IS NO LONGER WANTED — \"you can throw 66 away\", \"we are "
+            "not doing requirement 2 any more\", \"2 is out of scope\" — end with [[DESCARTE: "
+            "REQ-NNNN; <why, in their words>]] on its own line, nothing after the `;` when they "
+            f"gave no reason. {STAGED_AFTER_YOUR_REPLY} It takes the requirement off the table "
+            "with nothing in its place, and the reason is written on the record and read back "
+            "months later, so it is theirs, never yours. NOT for a question or a doubt (\"drop 2? "
+            "does it still make sense?\"), nor for a requirement they want written differently — "
+            "that is a new request.\n\n"
+            "IF THEY STATE A DECISION TO BE WRITTEN INTO A REQUIREMENT — \"record on requirement "
+            "6 that the cut-off is the 25th\", \"note on 6: the owner's draw is a fixed "
+            "expense\" — end with [[REGISTRO: REQ-NNNN; <the decision, in their words>]] on its "
+            f"own line. {STAGED_AFTER_YOUR_REPLY} The sentence is written into the requirement's "
+            "register of decisions as you put it, under their name, and nobody edits that "
+            "register afterwards: carry their words, never a paraphrase or a conclusion of yours. "
+            "It does not change what the requirement promises. NOT for a decision you need FROM "
+            "them (that is [[DECISAO: …]]), nor for one still being discussed.\n\n"
+            "IF THEY DICTATE A FACT ABOUT THE BUSINESS FOR YOU TO KEEP — \"note that the firm "
+            "uses Primavera\", \"for the record: closing is always on the 5th\" — end with "
+            f"[[FATO: <the fact, in their words>]] on its own line. {STAGED_AFTER_YOUR_REPLY} "
+            "Only what they TOLD you to note down: never a fact you inferred, a hypothesis being "
+            "discussed, or a question (\"remember the system went down last week?\"). A decision "
+            "about one requirement is [[REGISTRO: …]], not this.\n\n"
             "If instead they REPORTED THAT SOMETHING IS NOT WORKING — a MALFUNCTION: a control "
             "or content cut off, hidden or unreachable, an error, lost or wrong data, something "
             "that does not respond, a layout that breaks — end with [[DEFEITO:REQ-NNNN]] naming "
@@ -807,90 +1030,8 @@ class ProductRole:
         # ("ninguém decid", "que o cliente precisa entre"). A truncated answer is worse than a
         # short one: the reader cannot tell whether the agent stopped thinking or the message was
         # cut.
-        text = (_full_answer(res) or "").strip()
-        asked_for_something = REQUEST_MARKER in text
-        # PARSED HERE AND NOT LATER. The safety net below strips anything marker-shaped it does not
-        # recognise; a gesture read after it would be read from text the net had already emptied,
-        # and the change would be built, tested and reached by nothing — this codebase's signature
-        # defect, fifteen times over.
-        # ANOTHER PASS NAMES ITS CARD, and outranks a queue: it is about work already waiting on
-        # the person, never a request to start something (#448)
-        adjusted = _ADJUST_RE.search(text)
-        # …AND SO DOES A YES TO IT (#448 slice 3). Both at once is a reply that could not decide,
-        # and "not yet" wins: nothing is recorded that the person may still want changed
-        accepted = None if adjusted else _ACCEPT_RE.search(text)
-        gesture = ("adjust" if adjusted else "accept" if accepted
-                   else "queue" if QUEUE_MARKER in text else "")
-        defect = _DEFECT_RE.search(text)
-        violates = int(defect.group("req")) if defect and defect.group("req") else None
-        ticket = _TICKET_RE.search(text)
-        ordered = _ORDER_RE.search(text)
-        teach = _TEACH_RE.search(text)
-        evidence = _EVIDENCE_RE.search(text)
-        # IN THE ORDER GIVEN, never sorted (`contracts.refs.ref_numbers` sorts, and is exactly the
-        # helper NOT to use here); a card said twice keeps its first place — and each one AS THE
-        # TRACKER SPELLS IT (#515): `DAR-7` on Jira, `acme/web#1` across repositories
-        order = refs_written(ordered.group("numbers")) if ordered else []
-        # the markers are plumbing between the role and the channel — never let them reach a person
-        text = text.replace(QUEUE_MARKER, "").rstrip()
-        text = _ADJUST_RE.sub("", text).rstrip()
-        text = _ACCEPT_RE.sub("", text).rstrip()
-        text = text.replace(REQUEST_MARKER, "").rstrip()
-        text = _DEFECT_RE.sub("", text).rstrip()
-        text = _TICKET_RE.sub("", text).rstrip()
-        text = _ORDER_RE.sub("", text).rstrip()
-        text = _TEACH_RE.sub("", text).rstrip()
-        text = _EVIDENCE_RE.sub("", text).rstrip()
-        # a search the bound did not run: the answer stands, and the marker never reaches a person
-        text = _SEARCH_RE.sub("", text).rstrip()
-        reading = _reading_of(defect=defect is not None, request=asked_for_something,
-                              teach=teach, evidence=evidence)
-        decisions = [m.group("label").strip() for m in _DECISION_RE.finditer(text)]
-        text = _DECISION_RE.sub("", text).rstrip()
-        # the safety net: anything marker-SHAPED that survived the specific parsers above is
-        # plumbing we did not recognise, and it goes — loudly, because a marker we could not read
-        # is information we just lost, and silence would make this exact bug invisible again
-        leftover = _ANY_MARKER_RE.findall(text)
-        if leftover:
-            lost = [x for x in leftover if _DECISION_SHAPED_RE.match(x)]
-            if lost:
-                # a DECISION the agent asked for that the parser could not read: it will never be
-                # recorded and never chased, so the loss has to be loud rather than a warning in a
-                # list of warnings
-                log.error("OPENFACTORY_PRODUCT_LOST_MARKER a decision-shaped marker did not parse "
-                          "and was "
-                          "dropped: %s", "; ".join(x[:200] for x in lost[:3]))
-            log.warning("unparsed marker(s) stripped before reaching the client: %s",
-                        "; ".join(x[:120] for x in leftover[:4]))
-            text = _ANY_MARKER_RE.sub("", text)
-        # AFTER the balanced net, never before: an opener that DOES close belongs to the net above,
-        # which knows where the marker ends. Running this first would cut the rest of the line off
-        # a marker that was perfectly well formed.
-        unclosed = _UNCLOSED_MARKER_RE.findall(text)
-        if unclosed:
-            if any(_DECISION_SHAPED_RE.match(x) for x in unclosed):
-                log.error("OPENFACTORY_PRODUCT_LOST_MARKER an unclosed decision marker "
-                          "was dropped: "
-                          ""
-                          "%s",
-                          "; ".join(x[:200] for x in unclosed[:3]))
-            log.warning("unclosed marker(s) stripped before reaching the client: %s",
-                        "; ".join(x[:120] for x in unclosed[:4]))
-            text = _UNCLOSED_MARKER_RE.sub("", text)
-        text = re.sub(r"\n{3,}", "\n\n", text).strip()
-        return ProductAnswer(ok=bool(text), text=text, raw=res.raw_output or "",
-                             harness=getattr(res, "harness", None) or "",
-                             is_request=asked_for_something, decisions=decisions,
-                             gesture=gesture,
-                             gesture_card=(adjusted or accepted).group("number")
-                             if (adjusted or accepted) else "",
-                             is_defect=defect is not None, violates=violates,
-                             is_ticket=ticket is not None,
-                             ticket_title=((ticket.group("title") or "").strip()
-                                           if ticket else ""),
-                             is_reorder=bool(order), order=order,
-                             is_misuse=teach is not None, reading=reading,
-                             error="" if text else "the harness returned nothing")
+        return read_answer(_full_answer(res) or "", raw=res.raw_output or "",
+                           harness=getattr(res, "harness", None) or "")
 
     def _search_instruction(self) -> str:
         """The marker, offered only when the engine can run it — a role told it may search, on a

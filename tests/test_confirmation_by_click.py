@@ -82,6 +82,21 @@ class _Module:
         return SimpleNamespace(ok=True, existed=False, detail="", ref="")
 
 
+class _Reading(_Module):
+    """…and the role's reading of a dictated fact (#565): noting a fact is an act the role proposes
+    with its marker, so the model is what turns "anota que …" into a proposal."""
+
+    def __init__(self):
+        super().__init__()
+        self.asked: list[str] = []
+
+    def answer(self, question, **_):
+        from openfactory.product.role import read_answer
+
+        self.asked.append(question)
+        return read_answer("Vou anotar.\n[[FATO: a firma usa Primavera]]")
+
+
 def _stage(term="erp", body="a firma usa Primavera"):
     pc.forget(KEY)
     pc.remember(KEY, {"kind": "fact", "term": term, "body": body, "said_by": ADMIN})
@@ -445,21 +460,18 @@ def test_a_typed_confirmation_still_works_after_buttons_were_offered():
 def test_a_posted_proposal_does_NOT_also_get_a_conversational_reply():
     """The bug this sentinel exists for, driven end to end. A queue/fact proposal that posted with
     buttons must not ALSO reach the model — the client would see the buttons plus an unrelated
-    answer, and we would pay for it."""
-    calls: list = []
+    answer, and we would pay for it.
 
-    class _Mod(_Module):
-        def answer(self, question, *, context="", conversation="", **_):
-            calls.append(question)
-            from types import SimpleNamespace
-            return SimpleNamespace(ok=True, text="uma resposta avulsa", is_defect=False,
-                                   is_request=False, decisions=[])
+    Since #565 the fact is proposed BY the model's reading, so the model is consulted once, for
+    that, and never again once the proposal is posted."""
+    module = _Reading()
 
     pc.forget(KEY)
     out = chat_turn(_project(), text="anota que a firma usa Primavera", user=ADMIN, thread=KEY,
-                    channel=KEY, module=_Mod(), confirm=lambda *a: True)
+                    channel=KEY, module=module, confirm=lambda *a: True)
 
-    assert not calls, f"the model was consulted after the proposal was already posted: {calls}"
+    assert module.asked == ["anota que a firma usa Primavera"], (
+        f"the model was consulted again after the proposal was already posted: {module.asked}")
     assert out is None, f"the boundary returned text that is already on the channel: {out!r}"
 
 
@@ -478,7 +490,7 @@ def test_what_was_posted_interactively_is_STILL_in_her_memory(monkeypatch):
     monkeypatch.setattr(SINK_DOOR, lambda *a, **k: sink)
     pc.forget(KEY)
     chat_turn(_project(), text="anota que a firma usa Primavera", user=ADMIN, thread=KEY,
-              channel=KEY, module=_Module(), confirm=lambda *a: True)
+              channel=KEY, module=_Reading(), confirm=lambda *a: True)
 
     hers = [r.extra.get("text", "") for r in sink.rows
             if r.kind == "message" and r.role == "agent"]
