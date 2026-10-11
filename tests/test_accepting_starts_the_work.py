@@ -29,6 +29,7 @@ import pytest
 import openfactory.product.channel as pc
 from openfactory.product.authoring import WriteResult
 from openfactory.product.intents import match_intent
+from tests.the_breakdown_runs_here import run_here
 from tests.the_chat_turn import chat_turn
 
 
@@ -146,24 +147,30 @@ def test_the_invalidation_is_WRAPPED_AROUND_the_write_not_written_after_it():
 
 
 # ── 2. the acceptance now produces work ────────────────────────────────────────────────────────
-def test_agreeing_breaks_the_requirement_down_without_being_asked():
+def test_agreeing_breaks_the_requirement_down_without_being_asked(monkeypatch):
+    """Started on the worker since #563 slice 18b: the reply says the breakdown began, and the
+    conversation is told the cards when it ends."""
     module = _Module()
+    ran = run_here(monkeypatch, module)
 
     said = _accept(module)
 
     assert module.accepted_with == (6, "UADM"), module.accepted_with
     assert module.broke_down == (6, "UADM"), (
         "the acceptance produced a sentence and no work — the state this fixes")
-    assert "#901" in said, said
+    assert "Comecei a quebrar o requisito 6" in said, said
+    assert "#901" in ran.told[-1], ran.told
 
 
-def test_the_client_is_told_that_starting_is_still_their_call():
+def test_the_client_is_told_that_starting_is_still_their_call(monkeypatch):
     """Filing costs nothing and this reply must never read as "we have begun". The spend gate is
     `promote`, and a client who believes work started will not release it."""
-    said = _accept(_Module())
+    module = _Module()
+    ran = run_here(monkeypatch, module)
+    _accept(module)
 
-    assert "Backlog" in said, said
-    assert "decisão de uma pessoa" in said, said
+    assert "Backlog" in ran.told[-1], ran.told
+    assert "decisão de uma pessoa" in ran.told[-1], ran.told
 
 
 def test_an_ALREADY_agreed_requirement_files_nothing_new():
@@ -178,46 +185,44 @@ def test_an_ALREADY_agreed_requirement_files_nothing_new():
 
 
 # ── 3. the breakdown can never cost the agreement ──────────────────────────────────────────────
-def test_a_breakdown_that_FAILED_does_not_take_the_acceptance_with_it():
+def test_a_breakdown_that_FAILED_does_not_take_the_acceptance_with_it(monkeypatch):
     """The promise is written and pushed before this runs. Reporting the second act's failure as
     the first's would tell a client their acceptance did not happen — about the one thing that
     certainly did."""
     module = _Module(breaks=[_Result(ok=False, detail="não consegui quebrar isso")])
+    ran = run_here(monkeypatch, module)
 
     said = _accept(module)
 
     assert "Acordado" in said, f"the agreement was not reported: {said}"
-    assert said.index("Acordado") < said.index("Ainda não consegui"), (
-        "the failure was announced before what still holds, which reads as a failed acceptance")
-    assert "quebrar em tarefas" in said, "no way back was offered"
+    assert ran.told[-1].startswith("Ainda não consegui"), ran.told
+    assert "O acordo está registrado" in ran.told[-1], "what still holds was not said"
+    assert "quebrar em tarefas" in ran.told[-1], "no way back was offered"
 
 
-def test_a_breakdown_that_RAISED_does_not_take_the_acceptance_with_it(caplog):
+def test_a_breakdown_that_RAISED_does_not_take_the_acceptance_with_it(monkeypatch):
     module = _Module(breaks_raises=True)
+    ran = run_here(monkeypatch, module)
 
-    with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        said = _accept(module)
+    said = _accept(module)
 
     assert "Acordado" in said, said
-    assert any("OPENFACTORY_PRODUCT_AUTOBREAK_FAILED" in r.getMessage() for r in caplog.records), (
-        "a refactor could rename `break_down` and every acceptance would quietly stop filing work")
+    assert "O acordo está registrado" in ran.told[-1], ran.told
 
 
-def test_a_module_that_LOST_the_method_is_loud_rather_than_merely_polite(caplog):
-    """The catch-all is wide enough to swallow a rename, which would leave every acceptance
-    answering politely that it could not break anything down — for ever, with the client reading
-    it as ordinary trouble. This is the runtime half of that guard; the structural half is below."""
+def test_an_engine_that_does_not_START_it_is_loud_rather_than_merely_polite(monkeypatch, caplog):
+    """The catch-all is wide enough to swallow a renamed workflow or an engine that is down, which
+    would leave every acceptance answering politely that it could not break anything down — for
+    ever, with the client reading it as ordinary trouble. This is the runtime half of that guard;
+    the structural half is below."""
+    from openfactory.product import breaking
 
-    class _Renamed(_Module):
-        """`break_down` has become `decompose` somewhere else in the codebase."""
+    def _down(*_a, **_k):
+        raise RuntimeError("the durable engine is not answering")
 
-        def __getattr__(self, item):
-            raise AttributeError(item)
-
-        break_down = property(lambda self: (_ for _ in ()).throw(AttributeError("break_down")))
-
-    with caplog.at_level(logging.ERROR, logger="openfactory.product.channel"):
-        said = _accept(_Renamed())
+    monkeypatch.setattr(breaking, "start_now", _down)
+    with caplog.at_level(logging.ERROR, logger="openfactory.product"):
+        said = _accept(_Module())
 
     assert "Acordado" in said, said
     assert "Ainda não consegui" in said, "the client was told nothing about the missing work"
@@ -243,8 +248,14 @@ def test_the_accept_branch_really_calls_the_breakdown():
     assert runs is not None, "a confirmed acceptance dispatches to nothing"
     assert "_also_broke_it_down(" in inspect.getsource(runs), (
         "the acceptance branch never reaches the composer")
-    assert "module.break_down(" in inspect.getsource(confirm_mod._also_broke_it_down), (
-        "the composer does not decompose anything")
+    # STARTED ON THE WORKER (#563 slice 18b): the composer starts the breakdown, and the
+    # workflow's activity is what decomposes
+    from openfactory.runtime.temporal import activities
+
+    assert "breaking.start_now(" in inspect.getsource(confirm_mod._also_broke_it_down), (
+        "the composer does not start the breakdown")
+    assert ".break_down(" in inspect.getsource(activities._product_break_down), (
+        "the worker's breakdown does not decompose anything")
 
 
 # ── 4. the gesture, in the words a client actually uses ────────────────────────────────────────

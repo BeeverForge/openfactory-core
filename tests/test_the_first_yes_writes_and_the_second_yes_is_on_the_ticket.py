@@ -240,10 +240,14 @@ def test_the_second_yes_accepts_and_stamps_the_cards_and_does_not_break_down_aga
     assert pending_for("C1") is None, "the conversation is still waiting on something"
 
 
-def test_an_acceptance_with_no_cards_still_breaks_the_requirement_down():
+def test_an_acceptance_with_no_cards_still_breaks_the_requirement_down(monkeypatch):
     """The panel's acceptance, or an older requirement's: no card was opened for it, so the
-    agreement produces work the way ADR-0032 did — never an agreement and nothing."""
+    agreement produces work the way ADR-0032 did — never an agreement and nothing. Started on the
+    worker since #563 slice 18b."""
+    from tests.the_breakdown_runs_here import run_here
+
     project, module = _Project(), _Module()
+    run_here(monkeypatch, module)
     remember("C1", {"kind": "accept", "number": 7, "channel": "C1", "asked_by": "<@UADM>"})
 
     said = _yes(project, module)

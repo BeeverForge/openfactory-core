@@ -498,8 +498,8 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24 (#267 slice 3): the breakdown is handed where it was asked for
     ("an acceptance agreed with no card is never broken down", CONFIRM,
-     "    return _also_broke_it_down(module, entry[\"number\"], user, head, lang, project, "
-     "entry=entry)",
+     # RE-PINNED 2026-10-11 (#563 slice 18b): the composer no longer takes the module
+     "    return _also_broke_it_down(entry[\"number\"], user, head, lang, project, entry=entry)",
      "    return head"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
@@ -624,22 +624,25 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a breakdown files work for anybody who types it", ENGINE,
-     "            return unauthorized_message(project)\n        if on_it:\n            on_it()\n"
-     "        # `asked_for=True`",
-     "            pass\n        if on_it:\n            on_it()\n        # `asked_for=True`"),
+     # RE-PINNED 2026-10-11 (#563 slice 18b): the start answers at once, with no receipt
+     "            return unauthorized_message(project)\n        # STARTED, NEVER RUN IN THE TURN",
+     "            pass\n        # STARTED, NEVER RUN IN THE TURN"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a refused breakdown still buys a receipt", ENGINE,
+     # RE-PINNED 2026-10-11 (#563 slice 18b): no receipt is bought at all now; the row puts one
+     # back in front of the gate
      "        if not may_act(project, user):\n            return unauthorized_message(project)\n"
-     "        if on_it:\n            on_it()\n        # `asked_for=True`",
+     "        # STARTED, NEVER RUN IN THE TURN",
      "        if on_it:\n            on_it()\n"
      "        if not may_act(project, user):\n            return unauthorized_message(project)\n"
-     "        # `asked_for=True`"),
+     "        # STARTED, NEVER RUN IN THE TURN"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a typed breakdown is filed as the acceptance's automatic one", ENGINE,
-     "        results = module.break_down(number, actor=user, asked_for=True)",
-     "        results = module.break_down(number, actor=user, asked_for=False)"),
+     # RE-PINNED 2026-10-11 (#563 slice 18b): the gesture starts the breakdown on the worker
+     "            how = breaking.start_now(project, number, actor=user, asked_for=True,",
+     "            how = breaking.start_now(project, number, actor=user, asked_for=False,"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a refine is answered as conversation", ENGINE,

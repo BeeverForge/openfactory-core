@@ -45,6 +45,7 @@ from openfactory.product.corpus import UNRECORDED, load_corpus, parse_requiremen
 from openfactory.product.loader import ProductContext
 from openfactory.product.module import ProductModule
 from openfactory.product.role import RequirementDraft
+from tests.the_breakdown_runs_here import run_here
 from tests.the_chat_turn import chat_turn
 
 DOCS = "acmecorp/acme-books-documentation"
@@ -384,6 +385,7 @@ def test_the_chat_accepts_a_reading_of_the_code_and_the_ROLE_IS_NOT_CALLED(origi
 
 def test_and_the_chat_still_breaks_an_AUTHORED_requirement_down(origin, monkeypatch):
     mod, harness, tracker = _module(origin, monkeypatch)
+    run_here(monkeypatch, mod)   # the breakdown runs on the worker (#563 slice 18b)
 
     said = _confirmed_in_chat(mod, AUTHORED)
 
@@ -441,18 +443,26 @@ def test_and_the_chat_reads_that_answer_as_NOTHING_TO_BUILD_not_as_a_card(origin
     """The same backstop, one layer up: a module that did not flag its acceptance (a double, an
     older build) still ends in the right sentence, never in "became 1 task"."""
     mod, harness, _t = _module(origin, monkeypatch)
+    ran = run_here(monkeypatch, mod)   # the breakdown runs on the worker (#563 slice 18b)
     assert mod.accept(OBSERVED_N, actor=ADMIN).ok
 
-    said = confirm_mod._also_broke_it_down(mod, OBSERVED_N, ADMIN, "Agreed.", "en", mod.project)
+    confirm_mod._also_broke_it_down(OBSERVED_N, ADMIN, "Agreed.", "en", mod.project)
+    said = ran.told[-1]   # what the conversation is told when it ends
 
     assert harness.prompts == []
     assert "nothing to build" in said.lower(), said
     assert "backlog" not in said.lower(), said
     # A DECISION, NOT A FAILURE. Without its own branch this answer falls into the executor's
     # "I still could not turn this into units of work…" tail, with the right sentence quoted
-    # inside the wrong one and an offer to "try again" at something that did not fail. The two
-    # fragments below are that tail's own words, in the language it is written in.
-    assert "consegui" not in said.lower() and "tento de novo" not in said.lower(), said
+    # inside the wrong one and an offer to "try again" at something that did not fail. The tail
+    # is asked for IN THE LANGUAGE THIS ANSWER IS IN: the Portuguese words this used to look for
+    # can never appear in an English sentence, so the branch could go and nothing noticed (the
+    # `182` survivor, pinned with #563 slice 18b).
+    from openfactory.product.confirm import _said
+
+    tail = _said("en")
+    assert tail["no_breakdown"] not in said, said
+    assert tail["agreement_holds"].strip(". ") not in said, said
 
 
 # ── 6. …and a person who ASKS still gets the breakdown ───────────────────────────────────────────
@@ -476,6 +486,7 @@ def test_the_chat_s_own_gesture_IS_an_explicit_request(origin, monkeypatch):
     monkeypatch.setattr(transcript, "record", lambda *a, **k: "")
     monkeypatch.setattr(transcript, "recent", lambda *a, **k: [])
     mod, harness, tracker = _module(origin, monkeypatch, language="pt-BR")
+    run_here(monkeypatch, mod)   # the breakdown runs on the worker (#563 slice 18b)
     assert mod.accept(OBSERVED_N, actor=ADMIN).ok
 
     chat_turn(mod.project, text=f"quebra o requisito {OBSERVED_N} em tarefas", user=ADMIN,
@@ -595,7 +606,7 @@ def test_the_WORKER_hands_the_module_what_the_door_said(monkeypatch):
         def __init__(self, *_a, **_k):
             pass
 
-        def break_down(self, number, *, actor, asked_for):
+        def break_down(self, number, *, actor, asked_for, **_where):
             seen.append(asked_for)
             return []
 
@@ -896,6 +907,7 @@ def test_the_ROW_files_nothing_for_a_reading_that_kept_only_its_commit_line(
 def test_the_CONVERSATION_files_the_work_of_a_request_whose_text_mentions_evidence(
         edited, monkeypatch):
     mod, harness, tracker = _module(edited, monkeypatch, language="pt-BR")
+    run_here(monkeypatch, mod)   # the breakdown runs on the worker (#563 slice 18b)
 
     said = _accepted_in_the_conversation(mod, monkeypatch, AUTHORED)
 

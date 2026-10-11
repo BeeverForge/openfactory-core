@@ -150,17 +150,16 @@ MUTATIONS = [
      '                                         backlog=column_said(backlog, "backlog"))',
      '                                         backlog=column_said("", "backlog"))'),
 
-    ("the acceptance's breakdown is handed no name for the backlog", CONFIRM,
-     '        return head + "\\n\\n" + _breakdown_reply(results, number, "", lang, '
-     'project=project,\n'
-     '                                                  backlog=_board_word(module, "backlog"))',
-     '        return head + "\\n\\n" + _breakdown_reply(results, number, "", lang, '
-     'project=project)'),
-
-    ("a breakdown a person asks for is handed no name for the backlog", ENGINE,
-     "        return _breakdown_reply(results, number, name, lang, project,\n"
+    # RE-PINNED 2026-10-11 (#563 slice 18b): both doors' sentence is `breakdown_told`'s now, told
+    # when the breakdown ends on the worker
+    ("the breakdown the conversation is told of is handed no name for the backlog", CONFIRM,
+     '        return _breakdown_reply(results, number, "", lang, project=project,\n'
      '                                backlog=_board_word(module, "backlog"))',
-     "        return _breakdown_reply(results, number, name, lang, project)"),
+     '        return _breakdown_reply(results, number, "", lang, project=project)'),
+
+    ("a breakdown a person asks for is told in the project's language, not the conversation's",
+     ENGINE, '                                     language=lang or "")',
+     '                                     language="")'),
 
     ("the cards opened for a requirement are said to be in the platform's `Backlog`", CONFIRM,
      '        said += "\\n\\n" + cards_opened_awaiting(cards=cards, number=number, language=lang,\n'

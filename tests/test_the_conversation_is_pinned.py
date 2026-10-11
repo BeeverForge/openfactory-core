@@ -102,6 +102,7 @@ from openfactory.product.module import ProductModule, _not_a_promise, unauthoriz
 from openfactory.product.queue import Proposed, QueueProposal, Readiness
 from openfactory.product.role import ProductAnswer, RequirementDraft
 from openfactory.product.triage import TriageReport
+from tests.the_breakdown_runs_here import run_here
 from tests.the_card_at_its_last_gate import at_its_last_gate
 from tests.the_sink_door import SINK_DOOR
 
@@ -1183,14 +1184,17 @@ def test_a_dictation_that_ends_in_a_question_mark_is_a_question_and_reaches_the_
     assert _nothing_staged()
 
 
-def test_accept_is_staged_with_the_title_and_agreed_on_a_yes_then_broken_down(table, ledger):
+def test_accept_is_staged_with_the_title_and_agreed_on_a_yes_then_broken_down(table, ledger,
+                                                                              monkeypatch):
     """"aceita o requisito 4" — the act that turns a written text into a promise — stages the
     acceptance with the requirement's title shown, and it is the one staged gesture that names no
     admins under it. The admin's yes accepts it; with no card waiting on it, the acceptance's own
-    second act breaks it down (`asked_for=False`: nobody typed that request)."""
+    second act starts its breakdown on the worker (`asked_for=False`: nobody typed that request),
+    and the conversation is told the cards when it ends (#563 slice 18b)."""
     project = _project()
     module = _Module(project, requirements=BASE)
     talk = _Conversation(project, module)
+    ran = run_here(monkeypatch, module)
 
     reply = talk.say("aceita o requisito 4", user=CLIENT)
 
@@ -1205,8 +1209,10 @@ def test_accept_is_staged_with_the_title_and_agreed_on_a_yes_then_broken_down(ta
     assert module.asked("accept") == [{"number": 4, "actor": ADMIN}]
     assert module.asked("break_down") == [{"number": 4, "actor": ADMIN, "asked_for": False}]
     assert done == voice.accepted(number=4, language=LANG, agent_name=AGENT) + (
-        "\n\nO requisito 4 virou **1** tarefa: #40.\n\nEstá na coluna Backlog — começar a trabalhar "
-        "nela continua sendo decisão de uma pessoa.")
+        "\n\n" + voice.breakdown_begun(number=4, language=LANG))
+    assert ran.told == [
+        "O requisito 4 virou **1** tarefa: #40.\n\nEstá na coluna Backlog — começar a trabalhar "
+        "nela continua sendo decisão de uma pessoa."]
 
 
 def test_drop_is_staged_with_its_reason_and_taken_off_the_table_on_a_yes(table, ledger):
@@ -1450,20 +1456,25 @@ def test_a_breakdown_asked_for_by_somebody_off_the_admin_list_is_refused_before_
     assert not _writes(module)
 
 
-def test_a_breakdown_an_admin_types_files_the_work_as_ASKED_FOR(table, ledger):
-    """An admin's "quebra o requisito 5 em tarefas" files the work at once, with a receipt first,
-    in that admin's name and marked `asked_for=True` — a PERSON typed it, which is what tells it
-    apart from an acceptance's automatic second act — and says what was filed."""
+def test_a_breakdown_an_admin_types_files_the_work_as_ASKED_FOR(table, ledger, monkeypatch):
+    """An admin's "quebra o requisito 5 em tarefas" starts the breakdown at once, in that admin's
+    name and marked `asked_for=True` — a PERSON typed it, which is what
+    tells it apart from an acceptance's automatic second act — and says it began; the conversation
+    is told what was filed when it ends on the worker (#563 slice 18b)."""
     project = _project()
     module = _Module(project, requirements=BASE)
     talk = _Conversation(project, module)
+    ran = run_here(monkeypatch, module)
 
     reply = talk.say(BREAK, user=ADMIN)
 
     assert module.asked("break_down") == [{"number": 5, "actor": ADMIN, "asked_for": True}]
-    assert reply == (f"{AGENT}: O requisito 5 virou **1** tarefa: #40.\n\nEstá na coluna Backlog — "
-                     f"começar a trabalhar nela continua sendo decisão de uma pessoa.")
-    assert talk.receipts == [_receipt(BREAK)]
+    assert reply == f"{AGENT}: " + voice.breakdown_begun(number=5, language=LANG)
+    assert ran.told == ["O requisito 5 virou **1** tarefa: #40.\n\nEstá na coluna Backlog — "
+                        "começar a trabalhar nela continua sendo decisão de uma pessoa."]
+    # NO RECEIPT: a receipt says slow work is under way, and the start answers at once with the
+    # sentence that says it began
+    assert talk.receipts == []
     assert _nothing_staged()
 
 

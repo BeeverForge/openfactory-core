@@ -3085,6 +3085,42 @@ def nothing_to_build(*, number: int, language: str | None = None) -> str:
     return _pick(_NOTHING_TO_BUILD, language).format(number=number)
 
 
+#: A BREAKDOWN THE CONVERSATION STARTED, AND DOES NOT WAIT ON (#563 slice 18b, ADR-0051 D18). It
+#: drafts for minutes, so the reply says it began and where its cards will be said; the workflow
+#: tells this conversation what was filed when it ends. One already running is news, never "nothing
+#: was filed" (item 2): its cards are on the board when it ends, said wherever it was started.
+_BREAKDOWN_BEGUN = {
+    "pt-BR": ("Comecei a quebrar o requisito {number} em tarefas. Leva alguns minutos; quando "
+              "terminar, digo aqui o que virou card."),
+    "en": ("I started breaking requirement {number} into tasks. It takes a few minutes; when it "
+           "ends, I will say here what became a card."),
+}
+_BREAKDOWN_ALREADY_RUNNING = {
+    "pt-BR": ("O requisito {number} já está sendo quebrado em tarefas, então não comecei outra "
+              "quebra: os cards aparecem no quadro quando ela terminar."),
+    "en": ("Requirement {number} is already being broken into tasks, so I did not start another "
+           "breakdown: its cards will be on the board when it ends."),
+}
+#: The engine that runs a breakdown did not answer the start: nothing was filed, and asking again
+#: is the way through. Said to a person who asked; an acceptance says its own (`confirm._SAID`).
+_BREAKDOWN_NOT_BEGUN = {
+    "pt-BR": ("Não consegui começar a quebrar o requisito {number} em tarefas: o serviço que faz "
+              "a quebra não respondeu, e nada foi registrado. É só pedir de novo."),
+    "en": ("I could not start breaking requirement {number} into tasks: the service that does it "
+           "did not answer, and nothing was filed. Just ask again."),
+}
+
+
+def breakdown_begun(*, number: int, running: bool = False, language: str | None = None) -> str:
+    """The reply to a breakdown the conversation started — or found already running."""
+    return _pick(_BREAKDOWN_ALREADY_RUNNING if running else _BREAKDOWN_BEGUN,
+                 language).format(number=number)
+
+
+def breakdown_not_begun(*, number: int, language: str | None = None) -> str:
+    return _pick(_BREAKDOWN_NOT_BEGUN, language).format(number=number)
+
+
 def accepted_nothing_to_build(*, number: int, language: str | None = None,
                               agent_name: str = "") -> str:
     """The whole answer to accepting a reading of the code: the agreement, then why no work."""
