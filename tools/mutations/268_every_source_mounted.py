@@ -47,9 +47,10 @@ MUTATIONS = [
      "        for checkout in list(sources.values())[:1]:"),
 
     # ── 2. sparse, and on demand ───────────────────────────────────────────────────────────────
+    # RE-PINNED 2026-10-10 (#594): every clone passes `--no-local`
     ("every source is cloned whole — history and all", CACHE,
-     '            cloned = _git_out(["clone", "--filter=blob:none", "--no-checkout",',
-     '            cloned = _git_out(["clone", "--no-checkout",'),
+     '            cloned = _git_out(["clone", "--no-local", "--filter=blob:none", "--no-checkout",',
+     '            cloned = _git_out(["clone", "--no-local", "--no-checkout",'),
 
     ("the cone is never set, so the pictures and the font are checked out and fetched", CACHE,
      "        if cone is not None:",
