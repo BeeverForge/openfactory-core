@@ -737,7 +737,8 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
             # `ambiguous` NAMES what was settled when more than one delivery was waiting. The
             # comment here used to promise exactly that and the code never did it — a silent
             # choice quietly marked the wrong delivery accepted.
-            return Settled(say(loop, agent_name=agent, ambiguous=ambiguous), waiting)
+            return Settled(say(loop, agent_name=agent, ambiguous=ambiguous, language=lang),
+                           waiting)
 
     # A LATE CONFIRMATION OF AN EXPIRED PROPOSAL HEARS SO. Without this, the "sim" of somebody who
     # stepped away past the TTL found nothing staged and fell through to the conversational model —

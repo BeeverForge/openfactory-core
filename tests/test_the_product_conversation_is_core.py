@@ -457,7 +457,8 @@ def test_the_client_s_verdict_typed_in_the_panel_CLOSES_the_delivery(panel_turn)
 
     answer, recorded = panel_turn(module, "funcionou")
 
-    assert answer is not None and answer.text == accepted_text(loop, agent_name="Nina"), answer
+    assert answer is not None and answer.text == accepted_text(loop, agent_name="Nina",
+                                                                language="pt-BR"), answer
     assert answer.options is None
     assert "answer" not in module.calls, f"the verdict went to the model: {module.calls}"
     assert recorded == [("person", "funcionou"), ("agent", answer.text)], recorded

@@ -1016,7 +1016,7 @@ def test_with_a_delivery_open_a_late_yes_answers_the_delivery_not_the_expiry(tab
 
     reply = talk.say("sim", user=CLIENT)
 
-    assert reply == followup.accepted_text(loop, agent_name=AGENT)
+    assert reply == followup.accepted_text(loop, agent_name=AGENT, language=LANG)
     [closed] = [x for x in fold(ledger) if x.kind == ACCEPTANCE]
     assert (closed.state, closed.outcome) == ("closed", "worked")
     assert not module.asked("propose")
@@ -1874,7 +1874,7 @@ def test_it_worked_closes_the_delivery_as_worked_without_the_model(table, ledger
 
     reply = talk.say("funcionou", user=CLIENT)
 
-    assert reply == followup.accepted_text(loop, agent_name=AGENT)
+    assert reply == followup.accepted_text(loop, agent_name=AGENT, language=LANG)
     [closed] = [x for x in fold(ledger) if x.kind == ACCEPTANCE]
     assert (closed.state, closed.outcome) == ("closed", "worked")
     assert "answer" not in module.verbs() and talk.receipts == []
@@ -1889,7 +1889,7 @@ def test_it_did_not_work_closes_the_delivery_as_rejected_and_invites_the_defect(
 
     reply = talk.say("não funcionou", user=CLIENT)
 
-    assert reply == followup.rejected_text(loop, agent_name=AGENT)
+    assert reply == followup.rejected_text(loop, agent_name=AGENT, language=LANG)
     [closed] = [x for x in fold(ledger) if x.kind == ACCEPTANCE]
     assert (closed.state, closed.outcome) == ("closed", "did-not-work")
     assert "answer" not in module.verbs()
@@ -1909,7 +1909,7 @@ def test_an_answer_the_word_list_cannot_read_is_judged_and_a_worked_closes_the_d
 
     assert module.asked("judge_acceptance") == [{"reply": "testei, tá ok",
                                                  "delivered": "requisito 7"}]
-    assert reply == followup.accepted_text(loop, agent_name=AGENT)
+    assert reply == followup.accepted_text(loop, agent_name=AGENT, language=LANG)
     [closed] = [x for x in fold(ledger) if x.kind == ACCEPTANCE]
     assert (closed.state, closed.outcome) == ("closed", "worked")
     assert "answer" not in module.verbs()
@@ -1926,7 +1926,8 @@ def test_with_two_deliveries_waiting_the_newest_is_settled_and_NAMED(table, ledg
 
     reply = talk.say("funcionou", user=CLIENT)
 
-    assert reply == followup.accepted_text(newer, agent_name=AGENT, ambiguous=True)
+    assert reply == followup.accepted_text(newer, agent_name=AGENT, ambiguous=True,
+                                         language=LANG)
     assert [x.subject for x in waiting(fold(ledger), owner=followup.OWNER)] == [older.subject]
 
 
@@ -2145,7 +2146,8 @@ def test_an_ordinary_delivery_is_closed_by_anybody_s_verdict_beside_a_release_th
 
     reply = talk.say("funcionou", user=CLIENT)
 
-    assert reply == followup.accepted_text(delivery, agent_name=AGENT, ambiguous=True)
+    assert reply == followup.accepted_text(delivery, agent_name=AGENT, ambiguous=True,
+                                         language=LANG)
     assert released == []
     closed = {x.subject: (x.state, x.outcome) for x in fold(ledger) if x.kind == ACCEPTANCE}
     assert closed == {"7": ("closed", "worked"), "release-12": ("open", "")}

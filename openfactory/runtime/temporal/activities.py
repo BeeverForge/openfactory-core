@@ -5193,7 +5193,7 @@ def _product_followup(project, module, report, cfg) -> str:
                    if x.state == CHASED and x.kind == ACCEPTANCE][:followup.MAX_QUESTIONS_PER_PASS]
                   if _where_asked(loop, followup.acceptance_chase_text(
                       loop, mention=_mention(loop.context.get("asked_by") or ""),
-                      agent_name=name))]
+                      agent_name=name, language=lang))]
 
     # 6. CHASE a decision nobody made — once, and never closed by time. A decision she asked for
     #    and nobody answered is the most expensive thing to lose silently: work either stops or
