@@ -24,17 +24,18 @@ ENGINE = "openfactory/product/engine.py"
 MUTATIONS = [
     # 1. the comparison
     ("TODAY'S RUN: every criterion of the closed card is taken as stated on the survivor", MODULE,
-     "                               if _plain(c) not in stated))[:at_most]",
-     "                               if False))[:at_most]"),
+     # RE-PINNED 2026-10-11 (review of #602): the closed card's own criteria are read once
+     "    only = tuple(dict.fromkeys(c[:160] for c in its_own if _plain(c) not in stated))[:at_most]",
+     "    only = tuple(dict.fromkeys(c[:160] for c in its_own if False))[:at_most]"),
     ("a criterion differs by its case and punctuation", MODULE,
      "    stated = {_plain(c) for c in criteria(staying)}",
      "    stated = set(criteria(staying))"),
     ("the requirement the closed card executes is never carried", MODULE,
-     "                   executes=executes if executes != _cited_requirement(staying) else None)",
-     "                   executes=None)"),
+     "                   executes=executes if executes != _cited_requirement(staying) else None,",
+     "                   executes=None,"),
     ("the list is not bounded", MODULE,
-     "                               if _plain(c) not in stated))[:at_most]",
-     "                               if _plain(c) not in stated))"),
+     "    only = tuple(dict.fromkeys(c[:160] for c in its_own if _plain(c) not in stated))[:at_most]",
+     "    only = tuple(dict.fromkeys(c[:160] for c in its_own if _plain(c) not in stated))"),
 
     # 2. the module's read
     ("a survivor not on the board compares as nothing lost", MODULE,
@@ -59,4 +60,11 @@ MUTATIONS = [
     ("two cards that could not be compared are not said", VOICE,
      "        if in_favour_of and unread:\n",
      "        if False:\n"),
+    # review of #602: a card of prose alone was compared as carrying nothing
+    ("a closed card of prose alone is said to ask for the same thing", MODULE,
+     "                   stated=bool(its_own) or executes is not None)",
+     "                   stated=True)"),
+    ("a card that states nothing to compare is said compared", VOICE,
+     "        elif in_favour_of and carried is not None and not getattr(carried, \"stated\", True):",
+     "        elif False:"),
 ]

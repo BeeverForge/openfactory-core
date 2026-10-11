@@ -5857,6 +5857,10 @@ class Carried:
 
     criteria: tuple[str, ...] = ()
     executes: int | None = None
+    #: Whether the closed card stated anything to compare — criteria, or the requirement it
+    #: executes. A card of prose alone carries nothing the comparison can see, and that is not the
+    #: same as carrying nothing (review of #602).
+    stated: bool = True
 
     def __bool__(self) -> bool:
         return bool(self.criteria) or self.executes is not None
@@ -5882,11 +5886,12 @@ def only_in(closing: str, staying: str, *, at_most: int = 5) -> Carried:
                 if c.text.strip()]
 
     stated = {_plain(c) for c in criteria(staying)}
-    only = tuple(dict.fromkeys(c[:160] for c in criteria(closing)
-                               if _plain(c) not in stated))[:at_most]
+    its_own = criteria(closing)
+    only = tuple(dict.fromkeys(c[:160] for c in its_own if _plain(c) not in stated))[:at_most]
     executes = _cited_requirement(closing)
     return Carried(criteria=only,
-                   executes=executes if executes != _cited_requirement(staying) else None)
+                   executes=executes if executes != _cited_requirement(staying) else None,
+                   stated=bool(its_own) or executes is not None)
 
 
 def _cited_requirement(body: str) -> int | None:
