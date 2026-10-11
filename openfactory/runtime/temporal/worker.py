@@ -71,6 +71,7 @@ from openfactory.runtime.temporal.activities import (
     preview_plan,
     preview_up,
     preview_watch,
+    product_breakdown_did_not_finish,
     product_role_answer,
     product_role_ask,
     product_role_baseline,
@@ -186,8 +187,10 @@ WORKER_ACTIVITIES = [
     techlead_ask,
     # …and so does the product role's drafting, for the same reason and by the same route (#98).
     product_role_ask,
-    # …and the breakdown that turns an accepted requirement into cards (#98).
+    # …and the breakdown that turns an accepted requirement into cards (#98), and the telling of
+    # one that did not finish to the conversation that started it (review of #616).
     product_role_break_down,
+    product_breakdown_did_not_finish,
     product_role_queue,
     product_role_card,
     product_role_baseline,

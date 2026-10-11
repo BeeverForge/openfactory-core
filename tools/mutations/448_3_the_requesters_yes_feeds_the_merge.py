@@ -139,9 +139,11 @@ MUTATIONS = [
      "    if not pr_url:\n"),
 
     # ── the conversation ─────────────────────────────────────────────────────────────────────
+    # RE-PINNED 2026-10-10 (#565): the reply's parser moved out of `ProductRole.answer` into
+    # `read_answer`, four spaces shallower
     ("the role's marker is never read", ROLE,
-     "        accepted = None if adjusted else _ACCEPT_RE.search(text)\n",
-     "        accepted = None\n"),
+     "    accepted = None if adjusted else _ACCEPT_RE.search(text)\n",
+     "    accepted = None\n"),
     ("the engine ignores the gesture", ENGINE,
      '    if getattr(answer, "gesture", "") == "accept" and getattr(answer, "gesture_card", ""):\n',
      "    if False:\n"),

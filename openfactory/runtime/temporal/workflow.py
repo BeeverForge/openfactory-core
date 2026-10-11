@@ -72,6 +72,7 @@ with workflow.unsafe.imports_passed_through():
         preview_plan,
         preview_up,
         preview_watch,
+        product_breakdown_did_not_finish,
         product_role_answer,
         product_role_ask,
         product_role_baseline,
@@ -335,12 +336,26 @@ class ProductBreakdownWorkflow:
         # filed, so the ceiling sits above the breakdown's own budget
         # (`cards.BREAKDOWN_BUDGET_SECONDS`, past which it starts no new card and says so) and the
         # heartbeat notices a dead worker in two minutes instead of at the ceiling
-        return await workflow.execute_activity(
-            product_role_break_down, inp,
-            start_to_close_timeout=timedelta(minutes=60),
-            heartbeat_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        try:
+            return await workflow.execute_activity(
+                product_role_break_down, inp,
+                start_to_close_timeout=timedelta(minutes=60),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError:
+            # A CONVERSATION THAT STARTED IT IS TOLD IT DID NOT FINISH, whatever ended it — an
+            # error, a worker that died, a heartbeat that stopped (review of #616). The failure
+            # still fails the workflow: a door waiting on the result reads it as before. A
+            # telling that cannot be made is not a second failure of the breakdown.
+            if inp.conversation:
+                with contextlib.suppress(ActivityError):
+                    await workflow.execute_activity(
+                        product_breakdown_did_not_finish, inp,
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+            raise
 
 
 @workflow.defn

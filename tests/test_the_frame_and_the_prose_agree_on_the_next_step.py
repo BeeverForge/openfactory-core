@@ -54,6 +54,9 @@ def test_the_markers_that_stage_are_the_ones_the_engine_stages():
         role_module.ADJUST_MARKER,
         # #448 slice 3: and the requester's "that's it" on it, recorded against the head tried
         role_module.ACCEPT_MARKER,
+        # #565: the acts on a requirement, proposed by the role instead of matched by a sentence
+        role_module.AGREE_MARKER, role_module.DROP_MARKER, role_module.RECORD_MARKER,
+        role_module.FACT_MARKER,
     }
 
 

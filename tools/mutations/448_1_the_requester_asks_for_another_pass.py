@@ -140,9 +140,11 @@ MUTATIONS = [
 
     # ── the conversation ─────────────────────────────────────────────────────────────────────
     # RE-PINNED 2026-10-02 (#448 slice 3): the gesture line now reads the acceptance's marker too
+    # RE-PINNED 2026-10-10 (#565): the reply's parser moved out of `ProductRole.answer` into
+    # `read_answer`, four spaces shallower
     ("the role's marker is never read", ROLE,
-     '        gesture = ("adjust" if adjusted else "accept" if accepted\n',
-     '        gesture = ("accept" if accepted\n'),
+     '    gesture = ("adjust" if adjusted else "accept" if accepted\n',
+     '    gesture = ("accept" if accepted\n'),
     ("the engine ignores the gesture", ENGINE,
      '    if getattr(answer, "gesture", "") == "adjust" and getattr(answer, "gesture_card", ""):\n',
      "    if False:\n"),

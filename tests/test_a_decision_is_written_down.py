@@ -31,7 +31,7 @@ import openfactory.product.channel as pc
 from openfactory.product.authoring import add_decision_row, render_requirement
 from openfactory.product.corpus import _decision_rows, parse_requirement
 from openfactory.product.intents import match_intent
-from openfactory.product.role import RequirementDraft
+from openfactory.product.role import RequirementDraft, read_answer
 from tests.the_chat_turn import chat_turn
 
 TEMPLATE = render_requirement(
@@ -148,33 +148,43 @@ def test_the_writer_and_the_reader_share_ONE_heading():
 
 
 # ── 2. the gesture, and what it refuses ────────────────────────────────────────────────────────
-@pytest.mark.parametrize(("phrase", "decision"), [
-    ("registra no requisito 6 que o pró-labore entra como despesa fixa",
+# THE ROLE PROPOSES IT (#565). "registra no requisito 6 que …" was a pattern matched before the
+# model; the decision now travels in the role's own marker, `[[REGISTRO: REQ-N; <their words>]]`,
+# and the person reads those words back before anything is written.
+@pytest.mark.parametrize(("marker", "number", "decision"), [
+    ("[[REGISTRO: REQ-0006; o pró-labore entra como despesa fixa]]", 6,
      "o pró-labore entra como despesa fixa"),
-    ("Nina, anota no requisito 4 que decidimos usar o CNPJ da matriz",
-     "decidimos usar o CNPJ da matriz"),
-    ("grava no requisito 6: o corte é dia 25", "o corte é dia 25"),
+    ("[[REGISTRO: REQ-4; decidimos usar o CNPJ da matriz]]", 4, "decidimos usar o CNPJ da matriz"),
+    ("[[REGISTRO: 6; o corte é dia 25]]", 6, "o corte é dia 25"),
 ])
-def test_a_person_records_a_decision_in_their_own_words(phrase, decision):
-    matched = match_intent(phrase)
+def test_a_person_records_a_decision_in_their_own_words(marker, number, decision):
+    answer = read_answer(f"Vou registrar.\n{marker}")
 
-    assert matched and matched[0] == "decision", f"{phrase!r} -> {matched}"
-    assert matched[1]["decision"] == decision, matched
+    assert answer.gesture == "record", (marker, answer.gesture)
+    assert int(answer.gesture_args["number"]) == number, answer.gesture_args
+    assert answer.gesture_args["decision"] == decision, answer.gesture_args
+    assert answer.text == "Vou registrar.", answer.text
 
 
-@pytest.mark.parametrize("phrase", [
-    "não registra nada no requisito 6",
-    "você registrou algo no requisito 6?",
-])
-def test_a_negation_or_a_question_writes_nothing(phrase):
-    matched = match_intent(phrase)
+def test_a_negation_or_a_question_writes_nothing():
+    """What the pattern refused — "não registra nada no requisito 6", "você registrou algo no
+    requisito 6?" — is the role's to refuse now, and its instruction says so: the decision is the
+    person's words, never one still being discussed nor one the role needs from them."""
+    from pathlib import Path
 
-    assert not (matched and matched[0] == "decision"), f"{phrase!r} -> {matched}"
+    src = (Path(__file__).resolve().parents[1] / "openfactory" / "product" /
+           "role.py").read_text(encoding="utf-8")
+    taught = src[src.index('"IF THEY STATE A DECISION TO BE WRITTEN INTO A REQUIREMENT'):]
+    # the paragraph as the model reads it: the source's adjacent string pieces joined
+    taught = re.sub(r'"\s*\n\s*f?"', "", taught[:taught.index('"IF THEY DICTATE A FACT')])
+    assert "never a paraphrase or a conclusion of yours" in taught
+    assert "NOT for a decision you need FROM them" in taught
+    assert "nor for one still being discussed" in taught
+    for phrase in ("não registra nada no requisito 6", "você registrou algo no requisito 6?"):
+        assert match_intent(phrase) is None, phrase
 
 
 @pytest.mark.parametrize(("phrase", "intent"), [
-    ("aceita o requisito 6", "accept"),
-    ("cancela o requisito 2", "drop"),
     ("quebra o requisito 8 em tarefas", "breakdown"),
     ("alinha o #288 ao requisito 6", "align"),
     ("fecha o #511", "close"),
@@ -218,11 +228,23 @@ class _Project:
         self.product = _Product(list(admins))
 
 
+#: What the role writes when the person dictates the decision below (#565): its understanding,
+#: then the marker that proposes the act.
+PROPOSED = "Vou registrar no requisito 6.\n[[REGISTRO: REQ-0006; o corte é dia 25]]"
+
+
 class _Module:
-    def __init__(self, req=None, *, records=None):
+    def __init__(self, req=None, *, records=None, said=PROPOSED):
         self.reqs = [req if req is not None else _Req()]
         self.recorded = None
         self._records = records or _Result(ok=True, ref="0006-portal.md")
+        self.said = said
+
+    def answer(self, question, **_):
+        return read_answer(self.said)
+
+    def close_decisions_answered(self, **_):
+        return 0
 
     def context(self):
         from types import SimpleNamespace

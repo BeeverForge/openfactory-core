@@ -49,7 +49,7 @@ from openfactory.product.facts import render_decisions
 from openfactory.product.key import product_key
 from openfactory.product.loader import ProductContext
 from openfactory.product.module import ProductModule
-from openfactory.product.role import ProductAnswer, ProductRole, RequirementDraft
+from openfactory.product.role import ProductAnswer, ProductRole, RequirementDraft, read_answer
 from tests.test_the_conversation_is_pinned import ASKS, PLAIN, _Conversation, _Module, _Table
 from tests.the_sink_door import SINK_DOOR
 
@@ -102,7 +102,10 @@ class _Room(_Module):
 
     def __init__(self, project, **kw) -> None:
         asked = ProductAnswer(ok=True, text="Hoje não fazemos isso.", is_request=True)
-        super().__init__(project, replies={"PDF": asked, "CSV": asked, "backlog": ASKS}, **kw)
+        # a dictated fact is the role's to propose (#565): its reading carries the words
+        noted = read_answer("Vou anotar.\n[[FATO: o fechamento roda sempre no quinto dia útil]]")
+        super().__init__(project, replies={"PDF": asked, "CSV": asked, "backlog": ASKS,
+                                           "anota que": noted}, **kw)
         self.speakers: list = []
 
     def draft(self, request, *, asked_by=""):

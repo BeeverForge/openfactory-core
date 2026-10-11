@@ -23,9 +23,11 @@ MUTATIONS = [
      '_ORDER_RE = re.compile(r"\\[\\[ORDEM:\\s*(?P<numbers>[#\\d][#\\d,;\\s]{0,200})\\]\\]")'),
 
     ("the marker is read and only its digits are kept, so DAR-11 is staged as 11", ROLE,
-     '        order = refs_written(ordered.group("numbers")) if ordered else []',
-     '        order = (list(dict.fromkeys(re.findall(r"\\d+", ordered.group("numbers"))))\n'
-     '                 if ordered else [])'),
+     # RE-PINNED 2026-10-10 (#565): the reply's parser moved into `read_answer`, four spaces
+     # shallower
+     '    order = refs_written(ordered.group("numbers")) if ordered else []',
+     '    order = (list(dict.fromkeys(re.findall(r"\\d+", ordered.group("numbers"))))\n'
+     '             if ordered else [])'),
 
     ("the order is sorted where the refs are read", REFS,
      "    return list(dict.fromkeys(ref for ref in found if ref))",

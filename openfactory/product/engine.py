@@ -1217,6 +1217,30 @@ def gestures(ex: Exchange, answer) -> Reply | str | None:
         body = replaced + ((answer.text + "\n\n") if answer.text else "") + ask
         return offer(project, thread, body)
 
+    # AN ACT ON A REQUIREMENT THE ROLE PROPOSED (#565): agree, drop, record a decision, note a
+    # fact. Each was reached by a fixed sentence alone, before the model — "pode aceitar o 66"
+    # matched nothing, and the model that understood it had no act to hand it to. Staged by the
+    # branch the sentence reached, so what is checked before the question and what the yes
+    # executes are the same; the role's reply goes in front of the question or of why nothing was
+    # staged.
+    from openfactory.product.role import GESTURE_INTENT
+    from openfactory.product.voice import one_act_at_a_time
+
+    intent = GESTURE_INTENT.get(getattr(answer, "gesture", ""))
+    if intent:
+        # A SECOND ACT IN THE SAME REPLY IS NOT STAGED (one entry per conversation), and the
+        # person who asked for both is told so before the one question they get
+        later = (one_act_at_a_time(language=lang) + "\n\n"
+                 if getattr(answer, "acts_not_staged", 0) else "")
+        proposed = _run_intent(project, intent,
+                               {**(getattr(answer, "gesture_args", None) or {}),
+                                "preamble": f"{answer.text}\n\n" if answer.text else "",
+                                "later": later},
+                               module=module, lang=lang, user=user,
+                               on_it=ex.on_it, thread=ex.thread, channel=channel, key=thread)
+        if proposed:
+            return proposed
+
     # A GESTURE THE MODEL RECOGNISED that the word list did not (role.QUEUE_MARKER). The pattern
     # in `product_intents` still runs first and still short-circuits — this is the escape for the
     # phrasings it does not carry, and it costs nothing extra because this call already happened.
@@ -1762,6 +1786,19 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
     # this conversation — and `conversation` is where the message was said (the first pass reports
     # back to it)
     conversation, thread = thread, (key or thread)
+    # WHAT THE ROLE SAID BEFORE ITS MARKER (#565). An act the role proposed is staged here from
+    # `gestures`, and its reply goes in front of what this branch says — the question, or why
+    # nothing was staged — with no name before the sentence, because the reply is already the
+    # role's own. A proposal it displaced is said first, as `_offer_card` says it.
+    preamble = captures.get("preamble", "")
+    # …AND, IN FRONT OF A QUESTION ONLY, that a second act in the same reply waits for it: where
+    # nothing is staged there is no first act to have prepared
+    asking = preamble + captures.get("later", "")
+
+    def said(sentence: str) -> str:
+        if preamble:
+            return preamble + sentence
+        return f"{name}: {sentence}" if name else sentence
 
     if intent == "announce":
         return module.introduce()
@@ -1785,7 +1822,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "note", language=lang)
-        return offer(project, thread, replaced + ask)
+        return offer(project, thread, replaced + asking + ask)
 
     if intent == "status":
         # COMPOSED HERE, NEVER `status_line()`. That one is `ProductContext.health()` — an operator
@@ -1871,65 +1908,65 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
 
     if intent == "accept":
         number = int(captures.get("number") or 0)
-        req, _corpus, instead = _named_requirement(project, module, number, name, lang)
+        req, _corpus, instead = _named_requirement(project, module, number,
+                                                   "" if preamble else name, lang)
         if instead:
-            return instead
+            return preamble + instead
         if req.is_promise:
-            agreed = engine_said("already_agreed", language=lang, number=number)
-            return f"{name}: {agreed}" if name else agreed
+            return said(engine_said("already_agreed", language=lang, number=number))
         if not req.is_live:
             # THE MODULE'S OWN QUESTION, ASKED HERE TOO — `drop` reads this same flag one branch
             # below. This one compared a raw status to "accepted", so a retired requirement bought
             # a confirmation from a person; and `module.accept` refuses only what is ALREADY
             # agreed, so that yes would have written a text the client had taken off the table
             # back into force as a promise the factory defends.
-            retired = engine_said("accept_dropped", language=lang, number=number)
-            return f"{name}: {retired}" if name else retired
+            return said(engine_said("accept_dropped", language=lang, number=number))
         from openfactory.product.voice import accept_confirmation
 
         body = remember(thread, {"kind": "accept", "number": number, "channel": channel,
                                  "asked_by": user or ""},
                         lang=lang, project=project, person=user)
-        return offer(project, thread, body + accept_confirmation(
+        return offer(project, thread, body + asking + accept_confirmation(
             number=number, title=req.title or req.slug, language=lang))
 
     if intent == "drop":
         number = int(captures.get("number") or 0)
-        req, _corpus, instead = _named_requirement(project, module, number, name, lang)
+        req, _corpus, instead = _named_requirement(project, module, number,
+                                                   "" if preamble else name, lang)
         if instead:
-            return instead
+            return preamble + instead
         if not req.is_live:
             # already off the table — saying "confirm and I'll drop it" would stage a write that
             # changes nothing, and the person would believe they had decided something
-            dropped = engine_said("already_dropped", language=lang, number=number)
-            return f"{name}: {dropped}" if name else dropped
+            return said(engine_said("already_dropped", language=lang, number=number))
         from openfactory.product.voice import drop_confirmation
 
         was_a_promise = req.is_promise
+        reason = (captures.get("reason") or "").strip()[:300]
         body = remember(thread, {"kind": "drop", "number": number, "channel": channel,
-                                 "reason": (captures.get("reason") or "").strip()[:300],
+                                 "reason": reason,
                                  "was_a_promise": was_a_promise,
                                  "asked_by": user or ""},
                         lang=lang, project=project, person=user)
         ask = drop_confirmation(number=number, title=req.title or req.slug,
-                                was_a_promise=was_a_promise, language=lang)
+                                was_a_promise=was_a_promise, reason=reason, language=lang)
         if not may_act(project, user):
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "decision", language=lang)
-        return offer(project, thread, body + ask)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "decision":
         number = int(captures.get("number") or 0)
         decision = (captures.get("decision") or "").strip().rstrip(".")[:400]
-        req, _corpus, instead = _named_requirement(project, module, number, name, lang)
+        req, _corpus, instead = _named_requirement(project, module, number,
+                                                   "" if preamble else name, lang)
         if instead:
-            return instead
+            return preamble + instead
         if not req.is_live:
             # writing into a document nobody is executing records the decision where nobody will
             # go looking for it — and the person would believe it had landed somewhere useful
-            gone = engine_said("decision_on_dropped", language=lang, number=number)
-            return f"{name}: {gone}" if name else gone
+            return said(engine_said("decision_on_dropped", language=lang, number=number))
         from openfactory.product.voice import decision_confirmation
 
         body = remember(thread, {"kind": "decision", "number": number, "channel": channel,
@@ -1944,7 +1981,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "decision", language=lang)
-        return offer(project, thread, body + ask)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "close":
         # A CARD, NOT A REQUIREMENT (C-05) — the tracker's own ref, whatever shape it takes.

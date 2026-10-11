@@ -100,7 +100,7 @@ from openfactory.product.key import product_key
 from openfactory.product.loader import ProductContext
 from openfactory.product.module import ProductModule, _not_a_promise, unauthorized_message
 from openfactory.product.queue import Proposed, QueueProposal, Readiness
-from openfactory.product.role import ProductAnswer, RequirementDraft
+from openfactory.product.role import ProductAnswer, RequirementDraft, read_answer
 from openfactory.product.triage import TriageReport
 from tests.the_breakdown_runs_here import run_here
 from tests.the_card_at_its_last_gate import at_its_last_gate
@@ -942,12 +942,13 @@ def test_a_late_yes_hears_it_expired_from_this_process_when_the_store_did_not_ta
 
 def test_the_same_proposal_asked_for_again_after_it_expired_is_confirmed(table, ledger,
                                                                         monkeypatch):
-    """The expiry notice says "ask me again and I'll prepare another", and a typed gesture
-    prepares the same text, so its token is the expired one's. The durable store reads an answer
+    """The expiry notice says "ask me again and I'll prepare another", and the role proposing the
+    same act again prepares the same text, so its token is the expired one's. The durable store reads an answer
     as settling the ask BEFORE it (#274): the `expired` answer closed the first asking, and the
     second is open, listed on the panel and confirmed by a yes, once."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    module = _Module(project, requirements=BASE,
+                     replies=_proposing("aceita o requisito 4", "[[ACORDO: REQ-0004]]"))
     talk = _Conversation(project, module)
     talk.say("aceita o requisito 4", user=CLIENT)
     token = _token()
@@ -1115,25 +1116,38 @@ def test_what_is_parked_reads_the_diagnoses_and_reports_without_the_model(table,
 DICTATED = "registra no requisito 4 que o pró-labore entra como despesa fixa"
 DECIDED = "o pró-labore entra como despesa fixa"
 
+#: WHAT THE ROLE SAYS ABOVE AN ACT IT PROPOSES (#565). Agreeing to a requirement, dropping it,
+#: recording a decision in it and noting a fact were typed intents, matched before the model; they
+#: are the role's markers now, so each turn pinned below is the model's reading — its words, then
+#: the marker — and the reply is those words, then what the stage says.
+UNDERSTOOD = "Entendi."
+
+
+def _proposing(said: str, marker: str) -> dict:
+    """The role's reply to a message containing `said`: its understanding and the act's marker,
+    read by the role's own parser."""
+    return {said: read_answer(f"{UNDERSTOOD}\n{marker}")}
+
 
 def test_a_decision_dictated_on_a_requirement_is_staged_verbatim_and_written_on_a_yes(table,
                                                                                     ledger):
-    """The typed intent stages the decision, shown back in the person's own words, with the
-    admins named when the person cannot write it themselves — no model call. An admin's "sim"
-    records it on that requirement, attributed and with where it was said."""
+    """The role proposes the decision (`[[REGISTRO`, #565) and the stage shows it back in the
+    words the marker carries, under the role's reply, with the admins named when the person cannot
+    write it themselves. An admin's "sim" records it on that requirement, attributed and with where
+    it was said."""
     project = _project()
-    module = _Module(project)
+    module = _Module(project, replies=_proposing(DICTATED, f"[[REGISTRO: REQ-0004; {DECIDED}]]"))
     talk = _Conversation(project, module)
 
     reply = talk.say(DICTATED, user=CLIENT)
 
-    assert reply == voice.decision_confirmation(number=4, decision=DECIDED, language=LANG) + (
-        _admins_note("a decisão"))
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.decision_confirmation(
+        number=4, decision=DECIDED, language=LANG) + _admins_note("a decisão")
     staged = _staged()
     assert {k: staged[k] for k in ("kind", "number", "decision", "channel", "asked_by")} == {
         "kind": "decision", "number": 4, "decision": DECIDED, "channel": ROOM,
         "asked_by": CLIENT}
-    assert "answer" not in module.verbs() and "record_decision" not in module.verbs()
+    assert "record_decision" not in module.verbs()
 
     done = talk.say("sim", user=ADMIN)
 
@@ -1144,20 +1158,20 @@ def test_a_decision_dictated_on_a_requirement_is_staged_verbatim_and_written_on_
 
 
 def test_a_dictated_fact_is_read_back_and_written_only_on_a_yes(table, ledger):
-    """"anota que …" stages the fact with a findable term and the words as said, attributed to
-    who SAID it; the admin's yes writes it, and nothing is written before. The term is the fact
-    with its leading article dropped and cut at five words — a literal here, because the rule
-    that makes it is what is pinned."""
+    """"anota que …" is proposed as a fact (`[[FATO`, #565) and staged with a findable term and
+    the words the marker carries, attributed to who SAID it; the admin's yes writes it, and nothing
+    is written before. The term is the fact with its leading article dropped and cut at five words
+    — a literal here, because the rule that makes it is what is pinned."""
     project = _project()
-    module = _Module(project)
-    talk = _Conversation(project, module)
     fact = "o fechamento roda sempre no quinto dia útil"
     term = "fechamento roda sempre no quinto"
+    module = _Module(project, replies=_proposing("anota que", f"[[FATO: {fact}]]"))
+    talk = _Conversation(project, module)
 
     reply = talk.say(f"anota que {fact}", user=CLIENT)
 
-    assert reply == voice.fact_confirmation(term=term, body=fact, language=LANG) + (
-        _admins_note("a anotação"))
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.fact_confirmation(
+        term=term, body=fact, language=LANG) + _admins_note("a anotação")
     assert not module.asked("note_fact")
 
     done = talk.say("sim", user=ADMIN)
@@ -1169,40 +1183,44 @@ def test_a_dictated_fact_is_read_back_and_written_only_on_a_yes(table, ledger):
 
 def test_a_dictation_that_ends_in_a_question_mark_is_a_question_and_reaches_the_model(table,
                                                                                      ledger):
-    """"anota que semana passada o sistema caiu?" matches the dictation and is a rhetorical
-    QUESTION: the intent gives the message back, nothing is staged, and the conversation answers
-    it — a recognised intent that cannot be carried out must not swallow the message."""
+    """"anota que semana passada o sistema caiu?" is a rhetorical QUESTION. Noting a fact is the
+    role's to propose now (#565), and a fact it proposes that ends in a question mark is still
+    refused by the branch: nothing is staged, and the role's answer is what the person gets — an
+    act that cannot be carried out must not swallow the message."""
     project = _project()
-    module = _Module(project)
-    talk = _Conversation(project, module)
     said = "anota que semana passada o sistema caiu?"
+    module = _Module(project, replies=_proposing(said, "[[FATO: semana passada o sistema caiu?]]"))
+    talk = _Conversation(project, module)
 
     reply = talk.say(said, user=CLIENT)
 
-    assert reply == PLAIN.text
+    assert reply == UNDERSTOOD
     assert module.asked("answer")[-1]["question"] == said
     assert _nothing_staged()
 
 
 def test_accept_is_staged_with_the_title_and_agreed_on_a_yes_then_broken_down(table, ledger,
                                                                               monkeypatch):
-    """"aceita o requisito 4" — the act that turns a written text into a promise — stages the
-    acceptance with the requirement's title shown, and it is the one staged gesture that names no
-    admins under it. The admin's yes accepts it; with no card waiting on it, the acceptance's own
-    second act starts its breakdown on the worker (`asked_for=False`: nobody typed that request),
-    and the conversation is told the cards when it ends (#563 slice 18b)."""
+    """"aceita o requisito 4" — the act that turns a written text into a promise — is proposed by
+    the role (`[[ACORDO`, #565) and staged with the requirement's title shown, and it is the one
+    staged gesture that names no admins under it. The admin's yes accepts it; with no card waiting
+    on it, the acceptance's own second act starts its breakdown on the worker (`asked_for=False`:
+    nobody typed that request), and the conversation is told the cards when it ends (#563 slice
+    18b)."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    module = _Module(project, requirements=BASE,
+                     replies=_proposing("aceita o requisito 4", "[[ACORDO: REQ-0004]]"))
     talk = _Conversation(project, module)
     ran = run_here(monkeypatch, module)
 
     reply = talk.say("aceita o requisito 4", user=CLIENT)
 
-    assert reply == voice.accept_confirmation(number=4, title="Pró-labore", language=LANG)
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.accept_confirmation(number=4, title="Pró-labore",
+                                                                     language=LANG)
     staged = _staged()
     assert {k: staged[k] for k in ("kind", "number", "channel", "asked_by")} == {
         "kind": "accept", "number": 4, "channel": ROOM, "asked_by": CLIENT}
-    assert not _writes(module) and "answer" not in module.verbs()
+    assert not _writes(module)
 
     done = talk.say("sim", user=ADMIN)
 
@@ -1216,18 +1234,21 @@ def test_accept_is_staged_with_the_title_and_agreed_on_a_yes_then_broken_down(ta
 
 
 def test_drop_is_staged_with_its_reason_and_taken_off_the_table_on_a_yes(table, ledger):
-    """"cancela o requisito 5 porque …" stages the drop with the reason as said and whether the
-    text was a promise (it is here, and the confirmation says so), names the admins, and the
-    admin's yes drops it with that reason."""
+    """"cancela o requisito 5 porque …" is proposed as a drop (`[[DESCARTE`, #565) and staged
+    with the reason the marker carries and whether the text was a promise (it is here, and the
+    confirmation says so), names the admins, and the admin's yes drops it with that reason."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    module = _Module(project, requirements=BASE,
+                     replies=_proposing("cancela o requisito 5",
+                                        "[[DESCARTE: REQ-0005; porque o cliente desistiu]]"))
     talk = _Conversation(project, module)
 
     reply = talk.say("cancela o requisito 5 porque o cliente desistiu", user=CLIENT)
 
-    assert reply == voice.drop_confirmation(number=5, title="Extrato conciliado",
-                                            was_a_promise=True, language=LANG) + (
-        _admins_note("a decisão"))
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.drop_confirmation(
+        number=5, title="Extrato conciliado", was_a_promise=True,
+        reason="porque o cliente desistiu", language=LANG) + (_admins_note("a decisão"))
+    assert "> porque o cliente desistiu\n\nConfirma?" in reply, reply
     staged = _staged()
     assert {k: staged[k] for k in ("kind", "number", "reason", "was_a_promise", "channel",
                                    "asked_by")} == {
@@ -1368,32 +1389,35 @@ def test_aligning_to_what_is_not_a_promise_is_refused_before_anybody_is_asked(re
     assert not _writes(module) and "answer" not in module.verbs()
 
 
-@pytest.mark.parametrize("said, refused", [
-    ("aceita o requisito 5", f"{AGENT}: o requisito 5 já estava acordado."),
-    ("aceita o requisito 6",
-     f"{AGENT}: o requisito 6 já não vale, então acordá-lo agora seria trazer de volta um texto "
+@pytest.mark.parametrize("said, marker, refused", [
+    ("aceita o requisito 5", "[[ACORDO: REQ-0005]]", "o requisito 5 já estava acordado."),
+    ("aceita o requisito 6", "[[ACORDO: REQ-0006]]",
+     "o requisito 6 já não vale, então acordá-lo agora seria trazer de volta um texto "
      "que vocês já tinham tirado da mesa. Se isso voltou a fazer sentido, me digam e eu proponho "
      "de novo para vocês confirmarem."),
-    ("cancela o requisito 6", f"{AGENT}: o requisito 6 já não estava valendo."),
+    ("cancela o requisito 6", "[[DESCARTE: REQ-0006]]", "o requisito 6 já não estava valendo."),
     ("registra no requisito 6 que o pró-labore entra como despesa fixa",
-     f"{AGENT}: o requisito 6 já não vale, então uma decisão registrada nele ficaria guardada "
+     f"[[REGISTRO: REQ-0006; {DECIDED}]]",
+     "o requisito 6 já não vale, então uma decisão registrada nele ficaria guardada "
      "onde ninguém vai procurar. Em qual requisito isso deve entrar?"),
 ], ids=["accept-a-promise", "accept-a-dropped-text", "drop-a-dropped-text",
         "decide-on-a-dropped-text"])
-def test_a_gesture_on_a_requirement_it_cannot_apply_to_is_refused_in_its_own_words(said, refused,
-                                                                                  table, ledger):
+def test_a_gesture_on_a_requirement_it_cannot_apply_to_is_refused_in_its_own_words(said, marker,
+                                                                                  refused, table,
+                                                                                  ledger):
     """Agreeing to what is already agreed, reviving a retired text as a promise, dropping what is
     already off the table, recording a decision where nobody will look: each is refused by the
-    gesture's own sentence, before anything is staged or anybody is asked."""
+    gesture's own sentence, under the role's reply that proposed it (#565), before anything is
+    staged or anybody is asked."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    module = _Module(project, requirements=BASE, replies=_proposing(said, marker))
     talk = _Conversation(project, module)
 
     reply = talk.say(said, user=ADMIN)
 
-    assert reply == refused
+    assert reply == f"{UNDERSTOOD}\n\n{refused}"
     assert _nothing_staged()
-    assert not _writes(module) and "answer" not in module.verbs()
+    assert not _writes(module)
 
 
 #: The four gestures that name a requirement by number, each with the number left open.
@@ -1403,6 +1427,13 @@ NAMING = {
     "decision": "registra no requisito {n} que o pró-labore entra como despesa fixa",
     "align": "alinha o #12 ao requisito {n}",
 }
+#: …and the marker the role proposes each with, for the three that are its acts now (#565); `align`
+#: is still a typed intent.
+PROPOSED = {
+    "accept": "[[ACORDO: REQ-{n}]]",
+    "drop": "[[DESCARTE: REQ-{n}]]",
+    "decision": "[[REGISTRO: REQ-{n}; o pró-labore entra como despesa fixa]]",
+}
 
 
 @pytest.mark.parametrize("gesture", sorted(NAMING))
@@ -1411,14 +1442,18 @@ def test_a_gesture_naming_a_requirement_the_base_does_not_have_is_told_so(gestur
     """A number the base does not have is said to be missing — one sentence for every gesture —
     and nothing is staged."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    said, marker = NAMING[gesture].format(n=42), PROPOSED.get(gesture, "").format(n=42)
+    module = _Module(project, requirements=BASE,
+                     replies=_proposing(said, marker) if marker else None)
     talk = _Conversation(project, module)
 
-    reply = talk.say(NAMING[gesture].format(n=42), user=ADMIN)
+    reply = talk.say(said, user=ADMIN)
 
-    assert reply == f"{AGENT}: " + voice.requirement_not_found(number=42, language=LANG)
+    missing = voice.requirement_not_found(number=42, language=LANG)
+    assert reply == (f"{UNDERSTOOD}\n\n{missing}" if marker else f"{AGENT}: {missing}")
     assert _nothing_staged()
-    assert not _writes(module) and "answer" not in module.verbs()
+    assert not _writes(module)
+    assert marker or "answer" not in module.verbs()
 
 
 @pytest.mark.parametrize("gesture", sorted(NAMING))

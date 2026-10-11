@@ -25,8 +25,10 @@ TEST = "tests/test_the_product_owner_opens_a_card_as_described.py"
 MUTATIONS = [
     ("the marker is parsed and then ignored — the answer never says a card was asked for",
      "openfactory/product/role.py",
-     "                             is_ticket=ticket is not None,",
-     "                             is_ticket=False,"),
+     # RE-PINNED 2026-10-10 (#565): the reply's parser moved into `read_answer`, four spaces
+     # shallower
+     "                         is_ticket=ticket is not None,",
+     "                         is_ticket=False,"),
 
     ("the prompt stops teaching the title form, so the model can only say [[TICKET]] and the "
      "person's whole message becomes the title",

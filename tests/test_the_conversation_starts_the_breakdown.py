@@ -135,6 +135,66 @@ async def test_the_conversation_first_and_the_panel_reads_what_it_filed(env, mon
     assert refused[0].filed == FILED, refused[0].filed
 
 
+#: Every telling the workflow asked for, when the breakdown did not finish.
+UNFINISHED: list[ProductBreakdownInput] = []
+
+
+@activity.defn(name="product_breakdown_did_not_finish")
+async def _told_unfinished(inp: ProductBreakdownInput) -> bool:
+    UNFINISHED.append(inp)
+    return True
+
+
+@activity.defn(name="product_role_break_down")
+async def _the_breakdown_that_raises(inp: ProductBreakdownInput) -> list[dict]:
+    from temporalio.exceptions import ApplicationError
+
+    raise ApplicationError("the harness died", non_retryable=True)
+
+
+async def _ended(env, breakdown, inp: ProductBreakdownInput):
+    UNFINISHED.clear()
+    async with Worker(env.client, task_queue=TASK_QUEUE, workflows=[ProductBreakdownWorkflow],
+                      activities=[breakdown, _told_unfinished]):
+        handle = await env.client.start_workflow(
+            "ProductBreakdownWorkflow", inp, id=breakdown_workflow_id(inp.project, inp.number),
+            task_queue=TASK_QUEUE)
+        try:
+            await asyncio.wait_for(handle.result(), timeout=60)
+        except Exception as exc:  # noqa: BLE001 — the case asserts on it
+            return exc
+    return None
+
+
+@pytest.mark.owns_its_engine
+async def test_a_breakdown_that_did_not_finish_is_told_by_the_workflow(env):
+    """REVIEW OF #616. The activity told its own failure, but a worker that died or a heartbeat
+    that stopped never reached that line, and the conversation heard "started" and then nothing.
+    The workflow tells it now, and the breakdown still fails."""
+    failed = await _ended(env, _the_breakdown_that_raises, ProductBreakdownInput(
+        project="acme", number=7, actor="bia", asked_for=True, conversation="C1", room="R1"))
+
+    assert failed is not None, "a breakdown that did not finish was reported as done"
+    assert [(i.conversation, i.room) for i in UNFINISHED] == [("C1", "R1")], UNFINISHED
+
+
+def test_whatever_ends_the_breakdown_reaches_the_telling():
+    """A worker that died and a heartbeat that stopped reach the workflow as an `ActivityError`
+    whose cause is a timeout, as an error the activity raised does: the workflow catches that
+    class, never one narrower, so each of them is told."""
+    source = inspect.getsource(ProductBreakdownWorkflow.run)
+
+    assert "except ActivityError:" in source and "product_breakdown_did_not_finish" in source
+
+
+@pytest.mark.owns_its_engine
+async def test_a_breakdown_no_conversation_started_is_told_to_nobody_when_it_fails(env):
+    failed = await _ended(env, _the_breakdown_that_raises, ProductBreakdownInput(
+        project="acme", number=7, actor="bia", asked_for=False))
+
+    assert failed is not None and UNFINISHED == []
+
+
 @pytest.mark.owns_its_engine
 async def test_after_it_ends_the_conversation_may_start_it_again(env):
     """Once means one at a time (D18 item 1): a breakdown that ended does not refuse the next."""
@@ -212,14 +272,25 @@ async def test_a_breakdown_no_conversation_started_is_told_to_nobody(worker_side
     assert worker_side.told == [], "the panel's breakdown was told to a conversation"
 
 
-async def test_a_breakdown_that_failed_is_told_and_still_fails(worker_side):
+async def test_a_breakdown_that_failed_still_fails_and_leaves_the_telling_to_the_workflow(
+        worker_side):
+    """The workflow tells a breakdown that did not finish, whatever ended it (review of #616): the
+    activity's own except could not see a worker that died, so it tells nothing itself."""
     from openfactory.runtime.temporal.activities import product_role_break_down
 
     worker_side.raises = RuntimeError("the harness died")
     with pytest.raises(RuntimeError, match="the harness died"):
         await product_role_break_down(_inp(conversation="C1"))
 
-    assert [t["text"] for t in worker_side.told] == ["told REQ-7: failed"]
+    assert worker_side.told == []
+
+
+async def test_the_breakdown_that_did_not_finish_is_told(worker_side):
+    from openfactory.runtime.temporal.activities import product_breakdown_did_not_finish
+
+    assert await product_breakdown_did_not_finish(_inp(conversation="C1", room="R1")) is True
+    assert worker_side.told == [{"id": "breakdown-acme-7", "conversation": "C1",
+                                 "text": "told REQ-7: failed", "room": "R1"}]
 
 
 async def test_a_telling_that_failed_never_costs_the_cards(worker_side, monkeypatch, caplog):

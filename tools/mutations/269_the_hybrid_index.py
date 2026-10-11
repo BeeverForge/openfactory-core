@@ -196,9 +196,11 @@ MUTATIONS = [
      "            last = round_ == SEARCH_ROUNDS",
      "            last = False", STEP),
 
+    # RE-PINNED 2026-10-10 (#565): the reply's parser moved out of `ProductRole.answer` into
+    # `read_answer`, four spaces shallower
     ("a search the bound did not run is left to the safety net", ROLE,
-     "        text = _SEARCH_RE.sub(\"\", text).rstrip()",
-     "        pass", STEP),
+     "    text = _SEARCH_RE.sub(\"\", text).rstrip()",
+     "    pass", STEP),
 
     ("the marker is never offered", ROLE,
      "            + self._search_instruction(),",
