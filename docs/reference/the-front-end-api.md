@@ -20,14 +20,16 @@ and when the default front end calls anything not listed here.
 | `?token=<credential>` | an `EventSource`, which cannot set a header |
 
 **Nothing configured means open.** With no credential configured on the deployment
-(`OPENFACTORY_PANEL_TOKEN(S)`, `OPENFACTORY_PRODUCT_TOKEN(S)`, an identity provider) every route
+(`OPENFACTORY_PANEL_TOKEN(S)`, `OPENFACTORY_PRODUCT_TOKEN(S)`, `OPENFACTORY_BOARD_TOKEN(S)`, an
+identity provider) every route
 answers without one: the local-development posture, never the production one.
 
 **Areas.** A credential may act in the **floor** (the factory: jobs, boards, projects), in the
 **product** area (the product role, its documents and attachments), or in both (an unscoped
 credential). `GET /api/whoami` answers which, for any credential, and is how a screen decides what
 to draw for itself. The product area is every path under `/api/product/` and every catalogue row
-named `product_*`; every other path under `/api/` is the floor.
+named `product_*`; every other path under `/api/` is the floor, with one read the product area
+makes too: `GET /api/board/{project}` for a project with a product role, never with `?pr=` (#562).
 
 **A dashboard on another origin** is admitted by `OPENFACTORY_PANEL_ORIGINS`, which names the
 origins explicitly; a CORS preflight is answered without a credential, and the request after it is
@@ -59,7 +61,7 @@ means any credential the deployment issued.
 | GET | `/api/actions` | floor | the catalogue of actions this deployment can be asked to do |
 | GET | `/api/address` | floor | how a repository address would be read, before a project is added |
 | GET | `/api/attention` | floor | the jobs that need a person |
-| GET | `/api/board/{project}` | floor | a project's board, as its tracker holds it |
+| GET | `/api/board/{project}` | floor; product, for a project with a product role and without `?pr=` | a project's board, as its tracker holds it |
 | GET | `/api/budget` | floor | the API budget of the trackers this deployment reads |
 | GET | `/api/coordinator/messages` | floor | the tech-lead's recent narrated updates |
 | GET | `/api/decisions` | floor | every job parked on a person's decision, with its question and options |
