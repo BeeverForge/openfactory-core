@@ -22,6 +22,8 @@ money. The proposal is the argument; a person's yes is the decision (ADR-0019 §
 
 from __future__ import annotations
 
+import re
+
 from pydantic import BaseModel, Field, field_validator
 
 from openfactory.contracts.refs import canonical_ref
@@ -215,12 +217,65 @@ def _named(numbers: list[str], titles: dict[str, str] | None = None) -> str:
         or "nada"
 
 
+#: HOW MUCH OF A CANDIDATE THE ROLE READS (#567), per card, so forty candidates stay a prompt.
+_OBJECTIVE_CHARS = 240
+_CRITERIA_PER_CARD = 4
+_CRITERION_CHARS = 160
+
+
+def _cut(text: str, at: int) -> str:
+    said = " ".join(str(text or "").split())
+    return said if len(said) <= at else said[:at - 1].rstrip() + "…"
+
+
+def _opening(body: str) -> str:
+    """The body's first paragraph of prose — what a card without an `## Objective` section opens
+    with, which is where "building on …" is written."""
+    for paragraph in re.split(r"\n\s*\n", re.sub(r"\A---\n.*?\n---\n", "", body, flags=re.S)):
+        text = paragraph.strip()
+        if text and not text.startswith(("#", "<!--", "- ", "* ")):
+            return text
+    return ""
+
+
+def what_it_asks(ticket: Ticket) -> list[str]:
+    """A candidate in its own words, bounded: what it asks (its objective, or the opening of its
+    body), the requirement it executes, and its first criteria — one line each, under the card.
+
+    A TITLE CARRIES NEITHER WHAT A CARD DELIVERS NOR WHAT IT BUILDS ON (#567), and ordering turns on
+    both. On a live run the role advised closing the only card that carried a requirement's first
+    front; its neighbour's body opened with "building on the per-version storage introduced for
+    REQ-0066", and nothing the role was given said so."""
+    from openfactory.adapters.tracker.parse import parse_ticket_body
+    from openfactory.product.module import _cited_requirement
+
+    body = str(ticket.body or "")
+    if not body.strip():
+        return []
+    parsed = parse_ticket_body(id="", title=ticket.title, body=body, repo="")
+    asks = parsed.objective.strip()
+    if not asks or asks == ticket.title.strip():
+        asks = _opening(body)
+    lines = [f"  - asks: {_cut(asks, _OBJECTIVE_CHARS)}"] if asks else []
+    executes = _cited_requirement(body)
+    if executes is not None:
+        lines.append(f"  - executes: REQ-{executes:04d}")
+    criteria = [c.text for c in parsed.acceptance_criteria if c.text.strip()]
+    lines += [f"  - criterion: {_cut(c, _CRITERION_CHARS)}" for c in criteria[:_CRITERIA_PER_CARD]]
+    if len(criteria) > _CRITERIA_PER_CARD:
+        lines.append(f"  - (+{len(criteria) - _CRITERIA_PER_CARD} more criteria not shown)")
+    return lines
+
+
 def proposal_prompt(*, readiness: Readiness, candidates: list[Ticket], limit: int,
                     titles: dict[str, str] | None = None, total_candidates: int = 0) -> str:
     """What the role is asked, with the arithmetic already done for it.
 
-    The candidate list is given as titles, not as whole tickets: ordering is a judgement about what
-    each one DELIVERS, and the bodies would cost more than they add.
+    EACH CANDIDATE IS GIVEN IN ITS OWN WORDS, BOUNDED (#567): what it asks, the requirement it
+    executes, its first criteria (`what_it_asks`). They were titles alone — "the bodies would cost
+    more than they add" — while the prompt asked the role to hold back what depends on something
+    not done, a judgement a title cannot support. The cost is met by the bound, not by leaving the
+    content out.
 
     TWO FACTS, NEVER ONE BOOLEAN. The opening line used to read "The factory has nothing queued and
     {nothing|work} in flight" — with "nothing queued" HARD-CODED and the single variable choosing
@@ -249,9 +304,14 @@ def proposal_prompt(*, readiness: Readiness, candidates: list[Ticket], limit: in
         "answer is no, those tickets are one batch and go out together — half a change in staging "
         "is something nobody can sign off, and their sign-off is what releases it to production.",
         "",
+        "Read what each candidate builds on in its own words below — what it asks and its "
+        "criteria. A card that builds on something no card already done, being worked on, or "
+        "ahead of it in your order delivers is held back, saying what it waits for.",
+        "",
         "## Candidates (already checked: each states something testable)",
     ]
-    lines += [f"- #{t.number}: {t.title}" for t in candidates]
+    for t in candidates:
+        lines += [f"- #{t.number}: {t.title}", *what_it_asks(t)]
     hidden = max(0, (total_candidates or len(candidates)) - len(candidates))
     if hidden:
         lines.append(
