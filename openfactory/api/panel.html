@@ -1072,6 +1072,9 @@ function askWhoAgain(){
       // `boot()` would never have drawn the floor for it. Otherwise the floor stays and SAYS it
       // was refused (`floorNow`), with who is signed in and the way out beside it.
       if(productOnly()&&_surface!=="product"&&takeBootsRoute())return me;
+      // …AND THE PRODUCT OWNER'S PAGES, when it is now a credential their area refuses (#562):
+      // every read on them is a 403, and the boot draws what it may see — the refusal, or the floor.
+      if(noProductArea()&&_surface==="product"&&takeBootsRoute(false))return me;
       paintSession();paintFloor()}
     return me})();
   return _whoAsk}
@@ -1084,12 +1087,14 @@ let _surface="";
 // construction, and `boot()` then asks who this is and draws the page meant for them.
 // ONCE A MINUTE AT MOST — a deployment whose first `/api/whoami` fails and whose second succeeds
 // would otherwise reload for ever — and the arrival is SAID (`sayWhyThisPage`), because a page
-// that changes under somebody's hands without a word is its own kind of stuck.
+// that changes under somebody's hands without a word is its own kind of stuck. `say` is false where
+// the page it lands on is its own reason — the refusal names the credential, the floor is theirs —
+// and a reason left unread would be said, wrongly, by the next product page this tab opens.
 const MOVED_KEY="of.session.moved";
-function takeBootsRoute(){
+function takeBootsRoute(say=true){
   let last=0;try{last=Number(sessionStorage.getItem(MOVED_KEY)||0)}catch(e){return false}
   if(Date.now()-last<60000)return false;
-  try{sessionStorage.setItem(MOVED_KEY,String(Date.now()));sessionStorage.setItem(MOVED_KEY+".say","1")}
+  try{sessionStorage.setItem(MOVED_KEY,String(Date.now()));if(say)sessionStorage.setItem(MOVED_KEY+".say","1")}
   catch(e){return false}
   location.reload();return true}
 // A NOTICE THAT STAYS, NOT A TOAST. The reload happens on a timer, which is to say in a tab
@@ -1099,7 +1104,7 @@ let _movedNote=false;
 function sayWhyThisPage(){
   let say="";try{say=sessionStorage.getItem(MOVED_KEY+".say")||"";sessionStorage.removeItem(MOVED_KEY+".say")}catch(e){}
   if(say)_movedNote=true}
-function movedNotice(){
+function movedNotice(landed){
   if(!_movedNote)return"";
   return `<div class="needs-list" id="movedNote"><article class="needs-card" style="display:block">
       <div class="needs-body" style="flex:1 1 auto">
@@ -1107,7 +1112,7 @@ function movedNotice(){
         <div class="needs-sub" style="margin:0 0 10px">It is signed in as
           <b>${esc(sessionWho()||"somebody else")}</b> now — from another tab, most likely — and that
           credential may not read the floor, so the floor this tab was showing has been replaced by
-          the product page.${(me&&me.logout)?" Sign out to use another identity.":""}</div>
+          ${esc(landed||"the product page")}.${(me&&me.logout)?" Sign out to use another identity.":""}</div>
         <div class="needs-actions">
           ${(me&&me.logout)?`<a class="btn sm" href="${esc(safeUrl(me.logout))}">Sign out</a>`:""}
           <button class="btn sm ghost" onclick="dismissMoved()">Stay here</button></div>
@@ -2030,6 +2035,10 @@ let _pv={sessions:null,roomLast:null,sessMsg:"",side:true,tab:"reqs",menu:null,e
          files:[],limits:null,thumbs:{},here:[],docQ:"",
          board:undefined,boardMsg:"",card:null,ask:null,said:null,adjusting:null};
 
+//: The floor's own chrome — its status, its costs, its board pill — off a page that reads none of
+//: it (#562): left on, its banner says "reading the floor…" for ever.
+function hideFloorChrome(){for(const id of ["#floor","#costs","#board"]){const el=$(id); if(el)el.style.display="none"}}
+
 //: Whether the board on screen is the product owner's read of it (#562): no new card, nothing
 //: moves, and a card opens on their own page, where what they may do to it is. Set at boot only.
 let _boardReadOnly=false;
@@ -2039,22 +2048,27 @@ async function bootBoardRead(name){
   // here is said where it happened and never reloads into another page; and none of the floor's
   // clocks start, because every one of them reads what this credential is refused.
   _surface="product";_boardReadOnly=true;
-  sayWhyThisPage();
-  for(const id of ["#floor","#costs","#board"]){const el=$(id); if(el)el.style.display="none"}
+  sayWhyThisPage();   // a floor tab whose session changed arrives here by reload (#181); the head says why
+  hideFloorChrome();
+  // A STEP BACK OR FORWARD GOES THROUGH THE BOOT AGAIN, which decides the surface by the address:
+  // `render` would draw the floor under a credential that is refused it.
+  window.onpopstate=()=>location.reload();
   $("#app").innerHTML="";
   await openBoard(name);
 }
 
 function refuseTheProductPage(name){
-  // REFUSED BY NAME (#562): this credential is the board's, and the product owner's page would be
-  // a column of 403s. The board it may open is named instead — and the floor's chrome goes, as on
-  // the product page: no floor is read here, so its banner would say "reading the floor…" for ever.
+  // REFUSED BY NAME (#562): this credential is not the product owner's, and their page would be a
+  // column of 403s. The board it may open is named instead, when it may open one — a credential
+  // scoped to no area is told so, and sent nowhere it would be refused again. The floor's chrome
+  // goes, as on the product page: no floor is read here.
   _surface="refused";
-  for(const id of ["#floor","#costs","#board"]){const el=$(id); if(el)el.style.display="none"}
-  $("#app").innerHTML=`${movedNotice()}<div class="empty" style="padding:24px;max-width:720px;margin:40px auto">This
-    credential is for the board, and the product owner's page is refused to it: it needs a product
-    credential, or the administrator's.${name?` <a href="/p/${encodeURIComponent(name)}/board">Open the
-    board of ${esc(name)}</a>.`:""}</div>`;
+  hideFloorChrome();
+  const board=!!(me&&Array.isArray(me.scopes)&&me.scopes.indexOf("floor")>=0);
+  $("#app").innerHTML=`<div class="empty" style="padding:24px;max-width:720px;margin:40px auto">This
+    credential ${board?"is for the board":"is scoped to no area"}, and the product owner's page is
+    refused to it: it needs a product credential, or the administrator's.${board&&name?`
+    <a href="/p/${encodeURIComponent(name)}/board">Open the board of ${esc(name)}</a>.`:""}</div>`;
 }
 
 async function bootProduct(){
@@ -3381,7 +3395,7 @@ function pchatPaint(){paintThread();pchatPaintDock()}
 function pchatBoot(){
   // A CREDENTIAL THE PRODUCT AREA IS REFUSED HAS NO CHAT: a dock that could only fail is #181's
   // lesson again. `scopes: null` is unscoped, and may.
-  if(me&&Array.isArray(me.scopes)&&me.scopes.indexOf("product")<0)return;
+  if(noProductArea())return;
   try{_pc.room=localStorage.getItem("of.prod.room")!=="0"}catch(e){}
   api("/api/product/projects").then(list=>{
     _pc.projects=Array.isArray(list)?list.map(p=>String(p.name||"")).filter(Boolean):[];
@@ -5124,7 +5138,8 @@ function paintBoard(){
       <span class="sub">${esc(_bd.project)} · read only</span>
       <div class="spacer" style="flex:1"></div>
       <a class="btn ghost" href="/product/${encodeURIComponent(_bd.project)}">product page</a>
-    </div>` : `<div class="bhead">
+      ${(me&&me.logout)?`<a class="btn ghost" href="${esc(safeUrl(me.logout))}">Sign out</a>`:""}
+    </div>${movedNotice("the board, read only")}` : `<div class="bhead">
       <h2>Board</h2>
       <span class="sub">${esc(_bd.project)}</span>
       <div class="spacer" style="flex:1"></div>

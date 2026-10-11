@@ -11,7 +11,8 @@ page, its chat socket and a column of 403s. Decided for 0.6.0 and refined on 202
   - `/product/<project>` is the product owner's surface, and a board credential is refused it by
     name, before anything on it is asked;
   - the administrator's credential reaches both, by address;
-  - the product owner's Board tab links to the whole board.
+  - the product owner's Board tab links to the whole board;
+  - a tab whose credential changes under it goes through the boot again, as #181's floor tab does.
 
 Run under node on the page's own functions, with the harness of
 `tests/test_a_refusal_is_not_an_answer.py`.
@@ -23,9 +24,11 @@ import json
 
 import pytest
 
-from tests.test_a_refusal_is_not_an_answer import ANA, BIA, BOOT, CODE, run
+from tests.test_a_refusal_is_not_an_answer import ANA, ARRIVAL, BIA, BOOT, CODE, run
 
 LEO = {"id": "leo", "display": "Leo", "known": True, "scopes": ["floor"], "logout": "/auth/logout"}
+#: A credential scoped to no area at all: `_scopes_of` keeps only the areas the core has.
+NOBODY = {**LEO, "id": "nil", "display": "Nil", "scopes": []}
 
 
 def _boot(who: dict, path: str) -> dict:
@@ -66,16 +69,29 @@ def test_the_administrator_reaches_the_product_owners_page_by_address():
 
 # ── the product owner's read of the board ───────────────────────────────────────────────────────
 
+_BOOT_BOARD_READ = ("let opened=[];async function openBoard(n){opened.push(n)}const window={};"
+                    "let _movedNote=false;")
+
+
 def test_the_read_only_board_starts_no_clock_and_reads_nothing_of_the_floor():
     got = run("nodes['#app']=node();nodes['#floor']=node();nodes['#costs']=node();"
               "nodes['#board']=node();await bootBoardRead('acme');"
               "return {opened,calls,_surface,_boardReadOnly,"
               "hidden:['#floor','#costs','#board'].map(s=>nodes[s].style.display)}",
-              "bootBoardRead", stubs="let opened=[];async function openBoard(n){opened.push(n)}")
+              "bootBoardRead", "hideFloorChrome", *ARRIVAL, stubs=_BOOT_BOARD_READ)
 
     assert got["opened"] == ["acme"] and got["calls"] == [], got
     assert got["_surface"] == "product" and got["_boardReadOnly"] is True, got
     assert got["hidden"] == ["none", "none", "none"], got
+
+
+def test_a_step_back_on_the_read_only_board_goes_through_the_boot_again():
+    """`render`, the page's own answer to a step back, draws the floor — a floor read, and a 403,
+    under a credential the floor refuses."""
+    got = run("nodes['#app']=node();await bootBoardRead('acme');window.onpopstate();return went",
+              "bootBoardRead", "hideFloorChrome", *ARRIVAL, stubs=_BOOT_BOARD_READ)
+
+    assert got == ["reload"], got
 
 
 _BOARD = ("let _bd={project:'acme',data:{columns:['Backlog','Done'],"
@@ -84,15 +100,32 @@ _BOARD = ("let _bd={project:'acme',data:{columns:['Backlog','Done'],"
           "function _bmeta(){return{pickup:false,tone:'',note:''}}")
 
 
+def _paint(scenario: str) -> str:
+    return run(f"nodes['#boardview']=node();{scenario}paintBoard();"
+               "return nodes['#boardview'].innerHTML", "paintBoard", "_bcard", *ARRIVAL,
+               stubs=_BOARD + "let _movedNote=false;")
+
+
 def test_the_read_only_board_offers_no_new_card_and_drags_nothing():
-    read = run("_boardReadOnly=true;nodes['#boardview']=node();paintBoard();"
-               "return nodes['#boardview'].innerHTML", "paintBoard", "_bcard", stubs=_BOARD)
-    full = run("nodes['#boardview']=node();paintBoard();return nodes['#boardview'].innerHTML",
-               "paintBoard", "_bcard", stubs=_BOARD)
+    read = _paint("_boardReadOnly=true;")
+    full = _paint("")
 
     assert "read only" in read and 'href="/product/acme"' in read, read
     assert "boardNewCard" not in read and 'draggable="false"' in read, read
     assert "boardNewCard" in full and 'draggable="true"' in full, "the floor's board lost a verb"
+
+
+def test_the_read_only_board_has_the_way_out_and_says_why_it_arrived():
+    """The board covers the whole window, the top bar's Sign out with it; and a floor tab whose
+    session changed in another tab arrives here by reload (#181), with the reason on the page."""
+    out = _paint(f"_boardReadOnly=true;me={json.dumps(BIA)};")
+    moved = _paint(f"_boardReadOnly=true;me={json.dumps(BIA)};_movedNote=true;")
+    plain = _paint(f"_boardReadOnly=true;me={json.dumps({**BIA, 'logout': None})};")
+
+    # in the head itself, not only in the notice, which carries one of its own
+    assert 'href="/auth/logout">Sign out</a>' in out and "movedNote" not in out, out
+    assert 'id="movedNote"' in moved and "replaced by\n          the board, read only." in moved, moved
+    assert "Sign out" not in plain and "movedNote" not in plain, plain
 
 
 def test_a_card_on_the_read_only_board_opens_on_the_product_owners_page():
@@ -109,12 +142,16 @@ def test_a_card_on_the_read_only_board_opens_on_the_product_owners_page():
 
 # ── the refusal, and the way to the board ───────────────────────────────────────────────────────
 
+def _refuse(who: dict) -> dict:
+    return run(f"me={json.dumps(who)};nodes['#app']=node();nodes['#floor']=node();"
+               "nodes['#costs']=node();nodes['#board']=node();refuseTheProductPage('acme');"
+               "return {html:nodes['#app'].innerHTML,calls,_surface,"
+               "hidden:['#floor','#costs','#board'].map(s=>nodes[s].style.display)}",
+               "refuseTheProductPage", "hideFloorChrome")
+
+
 def test_the_refusal_names_the_credential_and_the_board_it_may_open():
-    got = run("nodes['#app']=node();nodes['#floor']=node();nodes['#costs']=node();"
-              "nodes['#board']=node();refuseTheProductPage('acme');"
-              "return {html:nodes['#app'].innerHTML,calls,_surface,"
-              "hidden:['#floor','#costs','#board'].map(s=>nodes[s].style.display)}",
-              "refuseTheProductPage", stubs="function movedNotice(){return ''}")
+    got = _refuse(LEO)
 
     assert "credential is for the board" in got["html"], got["html"]
     assert 'href="/p/acme/board"' in got["html"] and got["calls"] == [], got
@@ -122,7 +159,46 @@ def test_the_refusal_names_the_credential_and_the_board_it_may_open():
     assert got["hidden"] == ["none", "none", "none"], "the floor's banner waits for a read never made"
 
 
+def test_a_credential_scoped_to_no_area_is_not_sent_to_a_board_it_is_refused():
+    got = _refuse(NOBODY)
+
+    assert "scoped to no area" in got["html"] and "for the board" not in got["html"], got["html"]
+    assert "/board" not in got["html"], got["html"]
+
+
 def test_the_product_owners_board_tab_links_to_the_whole_board():
     render = CODE[CODE.index("function renderProduct("):CODE.index("function renderProduct(") + 9000]
 
     assert 'id="pbWhole" href="/p/${encodeURIComponent(name)}/board"' in render
+
+
+# ── a credential that changes under the tab (#181) ──────────────────────────────────────────────
+
+def _asked_again(surface: str, now: dict) -> dict:
+    return run(f"me={json.dumps(BIA)};_surface={json.dumps(surface)};"
+               f"routes={{'/api/whoami':[{{status:200,body:{json.dumps(now)}}}]}};"
+               "await askWhoAgain();"
+               "return {went,painted,say:sessionStorage.getItem(MOVED_KEY+'.say')}")
+
+
+@pytest.mark.parametrize("now", [LEO, NOBODY], ids=["board", "no-area"])
+def test_the_product_owners_page_under_a_credential_their_area_refuses_goes_through_the_boot(now):
+    """The product page and the board's read stay the product page's for a 403 a row was refused
+    — but a credential with no product area is refused every read on them, for ever."""
+    got = _asked_again("product", now)
+
+    assert got["went"] == ["reload"], got
+    assert got["say"] is None, "the next product page this tab opens would say a stale reason"
+
+
+def test_the_product_owner_still_holding_the_product_area_stays_on_their_page():
+    assert _asked_again("product", BIA)["went"] == []
+
+
+def test_a_credential_with_no_product_area_gets_no_product_chat():
+    def asked(who):
+        return run(f"me={json.dumps(who)};pchatBoot();await settle();return calls", "pchatBoot",
+                   stubs="let _pc={};function pchatFollowPage(){}")
+
+    assert asked(LEO) == [] and asked(NOBODY) == [], "a dock that could only fail"
+    assert asked(ANA) == ["GET /api/product/projects"], "the administrator lost the chat"

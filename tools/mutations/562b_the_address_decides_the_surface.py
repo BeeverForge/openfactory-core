@@ -9,8 +9,12 @@ The claims, each a row:
      and the product page to their own page, and a board credential at `/product/<project>` to a
      refusal — and the administrator's `null` scopes reach both;
   2. the product owner's board is read only: no clock, no floor read, no new card, nothing dragged,
-     a card opened on their own page;
-  3. the refusal names the board it may open, and the product owner's Board tab links to it.
+     a card opened on their own page, a step back through the boot again — with the way out and,
+     after a reload from another tab's sign-in, the reason;
+  3. the refusal names the board it may open, and only to a credential that may open it; the
+     product owner's Board tab links to it;
+  4. a product page whose credential loses the product area goes through the boot again, leaving
+     no reason behind for the next one, and that credential gets no product chat.
 """
 
 TEST = "tests/test_the_address_decides_the_surface.py"
@@ -45,17 +49,45 @@ MUTATIONS = [
      'draggable="${_boardReadOnly?"false":"true"}"', 'draggable="true"'),
     ("the read-only board wires the moves", PAGE,
      "  if(_boardReadOnly){\n    // READ ONLY (#562)", "  if(false){\n    // READ ONLY (#562)"),
+    ("the read-only board leaves the floor's chrome on", PAGE,
+     "  hideFloorChrome();\n  // A STEP BACK", "  // A STEP BACK"),
+    ("a step back on the read-only board renders the floor", PAGE,
+     "  window.onpopstate=()=>location.reload();\n", ""),
+    ("the read-only board has no way out", PAGE,
+     '      ${(me&&me.logout)?`<a class="btn ghost" href="${esc(safeUrl(me.logout))}">Sign out</a>`:""}\n'
+     "    </div>${movedNotice(", "    </div>${movedNotice("),
+    ("the read-only board does not say why it arrived", PAGE,
+     '</div>${movedNotice("the board, read only")}`', "</div>`"),
+    ("the notice says the product page wherever it landed", PAGE,
+     '${esc(landed||"the product page")}', "the product page"),
     ("a card on the read-only board opens the board again", PAGE,
      "      const open=()=>{location.href=`/p/${encodeURIComponent(_bd.project)}/card/",
      "      const open=()=>{location.href=`/p/${encodeURIComponent(_bd.project)}/board/"),
 
     # 3. the refusal and the link
     ("the refusal leaves the floor's banner waiting for a read never made", PAGE,
-     '  _surface="refused";\n  for(const id of ["#floor","#costs","#board"])',
-     '  _surface="refused";\n  for(const id of [])'),
+     '  _surface="refused";\n  hideFloorChrome();', '  _surface="refused";'),
     ("the refusal names no board", PAGE,
-     "    credential, or the administrator's.${name?", "    credential, or the administrator's.${false?"),
+     "the administrator's.${board&&name?`", "the administrator's.${false?`"),
+    ("a credential scoped to no area is sent to a board it is refused", PAGE,
+     'const board=!!(me&&Array.isArray(me.scopes)&&me.scopes.indexOf("floor")>=0);',
+     "const board=true;"),
+    ("a credential scoped to no area is told it is the board's", PAGE,
+     '${board?"is for the board":"is scoped to no area"}', "is for the board"),
     ("the product owner's Board tab has no way to the board", PAGE,
      '\n            <a class="btn sm ghost" id="pbWhole" href="/p/${encodeURIComponent(name)}/board">'
      "The whole board</a>", ""),
+
+    # 4. the credential that changes under the tab
+    ("the product owner's page polls on under a credential their area refuses", PAGE,
+     '  if(noProductArea()&&_surface==="product"&&takeBootsRoute(false))return me;',
+     "  if(false)return me;"),
+    ("the reload leaves a reason for the next product page to say", PAGE,
+     '_surface==="product"&&takeBootsRoute(false))return me;',
+     '_surface==="product"&&takeBootsRoute())return me;'),
+    ("the route ignores what it was told about saying why", PAGE,
+     'if(say)sessionStorage.setItem(MOVED_KEY+".say","1")',
+     'sessionStorage.setItem(MOVED_KEY+".say","1")'),
+    ("a credential with no product area gets the product chat", PAGE,
+     "  if(noProductArea())return;\n  try{_pc.room=", "  try{_pc.room="),
 ]
