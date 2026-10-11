@@ -541,9 +541,10 @@ MUTATIONS = [
     ("a close is answered as conversation", ENGINE,
      '    if intent == "close":', '    if intent == "close-cut":'),
 
-    # RE-PINNED 2026-09-24: moved to engine.py
-    ("a survivor named without a # is guessed at instead of asked about", ENGINE,
-     "        if unclear and not in_favour_of:", "        if False:"),
+    # RETIRED 2026-10-11 (#565 slice b): "a survivor named without a # is guessed at instead of
+    # asked about". The question existed because a pattern could not tell "duplicate of 288" from
+    # a number in passing; the role names the survivor as the board spells it, or names none, so
+    # the branch and its sentence are gone.
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a close forgets the card that survives it", ENGINE,
@@ -584,15 +585,21 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("an alignment to what is not a promise is staged anyway", ENGINE,
-     "        if not req.is_promise:\n            refusal = _align_refusal(",
-     "        if False:\n            refusal = _align_refusal("),
+     # RE-PINNED 2026-10-11 (#565 slice b): the refusal is said under the role's reply
+     "        if not req.is_promise:\n            return said(_align_refusal(",
+     "        if False:\n            return said(_align_refusal("),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("an alignment to a requirement the base does not have breaks the turn", ENGINE,
-     "        req, corpus, instead = _named_requirement(project, module, requirement, name, "
-     "lang)\n        if instead:\n            return instead\n",
-     "        req, corpus, instead = _named_requirement(project, module, requirement, name, "
-     "lang)\n"),
+     # RE-PINNED 2026-10-11 (#565 slice b): the role proposes it, so what is said instead follows
+     # the role's reply
+     "        req, corpus, instead = _named_requirement(project, module, requirement,\n"
+     "                                                  \"\" if preamble else name, lang)\n"
+     "        if instead:\n            return preamble + instead\n"
+     "        if not req.is_promise:\n            return said(_align_refusal(",
+     "        req, corpus, instead = _named_requirement(project, module, requirement,\n"
+     "                                                  \"\" if preamble else name, lang)\n"
+     "        if not req.is_promise:\n            return said(_align_refusal("),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("an alignment does not name who can confirm it", ENGINE,
@@ -629,26 +636,25 @@ MUTATIONS = [
      '    if intent == "breakdown":', '    if intent == "breakdown-cut":'),
 
     # RE-PINNED 2026-09-24: moved to engine.py
-    ("a breakdown files work for anybody who types it", ENGINE,
+    ("a breakdown files work for anybody who types it", CONFIRM,
      # RE-PINNED 2026-10-11 (#563 slice 18b): the start answers at once, with no receipt
-     "            return unauthorized_message(project)\n        # STARTED, NEVER RUN IN THE TURN",
-     "            pass\n        # STARTED, NEVER RUN IN THE TURN"),
+     # RE-PINNED 2026-10-11 (#565 slice c): staged for a yes like every other write, so the gate is
+     # the yes's — the requester's own yes starts it again
+     '_THE_REQUESTERS_OWN = frozenset({"adjust", "accept_change"})\n',
+     '_THE_REQUESTERS_OWN = frozenset({"adjust", "accept_change", "breakdown"})\n'),
 
     # RE-PINNED 2026-09-24: moved to engine.py
-    ("a refused breakdown still buys a receipt", ENGINE,
-     # RE-PINNED 2026-10-11 (#563 slice 18b): no receipt is bought at all now; the row puts one
-     # back in front of the gate
-     "        if not may_act(project, user):\n            return unauthorized_message(project)\n"
-     "        # STARTED, NEVER RUN IN THE TURN",
-     "        if on_it:\n            on_it()\n"
-     "        if not may_act(project, user):\n            return unauthorized_message(project)\n"
-     "        # STARTED, NEVER RUN IN THE TURN"),
+    # RETIRED 2026-10-11 (#565 slice c): "a refused breakdown still buys a receipt". A breakdown
+    # is the role's proposal now, so the role's turn buys the receipt every turn buys, and nothing
+    # is refused before the yes; the yes's own refusal is pinned by "a breakdown files work for
+    # anybody who types it".
 
     # RE-PINNED 2026-09-24: moved to engine.py
-    ("a typed breakdown is filed as the acceptance's automatic one", ENGINE,
+    ("a typed breakdown is filed as the acceptance's automatic one", CONFIRM,
      # RE-PINNED 2026-10-11 (#563 slice 18b): the gesture starts the breakdown on the worker
-     "            how = breaking.start_now(project, number, actor=user, asked_for=True,",
-     "            how = breaking.start_now(project, number, actor=user, asked_for=False,"),
+     # RE-PINNED 2026-10-11 (#565 slice c): the yes starts it
+     "        how = breaking.start_now(project, number, actor=user, asked_for=True,",
+     "        how = breaking.start_now(project, number, actor=user, asked_for=False,"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a refine is answered as conversation", ENGINE,
@@ -656,12 +662,10 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24: moved to engine.py
     # RE-PINNED 2026-09-28 (#395): the refine tells its stage before it writes
-    ("a refine writes criteria for anybody who types it", ENGINE,
-     "        if not may_act(project, user):\n            return unauthorized_message(project)\n"
-     "        if on_it:\n            on_it()\n        _progress.stage(\"writing\")\n"
-     "        return _refine_reply(",
-     "        if on_it:\n            on_it()\n        _progress.stage(\"writing\")\n"
-     "        return _refine_reply("),
+    ("a refine writes criteria for anybody who types it", CONFIRM,
+     # RE-PINNED 2026-10-11 (#565 slice c): staged for a yes, so the gate is the yes's
+     '_THE_REQUESTERS_OWN = frozenset({"adjust", "accept_change"})\n',
+     '_THE_REQUESTERS_OWN = frozenset({"adjust", "accept_change", "refine"})\n'),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("the first pass is answered as conversation", ENGINE,

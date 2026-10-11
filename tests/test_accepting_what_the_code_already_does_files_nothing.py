@@ -480,17 +480,26 @@ def test_an_EXPLICIT_request_breaks_an_accepted_reading_down(origin, monkeypatch
 
 
 def test_the_chat_s_own_gesture_IS_an_explicit_request(origin, monkeypatch):
-    """`quebra o requisito N` typed by a person, through the real intent branch."""
+    """The breakdown a person asks for in the chat, through the real branch and the real
+    executor: the role proposes it (`[[QUEBRAR`, #565 slice c) and the person's yes starts it."""
     from openfactory.memory import transcript
+    from openfactory.product import staging
+    from openfactory.product.role import read_answer
 
     monkeypatch.setattr(transcript, "record", lambda *a, **k: "")
     monkeypatch.setattr(transcript, "recent", lambda *a, **k: [])
+    monkeypatch.setattr(staging, "_PENDING", {})
     mod, harness, tracker = _module(origin, monkeypatch, language="pt-BR")
     run_here(monkeypatch, mod)   # the breakdown runs on the worker (#563 slice 18b)
     assert mod.accept(OBSERVED_N, actor=ADMIN).ok
+    # the role's reading of the sentence, as `role.read_answer` reads the model's text
+    monkeypatch.setattr(mod, "answer", lambda *_a, **_k: read_answer(
+        f"Entendi.\n[[QUEBRAR: REQ-{OBSERVED_N:04d}]]"))
 
     chat_turn(mod.project, text=f"quebra o requisito {OBSERVED_N} em tarefas", user=ADMIN,
               thread="C1", channel="C1", module=mod)
+    assert _breakdowns(harness) == [], "the breakdown ran before the person's yes"
+    chat_turn(mod.project, text="sim", user=ADMIN, thread="C1", channel="C1", module=mod)
 
     assert len(_breakdowns(harness)) == 1, "a person asked for the breakdown and did not get one"
     assert tracker.created == ["Gerar o pacote de fecho"]

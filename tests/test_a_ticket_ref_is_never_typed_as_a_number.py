@@ -142,7 +142,6 @@ CARD_SITES = [
     ("openfactory.product.voice", "closing_note", "in_favour_of"),
     ("openfactory.product.voice", "close_confirmation", "number"),
     ("openfactory.product.voice", "card_closed", "number"),
-    ("openfactory.product.voice", "survivor_unclear", "number"),
     ("openfactory.product.voice", "align_confirmation", "number"),
     ("openfactory.product.voice", "card_aligned", "number"),
     ("openfactory.product.voice", "align_refused", "number"),

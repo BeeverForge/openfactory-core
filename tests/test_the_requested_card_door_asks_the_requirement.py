@@ -20,7 +20,6 @@ from types import SimpleNamespace
 import pytest
 
 from openfactory.product import breaking
-from openfactory.product.intents import match_intent
 from openfactory.product.module import ProductModule, _requirements_named
 from openfactory.product.voice import ticket_held_for_its_requirement
 from tests.test_the_product_owner_opens_a_card_as_described import _Board, _module, _Tracker
@@ -63,13 +62,14 @@ def _file(tmp_path, *, title=RUN_TITLE, described=RUN_BODY):
 # ── the run ─────────────────────────────────────────────────────────────────────────────────────
 
 def test_TODAYS_RUN_the_requested_card_for_an_agreed_requirement_is_not_filed(tmp_path, held):
-    """Neither running nor carded: the breakdown is offered, in the words that start it."""
+    """Neither running nor carded: the breakdown is offered — one request away, in whatever words,
+    for the person to confirm (#565 slice c: the role proposes it, no sentence is copied)."""
     result, tracker = _file(tmp_path)
 
     assert not result.ok and tracker.created == [], "the run's third card was filed"
     assert "requisito 6" in result.detail and "acordado" in result.detail, result.detail
-    offered = result.detail.split("«")[1].split("»")[0]
-    assert match_intent(offered) == ("breakdown", {"number": "6"}), offered
+    assert "me peça para quebrá-lo" in result.detail and "confirmar" in result.detail, result.detail
+    assert "«" not in result.detail, "a sentence to copy is offered again"
 
 
 def test_a_breakdown_running_holds_it_and_says_so(tmp_path, held):

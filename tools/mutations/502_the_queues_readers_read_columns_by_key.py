@@ -158,8 +158,11 @@ MUTATIONS = [
      '        return _breakdown_reply(results, number, "", lang, project=project)'),
 
     ("a breakdown a person asks for is told in the project's language, not the conversation's",
-     ENGINE, '                                     language=lang or "")',
-     '                                     language="")'),
+     # RE-PINNED 2026-10-11 (#565 slice c): the role proposes it, and the yes starts it
+     CONFIRM, '                                 room=str(entry.get("channel") or ""),\n'
+     '                                 requester=requester_of(entry), language=lang or "")',
+     '                                 room=str(entry.get("channel") or ""),\n'
+     '                                 requester=requester_of(entry), language="")'),
 
     ("the cards opened for a requirement are said to be in the platform's `Backlog`", CONFIRM,
      '        said += "\\n\\n" + cards_opened_awaiting(cards=cards, number=number, language=lang,\n'

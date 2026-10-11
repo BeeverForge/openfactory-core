@@ -148,8 +148,9 @@ MUTATIONS = [
     # RE-PINNED 2026-09-24: moved to engine.py
     ("the chat's own gesture reaches the module as if nobody had asked",
      # RE-PINNED 2026-10-11 (#563 slice 18b): the gesture starts the breakdown on the worker
-     ENGINE, "            how = breaking.start_now(project, number, actor=user, asked_for=True,",
-     "            how = breaking.start_now(project, number, actor=user, asked_for=False,"),
+     # RE-PINNED 2026-10-11 (#565 slice c): the role proposes it, and the yes starts it
+     CONFIRM, "        how = breaking.start_now(project, number, actor=user, asked_for=True,",
+     "        how = breaking.start_now(project, number, actor=user, asked_for=False,"),
 
     ("`product_break_down` reaches the worker as the automatic chain",
      CATALOG, "by=by,\n                                                 asked_for=True)",

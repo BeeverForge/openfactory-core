@@ -19,10 +19,11 @@ The claims:
   4. **A card closed, merged and withdrawn on an `en` project carries no Portuguese.** Row 15: the
      closing note's English is the Portuguese wording again — no accent, so only the new test
      sees it.
-  5. **An English reason is read, and only off a causal word.** Rows 16-17: `because` goes; `since`
-     comes in.
-  6. **The guard holds the declarations and the `pt-PT` table.** Rows 18-19: a new recogniser's
+  5. **The guard holds the declarations and the `pt-PT` table.** Rows 16-17: a new recogniser's
      declaration goes; the `pt-PT` overrides leave the catalogue's keys.
+
+An English reason on a close (`because`, never `since`) was a claim here until #565 slices b and c
+retired `intents._BECAUSE`: the reason a close carries is the role's marker now, in any language.
 """
 
 TEST = "tests/test_what_a_person_reads_speaks_their_language.py"
@@ -113,16 +114,7 @@ MUTATIONS = [
      '    "en": "{sig} Closed at the request {by}.",\n',
      '    "en": "{sig} Fechado a pedido {by}.",\n'),
 
-    # ── 5. an English reason ─────────────────────────────────────────────────────────────────────
-    ("an English reason is thrown away", "openfactory/product/intents.py",
-     'r"motivo:|raz[ãa]o:|because|reason:)',
-     'r"motivo:|raz[ãa]o:|reason:)'),
-
-    ("a temporal word is read as the reason somebody decided", "openfactory/product/intents.py",
-     'r"motivo:|raz[ãa]o:|because|reason:)',
-     'r"motivo:|raz[ãa]o:|because|since|reason:)'),
-
-    # ── 6. the guard ─────────────────────────────────────────────────────────────────────────────
+    # ── 5. the guard ─────────────────────────────────────────────────────────────────────────────
     ("the tech lead's diagnosis markers are welded Portuguese again", GUARD,
      '    ("openfactory/product/board.py", "_DIAGNOSIS_MARKERS"): "diagnosis",\n',
      "", GUARD),

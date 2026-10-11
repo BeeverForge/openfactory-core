@@ -6,13 +6,12 @@ sentences a person still read in Portuguese on an `en` project were the ones com
 catalogue — a requirement's card held back "a revisão automática não respondeu", a decision row
 named its conversation "conversa com o time de produto", a case's reading said "leitura: problema ·
 confiança média", and the tech lead's memory of a remedy ended "— precisa de alguém olhando a
-causa". And a person who said WHY in English ("close #511 because …") had the reason thrown away:
-the close read a reason off Portuguese connectives only.
+causa".
 
 THE RULE THIS FILE HOLDS: each of those sentences comes from a catalogue with `en` beside `pt-BR`,
 and its caller hands it the project's language; a `pt-BR` project reads what it read before; a card
-closed, merged into another and withdrawn on an `en` project carries no Portuguese in any comment;
-and an English reason is read off `because`, never off a temporal word.
+closed, merged into another and withdrawn on an `en` project carries no Portuguese in any comment.
+The reason a close carries is the role's marker since #565 slices b and c, in any language.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ import pytest
 
 from openfactory.product import cards
 from openfactory.product.confirm import _where_it_came_from
-from openfactory.product.intents import match_intent
 from openfactory.product.reading import ALTA, BAIXA, MEDIA, render_reading
 from openfactory.product.role import Reading
 from openfactory.techlead.memory import MEMORY
@@ -72,23 +70,6 @@ def test_a_card_closed_merged_and_withdrawn_on_an_en_project_carries_no_portugue
         # beside an English one — "Fechado a pedido of U0ADMIN" is half a translation, and the
         # sweep's two-language arithmetic reads it as English
         assert not _PT_LETTERS.search(text) and not _PT_ALONE.search(text), text
-
-
-# ── an English reason ───────────────────────────────────────────────────────────────────────────
-
-def test_an_english_reason_is_read_off_because():
-    name, said = match_intent("close #511 because the client gave it up")
-
-    assert name == "close" and said.get("reason") == "the client gave it up", said
-    assert match_intent("close #511, reason: filed twice")[1].get("reason") == "filed twice"
-
-
-def test_a_temporal_word_is_not_a_reason():
-    """`since` is as often "since Monday" as a cause, and what is read here is written onto a
-    client's card as the reason somebody decided."""
-    name, said = match_intent("close #511 since Monday")
-
-    assert name == "close" and not said.get("reason"), said
 
 
 # ── one sentence each, in the project's language ────────────────────────────────────────────────

@@ -152,8 +152,8 @@ def test_two_cards_that_carry_the_same_things_keep_the_duplicate_question():
 class _Comparing(_Module):
     """The channel's module double, with the comparison the engine now asks for."""
 
-    def __init__(self, carried):
-        super().__init__()
+    def __init__(self, carried, said=""):
+        super().__init__(said=said)
         self.carried, self.compared = carried, []
 
     def what_only_it_carries(self, number, survivor):
@@ -162,21 +162,23 @@ class _Comparing(_Module):
 
 
 def test_closing_in_favour_of_another_card_asks_on_what_only_the_closed_card_carries():
-    """Four-digit cards: the close pattern reads no longer ref today, which is #565's to fix."""
-    module = _Comparing(Carried(criteria=(KEEP,)))
+    """The run's own cards, seven digits each: the close pattern read four at most, and the role's
+    marker reads a card as the board spells it (#565 slice b)."""
+    module = _Comparing(Carried(criteria=(KEEP,)),
+                        said="Entendi.\n[[FECHAR: #1000009; em favor de #1000010]]")
 
-    ask = chat_turn(_Project(), text="fecha o #9009 em favor do #9010", user="UADM",
+    ask = chat_turn(_Project(), text="o 1000009 é o mesmo do 1000010, pode fechar", user="UADM",
                     thread="C1", channel="C1", module=module)
 
-    assert module.compared == [("9009", "9010")], module.compared
+    assert module.compared == [("1000009", "1000010")], module.compared
     assert f"• {KEEP}" in ask and "não são iguais" in ask, ask
     assert module.closed_with is None, "it wrote before anybody confirmed"
 
 
 def test_a_close_with_no_survivor_reads_nothing():
-    module = _Comparing(Carried(criteria=(KEEP,)))
+    module = _Comparing(Carried(criteria=(KEEP,)), said="Entendi.\n[[FECHAR: #1000009]]")
 
-    chat_turn(_Project(), text="fecha o #9009", user="UADM", thread="C1", channel="C1",
+    chat_turn(_Project(), text="pode fechar o 1000009", user="UADM", thread="C1", channel="C1",
               module=module)
 
     assert module.compared == []

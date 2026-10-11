@@ -601,6 +601,34 @@ def _confirm_align(project, entry, *, module, user, lang) -> str:
         result, lang, project=project)
 
 
+def _confirm_breakdown(project, entry, *, module, user, lang) -> str:
+    """the requirement's cards, started on the worker (#565 slice c, #563 slice 18b): the yes is
+    the person's, so `asked_for` is True, and the conversation the entry was asked in is told what
+    was filed when the breakdown ends."""
+    from openfactory.product import breaking
+    from openfactory.product.staging import requester_of
+    from openfactory.product.voice import breakdown_begun, breakdown_not_begun
+
+    number = int(entry["number"])
+    try:
+        how = breaking.start_now(project, number, actor=user, asked_for=True,
+                                 conversation=str(entry.get("conversation") or ""),
+                                 room=str(entry.get("channel") or ""),
+                                 requester=requester_of(entry), language=lang or "")
+    except Exception:  # noqa: BLE001 — an engine that does not answer is a sentence
+        log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_NOT_STARTED project=%s req=%s — a person "
+                      "said yes and nothing was filed", getattr(project, "name", "?"), number)
+        return breakdown_not_begun(number=number, language=lang)
+    return breakdown_begun(number=number, running=how == breaking.RUNNING, language=lang)
+
+
+def _confirm_refine(project, entry, *, module, user, lang) -> str:
+    """the criteria of a card that has none, written (#565 slice c)."""
+    cfg = getattr(project, "product", None)
+    return _refine_reply(module.refine(entry["number"], actor=user), entry["number"],
+                         getattr(cfg, "agent_name", "") or "", lang, project)
+
+
 def _confirm_fact(project, entry, *, module, user, lang) -> str:
     """writes it down, attributed, as `aprendido`."""
     result = module.note_fact(term=entry["term"], body=entry["body"],
@@ -713,6 +741,8 @@ _EXECUTORS = {
     "adjust": _confirm_adjust,
     "accept_change": _confirm_accept_change,
     "fact": _confirm_fact,
+    "breakdown": _confirm_breakdown,
+    "refine": _confirm_refine,
 }
 
 #: THE PROPOSALS A CARD'S OWN REQUESTER MAY SAY YES TO, though no allowlist names them (#448). The
@@ -967,6 +997,46 @@ def breakdown_told(project, number: int, results, *, asked_for: bool, module=Non
     said = _said(lang)
     return (said["no_breakdown"] + (f": {detail}" if detail else said["no_breakdown_now"])
             + said["agreement_holds"])
+
+
+def _refine_reply(result, number: str, name: str, lang=None, project=None) -> str:
+    """What the client reads after a ticket was given something testable to be judged against.
+
+    Composed from the real `WriteResult`, like every other write reply — the agent never narrates
+    this (ADR-0028). Three outcomes, three sentences: written, already had criteria, failed.
+
+    THE REFUSAL POINTS SOMEWHERE. It is still a refusal — this act unblocks a card with nothing
+    written, and amending criteria somebody may already be working from is a different risk that
+    costs a model call and changes what gets built. But it now names that other act, because a
+    refusal with no alternative reads as "this cannot be done", and the person who hit it in
+    production was holding exactly the card the other act was built for.
+
+    THE FOURTH TWO-WRITE BRANCH, and the one left out when `close`, `defect` and `align` learned
+    the rule. `refine` writes the criteria and then comments to say who wrote them, and the comment
+    failing comes back as a SUCCESS carrying the module's own sentence about it. This line
+    announced the comment regardless AND put that sentence where the count goes, so the client read
+    a denial and an assertion of the same note eight words apart.
+    """
+    head = f"{name}: " if name else ""
+    if not result.ok:
+        return f"{head}{_client_detail(result.detail, lang, project=project)}"
+    if getattr(result, "existed", False):
+        from openfactory.product.voice import refine_refused
+
+        return head + refine_refused(number=number, language=lang)
+    from openfactory.product.voice import criteria_written
+
+    # the count is shown only when there is a count: the same field carries the residue instead
+    # whenever the second write failed, and `_unfinished` is the one reading that tells them apart.
+    # Through the sanitiser even on SUCCESS — every detail a client reads is sanitised, with no
+    # exception anybody has to remember.
+    residue = _unfinished(result)
+    return _still_to_say(
+        head + criteria_written(
+            number=number, noted=not residue,
+            measure="" if residue else _client_detail(result.detail, lang, project=project),
+            language=lang),
+        result, lang, project=project)
 
 
 def _breakdown_reply(results, number: int, name: str, lang=None, project=None, *,

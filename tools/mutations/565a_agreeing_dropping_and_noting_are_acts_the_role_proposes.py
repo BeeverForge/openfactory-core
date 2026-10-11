@@ -126,6 +126,8 @@ MUTATIONS = [
      '            "they answer this one.\\n\\n"',
      '\\n\\n"'),
     ("the alignment sends the person on before the agreement is answered", VOICE,
-     "está acordado e confirme quando eu perguntar; depois, «alinha",
-     "está acordado, e depois «alinha", CARDS),
+     # RE-PINNED 2026-10-11 (#565 slice b): the alignment is proposed too, so the sentence asks to
+     # be asked for it instead of quoting one
+     "está acordado e confirme quando eu perguntar; depois, me peça para alinhar",
+     "está acordado, e depois me peça para alinhar", CARDS),
 ]

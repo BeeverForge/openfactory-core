@@ -28,12 +28,12 @@ from openfactory.product.confirm import _EXECUTORS
 from openfactory.product.intents import match_intent
 from openfactory.product.role import (
     ACCEPT_MARKER,
+    ACTS,
     ADJUST_MARKER,
     DEFECT_MARKER,
     ORDER_MARKER,
     QUEUE_MARKER,
     REQUEST_MARKER,
-    REQUIREMENT_ACTS,
     STAGING_MARKERS,
     TICKET_MARKER,
     read_answer,
@@ -208,7 +208,12 @@ def test_the_sentence_alone_acts_no_more():
     assert staged is None, (staged, asked)
     for sentence in ("aceita o requisito 66", "registra no requisito 6 que o corte é dia 25",
                      "cancela o requisito 2", "anota que a firma usa Primavera",
-                     "accept requirement 6"):
+                     "accept requirement 6",
+                     # and the five of the second and third slices (#565 b, c)
+                     "fecha o #511 como duplicado do #288", "close #511 as a duplicate of #288",
+                     "corrige o #512: o relatório é semanal", "alinha o #288 ao requisito 6",
+                     "align #288 to requirement 6", "quebra o requisito 8 em tarefas",
+                     "refina o #12"):
         assert match_intent(sentence) is None, (sentence, match_intent(sentence))
 
 
@@ -321,9 +326,9 @@ def test_a_change_waiting_on_the_person_outranks_an_act_on_a_requirement():
 
 
 def test_every_act_is_taught_with_the_sentence_that_says_what_comes_next():
-    """The prompt teaches each marker, and each stages: the four are in `STAGING_MARKERS`, so the
+    """The prompt teaches each marker, and each stages: every act is in `STAGING_MARKERS`, so the
     guard of #430 holds them to the phrase that tells the model the platform asks the question."""
-    for marker, _pattern, _gesture, _intent in REQUIREMENT_ACTS:
+    for marker, _pattern, _gesture, _intent in ACTS:
         assert marker in STAGING_MARKERS, marker
 
 
@@ -343,13 +348,13 @@ def test_the_prompt_asks_for_one_act_per_reply():
 #: no executor of its own (`confirm._confirm_draft`).
 STAGED_BY = {DEFECT_MARKER: "defect", TICKET_MARKER: "ticket", ORDER_MARKER: "reorder",
              QUEUE_MARKER: "queue", ADJUST_MARKER: "adjust", ACCEPT_MARKER: "accept_change",
-             **{marker: intent for marker, _pattern, _gesture, intent in REQUIREMENT_ACTS}}
+             **{marker: intent for marker, _pattern, _gesture, intent in ACTS}}
 
-#: THE KINDS A PERSON STILL REACHES ONLY THROUGH A FIXED SENTENCE (#565). Each later slice moves its
-#: kinds to a marker and takes them off this list; the guard below fails on a kind added here that
-#: a pattern does not reach, so the list can only shrink.
-STILL_BY_A_SENTENCE = {"close": "fecha o #511", "correct": "corrige o #512: o relatório é semanal",
-                       "align": "alinha o #288 ao requisito 6"}
+#: THE KINDS A PERSON STILL REACHES ONLY THROUGH A FIXED SENTENCE (#565). Each slice moved its kinds
+#: to a marker and took them off this list; the last three — close, correct, align — left it with
+#: the second slice, and breakdown and refine, which wrote on the match alone, are staged by theirs.
+#: The guard below fails on a kind added here that a pattern does not reach, so it stays empty.
+STILL_BY_A_SENTENCE: dict[str, str] = {}
 
 
 def test_every_staging_marker_says_what_it_stages():

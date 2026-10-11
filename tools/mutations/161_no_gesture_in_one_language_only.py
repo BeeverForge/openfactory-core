@@ -36,21 +36,13 @@ MUTATIONS = [
     # dropping a requirement are acts the role proposes with a marker, read by the model in
     # whatever language the person writes (`role.REQUIREMENT_ACTS`).
 
-    ("the duplicate copula is Portuguese again", PI,
-     '_NOT_NEGATED + _card("number") + r"\\s+(?:[ée]|eh|s[ãa]o|is|are)\\s+(?:an?\\s+|uma?\\s+)?"',
-     '_NOT_NEGATED + _card("number") + r"\\s+(?:[ée]|eh|s[ãa]o)\\s+(?:uma?\\s+)?"'),
-
-    ("…and the duplicate NOUN is spelled twice again, one copy monolingual", PI,
-     '        r"(?:" + _DUPLICATE_NOUN + r")" + _ATTACHED',
-     '        r"(?:duplicad\\w*|duplicata|repetid\\w*|c[óo]pia)" + _ATTACHED'),
-
-    ("criteria can only be rewritten in Portuguese", PI,
-     '                       r"|(?:re)?write|define|update|adjust|fix)\\s+(?:os\\s+|the\\s+)?"',
-     '                       r")\\s+(?:os\\s+)?"'),
-
-    ("…and the criteria NOUN loses its English half", PI,
-     '        r"(?:crit[ée]rios?|criteria|criterion)\\b" + _ATTACHED + _card("number")',
-     '        r"crit[ée]rios?\\b" + _ATTACHED + _card("number")'),
+    # RETIRED 2026-10-11 (#565 slices b and c): "the duplicate copula is Portuguese again", "…and
+    # the duplicate NOUN is spelled twice again, one copy monolingual", "criteria can only be
+    # rewritten in Portuguese" and "…and the criteria NOUN loses its English half". The `close`
+    # and `refine` patterns they cut are gone: closing a card in favour of another and writing a
+    # card's criteria are acts the role proposes with a marker (`role.CARD_ACTS`), read by the
+    # model in whatever language the person writes; the close marker's survivor connective reads
+    # "em favor de" and "in favour of" alike (`tests/test_product_intents.py`).
 
     # ── the guard that makes a monolingual row impossible to add ─────────────────────────────────
     # MUTATED FROM THE PRODUCTION SIDE, because a weakened assertion in the guard's own file is
@@ -62,9 +54,10 @@ MUTATIONS = [
      "_BARE: tuple[tuple[str, re.Pattern[str]], ...] = ("),
 
     ("…and to the product matcher", PI,
-     "_SCANNED = frozenset(",
-     '_PATTERNS = _PATTERNS + (("drop", re.compile(r"\\bnix o requisito (?P<number>\\d+)\\b",'
-     " re.I)),)\n\n_SCANNED = frozenset("),
+     # RE-PINNED 2026-10-11 (#565 slice b): `_SCANNED` left with the rows that scanned
+     "_INTENTS: tuple[tuple[str, re.Pattern[str]], ...] = _PATTERNS",
+     '_PATTERNS = _PATTERNS + (("status", re.compile(r"\\bcomo anda o quadro\\b", re.I)),)\n\n'
+     "_INTENTS: tuple[tuple[str, re.Pattern[str]], ...] = _PATTERNS"),
 
     # ── the tech-lead may not claim it acted ─────────────────────────────────────────────────────
     ("the chat may announce an action it has not taken", CONV,

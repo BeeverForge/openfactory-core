@@ -303,7 +303,6 @@ def test_a_PLAN_to_start_something_else_never_arms_the_spend_gate(phrase):
 
 def test_the_operator_wording_still_works():
     """The new phrasing is an addition. Somebody who learned the old sentence must not find it
-    broken — and `breakdown` stays a distinct gesture, because a requirement can be re-decomposed
-    without anything being accepted."""
+    broken. (`breakdown` stays a distinct act, because a requirement can be re-decomposed without
+    anything being accepted — the role proposes it now, `[[QUEBRAR`, #565 slice c.)"""
     assert match_intent("o que entra na fila agora?")[0] == "queue"
-    assert match_intent("quebra o requisito 8 em tarefas")[0] == "breakdown"

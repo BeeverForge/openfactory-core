@@ -1,6 +1,16 @@
-"""#161 (the negation half): the two lists are one mechanism, and `no` stays out."""
+"""#161 (the negation half): the two lists are one mechanism, and `no` stays out.
+
+SUPERSEDED BY `565b_closing_correcting_and_aligning_are_acts_the_role_proposes.py` (2026-10-11).
+The negators and the bridge left `intents.py` with the last gesture that scanned a message for a
+card (#565 slices b and c), and so did this plan's test: closing a card is an act the role
+proposes, read by the model in whatever language the person writes. Its claim — a negation is
+never obeyed as an order — is carried by that plan's row on the close marker's instruction ("a
+card the person said NOT to close may be proposed for closing"). Kept as the point-in-time proof
+it was.
+"""
 
 TEST = "tests/test_a_negation_the_bridge_carries_is_refused.py"
+SUPERSEDED_BY = "565b_closing_correcting_and_aligning_are_acts_the_role_proposes.py"
 INTENTS = "openfactory/product/intents.py"
 
 MUTATIONS = [
