@@ -517,6 +517,25 @@ def test_a_delivery_the_door_did_NOT_take_stays_open_for_the_next_telling(regist
     assert [x.state for x in waiting(ledger.rows)] == ["open"]
 
 
+def test_a_delivery_the_door_TOOK_is_closed_and_never_told_again(registry, ledger, monkeypatch):
+    """Closed on observation once the door took it, so the next sweep of the same delivered card
+    finds nothing waiting and says nothing. The ledger is read FOLDED (`waiting`): read row by
+    row, the delivery's own opening row is still there beside the row that closed it, and the
+    card was announced again on every sweep that saw it delivered — which no case caught (the
+    `267` survivor)."""
+    from openfactory.lifecycle.loops import announce
+
+    told: list[dict] = []
+    monkeypatch.setattr(events, "_tell", lambda project, **kw: told.append(kw) or True)
+    ledger.rows = [_delivery(where=ANAS, who=ANA)]
+
+    announce(registry, delivered={"500"})
+    announce(registry, delivered={"500"})
+
+    assert len(told) == 1, [t["id"] for t in told]
+    assert [x for x in waiting(ledger.rows) if x.kind == DELIVERY] == []
+
+
 def test_a_delivery_is_told_under_a_DETERMINISTIC_id_so_a_retold_one_is_dropped(
         registry, ledger, monkeypatch):
     from openfactory.lifecycle.loops import announce
