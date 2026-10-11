@@ -743,7 +743,7 @@ def test_the_turn_asks_the_acceptance_WHERE_the_reply_was_written(registry, ledg
     in_hers = engine.settle(registry, text="funcionou", user=ANA, thread=ANAS, module=module)
 
     assert in_the_room.reply is None, in_the_room
-    assert in_hers.reply == followup.accepted_text(asked, agent_name=AGENT)
+    assert in_hers.reply == followup.accepted_text(asked, agent_name=AGENT, language=LANG)
 
 
 def test_the_sweep_chases_a_did_it_work_WHERE_it_was_asked_and_a_private_decision_NOWHERE(

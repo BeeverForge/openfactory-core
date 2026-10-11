@@ -96,6 +96,12 @@ RECOGNISERS = {
     ("openfactory/language/assent.py", "CORE"): "yes",
     ("openfactory/language/assent.py", "CORE_PHRASES"): "go ahead",
     ("openfactory/language/assent.py", "FILLER"): "please",
+    # DECLARED 2026-10-11 (#535): what reads a person's answer to "did it work?" — denials, the
+    # words that assert it works, the tokens that cannot decide, and the letters a word is made of
+    ("openfactory/product/followup.py", "_DID_NOT_WORK"): "still",
+    ("openfactory/product/followup.py", "_WORKED_CORE"): "works",
+    ("openfactory/product/followup.py", "_CANNOT_DECIDE"): "no",
+    ("openfactory/product/followup.py", "_WORD"): "a-z",
     # DECLARED 2026-10-11 (#535): the names a board gives its finished column, read off the board
     ("openfactory/product/role.py", "_DONE_COLUMNS"): "done",
 }

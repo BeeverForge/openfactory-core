@@ -789,9 +789,10 @@ MUTATIONS = [
      "            say = accepted_text"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-11 (#535): the reply is told in the project's language
     ("the delivery a bare yes settled among several is not named", ENGINE,
-     "            return Settled(say(loop, agent_name=agent, ambiguous=ambiguous), waiting)",
-     "            return Settled(say(loop, agent_name=agent), waiting)"),
+     "            return Settled(say(loop, agent_name=agent, ambiguous=ambiguous, language=lang),",
+     "            return Settled(say(loop, agent_name=agent, language=lang),"),
 
     # RE-PINNED 2026-09-24 (#267 slice 3): the acceptance is asked where the reply is written
     ("a sentence the word list cannot read never reaches the acceptance judge", MODULE,
