@@ -495,6 +495,44 @@ def card_withdrawn_result(*, ref: str, how: str, language: str | None = None) ->
     return _pick(_CARD_WITHDRAWN_RESULT, language)[how].format(ref=ref_label(ref))
 
 
+# ── putting a card in the queue from the card itself (#562) ──────────────────────────────────
+#
+# THE PRODUCT OWNER SAYS WHAT THE FACTORY DOES NEXT. Since #562 they read the board, and a card
+# they open there lands on their own page — where it could be closed or removed, and not started:
+# starting was only a yes to a queue proposal in a conversation. The control is the row that yes
+# already reached (`product_promote`), and what the person confirms is said before they confirm:
+# from the queue the factory picks the card up, and from then on it spends. `{column}` is the
+# board's own name for the queue (#496), never the platform's.
+_CARD_QUEUE = {
+    "pt-BR": {
+        "queue": "Pôr na fila ({column})",
+        "ask": ("Pôr o {ref} em {column} começa o trabalho: a fábrica o pega de lá, e a partir daí "
+                "isso custa dinheiro. Pôr na fila?"),
+        "not_yours": ("Pôr o {ref} em {column} começa o trabalho, e isso custa dinheiro — é um sim "
+                      "de quem aprova. Peça a uma dessas pessoas, ou diga na conversa."),
+    },
+    "en": {
+        "queue": "Queue it ({column})",
+        "ask": ("Putting {ref} in {column} starts the work: the factory picks it up from there, "
+                "and from then on it spends money. Queue it?"),
+        "not_yours": ("Putting {ref} in {column} starts the work, and that spends money — it is an "
+                      "approver's yes. Ask one of them, or say it in the conversation."),
+    },
+}
+
+
+def card_queue_controls(*, ref: str, column: str, language: str | None = None) -> dict[str, str]:
+    """The words of the card's "queue it" control on the product view: the button and the
+    question it asks before it spends."""
+    said = _pick(_CARD_QUEUE, language)
+    return {key: said[key].format(ref=ref_label(ref), column=column) for key in ("queue", "ask")}
+
+
+def card_queue_not_yours(*, ref: str, column: str, language: str | None = None) -> str:
+    """Said on the card, in place of the control, to a person who may not start work."""
+    return _pick(_CARD_QUEUE, language)["not_yours"].format(ref=ref_label(ref), column=column)
+
+
 def _pick(catalogue: dict[str, str], language: str | None) -> str:
     """The message for a language, falling back to the default and then to English. A language
     nobody has translated for gets understandable English rather than a KeyError in a chat

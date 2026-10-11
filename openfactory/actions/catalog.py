@@ -4031,7 +4031,7 @@ async def _product_board(*, project: str, by: Actor, card: str = "") -> Outcome:
     card, with its controls.) This is the
     read that page needs: the open cards with their column, and, for the card they opened, its text
     and what its controls do (`card_view`). It writes nothing; the controls are
-    `product_withdraw_card`.
+    `product_withdraw_card`, and `product_promote` for a card nobody started (#562).
 
     THE THREE ANSWERS TRAVEL, as on the floor's board: `cards` is `None` when the board could not be
     read and `[]` when it was read and is empty."""
@@ -4095,7 +4095,14 @@ async def _product_board(*, project: str, by: Actor, card: str = "") -> Outcome:
         if callable(getattr(module, "accept_view", None)):
             shown["accept"] = await asyncio.to_thread(
                 lambda: module.accept_view(shown["ref"], actor=by.id, vouched=vouched))
-    count = "could not be read" if read["cards"] is None else f"{len(read['cards'])} open"
+    # PUT IN THE QUEUE, FROM THE CARD (#562): the product owner reads the board, and a card nobody
+    # started is one they may say the factory takes up next — the module says whether it is
+    # offered to THIS person (`ProductModule.queue_view`); the press is `product_promote`
+    if shown and shown.get("readable") and shown.get("open") and not shown.get("started"):
+        shown["queue"] = await asyncio.to_thread(
+            lambda: module.queue_view(shown["ref"], actor=by.id, column=shown.get("column", ""),
+                                      board=board))
+    count ="could not be read" if read["cards"] is None else f"{len(read['cards'])} open"
     return done(f"{proj.name}'s board — {count}", project=proj.name, **read)
 
 
