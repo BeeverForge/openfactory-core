@@ -20,6 +20,7 @@ BREAKING = "openfactory/product/breaking.py"
 ENGINE = "openfactory/product/engine.py"
 CONFIRM = "openfactory/product/confirm.py"
 ACTIVITIES = "openfactory/runtime/temporal/activities.py"
+WORKFLOW = "openfactory/runtime/temporal/workflow.py"
 
 MUTATIONS = [
     # 1. one execution
@@ -36,12 +37,23 @@ MUTATIONS = [
     ("a breakdown no conversation started is told to nobody's conversation", ACTIVITIES,
      "    if not inp.conversation:\n        return\n    from openfactory.product.confirm",
      "    if False:\n        return\n    from openfactory.product.confirm"),
-    ("a breakdown that failed is not told", ACTIVITIES,
-     "        await _tell_the_breakdown(project, inp, None)\n        raise\n",
-     "        raise\n"),
-    ("a breakdown that failed is told and then reported as done", ACTIVITIES,
-     "        await _tell_the_breakdown(project, inp, None)\n        raise\n",
-     "        await _tell_the_breakdown(project, inp, None)\n        return []\n"),
+    # RE-PINNED 2026-10-11 (review of #616): the workflow tells a breakdown that did not finish
+    ("a breakdown that did not finish is not told", WORKFLOW,
+     "            if inp.conversation:\n                with contextlib.suppress(ActivityError):",
+     "            if False:\n                with contextlib.suppress(ActivityError):"),
+    ("a breakdown no conversation started is told to nobody's conversation", WORKFLOW,
+     "            if inp.conversation:\n                with contextlib.suppress(ActivityError):",
+     "            if True:\n                with contextlib.suppress(ActivityError):"),
+    ("a breakdown that did not finish is told and then reported as done", WORKFLOW,
+     "                        retry_policy=RetryPolicy(maximum_attempts=3),\n"
+     "                    )\n            raise\n",
+     "                        retry_policy=RetryPolicy(maximum_attempts=3),\n"
+     "                    )\n            return []\n"),
+    ("the telling of an unfinished breakdown tells what it filed", ACTIVITIES,
+     "    project = ProjectRegistry().get(inp.project)\n"
+     "    await _tell_the_breakdown(project, inp, None)\n    return True\n",
+     "    project = ProjectRegistry().get(inp.project)\n"
+     "    await _tell_the_breakdown(project, inp, [])\n    return True\n"),
     ("a telling that failed costs the cards", ACTIVITIES,
      "    except Exception:  # noqa: BLE001 — the cards stand; only the telling failed, and says so",
      "    except ArithmeticError:  # noqa: BLE001"),
