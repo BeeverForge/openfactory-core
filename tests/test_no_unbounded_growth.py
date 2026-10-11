@@ -155,6 +155,11 @@ def test_the_declared_exemptions_still_exist():
 #: a process that never restarts is a slow leak; a cache bounded "by nature" must say by what.
 _CACHES = {
     ("openfactory/runtime/repo_cache.py", "_locks"): "one lock per project — bounded by the registry",
+    # review of #611 — the unreadable values of OPENFACTORY_DEFAULT_FRONT_END this process has said,
+    # so a typo is one warning, not one per page request
+    ("openfactory/api/app.py", "_SAID_NEITHER"):
+        "one per value the environment has held for one setting — bounded by the environment, "
+        "never by traffic",
     # #412 — the projects this process has said run on a store that cannot keep a card's record,
     # so the warning is one line per project
     ("openfactory/lifecycle/card.py", "_UNRECORDED_SAID"):
