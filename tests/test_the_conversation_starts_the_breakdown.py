@@ -417,7 +417,7 @@ def test_an_unagreed_requirement_asked_for_is_told_the_modules_refusal():
     assert "ainda não foi acordado" in said, said
 
 
-@pytest.mark.parametrize("results", [None, [], [WriteResult(ok=False, detail="sem quadro")]])
+@pytest.mark.parametrize("results", [[], [WriteResult(ok=False, detail="sem quadro")]])
 def test_an_acceptance_whose_breakdown_filed_nothing_says_the_agreement_holds(results):
     said = _told(results, asked_for=False)
 
@@ -435,3 +435,16 @@ def test_the_conversation_is_told_in_its_own_language():
                           language="en")
 
     assert "starting work on it" in said and "Pendências" in said, said
+
+
+@pytest.mark.parametrize(("asked_for", "agreed"), [(True, False), (False, True)])
+def test_a_breakdown_that_did_not_finish_never_says_nothing_was_filed(asked_for, agreed):
+    """REVIEW OF #619. It raised, its worker died or its heartbeat stopped, perhaps after filing
+    some cards: the sentence says some may be on the board and that asking again does not file
+    them twice — and, after an acceptance, that the agreement stands."""
+    said = _told(None, asked_for=asked_for)
+
+    assert said.startswith("A quebra do requisito 7 em tarefas não terminou."), said
+    assert "podem já estar no quadro" in said and "não é registrado duas vezes" in said, said
+    assert ("O acordo continua registrado." in said) is agreed, said
+    assert "Ainda não consegui" not in said, said
