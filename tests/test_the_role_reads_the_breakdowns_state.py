@@ -139,6 +139,14 @@ def test_the_module_reads_the_running_breakdowns_and_says_unknown_when_it_cannot
     assert "could not be listed" in caplog.text
 
 
+def test_every_role_the_module_builds_is_handed_the_breakdowns():
+    """Reachability, read off the builder: a reader nothing hands to the role is the defect this
+    repository keeps shipping — built, tested, and reached by nothing."""
+    from openfactory.product.module import ProductModule
+
+    assert "breakdowns=self._breakdowns()," in inspect.getsource(ProductModule._role)
+
+
 def test_the_running_breakdowns_are_one_listing_of_this_project_alone():
     class _Engine:
         def __init__(self):
