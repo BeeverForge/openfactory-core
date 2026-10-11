@@ -45,8 +45,9 @@ def record(project, number: int, results, *, now: str | None = None) -> list[str
     subject = str(int(number))
     ts = now or datetime.now(UTC).isoformat()
     rows = loop_store.read(name)
-    stale = [x for x in waiting(rows, kind=UNFILED, owner=OWNER) if x.subject == subject]
-    out = close_by_observation(stale, {(UNFILED, subject, ""): BROKEN_DOWN_AGAIN})
+    # THIS REQUIREMENT'S, BY THE KEY: every other requirement's fronts stay as they were
+    out = close_by_observation(waiting(rows, kind=UNFILED, owner=OWNER),
+                               {(UNFILED, subject, ""): BROKEN_DOWN_AGAIN})
     fronts = not_filed(results)
     if fronts:
         out.append(open_loop(UNFILED, subject, owner=OWNER, ts=ts,

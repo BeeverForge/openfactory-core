@@ -24,11 +24,13 @@ PAGE = "openfactory/api/panel.html"
 MUTATIONS = [
     # 1. what is kept
     ("the next breakdown leaves the last one's fronts standing", UNFILED,
-     '    out = close_by_observation(stale, {(UNFILED, subject, ""): BROKEN_DOWN_AGAIN})',
+     "    out = close_by_observation(waiting(rows, kind=UNFILED, owner=OWNER),\n"
+     '                               {(UNFILED, subject, ""): BROKEN_DOWN_AGAIN})',
      "    out = []"),
     ("one requirement's breakdown clears every requirement's fronts", UNFILED,
-     "    stale = [x for x in waiting(rows, kind=UNFILED, owner=OWNER) if x.subject == subject]",
-     "    stale = list(waiting(rows, kind=UNFILED, owner=OWNER))"),
+     '                               {(UNFILED, subject, ""): BROKEN_DOWN_AGAIN})',
+     '                               {(UNFILED, x.subject, ""): BROKEN_DOWN_AGAIN\n'
+     '                                for x in waiting(rows, kind=UNFILED, owner=OWNER)})'),
     ("a card that landed is kept as a front left out", UNFILED,
      '            if not getattr(r, "ok", False) and not getattr(r, "nothing_to_build", False)',
      '            if not getattr(r, "nothing_to_build", False)'),

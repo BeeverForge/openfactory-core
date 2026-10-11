@@ -76,8 +76,10 @@ def test_only_a_front_not_filed_is_kept(ledger):
     describes what is already built are not fronts left out."""
     built = SimpleNamespace(ok=False, detail="já está construído", nothing_to_build=True)
     existed = WriteResult(ok=True, ref="#9", existed=True)
+    # filed, with the board's own sentence about its placement: a card, not a front left out
+    unplaced = WriteResult(ok=True, ref="#10", detail="o quadro recusou a colocação do card")
 
-    assert unfiled.record(ACME, 66, [existed, built, *_results()], now=T0) == []
+    assert unfiled.record(ACME, 66, [existed, built, unplaced, *_results()], now=T0) == []
     assert ledger.rows == [], "a breakdown that left nothing out wrote a loop"
 
 
