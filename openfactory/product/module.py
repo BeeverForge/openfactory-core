@@ -4428,6 +4428,33 @@ class ProductModule:
             forget_board(getattr(self.project, "name", ""))
         return out
 
+    def queue_view(self, number: str, *, actor: str, column: str, board=None) -> dict:
+        """What the card's "queue it" control needs on the product view (#562): offered on an open
+        card nobody has started and not already in the queue, to a person `promote` would let start
+        it — with the words, the queue named as this board names it (#496). A person who may not
+        start work is told who can, and gets no button. `{"offered": False}` and nothing else for
+        a card already in the queue or taken up.
+
+        A HINT TO THE PAGE, NEVER THE GATE, as `card_view`'s `started` is: the press is
+        `product_promote`, whose `promote` asks `may_act` and the card's door again. The question
+        asked here is the same `may_act`, so the button is drawn exactly where the row would act.
+        The card being open is the caller's to have read."""
+        from openfactory.adapters.board.base import stage_key
+        from openfactory.adapters.board.columns import has_started
+        from openfactory.product.voice import card_queue_controls, card_queue_not_yours
+
+        board = board if board is not None else self._board()
+        key = stage_key(board, column) if (board is not None and column) else ""
+        if key == self.QUEUE_KEY or has_started(key):
+            return {"offered": False}
+        lang = getattr(self.project, "language", None)
+        queue = stage_column(board, self.QUEUE_KEY) if board is not None else ""
+        if not may_act(self.project, actor, via=self._via):
+            return {"offered": False,
+                    "note": card_queue_not_yours(ref=number, column=queue, language=lang)}
+        return {"offered": True,
+                "words": card_queue_controls(ref=number, column=queue, language=lang)}
+
     def reorder(self, numbers: list[str], *, actor: str, board=None) -> list[WriteResult]:
         """Write the backlog order — the product owner's second verb at the frontier (#33), and
         until now the one that only ever PROPOSED: `propose_queue` said what should start next and

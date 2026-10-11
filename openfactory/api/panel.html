@@ -2441,6 +2441,27 @@ async function pvAcceptSend(){
   _pv.said={ok:!!(out&&out.ok),how:"accept",message:(out&&out.message)||"I could not do that just now."};
   await pvCardRead(c.ref);
 }
+// PUT IN THE QUEUE, FROM THE CARD (#562). The product owner reads the board and says what the
+// factory takes up next. Drawn only where the SERVER offers it to this viewer (`c.queue.offered`,
+// `ProductModule.queue_view`): an open card nobody started, not in the queue already. What starting
+// costs is asked before anything spends, in the server's words; what came of it is the row's own
+// sentence, said on the card. A person who may not start work: the server's sentence, no button.
+function pvQueueBlock(c){
+  const q=c.queue||{};
+  if(!q.offered)return q.note?`<p class="pv-note" data-queue>${esc(q.note)}</p>`:"";
+  const w=q.words||{};
+  return `<div data-queue style="margin-top:9px">
+      <button class="btn" onclick="pvQueueSend()">${esc(w.queue||"Queue it (To Do)")}</button></div>`;
+}
+async function pvQueueSend(){
+  const c=_pv.card;if(!c)return;
+  const w=(c.queue||{}).words||{};
+  if(!confirm(w.ask||"Putting this card in To Do starts the work, and that spends money."))return;
+  const out=await act("product_promote",
+    {project:_prod.project,numbers:[c.ref],yes:true}).catch(()=>null);
+  _pv.said={ok:!!(out&&out.ok),how:"queue",message:(out&&out.message)||"I could not do that just now."};
+  await pvCardRead(c.ref);
+}
 function pvCardAsk(how){_pv.ask={how,reason:""};_pv.said=null;paintPvBoard();const b=$("#pv_reason");if(b)b.focus()}
 function pvCardCancel(){_pv.ask=null;paintPvBoard()}
 async function pvCardClose(){
@@ -5645,7 +5666,7 @@ function _bcontrols(c, where){
   return `<div style="margin-top:9px;display:flex;gap:8px;flex-wrap:wrap">${edit}
       <button class="btn" onclick="${on.ask}('close')">${esc(w.close||"Close card")}</button>
       ${c.started ? "" : `<button class="btn" onclick="${on.ask}('remove')">${esc(w.remove||"Remove from the board")}</button>`}
-    </div>${note}${confirm}${where === "product" ? pvAcceptBlock(c) + pvAdjustBlock(c) : ""}`;
+    </div>${note}${confirm}${where === "product" ? pvQueueBlock(c) + pvAcceptBlock(c) + pvAdjustBlock(c) : ""}`;
 }
 
 function _bthread(c){

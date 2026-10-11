@@ -175,9 +175,11 @@ MUTATIONS = [
     ("the page draws the control whatever the server says", PANEL,
      '  if(!a.offered)return a.note?`<p class="pv-note" data-adjust>',
      '  if(false)return a.note?`<p class="pv-note" data-adjust>'),
-    # RE-PINNED 2026-10-02 (#448 slice 3): the acceptance's block is drawn beside it
+    # RE-PINNED 2026-10-02 (#448 slice 3): the acceptance's block is drawn beside it; RE-PINNED
+    # 2026-10-11 (#562): and the queue's
     ("the product card draws no control at all", PANEL,
-     '    </div>${note}${confirm}${where === "product" ? pvAcceptBlock(c) + pvAdjustBlock(c) : ""}`;\n',
+     '    </div>${note}${confirm}${where === "product" ? pvQueueBlock(c) + pvAcceptBlock(c) + '
+     'pvAdjustBlock(c) : ""}`;\n',
      "    </div>${note}${confirm}`;\n"),
     ("the inbox offers adjust past the budget", APP,
      '            if act.get("adjusts_left") == 0:\n',

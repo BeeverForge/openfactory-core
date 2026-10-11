@@ -169,9 +169,10 @@ MUTATIONS = [
      '    # WHERE "IT WENT IN" IS TOLD',
      "    vouched = False\n"
      '    # WHERE "IT WENT IN" IS TOLD'),
+    # RE-PINNED 2026-10-11 (#562): the queue's block is drawn beside it
     ("the product card draws no yes", PANEL,
-     '${where === "product" ? pvAcceptBlock(c) + pvAdjustBlock(c) : ""}',
-     '${where === "product" ? pvAdjustBlock(c) : ""}'),
+     '${where === "product" ? pvQueueBlock(c) + pvAcceptBlock(c) + pvAdjustBlock(c) : ""}',
+     '${where === "product" ? pvQueueBlock(c) + pvAdjustBlock(c) : ""}'),
     ("the page draws the yes whatever the server says", PANEL,
      '  if(!a.offered)return a.note?`<p class="pv-note" data-accept>',
      '  if(false)return a.note?`<p class="pv-note" data-accept>'),

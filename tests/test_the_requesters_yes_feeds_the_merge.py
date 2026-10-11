@@ -785,7 +785,7 @@ def test_the_product_view_is_DRIVEN_the_card_says_this_is_it_and_the_click_carri
               "await pvCardOpen('7');const opened=nodes['#pvBoard'].innerHTML;"
               "await pvAcceptSend();return {opened,after:nodes['#pvBoard'].innerHTML,acts}",
               "pvCardOpen", "pvCardRead", "paintPvBoard", "_bcontrols", "pvAdjustBlock",
-              "pvAcceptBlock", "pvAcceptSend", stubs=stubs)
+              "pvAcceptBlock", "pvAcceptSend", "pvQueueBlock", stubs=stubs)
 
     assert "This is it — accept" in got["opened"] and "If it is right." in got["opened"]
     assert ["product_accept_change", {"project": "acme", "number": "7", "head": HEAD}] in (
