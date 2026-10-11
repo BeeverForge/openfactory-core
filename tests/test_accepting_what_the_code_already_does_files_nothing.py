@@ -454,9 +454,15 @@ def test_and_the_chat_reads_that_answer_as_NOTHING_TO_BUILD_not_as_a_card(origin
     assert "backlog" not in said.lower(), said
     # A DECISION, NOT A FAILURE. Without its own branch this answer falls into the executor's
     # "I still could not turn this into units of work…" tail, with the right sentence quoted
-    # inside the wrong one and an offer to "try again" at something that did not fail. The two
-    # fragments below are that tail's own words, in the language it is written in.
-    assert "consegui" not in said.lower() and "tento de novo" not in said.lower(), said
+    # inside the wrong one and an offer to "try again" at something that did not fail. The tail
+    # is asked for IN THE LANGUAGE THIS ANSWER IS IN: the Portuguese words this used to look for
+    # can never appear in an English sentence, so the branch could go and nothing noticed (the
+    # `182` survivor, pinned with #563 slice 18b).
+    from openfactory.product.confirm import _said
+
+    tail = _said("en")
+    assert tail["no_breakdown"] not in said, said
+    assert tail["agreement_holds"].strip(". ") not in said, said
 
 
 # ── 6. …and a person who ASKS still gets the breakdown ───────────────────────────────────────────
