@@ -2338,6 +2338,16 @@ _BREAKDOWN_SAID = {
                   "dela — peça a quebra de novo quando “{base}” puder ser aberta."),
         "en": ("“{base}” was not opened, so I held “{title}”, which builds on it — ask for the "
                "breakdown again once “{base}” can be opened.")},
+    # A CARD OF THE REQUIREMENT APPEARED WHILE IT WAS BROKEN DOWN (#563 slice 18d): filed by hand
+    # or by another surface, it may carry what this front would have — so the front is held,
+    # naming the card, and the next breakdown starts from the list that includes it
+    "carried_meanwhile": {
+        "pt-BR": ("segurei a frente “{title}”: enquanto eu quebrava o requisito, o card {ref} foi "
+                  "aberto para ele. Veja o que ele cobre e peça a quebra de novo para registrar o "
+                  "que faltar."),
+        "en": ("I held “{title}”: while I was breaking the requirement down, card {ref} was "
+               "opened for it. See what it covers, and ask for the breakdown again to file what "
+               "is still missing.")},
     "file_failed": {
         "pt-BR": "não consegui registrar “{title}” agora. O time foi avisado e resolve.",
         "en": ("I could not record “{title}” just now. The team has been told and will sort it "
