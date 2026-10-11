@@ -786,7 +786,11 @@ _BREAKDOWN_COLUMN = (
     "The `breakdown` column is each AGREED requirement's breakdown into cards: `running now` (a "
     "breakdown is filing its cards as we speak), the open cards that already carry its work, "
     "`none filed`, or that whether one is running could not be read. The work of an agreed "
-    "requirement is filed by its breakdown alone: never offer a free-standing card for it.")
+    "requirement is filed by its breakdown alone: never offer a free-standing card for it — say "
+    "the breakdown is running, point to the cards that carry it, or offer the breakdown and the "
+    "sentence that starts it (\"quebra o requisito N em tarefas\" / \"break requirement N into "
+    "tasks\"). A card you draft about any requirement names it as REQ-NNNN in its title or "
+    "description, so the door that files it can see which requirement it is for.")
 
 
 class ProductRole:
@@ -988,12 +992,7 @@ class ProductRole:
             f"{STAGED_AFTER_YOUR_REPLY} A card is not a promise: "
             "it carries no requirement and starts nothing by itself. Do NOT use it for a wish "
             "you should argue into a requirement, nor for a broken promise, NOR FOR THE WORK OF "
-            "AN AGREED REQUIREMENT: that work is filed by the requirement's breakdown alone — the "
-            "`breakdown` column of the requirements index says whether one is running and which "
-            "cards already carry it. Say the breakdown is running, point to those cards, or offer "
-            "the breakdown and the sentence that starts it (\"quebra o requisito N em tarefas\" "
-            "/ \"break requirement N into tasks\"). A card you draft about a requirement names "
-            "it as REQ-NNNN in its title or description.\n\n"
+            "AN AGREED REQUIREMENT, which its breakdown files (the index's `breakdown` column).\n\n"
             "IF THEY GAVE THE BACKLOG AN ORDER — \"coloca nessa ordem: 7, 3, 9\", \"primeiro o "
             "7, depois o 3\", \"prioriza o 9\", any way of saying which cards come FIRST — end "
             "with [[ORDEM: 7, 3, 9]] on its own line, the cards as the board names them — "

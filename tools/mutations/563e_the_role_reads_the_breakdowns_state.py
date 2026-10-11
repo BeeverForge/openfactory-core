@@ -40,14 +40,19 @@ MUTATIONS = [
     ("the column is shown without what it means", ROLE,
      "        if column is not None:\n            parts += [\"\", _BREAKDOWN_COLUMN]\n", ""),
     ("the card marker is offered for an agreed requirement's work", ROLE,
-     '"you should argue into a requirement, nor for a broken promise, NOR FOR THE WORK OF "',
-     '"you should argue into a requirement, nor for a broken promise, NOR FOR "'),
+     '"you should argue into a requirement, nor for a broken promise, NOR FOR THE WORK OF "\n'
+     '            "AN AGREED REQUIREMENT, which its breakdown files',
+     '"you should argue into a requirement, nor for a broken promise, NOR FOR THE "\n'
+     '            "ANY REQUIREMENT, which its breakdown files'),
+    ("a card about a requirement need not name it", ROLE,
+     '"tasks\\"). A card you draft about any requirement names it as REQ-NNNN in its title or "',
+     '"tasks\\"). "'),
 
     # 2. the module
     ("the module never asks the engine", MODULE,
-     "                           breakdowns=self._breakdowns(),\n", ""),
+     "                           breakdowns=_breakdowns_of(self.project),\n", ""),
     ("an engine that cannot be asked is read as nothing running", MODULE,
-     "            return Breakdowns(running=None)", "            return Breakdowns(running=frozenset())"),
+     "        return Breakdowns(running=None)", "        return Breakdowns(running=frozenset())"),
 
     # 3. one listing, this project
     ("another project's breakdowns are read as this one's", BREAKING,

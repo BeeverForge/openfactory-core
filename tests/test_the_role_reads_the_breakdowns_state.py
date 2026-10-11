@@ -112,30 +112,31 @@ def test_the_card_marker_is_kept_off_an_agreed_requirements_work():
     """D18 item 5: the role proposes the breakdown, never a free-standing card, for an agreed
     requirement, and names the requirement in a card it drafts about one — which 18c's door then
     reads."""
+    from openfactory.product.role import _BREAKDOWN_COLUMN
+
     source = (ROOT / "openfactory/product/role.py").read_text(encoding="utf-8")
 
     assert "NOR FOR THE WORK OF " in source and "AN AGREED REQUIREMENT" in source
-    assert "it as REQ-NNNN in its title or description" in source
+    assert "never offer a free-standing card for it" in _BREAKDOWN_COLUMN
+    assert "names it as REQ-NNNN in its title or" in _BREAKDOWN_COLUMN
 
 
 # ── 2. the module asks the engine once per role ─────────────────────────────────────────────────
 
 def test_the_module_reads_the_running_breakdowns_and_says_unknown_when_it_cannot(monkeypatch,
                                                                                  caplog):
-    from openfactory.product.module import ProductModule
+    from openfactory.product.module import _breakdowns_of
 
-    module = ProductModule.__new__(ProductModule)
-    module.project = SimpleNamespace(name="acme")
-
+    acme = SimpleNamespace(name="acme")
     monkeypatch.setattr(breaking, "running_numbers_now", lambda project: {66})
-    assert module._breakdowns() == Breakdowns(running=frozenset({66}))
+    assert _breakdowns_of(acme) == Breakdowns(running=frozenset({66}))
 
     def _down(project):
         raise RuntimeError("the durable engine is not answering")
 
     monkeypatch.setattr(breaking, "running_numbers_now", _down)
     with caplog.at_level(logging.INFO, logger="openfactory.product"):
-        assert module._breakdowns() == Breakdowns(running=None)
+        assert _breakdowns_of(acme) == Breakdowns(running=None)
     assert "could not be listed" in caplog.text
 
 
@@ -144,7 +145,7 @@ def test_every_role_the_module_builds_is_handed_the_breakdowns():
     repository keeps shipping — built, tested, and reached by nothing."""
     from openfactory.product.module import ProductModule
 
-    assert "breakdowns=self._breakdowns()," in inspect.getsource(ProductModule._role)
+    assert "breakdowns=_breakdowns_of(self.project)," in inspect.getsource(ProductModule._role)
 
 
 def test_the_running_breakdowns_are_one_listing_of_this_project_alone():
