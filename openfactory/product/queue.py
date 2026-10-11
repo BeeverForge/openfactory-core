@@ -238,6 +238,10 @@ def _opening(body: str) -> str:
     return ""
 
 
+#: A criterion's markdown checkbox, ticked or not.
+_CHECKBOX = re.compile(r"^\[[ xX]\]\s*")
+
+
 def what_it_asks(ticket: Ticket) -> list[str]:
     """A candidate in its own words, bounded: what it asks (its objective, or the opening of its
     body), the requirement it executes, and its first criteria — one line each, under the card.
@@ -260,7 +264,10 @@ def what_it_asks(ticket: Ticket) -> list[str]:
     executes = _cited_requirement(body)
     if executes is not None:
         lines.append(f"  - executes: REQ-{executes:04d}")
-    criteria = [c.text for c in parsed.acceptance_criteria if c.text.strip()]
+    # THE CHECKBOX IS THE CARD'S MARKDOWN, NOT WHAT IT ASKS: every card the platform files writes
+    # its criteria as `- [ ] …`, and the parser keeps the box in the text
+    criteria = [_CHECKBOX.sub("", c.text).strip() for c in parsed.acceptance_criteria]
+    criteria = [c for c in criteria if c]
     lines += [f"  - criterion: {_cut(c, _CRITERION_CHARS)}" for c in criteria[:_CRITERIA_PER_CARD]]
     if len(criteria) > _CRITERIA_PER_CARD:
         lines.append(f"  - (+{len(criteria) - _CRITERIA_PER_CARD} more criteria not shown)")

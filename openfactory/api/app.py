@@ -2124,7 +2124,7 @@ def open_loops(project: str, request: Request) -> dict:
     the product's agenda and chat use decides (`product/agenda.py`): the room's items — every
     agent's own among them — and the caller's own, never another person's."""
     from openfactory.memory import store as loop_store
-    from openfactory.memory.ledger import waiting
+    from openfactory.memory.ledger import UNFILED, waiting
     from openfactory.product import agenda, events
 
     actor = _actor(request)
@@ -2133,7 +2133,10 @@ def open_loops(project: str, request: Request) -> dict:
     except KeyError:
         room = project
     viewer = agenda.Viewer(own=actor.conversation, person=actor.id)
-    loops = waiting(agenda.visible(loop_store.read(project), viewer, room=room))
+    # WHAT A BREAKDOWN LEFT OUT WAITS ON NOBODY (#564, review of #621): it is on the requirement's
+    # row, and this list is of what somebody is waiting on
+    loops = [x for x in waiting(agenda.visible(loop_store.read(project), viewer, room=room))
+             if x.kind != UNFILED]
     return {
         "project": project,
         "waiting": [

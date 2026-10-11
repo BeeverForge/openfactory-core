@@ -2902,11 +2902,20 @@ class ProductModule:
         shown = self._board_tickets or (None if board_error else tickets)
         known_open: set[str] | None = (
             None if shown is None else {t.number for t in shown if t.state != "closed"})
+        # THE CARDS THAT ALREADY EXECUTE THIS REQUIREMENT, AS A FACT (#563 slice 18d, ADR-0051 D18
+        # item 4): read from their `## Source`, OPEN AND CLOSED — a closed card delivered its part,
+        # and a breakdown of a delivered requirement must not file that work again. The
+        # decomposition is handed them in their own words (#567), and a front it says one of them
+        # carries is verified against them, closed ones included.
+        carrying = None if shown is None else _executing(shown, requirement.number)
+        if known_open is not None:
+            known_open = known_open | {t.number for t in carrying or []}
 
         sandbox, ws = self._workspace()
-        drafts = self._role().issues_for(
-            sandbox=sandbox, workspace=ws, requirement=requirement,
-            sources=self._sources())
+        issues_for = self._role().issues_for
+        drafts = issues_for(
+            sandbox=sandbox, workspace=ws, requirement=requirement, sources=self._sources(),
+            **({"carrying": carrying} if _takes(issues_for, "carrying") else {}))
         if not drafts.ok:
             # the ROLE's own words about its harness, and they used to be the client's sentence
             return [_could_not(breakdown_said("unbroken", language=lang),
@@ -2931,11 +2940,17 @@ class ProductModule:
         # waits on. The results keep the decomposition's order, whatever order they were filed in.
         fronts = drafts.issues
         filed: dict[int, WriteResult] = {}
+        fence = _Fence(self, requirement.number, carrying)
         for index in _filing_order(fronts):
             draft = fronts[index]
             waits_on = next((fronts[b - 1] for b in getattr(draft, "builds_on", None) or []
                              if b - 1 in filed and not filed[b - 1].ok), None)
-            if waits_on is not None:
+            if fence.stopped is not None:
+                # A CARD OF THIS REQUIREMENT APPEARED WHILE IT WAS BROKEN DOWN, and every front not
+                # yet filed is held, naming it: the next breakdown starts from the list that now
+                # includes it
+                filed[index] = fence.held(draft)
+            elif waits_on is not None:
                 filed[index] = _held(
                     breakdown_said("held", title=draft.title.strip()[:80],
                                    base=waits_on.title.strip()[:80], language=lang),
@@ -2949,7 +2964,8 @@ class ProductModule:
                     act="break a requirement into work", why="breakdown budget spent")
             else:
                 filed[index] = self._file_one(draft, requirement, tracker, board, vet=vet,
-                                              known_open=known_open, by=actor)
+                                              known_open=known_open, by=actor, fence=fence)
+                fence.filed(filed[index])
         results = [filed[index] for index in range(len(fronts))]
         self._open_delivery(requirement, results, by=actor, tracker=tracker,
                             conversation=conversation, requester=requester)
@@ -3638,6 +3654,11 @@ class ProductModule:
                         "not open on the board we just read. Filing “%s” instead of trusting it.",
                         claimed, draft.title.strip()[:60])
             return None
+        # A CARD THAT ALREADY EXECUTES THIS REQUIREMENT SAYS SO in its own `## Source` (#563 slice
+        # 18d): nothing is noted on it, and a closed one is not woken by a comment
+        if claimed in {canonical_ref(t.number) for t in _executing(
+                getattr(self, "_board_tickets", None) or [], requirement.number)}:
+            return claimed
         # The reuse is only half of it: a card serving a requirement that does not SAY so has the
         # same problem the duplicate had — the link exists in one chat message and nowhere a person
         # will ever look. Best-effort on purpose (the tracker contract in adapters/tracker/base.py:
@@ -3714,7 +3735,8 @@ class ProductModule:
                               getattr(requirement, "asked_by", "") or "", tracker))
 
     def _file_one(self, draft, requirement, tracker, board,
-                  *, known_open: set[str] | None = None, vet=None, by: str = "") -> WriteResult:
+                  *, known_open: set[str] | None = None, vet=None, by: str = "",
+                  fence=None) -> WriteResult:
         from openfactory.product.voice import breakdown_said
 
         lang = getattr(self.project, "language", None)
@@ -3735,19 +3757,35 @@ class ProductModule:
             draft = vetted
         title = draft.title.strip()
         where, elsewhere = self._filing_repo(draft, tracker)
-        try:
+        body = self._issue_body(draft, requirement, tracker)
+
+        def _write() -> WriteResult:
+            # THE RE-READ AND THE WRITE, UNDER THE PRODUCT'S SEMAPHORE (#563 slice 18d, ADR-0051
+            # D7/D8): a card of this requirement filed since the breakdown began holds this front,
+            # and nothing here asks a model — the vet above ran before the lock was taken
+            held = fence.before(draft) if fence is not None else None
+            if held is not None:
+                return held
             # An existing issue with this title is this operation's own prior result far more often
             # than it is a coincidence: a retried conversation must not file the work twice.
             existing = tracker.find_ticket(title=title) or self._titled_in(where, title)
             if existing:
                 return WriteResult(ok=True, ref=str(existing), existed=True,
                                    detail=breakdown_said("title_exists", language=lang))
-            ref = tracker.create_ticket(
-                title=title, body=self._issue_body(draft, requirement, tracker),
-                **({"repo": where} if where else {}))
+            return WriteResult(ok=True, ref=str(tracker.create_ticket(
+                title=title, body=body, **({"repo": where} if where else {}))))
+
+        try:
+            written = self._checked_write(
+                act=f"file work: {title[:60]}", kind="ticket", text=title, seen=None,
+                write=_write, saved=_saved_on_the_board, against=_CARD_KINDS,
+                found=_the_card_just_asked_for)
         except Exception as exc:  # noqa: BLE001 — one bad issue must not lose the others
             return _could_not(breakdown_said("file_failed", title=title, language=lang),
                               act=f"file work: {title[:60]}", cause=exc)
+        if not written.ok or written.existed:
+            return written
+        ref = written.ref
 
         if board is not None:
             # A PLACEMENT THAT RAISED AND ONE THAT ANSWERED `False` ARE ONE STATE — a card with no
@@ -5890,6 +5928,77 @@ def only_in(closing: str, staying: str, *, at_most: int = 5) -> Carried:
     executes = _cited_requirement(closing)
     return Carried(criteria=only,
                    executes=executes if executes != _cited_requirement(staying) else None)
+
+
+def _executing(tickets, number: int) -> list:
+    """The cards whose `## Source` says they execute requirement `number` — open and closed, in the
+    board's order (#563 slice 18d)."""
+    return [t for t in tickets or [] if _cited_requirement(getattr(t, "body", "") or "") == number]
+
+
+def _takes(fn, name: str) -> bool:
+    """Whether `fn` accepts the keyword `name` — a double or an older role's `issues_for` does not
+    take what this breakdown hands a newer one, and is called as before."""
+    import inspect
+
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD
+                                 for p in params.values())
+
+
+class _Fence:
+    """What a breakdown asks the board before each card it files (#563 slice 18d, ADR-0051 D18
+    item 4): which cards execute its requirement now, against those that did when it began and
+    those it has filed itself. One that appeared in between — filed by hand, or by another
+    surface — stops the fronts not yet filed, and each is said as held, naming that card.
+
+    ITS OWN CARDS ARE NEVER STRANGERS: every card a breakdown files executes its requirement, and
+    a re-read that counted them would hold the second front on the first. A board that could not
+    be read when the breakdown began, or now, cannot tell new from old, and files as before: a
+    duplicate beats work silently dropped (`_reused_card`'s rule)."""
+
+    def __init__(self, module, number: int, carrying) -> None:
+        self.module, self.number = module, number
+        self.known = (None if carrying is None
+                      else {canonical_ref(t.number) for t in carrying})
+        self.own: set[str] = set()
+        self.stopped = None
+
+    def before(self, draft) -> WriteResult | None:
+        """Under the semaphore, just before the write: the held result, or None to file."""
+        if self.known is None:
+            return None
+        tickets, error = self.module._read_board(fresh=True)
+        if error:
+            log.warning("OPENFACTORY_PRODUCT_BREAKDOWN_UNFENCED req=%s — the board could not be "
+                        "read before a card; filing it as before", self.number)
+            return None
+        arrived = [t for t in _executing(tickets, self.number)
+                   if canonical_ref(t.number) not in self.known | self.own]
+        if not arrived:
+            return None
+        self.stopped = arrived[0]
+        log.info("OPENFACTORY_PRODUCT_BREAKDOWN_FENCED req=%s card=%s — a card of the requirement "
+                 "appeared while it was broken down; the fronts not yet filed are held",
+                 self.number, canonical_ref(self.stopped.number))
+        return self.held(draft)
+
+    def held(self, draft) -> WriteResult:
+        from openfactory.product.voice import breakdown_said
+
+        lang = getattr(getattr(self.module, "project", None), "language", None)
+        return _held(breakdown_said("carried_meanwhile", title=draft.title.strip()[:80],
+                                    ref=self.stopped.number, language=lang),
+                     act="break a requirement into work",
+                     why=f"a card of REQ-{self.number} appeared while it was broken down")
+
+    def filed(self, result: WriteResult) -> None:
+        """A card this breakdown filed — never a stranger to its own next re-read."""
+        if result.ok and result.ref:
+            self.own.add(canonical_ref(result.ref))
 
 
 def _breakdowns_of(project):

@@ -205,8 +205,9 @@ MUTATIONS = [
      '                           may_read_room=by.may_enter(PRODUCT))\n'
      '    rows = await asyncio.to_thread(loop_store.read, proj.name)\n'),
     ("the operator's list of loops carries everybody's private items", APP,
-     "    loops = waiting(agenda.visible(loop_store.read(project), viewer, room=room))\n",
-     "    loops = waiting(loop_store.read(project))\n"),
+     # RE-PINNED 2026-10-11 (#564): the list leaves out what a breakdown did not file
+     "    loops = [x for x in waiting(agenda.visible(loop_store.read(project), viewer, room=room))\n",
+     "    loops = [x for x in waiting(loop_store.read(project))\n"),
     # re-pinned 2026-09-24 (#269): the boot line reads the documents after the agenda
     ("the product page never reads its agenda", PANEL,
      # RE-PINNED 2026-09-28 (#384): the page reads its cards on open too

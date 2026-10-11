@@ -2174,6 +2174,16 @@ async def _product_requirements(*, project: str, by: Actor) -> Outcome:
         return refused(UNAVAILABLE, ctx.reason or "the product corpus could not be read.",
                        project=proj.name)
     corpus = ctx.corpus
+    # WHAT THE LAST BREAKDOWN OF EACH LEFT OUT (#564), read beside the corpus: the reply that said
+    # it was a toast, and the row went on looking like everything had been filed. A ledger that
+    # cannot be read costs this column, never the list.
+    from openfactory.product import unfiled
+
+    try:
+        left_out = await asyncio.to_thread(unfiled.open_fronts, proj)
+    except Exception:  # noqa: BLE001 — the list stands without it, and the log says why
+        log.warning("the fronts not filed for %s could not be read", proj.name, exc_info=True)
+        left_out = {}
     # `came_from_the_code` IS THE SERVER'S VERDICT, sent so no surface derives its own (#182). It is
     # the predicate `ProductModule.accept` decides on — an entry a baseline pass read off the code
     # is accepted with NO work filed — and the page's confirm dialog says which of the two things
@@ -2183,7 +2193,8 @@ async def _product_requirements(*, project: str, by: Actor) -> Outcome:
              "asked_by": r.asked_by, "date": r.date, "path": r.path,
              "has_decisions": bool(r.has_decisions), "affects": list(r.affects or ()),
              "came_from_the_code": r.came_from_the_code,
-             "evidence": r.evidence, "observed_at": r.observed_at}
+             "evidence": r.evidence, "observed_at": r.observed_at,
+             "unfiled": left_out.get(r.number, [])}
             for r in sorted(corpus.requirements, key=lambda r: r.number)]
     return done(corpus.summary(), project=proj.name, requirements=rows,
                 accepted=len(corpus.promises()), observed=len(corpus.observed()),
