@@ -134,7 +134,7 @@ async def _panel_gate(request: Request, call_next):
     # that follows is gated exactly as before.
     if request.method == "OPTIONS" and request.headers.get("access-control-request-method"):
         return await call_next(request)
-    refused = await _ask_the_gate(request.url.path, _credential_of(request))
+    refused = await _ask_the_gate(request.url.path, _credential_of(request), request.url.query)
     if refused is not None:
         return JSONResponse(refused.body, status_code=refused.status)
     return await call_next(request)
@@ -642,7 +642,7 @@ def _clear_credential_cookies(response) -> None:
     response.delete_cookie(SECURE_TOKEN_COOKIE, path="/", secure=True)
 
 
-def _gate_verdict(path: str, credential: str) -> _Refusal | None:
+def _gate_verdict(path: str, credential: str, query: str = "") -> _Refusal | None:
     """WHO IS THIS, AND MAY THEY READ THAT — the HTTP gate's whole decision, in one function.
 
     None when `credential` opens `path`; otherwise the refusal a request is answered with. This
@@ -660,7 +660,10 @@ def _gate_verdict(path: str, credential: str) -> _Refusal | None:
 
     SYNCHRONOUS, AND IT MAY WAIT — `_admission` folds the people store for a session token, and a
     row may go further than that. So nothing on the event loop calls it directly; see
-    `_ask_the_gate` for what that was measured to cost, and what it cost not to."""
+    `_ask_the_gate` for what that was measured to cost, and what it cost not to.
+
+    `query` is the request's query string, which only the product owner's board read asks
+    (`_the_product_owners_board`); a stream and the socket ask with none."""
     if not _gated(path):
         return None
     door = _admission(credential)
@@ -674,6 +677,8 @@ def _gate_verdict(path: str, credential: str) -> _Refusal | None:
     scopes = _scopes_of(subject)
     wanted = _scope_of_path(path)
     if scopes is not None and wanted is not None and wanted not in scopes:
+        if _the_product_owners_board(path, scopes, query):
+            return None
         log.warning("DENIED_SCOPE_READ %s (%s) for a credential scoped to %s",
                     path, wanted, ", ".join(sorted(scopes)) or "nothing")
         return _Refusal(403, {
@@ -761,7 +766,7 @@ def _gated(path: str) -> bool:
     return path.startswith("/api/")
 
 
-async def _ask_the_gate(path: str, credential: str) -> _Refusal | None:
+async def _ask_the_gate(path: str, credential: str, query: str = "") -> _Refusal | None:
     """`_gate_verdict`, for whoever is ON THE EVENT LOOP — which is everyone who asks it.
 
     THE ASK LEAVES THE LOOP, ALWAYS, AND THAT WAS DECIDED WITH NUMBERS (2026-09-19, this
@@ -803,7 +808,7 @@ async def _ask_the_gate(path: str, credential: str) -> _Refusal | None:
     and the health check, which present nothing, must not queue with it."""
     if not _gated(path):
         return None
-    return await asyncio.to_thread(_gate_verdict, path, credential)
+    return await asyncio.to_thread(_gate_verdict, path, credential, query)
 
 
 def _unauthorized(provider) -> dict:
@@ -830,6 +835,36 @@ _PRODUCT_ROUTES = ("/api/product/", "/api/act/product_")
 #: analyst who asked for the change — wants to click through before it merges (ADR-0050); keeping
 #: it on the floor side would hand the link to everybody except the person it is for.
 _EVERY_AREA_PREFIXES = ("/api/preview/",)
+
+#: THE PRODUCT OWNER'S READ OF A BOARD (#562): `/api/board/<project>` — one segment, the one read
+#: under that prefix — for a project with a product role, the projects the product area reaches.
+#: DECIDED HERE, AT THE GATE, and not in the route: the gate holds the credential however it was
+#: presented (header, cookie, `?token=`), a route under the prefix added later is the floor's until
+#: somebody decides otherwise, and an unknown project and one with no product role are refused
+#: alike, so the refusal names nothing. Moving a card is an action, and the action layer refuses a
+#: product credential every row outside its area.
+#:
+#: THE BOARD, AND NOT A PULL REQUEST'S DIFF. The route takes `?card=` — the card view the product
+#: owner's own page already reads — and `?pr=`, which answers a pull request's body, diff and review
+#: events for any ref the forge knows. Code stays on the floor: a read naming `pr` is refused here,
+#: with the same sentence as the rest of the floor.
+_PRODUCT_BOARD_READ = re.compile(r"^/api/board/([^/]+)$")
+
+
+def _the_product_owners_board(path: str, scopes, query: str = "") -> bool:
+    """Whether `path` with `query` is the board a product credential may read (#562)."""
+    found = _PRODUCT_BOARD_READ.match(path) if actions.PRODUCT in scopes else None
+    if not found or any(key == "pr" and value for key, value in parse_qsl(query)):
+        return False
+    try:
+        project = ProjectRegistry().get(found.group(1))
+    except KeyError:
+        return False   # a project nobody registered is refused like the rest
+    except Exception:  # noqa: BLE001 — a registry that cannot be read refuses, and says why
+        log.warning("the board of %r could not be looked up for a product credential; refused",
+                    found.group(1), exc_info=True)
+        return False
+    return _has_product_role(project)
 
 
 def _scope_of_path(path: str) -> str | None:
@@ -3172,11 +3207,15 @@ def product_projects() -> list[dict]:
     `enabled` as TRUE — a project that declares `product:` at all has the role on — and a list
     that defaulted the other way would hide projects the actions then happily served, which is
     the "fix one, forget the neighbour" shape this codebase keeps paying for."""
-    def _has_product(p) -> bool:
-        cfg = getattr(p, "product", None)
-        return cfg is not None and bool(getattr(cfg, "enabled", True))
+    return [{"name": p.name} for p in ProjectRegistry().list() if _has_product_role(p)]
 
-    return [{"name": p.name} for p in ProjectRegistry().list() if _has_product(p)]
+
+def _has_product_role(project) -> bool:
+    """Whether a project has a product role: it declares `product:`, and does not turn it off. The
+    one rule both the product owner's list and their read of a board ask (#562) — the gate's
+    `_the_product_owners_board`."""
+    cfg = getattr(project, "product", None)
+    return cfg is not None and bool(getattr(cfg, "enabled", True))
 
 
 # ── FILES A PERSON HANDS THE PRODUCT ROLE (#336) ─────────────────────────────────────────────────

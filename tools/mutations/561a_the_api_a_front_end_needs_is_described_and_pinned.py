@@ -26,7 +26,8 @@ MUTATIONS = [
     ("a row for a route that is gone stays", CONTRACT,
      "| GET | `/api/budget` | floor |", "| GET | `/api/budgets` | floor |"),
     ("a row states another area than the gate reads", CONTRACT,
-     "| GET | `/api/board/{project}` | floor |", "| GET | `/api/board/{project}` | product |"),
+     # RE-PINNED 2026-10-11 (#562): the board row names the product owner's read beside the floor
+     "| GET | `/api/board/{project}` | floor;", "| GET | `/api/board/{project}` | product;"),
     ("the gate's area moves and the contract is not told", APP,
      '_UNSCOPED_ROUTES = ("/api/whoami",)', "_UNSCOPED_ROUTES = ()"),
 
