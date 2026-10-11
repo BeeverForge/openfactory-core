@@ -142,7 +142,8 @@ MUTATIONS = [
      "    has_product = (oidc.product_group_is_mapped(env) if sso\n",
      "    has_product = (False if sso\n"),
 
+    # RE-PINNED 2026-10-11 (#562): the variables that close the door are one tuple of the row's
     ("an SSO deployment's door is reported open", READINESS,
-     "    door_is_closed = sso or has_product or _set(PEOPLE_ENV, SHARED_ENV)\n",
-     "    door_is_closed = has_product or _set(PEOPLE_ENV, SHARED_ENV)\n"),
+     "    door_is_closed = sso or has_product or _set(*CLOSING_ENVS)\n",
+     "    door_is_closed = has_product or _set(*CLOSING_ENVS)\n"),
 ]

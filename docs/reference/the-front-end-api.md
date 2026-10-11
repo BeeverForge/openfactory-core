@@ -20,14 +20,16 @@ and when the default front end calls anything not listed here.
 | `?token=<credential>` | an `EventSource`, which cannot set a header |
 
 **Nothing configured means open.** With no credential configured on the deployment
-(`OPENFACTORY_PANEL_TOKEN(S)`, `OPENFACTORY_PRODUCT_TOKEN(S)`, an identity provider) every route
+(`OPENFACTORY_PANEL_TOKEN(S)`, `OPENFACTORY_PRODUCT_TOKEN(S)`, `OPENFACTORY_BOARD_TOKEN(S)`, an
+identity provider) every route
 answers without one: the local-development posture, never the production one.
 
 **Areas.** A credential may act in the **floor** (the factory: jobs, boards, projects), in the
 **product** area (the product role, its documents and attachments), or in both (an unscoped
 credential). `GET /api/whoami` answers which, for any credential, and is how a screen decides what
 to draw for itself. The product area is every path under `/api/product/` and every catalogue row
-named `product_*`; every other path under `/api/` is the floor.
+named `product_*`; every other path under `/api/` is the floor, with one read the product area
+makes too: `GET /api/board/{project}` for a project with a product role, never with `?pr=` (#562).
 
 **A dashboard on another origin** is admitted by `OPENFACTORY_PANEL_ORIGINS`, which names the
 origins explicitly; a CORS preflight is answered without a credential, and the request after it is
@@ -59,7 +61,7 @@ means any credential the deployment issued.
 | GET | `/api/actions` | floor | the catalogue of actions this deployment can be asked to do |
 | GET | `/api/address` | floor | how a repository address would be read, before a project is added |
 | GET | `/api/attention` | floor | the jobs that need a person |
-| GET | `/api/board/{project}` | floor | a project's board, as its tracker holds it |
+| GET | `/api/board/{project}` | floor; product, for a project with a product role and without `?pr=` | a project's board, as its tracker holds it |
 | GET | `/api/budget` | floor | the API budget of the trackers this deployment reads |
 | GET | `/api/coordinator/messages` | floor | the tech-lead's recent narrated updates |
 | GET | `/api/decisions` | floor | every job parked on a person's decision, with its question and options |
@@ -117,7 +119,7 @@ while it stays open: a credential that stops opening its path ends the stream.
 | stream | transport | frames | how it ends |
 |---|---|---|---|
 | `/api/stream` | WebSocket; `?project=<name>` to follow one project, or send `{"project": "<name>"}` to follow another without dropping it | JSON with a `kind`: `hello` (the tick), `update` (what changed for the project), `bye` (why it stopped) | closed with 1008 when the credential is refused, 1011 when nobody could be judged |
-| `/api/product/stream` | WebSocket; the default front end opens it on the cookie alone, with no credential in its address | JSON with a `kind`: `hello`, `subscribed`, `history`, `said`, `reply`, `staged`, `presence`, `ack`, `refused`, `resync`, `bye` | the same codes |
+| `/api/product/stream` | WebSocket; the default front end opens it on the cookie alone, with no credential in its address | JSON with a `kind`: `hello`, `subscribed`, `history`, `earlier` (the page before the one shown, answering `{"kind": "earlier", "before": <cursor>}`), `said`, `reply`, `staged`, `presence`, `ack`, `refused`, `resync`, `bye` | the same codes |
 | `/api/temporal/stream` | Server-sent events | a JSON frame of the jobs' state — the jobs, whether the poller runs, the build — on connect and whenever it changes; `"jobs": null` when the engine cannot be read | a named event, `ended`, with why: `signed_out`, `not_allowed` or `unavailable` |
 | `/api/jobs/{project}/{issue}/stream` | Server-sent events | the run's log events as they are written; a reconnect resumes from its `Last-Event-ID` (`v2-<n>`) | the same `ended` event |
 

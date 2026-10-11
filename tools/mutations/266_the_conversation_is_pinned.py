@@ -544,11 +544,14 @@ MUTATIONS = [
      '"in_favour_of": in_favour_of, "reason": reason,', '"in_favour_of": None, "reason": reason,'),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-10 (#567): the close's question gained what only the closed card carries
     ("a close does not name who can confirm it", ENGINE,
-     "                                 language=lang)\n        if not may_act(project, user):\n"
+     "                                 carried=carried, unread=unread, language=lang)\n"
+     "        if not may_act(project, user):\n"
      "            admins = _admin_mentions(project)\n            if admins:\n"
      '                ask += admins_must_confirm(admins, "closing"',
-     "                                 language=lang)\n        if False:\n"
+     "                                 carried=carried, unread=unread, language=lang)\n"
+     "        if False:\n"
      "            admins = _admin_mentions(project)\n            if admins:\n"
      '                ask += admins_must_confirm(admins, "closing"'),
 

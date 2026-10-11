@@ -8,9 +8,10 @@ FOUR SOURCES, EACH READ WHERE IT ALREADY IS, NONE READ TWICE:
     repository leaves the index. A requirement file is left to the corpus, which reads it with its
     status: indexed twice, a superseded requirement would come back once as a plain document;
   - the REQUIREMENTS as the corpus parsed them — the curated truth, with status and successor;
-  - the CLOSED CARDS of the board the turn already read. A card this read does not include is
-    kept: the board a turn reads is a window, and the index is what remembers past it; a card
-    this read shows open again leaves;
+  - the CARDS of the board the turn already read, open and closed, each with its body (#567). A
+    card this read does not include is kept as it was last read: the board a turn reads is a
+    window, and the index is what remembers past it. A card that opened or closed since is
+    replaced, its state with it;
   - the CONVERSATIONS as the product's recall index holds them (`memory/recall.py`), which the
     turn refreshed a moment before — the recall index of #33 joins the product's (ADR-0053 D5).
     A line older than the transcript's retention leaves the index as it leaves the store (D6).
@@ -194,12 +195,10 @@ def _cards(index: Index, con, cards, member: str, done: Synced) -> None:
     with con:
         for card in cards:
             made = from_card(card, product=index.key, member=member)
-            grp = f"card:{member}:{getattr(card, 'number', '')}"
             if not made:
-                if grp in known:  # reopened: no longer a closed card
-                    Index.drop_groups(con, [grp])
-                    done.removed += 1
                 continue
+            # THE STATE IS PART OF THE VERSION, through `origin`: a card that opened or closed
+            # since it was read is a new version of its group, never the old one kept
             version = digest_of(made[0].text, made[0].origin, made[0].date)
             if known.get(made[0].grp) == version:
                 continue

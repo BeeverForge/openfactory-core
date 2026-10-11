@@ -688,7 +688,9 @@ def test_the_index_is_rebuilt_from_its_sources(tmp_path):
         assert sorted(r[0] for r in con.execute("SELECT id FROM items")) == before
 
 
-def test_a_reopened_card_leaves_and_a_card_outside_the_read_stays(tmp_path):
+def test_a_reopened_card_is_kept_open_and_a_card_outside_the_read_stays(tmp_path):
+    """A card reopened since it was read is replaced, open (#567): it used to leave the index,
+    when only closed cards were indexed and an open one was "the board's business"."""
     project, index = bed.build(tmp_path)
     reopened = [c.model_copy(update={"state": "open"}) if c.number == "512" else c
                 for c in bed.cards() if c.number != "731"]
@@ -697,7 +699,9 @@ def test_a_reopened_card_leaves_and_a_card_outside_the_read_stays(tmp_path):
 
     with index.open() as con:
         groups = Index.groups(con, "card:")
-    assert "card:tidewater:512" not in groups, "an open card is the board's, not the index's"
+        status = con.execute("SELECT status FROM items WHERE grp = ?",
+                             ("card:tidewater:512",)).fetchone()
+    assert "card:tidewater:512" in groups and status[0] == "open", status
     assert "card:tidewater:731" in groups, "the board a turn reads is a window; the index remembers"
 
 

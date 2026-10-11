@@ -206,9 +206,9 @@ def bench(monkeypatch, tmp_path):
 
     real_verdict = getattr(api, "_gate_verdict", None)
     if real_verdict is not None:
-        def _counted(path, credential):
+        def _counted(path, credential, *query):
             state.asks.append(path)
-            return real_verdict(path, credential)
+            return real_verdict(path, credential, *query)
         monkeypatch.setattr(api, "_gate_verdict", _counted)
 
     # `answered`, BESIDE `asks` AND NOT INSTEAD OF IT (#422). `asks` is appended on the worker
@@ -222,8 +222,8 @@ def bench(monkeypatch, tmp_path):
     # await in between — so a case that sees it also sees the watch re-armed, by construction.
     real_hop = getattr(api, "_ask_the_gate", None)
     if real_hop is not None:
-        async def _answered(path, credential):
-            said = await real_hop(path, credential)
+        async def _answered(path, credential, *query):
+            said = await real_hop(path, credential, *query)
             state.answered.append(path)
             return said
         monkeypatch.setattr(api, "_ask_the_gate", _answered)
