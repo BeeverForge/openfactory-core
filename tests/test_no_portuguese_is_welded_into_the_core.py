@@ -46,6 +46,17 @@ _PT_WORDS = re.compile(
     r"|tambem|precisa|confirma|registro|preciso|aqui|agora|sobre|pelo|pela|seu|sua|uma|um|para"
     r"|com|que|mais|dos|das|nos|nas|ao|aos|pode|deve|isto|ele|ela|eles|quem|onde|como)\b")
 _EN_WORDS = re.compile(r"(?i)\b(the|and|is|to|of|with|when|this|that|you|it|for|are)\b")
+#: WORDS ONLY PORTUGUESE WRITES, which say it ALONE in a literal with no English word in it
+#: (#535). The two-word floor above missed the short phrases the role writes on a card — "
+#: fechado a pedido de ", "**Produto:**", "capacidade {slug}: confirmada por {who}" — so the
+#: exemption list understated what was left and a new phrase of the same shape passed. None of
+#: these is an English word or a word this code uses as an identifier; `por` and `em` are what a
+#: Portuguese preposition looks like before its noun.
+_PT_ALONE = re.compile(
+    r"(?i)\b(fechado|fechada|fechados|aberto|aberta|pedido|produto|requisito|capacidade"
+    r"|confirmada|confirmado|cartao|nao|voce|tambem|porque|ainda|nada|agora|aqui|isso|isto"
+    r"|quem|onde|pelo|pela|por|em|uma|mais|dos|das|aos|registrado|registrada|feito|feita"
+    r"|entregue|tarefa|tarefas|equipe)\b")
 
 #: The keys of a catalogue: a dict with an `en` key and one of these is one.
 _PT_KEYS = {"pt-BR", "pt-PT", "pt"}
@@ -67,14 +78,42 @@ RECOGNISERS = {
     ("openfactory/product/voice.py", "_CLAIMED_DONE"): "recorded",
     ("openfactory/product/voice.py", "_RETRACTS_WRITE"): "nothing was",
     ("openfactory/product/voice.py", "_CANNOT_OBSERVE"): "see the",
+    # DECLARED 2026-10-10 (review of #579): what reads a person's gestures, assent and refusals —
+    # they were counted as the sweep's debt, and no sweep will ever move what the platform READS.
+    # `intents._BECAUSE` is not here: it knows Portuguese only, which is the defect on the way in,
+    # so it stays in the list until it reads an English reason too.
+    ("openfactory/product/intents.py", "_NOT_NEGATED"): "never",
+    ("openfactory/product/intents.py", "_BRIDGE"): "never",
+    ("openfactory/product/intents.py", "_ATTACHED"): "with",
+    ("openfactory/product/intents.py", "_DUPLICATE_NOUN"): "covered",
+    ("openfactory/product/intents.py", "_SURVIVOR_CONNECTIVE"): r"in\s+favou?r",
+    ("openfactory/product/intents.py", "_PATTERNS"): "introduce yourself",
+    ("openfactory/actions/floor_intents.py", "_LEADER_WORDS"): "please",
+    ("openfactory/actions/floor_intents.py", "_PATTERNS"): "rework",
+    ("openfactory/actions/floor_intents.py", "_NEGATORS"): "never",
+    ("openfactory/actions/floor_intents.py", "_BARE_HOLD"): "wait",
+    ("openfactory/actions/floor_intents.py", "_BARE_REFUSAL"): "never",
+    ("openfactory/language/assent.py", "CORE"): "yes",
+    ("openfactory/language/assent.py", "CORE_PHRASES"): "go ahead",
+    ("openfactory/language/assent.py", "FILLER"): "please",
 }
+
+
+#: Not prose: an OCR engine's list of language codes (`por+eng`, `tesseract -l`).
+_LANGUAGE_CODES = re.compile(r"[a-z]{3}(\+[a-z]{3})+")
 
 
 def is_portuguese(text: str) -> bool:
     if _PT_LETTERS.search(text):
         return True
+    if _LANGUAGE_CODES.fullmatch(text.strip()):
+        return False
     hits = _PT_WORDS.findall(text)
-    return len(hits) >= 2 and len(hits) > len(_EN_WORDS.findall(text))
+    english = len(_EN_WORDS.findall(text))
+    if len(hits) >= 2 and len(hits) > english:
+        return True
+    # A SHORT PHRASE (#535): one word only Portuguese writes, and no English word beside it
+    return bool(_PT_ALONE.search(text)) and english == 0
 
 
 def _docstrings(tree: ast.AST) -> set[int]:
@@ -221,6 +260,16 @@ def test_the_detector_sees_what_it_guards():
     assert is_portuguese("confirmação")
     assert not is_portuguese("({admins}: registering this needs your confirmation.)")
     assert not is_portuguese("a card for the Studio")
+    # THE SHORT PHRASES THE TWO-WORD FLOOR MISSED (#535), each written on a card or in a log, and
+    # none with an accent
+    for missed in (" fechado a pedido de ", "**Produto:**", " (produto):**",
+                   "capacidade {slug}: confirmada por {confirmed_by}"):
+        assert is_portuguese(missed), missed
+    # …while an English sentence carrying one such word, an identifier and a language code are not
+    assert not is_portuguese("the card was closed in favor of the request")
+    assert not is_portuguese("the em dash is wider than the hyphen")
+    assert not is_portuguese("capability {slug}: confirmed by {confirmed_by}")
+    assert not is_portuguese("por+eng")
     tree = ast.parse('X = {"pt-BR": "não", "en": "no"}\nY = "não"\nZ = {"pt-BR": "sim"}\n')
     allowed = _in_a_catalogue(tree)
     [in_x, bare, lone] = sorted((n for n in _strings(tree) if n.value in ("não", "sim")),

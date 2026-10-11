@@ -2267,6 +2267,12 @@ def autonomy_cmd(
     except StoreUnreadable as exc:
         typer.echo(f"✗ {unread(project, exc, language=language)['said']['headline']}", err=True)
         raise typer.Exit(2) from None
+    except Exception as exc:  # noqa: BLE001 — a store added from outside raises its own errors
+        # EVERY STORE, NOT ONLY THIS CORE'S (review of #545): the SQLite sink raises
+        # `StoreUnreadable`, and a sink an add-on brings raised its vendor's error past this line
+        # as a traceback, where the help promises exit 2 with what failed
+        typer.echo(f"✗ {unread(project, exc, language=language)['said']['headline']}", err=True)
+        raise typer.Exit(2) from None
     since = datetime.now(UTC) - timedelta(days=days) if days else None
     block = autonomy(records, project, since=since, language=language)
     if as_json:
@@ -3451,17 +3457,30 @@ def _drive_one(view, issue: str, *, sandbox: str, image: str, review: bool = Tru
     from datetime import UTC, datetime
 
     from openfactory.lifecycle.handed_back import apply as the_outcomes_go_through_the_door
-    from openfactory.observability.job_record import record_job
+    from openfactory.observability.job_record import (
+        BY_THE_ATTENDED_DRIVER,
+        record_ending,
+        record_job,
+    )
 
     started = time.monotonic()
     result = build_runner(view, issue, sandbox=sandbox, image=image, review=review).run(issue)
     the_outcomes_go_through_the_door(view, issue, result)
+    state = getattr(result.state, "value", str(result.state))
     record_job(project=view.name, issue=str(issue),
-               ts=datetime.now(UTC).isoformat(),
-               state=getattr(result.state, "value", str(result.state)),
+               ts=datetime.now(UTC).isoformat(), state=state,
                wall_s=round(time.monotonic() - started, 1),
                total_cost_usd=result.total_cost_usd, pr_url=result.pr_url or "",
                knowledge=result.knowledge, agent_runs=result.agent_runs)
+    # AND HOW IT ENDED, IN ITS JOURNAL (#551): the line `query.outcomes` reads a job's ending
+    # from, written by the same function the workflow's `record_outcome` writes it with. Without
+    # it every job this driver ran read as never ended, and a one-machine deployment's evidence
+    # pack counted none. Never a reason to change what happened to the job.
+    try:
+        record_ending(view, str(issue), state, by=BY_THE_ATTENDED_DRIVER, note=result.note or "")
+    except Exception as exc:  # noqa: BLE001 — the job ended; the record failing must not undo it
+        log.warning("OPENFACTORY_OUTCOME_NOT_JOURNALLED %s#%s ended as %s and its journal does "
+                    "not say so (%s)", view.name, issue, state, str(exc)[:160])
     return result
 
 
@@ -3668,8 +3687,8 @@ def _seed_the_context_repository(name: str) -> None:
                 subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
                                check=True, timeout=60)
 
-            subprocess.run(["git", "clone", "-q", where, tmp], capture_output=True, text=True,
-                           check=True, timeout=60)
+            subprocess.run(["git", "clone", "--no-local", "-q", where, tmp], capture_output=True,
+                           text=True, check=True, timeout=60)
             seed = Path(tmp) / namespace.DIR / "product.yaml"
             seed.parent.mkdir(parents=True, exist_ok=True)
             seed.write_text(f"product: {name}\nsources:\n  - {name}\n"
@@ -4747,7 +4766,7 @@ def product_init(
         root = _Path(tmp) / "docs"
         if docs_repo:
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--depth", "1", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", "--depth", "1", url, str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
@@ -4771,7 +4790,7 @@ def product_init(
             docs_repo, made = _create_context_repo(project, name)
             typer.echo(f"{'✓ created' if made else '· found'} {docs_repo}")
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", url, str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")

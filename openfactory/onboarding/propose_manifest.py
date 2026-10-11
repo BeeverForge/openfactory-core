@@ -180,10 +180,10 @@ def clone_for_proposal(*, clone_url: str, base: str = "",
     before this parameter existed, and `read_history` names the shallow checkout rather than
     reporting a quiet repository."""
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-manifest-"))
-    shallow = ["clone", "--depth", "1", *(["--branch", base] if base else []),
+    shallow = ["clone", "--no-local", "--depth", "1", *(["--branch", base] if base else []),
                clone_url, str(tmp)]
-    rc, out = (_git(["clone", "--filter=blob:none", *(["--branch", base] if base else []),
-                     clone_url, str(tmp)])
+    rc, out = (_git(["clone", "--no-local", "--filter=blob:none",
+                     *(["--branch", base] if base else []), clone_url, str(tmp)])
                if history else _git(shallow))
     if history and rc != 0:
         # `git clone` refuses a target directory that is not empty, and a failed clone leaves one

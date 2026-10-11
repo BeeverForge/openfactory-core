@@ -227,11 +227,11 @@ def _materialize_workspace(*, repo_path: Path, host_clone: Path, base_branch: st
         if rc != 0:
             raise RuntimeError(f"{what} failed ({rc}): {_redact(out).strip()[:300]}")
 
-    _must(["git", "clone", "--local", "--no-hardlinks", str(repo_path), str(host_clone)],
+    _must(["git", "clone", "--no-local", str(repo_path), str(host_clone)],
           f"cloning {repo_path} into the box's workspace")
     if checkout_existing:
         # FETCH THE PR BRANCH FROM THE FORGE, NOT FROM THE CACHE. This clone's `origin` is the
-        # worker's cache DIRECTORY (`--local` above), which only ever holds the base branch its
+        # worker's cache DIRECTORY (cloned by path above), which only ever holds the base branch its
         # syncs check out — the PR branch lives one hop upstream. And the cache's own origin
         # deliberately carries no credential (agents read that checkout), so reaching through it
         # cannot work on a private repository either.

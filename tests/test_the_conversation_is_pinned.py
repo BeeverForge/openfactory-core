@@ -908,6 +908,37 @@ def test_a_yes_after_the_proposal_aged_out_hears_so_ONCE_and_writes_nothing(tabl
     assert not module.asked("propose")
 
 
+def test_a_late_yes_hears_it_expired_from_this_process_when_the_store_did_not_take_the_notice(
+        table, ledger, monkeypatch):
+    """THIS PROCESS'S COPY, ON THE CONVERSATION (#266 slice 4, #452). A proposal is keyed by the
+    person it was staged for, and a late "sim" from somebody else in the room is looked up by the
+    conversation it was typed in. The store's notice reaches it there — and when the store would
+    not take the notice, the tombstone laid on the conversation is the only thing that does. No test
+    held that case: removing the conversation's tombstone left every test green (the plan
+    `266_speaker_and_reply`, found by a review of #581)."""
+    project = _project()
+    module = _asking(project)
+    talk = _Conversation(project, module)
+    talk.say(REQUEST, user=CLIENT)
+    _age_out(monkeypatch)
+    offered: list[str] = []
+
+    def _refuses(*_a, token: str = "", **_k) -> bool:
+        offered.append(token)
+        return False
+
+    monkeypatch.setattr(messages, "hold", _refuses)
+
+    reply = talk.say("sim", user=ADMIN)
+
+    assert reply == voice.proposal_expired(language=LANG)
+    assert not module.asked("propose")
+    # TIED TO THE SEAM IT NAMES (review of #591): the store was OFFERED the expiry notice and said
+    # no. Were the refusal to become an exception, or the notice to stop being offered, the reply
+    # above would still be measured — but not under the condition this test exists for
+    assert offered and all(t.startswith(staging.EXPIRY_NOTICE) for t in offered), offered
+
+
 def test_the_same_proposal_asked_for_again_after_it_expired_is_confirmed(table, ledger,
                                                                         monkeypatch):
     """The expiry notice says "ask me again and I'll prepare another", and a typed gesture
