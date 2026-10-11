@@ -804,6 +804,7 @@ def _carrying_section(requirement, carrying) -> str:
 _BREAKDOWN_COLUMN = (
     "The `breakdown` column is each AGREED requirement's breakdown into cards: `running now` (a "
     "breakdown is filing its cards as we speak), the open cards that already carry its work, "
+    "the closed ones that `delivered` their part, the `cancelled` ones, which carry nothing, "
     "`none filed`, or that whether one is running could not be read. The work of an agreed "
     "requirement is filed by its breakdown alone: never offer a free-standing card for it — say "
     "the breakdown is running, point to the cards that carry it, or offer the breakdown and the "
@@ -1959,29 +1960,28 @@ class ProductRole:
 
     def _breakdown_column(self) -> dict[int, str] | None:
         """Each agreed requirement's breakdown, in the index's words — or None when the module
-        handed none. The cards are the open ones whose `## Source` executes it, from the board
-        this role already holds; whether one runs is the engine's answer, or unknown."""
+        handed none. The cards are those whose `## Source` executes it, read by the breakdown's own
+        `_executing` from the board this role already holds: the open ones carry its work, a closed
+        one delivered its part or was cancelled, and each is said as such — the breakdown reuses a
+        closed carrier, so a delivered requirement read as "none filed" would be offered again
+        (review of #629). Whether one runs is the engine's answer, or unknown."""
         if self.breakdowns is None:
             return None
         from openfactory.contracts.refs import ref_label
-        from openfactory.product.module import _cited_requirement
+        from openfactory.product.module import _executing
 
-        executing: dict[int, list[str]] = {}
-        for card in self.cards or []:
-            if str(getattr(card, "state", "") or "open") == "closed":
-                continue
-            cited = _cited_requirement(getattr(card, "body", "") or "")
-            if cited is not None:
-                executing.setdefault(cited, []).append(ref_label(str(card.number)))
         running = self.breakdowns.running
         out: dict[int, str] = {}
         for r in self.corpus.promises():
-            cards = executing.get(r.number, [])
+            by_state: dict[str, list[str]] = {"cards": [], "delivered": [], "cancelled": []}
+            for card in _executing(self.cards, r.number):
+                state = ("cards" if str(getattr(card, "state", "") or "open") != "closed"
+                         else "delivered" if getattr(card, "delivered", False) else "cancelled")
+                by_state[state].append(ref_label(str(card.number)))
             said = []
             if running is not None and r.number in running:
                 said.append("running now")
-            if cards:
-                said.append("cards " + ", ".join(cards))
+            said += [f"{state} {', '.join(refs)}" for state, refs in by_state.items() if refs]
             if not said:
                 said.append("none filed" if running is not None else "no open cards")
             if running is None:

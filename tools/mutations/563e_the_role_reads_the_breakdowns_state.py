@@ -5,8 +5,9 @@ Run:  .venv/bin/python tools/mutate.py tools/mutations/563e_the_role_reads_the_b
 
 The claims, each a row:
 
-  1. the index's breakdown column: running now, the open cards that execute the requirement and
-     only those, none filed — and unknown, never "not running", when the engine cannot be asked;
+  1. the index's breakdown column: running now, the cards that execute the requirement, read as
+     the breakdown reads them and each said open, delivered or cancelled, none filed — and
+     unknown, never "not running", when the engine cannot be asked;
      it is explained beside the index, and the card marker is kept off an agreed requirement;
   2. the module asks the engine, and one that cannot be asked is unknown;
   3. the engine is listed once for this project alone;
@@ -25,8 +26,18 @@ MUTATIONS = [
     ("TODAY'S RUN: the role is never told a breakdown is running", ROLE,
      "            if running is not None and r.number in running:",
      "            if False:"),
-    ("a closed card is read as carrying the work", ROLE,
-     '            if str(getattr(card, "state", "") or "open") == "closed":\n                continue\n',
+    ("a closed card is read as open work", ROLE,
+     '                state = ("cards" if str(getattr(card, "state", "") or "open") != "closed"',
+     '                state = ("cards" if True'),
+    ("a cancelled card is said delivered", ROLE,
+     '                         else "delivered" if getattr(card, "delivered", False) else "cancelled")',
+     '                         else "delivered")'),
+    ("REVIEW OF #629: a delivered requirement reads none filed", ROLE,
+     "            for card in _executing(self.cards, r.number):",
+     "            for card in [c for c in _executing(self.cards, r.number)\n"
+     "                         if str(getattr(c, \"state\", \"\") or \"open\") != \"closed\"]:"),
+    ("the column is shown without what delivered and cancelled mean", ROLE,
+     '    "the closed ones that `delivered` their part, the `cancelled` ones, which carry nothing, "\n',
      ""),
     ("an unknown engine is read as nothing running", ROLE,
      "            if running is None:\n                said.append(\"whether one is running is unknown\")\n",

@@ -9,8 +9,9 @@ with nobody in the conversation the requirement came from told what was filed.
 
 THE RULE THIS FILE HOLDS:
   1. the role's requirements index carries a `breakdown` column for each agreed requirement:
-     running now (the engine's listing), the open cards that execute it (their `## Source`),
-     none filed — and, when the engine cannot be asked, that it is unknown, never "not running";
+     running now (the engine's listing), the cards that execute it (their `## Source`, read as
+     the breakdown reads them) — open, delivered or cancelled — none filed, and, when the engine
+     cannot be asked, that it is unknown, never "not running";
      its instruction keeps a card for an agreed requirement's work out of `[[TICKET`, and has a
      card about a requirement name it as `REQ-NNNN`;
   2. the module asks the engine once per role, and an engine that cannot be asked is unknown;
@@ -42,10 +43,10 @@ def _req(n, status="accepted"):
     return Requirement(number=n, slug="x", path=f"{n:04d}-x.md", title=f"req {n}", status=status)
 
 
-def _card(ref, *, executes=None, state="open"):
+def _card(ref, *, executes=None, state="open", delivered=False):
     body = f"## Objective\n\nx\n\n## Source\n\nExecutes REQ-{executes:04d}\n" if executes else ""
     return SimpleNamespace(number=ref, title=f"card {ref}", body=body, state=state,
-                           column="Backlog", labels=[], state_reason="")
+                           column="Backlog", labels=[], state_reason="", delivered=delivered)
 
 
 #: Two agreed requirements and one proposed.
@@ -74,10 +75,24 @@ def test_TODAYS_RUN_the_role_reads_that_the_breakdown_is_running():
 
 def test_the_cards_that_carry_its_work_are_read_off_the_board():
     column, _prompt = _index(cards=[_card("41", executes=66), _card("42", executes=66),
-                                    _card("43", executes=7, state="closed"), _card("44")])
+                                    _card("44"), _card("45", executes=9)])
 
     assert column[66] == "cards #41, #42", column
-    assert column[7] == "none filed", "a closed card was read as carrying the work"
+    assert column[7] == "none filed", "another requirement's card, or none, was read as its own"
+
+
+def test_a_closed_card_is_said_delivered_or_cancelled_never_none_filed():
+    """REVIEW OF #629. The breakdown reads its requirement's cards open and closed (`_executing`)
+    and reuses a closed one: a delivered requirement the role read as "none filed" is one it would
+    offer to break down again. A cancelled card carries nothing, and is said so."""
+    column, prompt = _index(cards=[_card("43", executes=7, state="closed", delivered=True),
+                                   _card("46", executes=66, state="closed"),
+                                   _card("47", executes=66)])
+
+    assert column[7] == "delivered #43", column
+    assert column[66] == "cards #47; cancelled #46", column
+    assert "`delivered` their part, the `cancelled` ones, which carry nothing" in prompt
+
 
 
 def test_running_and_carded_are_both_said():
