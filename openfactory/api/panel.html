@@ -1042,6 +1042,11 @@ function productOnly(){
   return !!(me && Array.isArray(me.scopes) && me.scopes.indexOf("product")>=0
             && me.scopes.indexOf("floor")<0);
 }
+//: A credential the product owner's area refuses — the board's (#562). `null`, unscoped, is the
+//: administrator's and reaches both, as above.
+function noProductArea(){
+  return !!(me && Array.isArray(me.scopes) && me.scopes.indexOf("product")<0);
+}
 
 // ── who is signed in here, and the way out (#181) ─────────────────────────────────────────────
 //
@@ -1148,10 +1153,18 @@ async function boot(){
   paintThemeButton();  // painted before any fetch: a slow API must not leave the switch mislabelled
   me=await api("/api/whoami").catch(()=>null);
   paintSession();   // before either page is drawn: both have a session, so both get the way out
+  // THE ADDRESS DECIDES THE SURFACE (#562). `/p/<project>/board` is the board, and the product
+  // owner reaches it with the credential they hold, read only. A card or preview link still opens
+  // on their own page, where what they may do to a card is (#444).
+  const asked=curBoard();
+  if(productOnly()&&asked&&asked.project&&!asked.card&&!asked.pr){ bootBoardRead(asked.project); return; }
   if(productOnly()){ bootProduct(); return; }   // the floor reads below are all 403 for them
   // THE PRODUCT PAGE RUNS NO CLOCK, WHOEVER OPENS IT (#266 slice 5). An operator's credential may
   // read the floor, and the floor boot below would start its five timers under a page that shows
   // none of what they read — so the product page boots as the product page, for everybody.
+  // …AND THE BOARD'S CREDENTIAL IS REFUSED THE PRODUCT OWNER'S SURFACE BY NAME (#562), before its
+  // rows, documents and chat are each asked for a 403
+  if(curProduct()!==null&&noProductArea()){ refuseTheProductPage(curProduct()); return; }
   if(curProduct()!==null){ bootProduct(); return; }
   _surface="floor";
   await loadProjects();            // 401 here prompts for the token
@@ -2017,6 +2030,33 @@ let _pv={sessions:null,roomLast:null,sessMsg:"",side:true,tab:"reqs",menu:null,e
          files:[],limits:null,thumbs:{},here:[],docQ:"",
          board:undefined,boardMsg:"",card:null,ask:null,said:null,adjusting:null};
 
+//: Whether the board on screen is the product owner's read of it (#562): no new card, nothing
+//: moves, and a card opens on their own page, where what they may do to it is. Set at boot only.
+let _boardReadOnly=false;
+
+async function bootBoardRead(name){
+  // THE PRODUCT OWNER'S READ OF THE BOARD (#562). `_surface` is the product page's, so a refusal
+  // here is said where it happened and never reloads into another page; and none of the floor's
+  // clocks start, because every one of them reads what this credential is refused.
+  _surface="product";_boardReadOnly=true;
+  sayWhyThisPage();
+  for(const id of ["#floor","#costs","#board"]){const el=$(id); if(el)el.style.display="none"}
+  $("#app").innerHTML="";
+  await openBoard(name);
+}
+
+function refuseTheProductPage(name){
+  // REFUSED BY NAME (#562): this credential is the board's, and the product owner's page would be
+  // a column of 403s. The board it may open is named instead — and the floor's chrome goes, as on
+  // the product page: no floor is read here, so its banner would say "reading the floor…" for ever.
+  _surface="refused";
+  for(const id of ["#floor","#costs","#board"]){const el=$(id); if(el)el.style.display="none"}
+  $("#app").innerHTML=`${movedNotice()}<div class="empty" style="padding:24px;max-width:720px;margin:40px auto">This
+    credential is for the board, and the product owner's page is refused to it: it needs a product
+    credential, or the administrator's.${name?` <a href="/p/${encodeURIComponent(name)}/board">Open the
+    board of ${esc(name)}</a>.`:""}</div>`;
+}
+
 async function bootProduct(){
   // THE FLOOR'S OWN CHROME COMES OFF, and looking at the page is what found this: the status
   // banner sat on "floor…" for ever, because `paintFloor` only runs on engine data this
@@ -2027,8 +2067,8 @@ async function bootProduct(){
   sayWhyThisPage();   // a floor tab whose session changed arrives here by reload (#181) — told why
   const floor=$("#floor"); if(floor)floor.style.display="none";
   const costs=$("#costs"); if(costs)costs.style.display="none";
-  // The board pill goes for the cost pill's exact reason: `/api/board/{project}` is a FLOOR read,
-  // so on this credential the button exists only to produce a 403.
+  // The board pill goes: it opens the floor's board over this page. The product owner reaches
+  // their board from the Board tab, at its own address, read only (#562).
   const board=$("#board"); if(board)board.style.display="none";
   // NO FLOOR READS AT ALL on this path — a product credential is refused every one of them, and
   // firing them anyway would fill the console with 403s and the screen with nothing.
@@ -2229,7 +2269,8 @@ function renderProduct(name){
         ${pane("board",`<div class="pv-about">The board the factory works from — the cards being built. These ask <span class="pv-agentname">${esc(pvAgent())}</span> to read it and answer in the conversation; nothing on the board changes.</div>
           <div style="display:flex;flex-direction:column;gap:8px">
             <button class="btn sm" id="pbTriage" onclick="prodLook('product_triage','Triage')">Triage the board</button>
-            <button class="btn sm ghost" id="pbWaiting" onclick="prodLook('product_pending','Waiting')">What is waiting on me</button></div>
+            <button class="btn sm ghost" id="pbWaiting" onclick="prodLook('product_pending','Waiting')">What is waiting on me</button>
+            <a class="btn sm ghost" id="pbWhole" href="/p/${encodeURIComponent(name)}/board">The whole board</a></div>
           <div id="pvBoard" style="margin-top:12px"></div>`)}
       </aside>
     </div>`;
@@ -5077,7 +5118,13 @@ function _breplace(where){
 
 function paintBoard(){
   const el = $("#boardview"), d = _bd.data;
-  const head = `<div class="bhead">
+  // THE PRODUCT OWNER'S READ (#562): no new card, and the way back is their own page
+  const head = _boardReadOnly ? `<div class="bhead">
+      <h2>Board</h2>
+      <span class="sub">${esc(_bd.project)} · read only</span>
+      <div class="spacer" style="flex:1"></div>
+      <a class="btn ghost" href="/product/${encodeURIComponent(_bd.project)}">product page</a>
+    </div>` : `<div class="bhead">
       <h2>Board</h2>
       <span class="sub">${esc(_bd.project)}</span>
       <div class="spacer" style="flex:1"></div>
@@ -5128,7 +5175,7 @@ function paintBoard(){
 }
 
 function _bcard(c){
-  return `<article class="k" role="listitem" tabindex="0" draggable="true"
+  return `<article class="k" role="listitem" tabindex="0" draggable="${_boardReadOnly?"false":"true"}"
              data-ref="${esc(c.ref)}" aria-label="${esc(c.ref)}: ${esc(c.title)}">
       <div class="ref">${esc(c.ref)}</div>
       <div class="ttl">${esc(c.title)}</div>
@@ -5143,6 +5190,16 @@ function _bcard(c){
 // The keyboard path is not a fallback: it is the only path without a pointer.
 function _bwire(){
   const view = $("#boardview");
+  if(_boardReadOnly){
+    // READ ONLY (#562): nothing is dragged or moved by a key, and a card opens on the product
+    // owner's own page — the card link the role sends, which their boot already reads (#444)
+    view.querySelectorAll(".k").forEach(k=>{
+      const open=()=>{location.href=`/p/${encodeURIComponent(_bd.project)}/card/${encodeURIComponent(k.dataset.ref)}`};
+      k.addEventListener("click", open);
+      k.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); open(); } });
+    });
+    return;
+  }
   view.querySelectorAll(".k").forEach(k=>{
     k.addEventListener("dragstart", e=>{
       e.dataTransfer.setData("text/plain", k.dataset.ref); k.classList.add("dragging");
