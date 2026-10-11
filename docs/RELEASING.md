@@ -145,7 +145,7 @@ release/0.5          ●───●─────●────●───�
 - **The final release is tagged on the commit the last candidate was verified on**, plus the one
   commit that declares the final version and assembles its notes. Nothing else changes between the
   last candidate and the release: what everybody installs is what was tested.
-- **After the cut, `main` declares the next minor's development version** (`0.6.0.dev0`), so a
+- **After the cut, `main` declares the next minor's development version** (`x.(y+1).0.dev0`), so a
   build of `main` never claims to be a release it is not.
 
 ## The release notes
