@@ -1431,6 +1431,9 @@ class ProductModule:
                            # no QUALIFIER: neither dict carries `state` or `state_reason`, so the
                            # rule that closed-is-not-delivered had nothing to read on this surface.
                            cards=self._board_cards(),
+                           # each agreed requirement's breakdown, as the engine lists the running
+                           # ones (#563 slice 18e) — the cards are read off the board above
+                           breakdowns=_breakdowns_of(self.project),
                            # what is REALLY readable — the prompt describes it instead of
                            # asserting access the runtime may not have provided
                            mounted=self.mounted(),
@@ -6004,6 +6007,24 @@ class _Fence:
         """A card this breakdown filed — never a stranger to its own next re-read."""
         if result.ok and result.ref:
             self.own.add(canonical_ref(result.ref))
+
+
+def _breakdowns_of(project):
+    """Which requirements' breakdowns run now, for the role to read (#563 slice 18e, ADR-0051 D18
+    item 5) — one listing of the engine; `running=None` when it cannot be asked, which the role
+    reads as unknown, never as "not running"."""
+    import logging
+
+    from openfactory.product import breaking
+    from openfactory.product.role import Breakdowns
+
+    try:
+        return Breakdowns(running=frozenset(breaking.running_numbers_now(project)))
+    except Exception:  # noqa: BLE001 — unknown is an answer the index says
+        logging.getLogger("openfactory.product").info(
+            "the running breakdowns of %s could not be listed; the role reads them as unknown",
+            getattr(project, "name", "?"), exc_info=True)
+        return Breakdowns(running=None)
 
 
 def _cited_requirement(body: str) -> int | None:

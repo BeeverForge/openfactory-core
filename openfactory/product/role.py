@@ -622,21 +622,41 @@ _CLAIM_MUST_BE_EARNED = [
 ]
 
 
-def requirement_index(corpus: Corpus, *, include_superseded: bool = False) -> str:
+def requirement_index(corpus: Corpus, *, include_superseded: bool = False,
+                      breakdowns: dict[int, str] | None = None) -> str:
     """The corpus as a compact index: where to look, not what it says.
 
     Superseded requirements are excluded by default — they are kept as history and must never be
-    handed to an agent as current truth — but can be included when the question is about history."""
+    handed to an agent as current truth — but can be included when the question is about history.
+
+    `breakdowns` adds a column — each agreed requirement's breakdown as the role reads it (#563
+    slice 18e, ADR-0051 D18 item 5) — when the caller knows it; without it, the index is as it
+    was."""
     rows = corpus.requirements if include_superseded else corpus.live()
     if not rows:
         return "(this product has no requirements written down yet)"
-    lines = ["| req | status | title | affects | file |", "|---|---|---|---|---|"]
+    lines = (["| req | status | title | affects | file |", "|---|---|---|---|---|"]
+             if breakdowns is None else
+             ["| req | status | title | affects | file | breakdown |",
+              "|---|---|---|---|---|---|"])
     for r in sorted(rows, key=lambda x: x.number):
         status = r.status if r.superseded_by is None else f"superseded-by {r.superseded_by:04d}"
         # the file column is the point of the index: it is the path the agent opens next
-        lines.append(f"| REQ-{r.number:04d} | {status} | {r.title or r.slug} | "
-                     f"{', '.join(r.affects) or '—'} | `{r.path}` |")
+        line = (f"| REQ-{r.number:04d} | {status} | {r.title or r.slug} | "
+                f"{', '.join(r.affects) or '—'} | `{r.path}` |")
+        if breakdowns is not None:
+            line += f" {breakdowns.get(r.number, '—')} |"
+        lines.append(line)
     return "\n".join(lines)
+
+
+class Breakdowns(BaseModel):
+    """What the role reads about each agreed requirement's breakdown (#563 slice 18e, ADR-0051
+    D18 item 5): which are running now, as the engine lists them — `None` when the engine could
+    not be asked, which the index says as unknown, never as "not running". The cards that execute
+    a requirement are read from the board the role already holds (their `## Source`)."""
+
+    running: frozenset[int] | None = None
 
 
 def read_answer(text: str, *, raw: str = "", harness: str = "") -> ProductAnswer:
@@ -780,6 +800,19 @@ def _carrying_section(requirement, carrying) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+#: WHAT THE BREAKDOWN COLUMN MEANS, told beside the index it is in (#563 slice 18e).
+_BREAKDOWN_COLUMN = (
+    "The `breakdown` column is each AGREED requirement's breakdown into cards: `running now` (a "
+    "breakdown is filing its cards as we speak), the open cards that already carry its work, "
+    "the closed ones that `delivered` their part, the `cancelled` ones, which carry nothing, "
+    "`none filed`, or that whether one is running could not be read. The work of an agreed "
+    "requirement is filed by its breakdown alone: never offer a free-standing card for it — say "
+    "the breakdown is running, point to the cards that carry it, or offer the breakdown and the "
+    "sentence that starts it (\"quebra o requisito N em tarefas\" / \"break requirement N into "
+    "tasks\"). A card you draft about any requirement names it as REQ-NNNN in its title or "
+    "description, so the door that files it can see which requirement it is for.")
+
+
 class ProductRole:
     """The PO/BA/delivery role, over whichever harness a project configured for it.
 
@@ -829,8 +862,12 @@ class ProductRole:
                  #: The engine's search, for the role's `[[BUSCA: …]]` (#269 slice 2):
                  #: `search(queries, round) -> note`, the note naming the file the hits were
                  #: written to — or None, and then the marker is not offered at all.
-                 search=None) -> None:
+                 search=None,
+                 #: Each agreed requirement's breakdown as the module read it (#563 slice 18e) —
+                 #: or None, and the index carries no breakdown column.
+                 breakdowns: Breakdowns | None = None) -> None:
         self.search = search
+        self.breakdowns = breakdowns
         self.project_name = project_name
         self.pending_proposal = pending_proposal
         self.intake = intake
@@ -974,7 +1011,8 @@ class ProductRole:
             "product and the problem — never cut, never the request itself. "
             f"{STAGED_AFTER_YOUR_REPLY} A card is not a promise: "
             "it carries no requirement and starts nothing by itself. Do NOT use it for a wish "
-            "you should argue into a requirement, nor for a broken promise.\n\n"
+            "you should argue into a requirement, nor for a broken promise, NOR FOR THE WORK OF "
+            "AN AGREED REQUIREMENT, which its breakdown files (the index's `breakdown` column).\n\n"
             "IF THEY GAVE THE BACKLOG AN ORDER — \"coloca nessa ordem: 7, 3, 9\", \"primeiro o "
             "7, depois o 3\", \"prioriza o 9\", any way of saying which cards come FIRST — end "
             "with [[ORDEM: 7, 3, 9]] on its own line, the cards as the board names them — "
@@ -1920,6 +1958,37 @@ class ProductRole:
             return " (delivered)" if getattr(card, "delivered", False) else " (cancelled)"
         return ""
 
+    def _breakdown_column(self) -> dict[int, str] | None:
+        """Each agreed requirement's breakdown, in the index's words — or None when the module
+        handed none. The cards are those whose `## Source` executes it, read by the breakdown's own
+        `_executing` from the board this role already holds: the open ones carry its work, a closed
+        one delivered its part or was cancelled, and each is said as such — the breakdown reuses a
+        closed carrier, so a delivered requirement read as "none filed" would be offered again
+        (review of #629). Whether one runs is the engine's answer, or unknown."""
+        if self.breakdowns is None:
+            return None
+        from openfactory.contracts.refs import ref_label
+        from openfactory.product.module import _executing
+
+        running = self.breakdowns.running
+        out: dict[int, str] = {}
+        for r in self.corpus.promises():
+            by_state: dict[str, list[str]] = {"cards": [], "delivered": [], "cancelled": []}
+            for card in _executing(self.cards, r.number):
+                state = ("cards" if str(getattr(card, "state", "") or "open") != "closed"
+                         else "delivered" if getattr(card, "delivered", False) else "cancelled")
+                by_state[state].append(ref_label(str(card.number)))
+            said = []
+            if running is not None and r.number in running:
+                said.append("running now")
+            said += [f"{state} {', '.join(refs)}" for state, refs in by_state.items() if refs]
+            if not said:
+                said.append("none filed" if running is not None else "no open cards")
+            if running is None:
+                said.append("whether one is running is unknown")
+            out[r.number] = "; ".join(said)
+        return out
+
     def _prompt(self, instruction: str, body: str, schema: str = "", *,
                 audience: str = "team", briefed: bool = False) -> str:
         """`audience="client"` prepends the language rules (voice.py).
@@ -1952,9 +2021,12 @@ class ProductRole:
             rules = language_rules(self.language)
             if rules:
                 parts += ["", rules]
+        column = self._breakdown_column()
         parts += ["", "# Task", instruction, "",
                  "# Requirements index (where to look — open the files that matter)",
-                 requirement_index(self.corpus)]
+                 requirement_index(self.corpus, breakdowns=column)]
+        if column is not None:
+            parts += ["", _BREAKDOWN_COLUMN]
         # BEFORE the board and the sources: what she can do bounds everything she then says about
         # what she found. Placed in the stable half of the prompt, ahead of the volatile blocks.
         if audience == "client":

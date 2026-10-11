@@ -103,3 +103,60 @@ def running_now(project, number: int) -> bool:
     from openfactory.product.door import _run
 
     return bool(_run(running(project, number)))
+
+
+#: The breakdowns running now, as the engine's visibility lists them: ONE query for the product,
+#: never one per requirement.
+_RUNNING = 'WorkflowType = "ProductBreakdownWorkflow" AND ExecutionStatus = "Running"'
+
+
+async def running_numbers(project, *, client=None) -> set[int]:
+    """The requirements of `project` whose breakdown is running now (#563 slice 18e) — what the
+    role reads about each requirement. RAISES when the engine cannot be asked: the caller says
+    "unknown", never "not running". The visibility store lags a start by a moment, so a breakdown
+    started a second ago may not be listed yet."""
+    from openfactory.product.door import _engine
+
+    try:
+        from openfactory.runtime.temporal.io import breakdown_workflow_id
+    except ImportError as exc:
+        from openfactory.runtime.host import why_the_engine_cannot_be_read
+
+        raise RuntimeError(why_the_engine_cannot_be_read(exc)) from exc
+
+    name = getattr(project, "name", "") or str(project)
+    prefix = breakdown_workflow_id(name, 0)[:-1]
+    client = client or await _engine()
+    out: set[int] = set()
+    async for wf in client.list_workflows(_RUNNING):
+        tail = str(wf.id)[len(prefix):] if str(wf.id).startswith(prefix) else ""
+        if tail.isdigit():
+            out.add(int(tail))
+    return out
+
+
+def running_numbers_now(project) -> set[int]:
+    """`running_numbers`, for the module's code, which is not async."""
+    from openfactory.product.door import _run
+
+    return set(_run(running_numbers(project)))
+
+
+def written_from(project, number: int) -> str:
+    """The conversation requirement `number` was asked in, as its delivery loop keeps it (the
+    promise the first yes opened, `module._owed`) — "" when no loop names one. What a breakdown the
+    panel, the command line or the API started is told to (#563 slice 18e, ADR-0051 D18 item 3).
+    The latest loop that names a conversation wins. RAISES when the ledger cannot be read."""
+    from openfactory.memory import store as loop_store
+    from openfactory.memory.ledger import DELIVERY, fold
+    from openfactory.product.events import OWNER
+
+    name = getattr(project, "name", "") or str(project)
+    subject = str(int(number))
+    loops = [x for x in fold(loop_store.read(name))
+             if x.kind == DELIVERY and x.owner == OWNER and x.subject == subject]
+    for loop in sorted(loops, key=lambda x: x.ts, reverse=True):
+        where = str((loop.context or {}).get("conversation") or "").strip()
+        if where:
+            return where
+    return ""
