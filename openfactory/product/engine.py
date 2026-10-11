@@ -76,8 +76,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from openfactory.contracts.refs import canonical_ref, ref_label
 from openfactory.product import progress as _progress
 from openfactory.product.confirm import (
-    _board_word,
-    _breakdown_reply,
     _client_detail,
     _is_requester,
     _still_to_say,
@@ -737,7 +735,8 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
             # `ambiguous` NAMES what was settled when more than one delivery was waiting. The
             # comment here used to promise exactly that and the code never did it — a silent
             # choice quietly marked the wrong delivery accepted.
-            return Settled(say(loop, agent_name=agent, ambiguous=ambiguous), waiting)
+            return Settled(say(loop, agent_name=agent, ambiguous=ambiguous, language=lang),
+                           waiting)
 
     # A LATE CONFIRMATION OF AN EXPIRED PROPOSAL HEARS SO. Without this, the "sim" of somebody who
     # stepped away past the TTL found nothing staged and fell through to the conversational model —
@@ -1881,16 +1880,31 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         # and an authorisation that lives one layer down is one nobody writing the next branch sees.
         if not may_act(project, user):
             return unauthorized_message(project)
-        if on_it:
-            on_it()
+        # STARTED, NEVER RUN IN THE TURN (#563 slice 18b, ADR-0051 D18). It ran here while the
+        # panel started `ProductBreakdownWorkflow` under one id per requirement, and nothing shared
+        # told the two apart: one requirement was broken down twice at once. Every door starts that
+        # workflow now; the turn does not wait minutes on it, and this conversation is told what
+        # was filed when it ends (`activities._tell_the_breakdown`).
         # `asked_for=True` — A PERSON TYPED THIS, which is the one thing that tells it apart from
         # an acceptance's automatic second act. It is what keeps the breakdown available for a
         # requirement that was read off the code and then edited into more than the code does:
         # the file cannot show that, and a person saying so can (#182).
-        _progress.stage("breaking_down")
-        results = module.break_down(number, actor=user, asked_for=True)
-        return _breakdown_reply(results, number, name, lang, project,
-                                backlog=_board_word(module, "backlog"))
+        from openfactory.product import breaking
+        from openfactory.product.voice import breakdown_begun, breakdown_not_begun
+
+        try:
+            how = breaking.start_now(project, number, actor=user, asked_for=True,
+                                     conversation=conversation, room=channel, requester=user,
+                                     language=lang or "")
+        except Exception:  # noqa: BLE001 — an engine that does not answer is a sentence
+            log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_NOT_STARTED project=%s req=%s — a person "
+                          "asked for it and nothing was filed", getattr(project, "name", "?"),
+                          number)
+            sentence = breakdown_not_begun(number=number, language=lang)
+        else:
+            sentence = breakdown_begun(number=number, running=how == breaking.RUNNING,
+                                       language=lang)
+        return f"{name}: {sentence}" if name else sentence
 
     if intent == "accept":
         number = int(captures.get("number") or 0)
@@ -1989,13 +2003,20 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
 
             asked = survivor_unclear(number=number, other=unclear, language=lang)
             return f"{name}: {asked}" if name else asked
-        # NOTHING IS READ FIRST, deliberately, and it is the one place this branch differs from
-        # `drop`. `drop` can check the requirement in the corpus it already holds in memory; the
-        # equivalent check here is a read of the client's board — seconds, over the network, on the
-        # listener thread, before the person has even confirmed. The contract puts "already closed"
-        # and "no such card" behind `close_card`, which reports both as a sentence a client can
-        # read, so the cost is paid once and only when somebody actually decided.
+        # "ALREADY CLOSED" AND "NO SUCH CARD" ARE NOT READ FIRST: `close_card` reports both as a
+        # sentence a client can read, after the yes. What IS read first, for a close in favour of
+        # another card, is what the closed card carries that the survivor does not (#567): the
+        # person's yes is given on it. The role offered to close one card "or" another as equals,
+        # and the one closed was the only card carrying the requirement's first front. The read
+        # is the board snapshot the module keeps, inside the turn — not the listener thread this
+        # branch once avoided reading on, which the turn no longer runs on (ADR-0051).
         from openfactory.product.voice import close_confirmation
+
+        carried, unread = None, False
+        compare = getattr(module, "what_only_it_carries", None)
+        if in_favour_of and compare is not None:
+            carried = compare(number, in_favour_of)
+            unread = carried is None
 
         body = remember(thread, {"kind": "close", "number": number,
                                  "in_favour_of": in_favour_of, "reason": reason,
@@ -2003,7 +2024,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
                                  "asked_by": user or ""},
                         lang=lang, project=project, person=user)
         ask = close_confirmation(number=number, in_favour_of=in_favour_of, reason=reason,
-                                 language=lang)
+                                 carried=carried, unread=unread, language=lang)
         if not may_act(project, user):
             admins = _admin_mentions(project)
             if admins:
@@ -2500,9 +2521,9 @@ def _name_of(user: str) -> str:
 # ── `_where_it_came_from`, `_also_broke_it_down` and `_breakdown_reply` moved with the executor ──
 #
 # They are the confirmation's own prose: the provenance cell of a decision row, the acceptance's
-# automatic breakdown, and what the client reads afterwards. `_breakdown_reply` is imported back
-# because `_run_intent` composes the same sentence for a typed "quebra o requisito 7" — one voice,
-# whether the breakdown was asked for or followed an acceptance.
+# automatic breakdown, and what the client reads afterwards. A typed "quebra o requisito 7" starts
+# the same breakdown the acceptance does (#563 slice 18b), and the sentence about what it filed is
+# `confirm.breakdown_told`'s — one voice, whether it was asked for or followed an acceptance.
 
 
 def _refine_reply(result, number: str, name: str, lang=None, project=None) -> str:

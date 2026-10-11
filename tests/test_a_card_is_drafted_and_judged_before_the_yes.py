@@ -46,8 +46,8 @@ from openfactory.product.cards import (
     template_problem,
 )
 from openfactory.product.module import _WHAT_WAS_ASKED, _section_re
-from openfactory.product.voice import card_needs, ticket_confirmation
-from tests.test_confirmation_by_click import ADMIN, KEY, _project
+from openfactory.product.voice import admins_must_confirm, card_needs, ticket_confirmation
+from tests.test_confirmation_by_click import ADMIN, KEY, OUTSIDER, _project
 from tests.the_chat_turn import chat_turn
 
 #: THE FIXTURES BELOW ARE A PORTUGUESE CONVERSATION, so the cards they draft use the pt-BR layout
@@ -475,6 +475,29 @@ def test_the_confirmation_shows_the_whole_card_and_the_yes_writes_that_card(_ear
     [filed] = world.filed
     assert filed["card"] == staged["card"] and filed["title"] == GOOD["title"]
     assert filed["described"] == GESTURE, "the request travels as the source, not as the body"
+
+
+def test_an_admins_own_card_names_nobody_else_and_anybody_elses_names_the_admins(
+        _earlier_turns):
+    """WHO CAN UNLOCK THE PEN IS NAMED ONLY TO SOMEBODY WHO CANNOT. A drafted card an admin asks
+    for waits for their own yes; one asked for by somebody who may not file it names the admins
+    under it. Both halves, because either alone passes over the defect it is about: with the note
+    under every card the second half still holds — and a mutation run found exactly that cut unseen
+    on this path (`engine._offer_card`; the conversation's characterisation suite reaches only the
+    title-only staging, which carries its own copy of the rule). The admins are named only where
+    their yes can count for the requester's, so the product lets them (`accept_on_behalf`)."""
+    project = _project()
+    project.product.accept_on_behalf = True
+    note = admins_must_confirm(engine_module._admin_mentions(project), "card",
+                               language=project.language)
+    assert ADMIN in note, note
+
+    own = str(chat_turn(project, text=GESTURE, user=ADMIN, thread=KEY, module=_World(GOOD)))
+    theirs = str(chat_turn(project, text=GESTURE, user=OUTSIDER, thread=KEY, module=_World(GOOD)))
+
+    assert pc.find_waiting(KEY, KEY)[1]["kind"] == "ticket", "nothing was staged"
+    assert note not in own, f"an admin was told to ask the admins: {own}"
+    assert note in theirs, f"the card names nobody who can file it: {theirs}"
 
 
 def test_a_card_that_fails_twice_stages_nothing_and_asks(_earlier_turns):

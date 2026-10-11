@@ -89,7 +89,7 @@ const nodes={};function node(){return{innerHTML:"",textContent:"",title:"",class
 function $(s){return nodes[s]||null}
 const toasts=[];function toast(a,b,c){toasts.push([a,b,c])}
 const painted=[];function paintFloor(){painted.push("floor")}
-let me=null,_surface="floor",_whoAsk=null,_whoAskedAt=0;
+let me=null,_surface="floor",_whoAsk=null,_whoAskedAt=0,_boardReadOnly=false;
 let _floor=null,_floorAt=0,_floorErr="",_floorRefused="";const _bootAt=0;
 let _streamsEnded={};
 let engine={connected:true,jobs:[{project:"acme",issue:"7",status:"running"}]},_engineAt=0,_engineErr="";
@@ -104,7 +104,7 @@ CORE = ("esc", "safeUrl", "WHO_AGAIN_MS", "MOVED_KEY", "FS_STALE_MS")
 #: server ended comes back once the floor is answered); with nothing ended it does nothing.
 FUNCTIONS = ("authHeaders", "mfetch", "refusal", "api", "declined", "productOnly", "askWhoAgain",
              "takeBootsRoute", "sayWhyThisPage", "sessionWho", "paintSession", "curProject",
-             "reopenEndedStreams")
+             "reopenEndedStreams", "noProductArea", "curBoard")
 
 
 def run(scenario: str, *more: str, stubs: str = "") -> dict:
@@ -605,6 +605,7 @@ async function loadEngine(){}async function loadFloor(){}function pollBudget(){}
 function pollCoordinator(){}function loadInbox(){}function tickTimers(){}
 function setInterval(){}function bootProduct(){order.push('product:'+nodes['#who'].innerHTML)}
 function pchatBoot(){}function curProduct(){return location.pathname.startsWith('/product/')?'acme':null}
+function bootBoardRead(p){order.push('board:'+p)}function refuseTheProductPage(p){order.push('refused:'+p)}
 """
 
 

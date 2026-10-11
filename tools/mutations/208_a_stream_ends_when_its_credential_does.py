@@ -128,8 +128,9 @@ MUTATIONS = [
     # ── 4. off the event loop ───────────────────────────────────────────────────────────────────
     ("the store is folded on the event loop", APP,
      # RE-PINNED 2026-09-19: the hop lives in `_ask_the_gate` now, for every caller.
-     "    return await asyncio.to_thread(_gate_verdict, path, credential)\n",
-     "    return _gate_verdict(path, credential)\n"),
+     # RE-PINNED 2026-10-11 (#562): the gate is handed the query string too.
+     "    return await asyncio.to_thread(_gate_verdict, path, credential, query)\n",
+     "    return _gate_verdict(path, credential, query)\n"),
 
     # ── 5. one seam, and a third stream cannot forget ───────────────────────────────────────────
     ("the job stream answers without the seam", APP,

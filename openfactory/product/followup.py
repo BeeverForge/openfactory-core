@@ -456,6 +456,9 @@ _CANNOT_DECIDE = re.compile(
     r"\b(no|nada|ni|sin|pas|nicht|niet|non)\b",
     re.IGNORECASE)
 
+#: A word, in the letters the two catalogued languages write — what the length bound counts.
+_WORD = re.compile(r"[a-zà-ú']+")
+
 #: Acceptance is a SHORT answer. "funcionou perfeitamente" is one; three sentences that happen to
 #: contain "ok" are a conversation, and reading one as acceptance would close a delivery on a
 #: passing word. Ten is generous for "sim, resolveu certinho, obrigado" and far below a paragraph.
@@ -477,7 +480,7 @@ def acceptance_verdict(text: str) -> str:
     body = (text or "").strip()
     if not body or "?" in body:
         return ""
-    words = re.findall(r"[a-zà-ú']+", body.lower())
+    words = _WORD.findall(body.lower())
     # THE LENGTH BOUND GUARDS BOTH DIRECTIONS. An answer to "did it work?" is short either way.
     # Without it here, "nao sei se isso funciona bem para o nosso caso, porque..." — a normal
     # sentence containing "nao" — would close a delivery as rejected, and a paragraph mentioning
@@ -515,7 +518,7 @@ def acceptance_question(loop: Loop, *, agent_name: str = "",
     return _say(_ACCEPTANCE_Q, language)
 
 
-def _which(loop: Loop, *, ambiguous: bool) -> str:
+def _which(loop: Loop, *, ambiguous: bool, language: str | None = None) -> str:
     """Which delivery this is about — spelled out ONLY when more than one was awaiting an answer.
 
     With two open acceptances a bare "sim, funcionou" settles against the most recent one, and the
@@ -531,21 +534,49 @@ def _which(loop: Loop, *, ambiguous: bool) -> str:
         title = str(loop.context.get("title") or "")
         return f" ({title})" if title else ""
     if (loop.context or {}).get("defect"):
-        return " (o problema que você reportou)"
-    return f" (o requisito {loop.subject})"
+        return _say(_WHICH_DEFECT, language)
+    return _say(_WHICH_REQUIREMENT, language).format(number=loop.subject)
 
 
-def accepted_text(loop: Loop, *, agent_name: str = "", ambiguous: bool = False) -> str:
+#: WHAT A DELIVERY'S ANSWER IS TOLD, IN THE PROJECT'S LANGUAGE (#535). They were Portuguese
+#: whatever the project spoke, so an English client who said "yes, it works" was thanked in
+#: Portuguese — the class #429 found, in the replies the sweep had not reached.
+_WHICH_DEFECT = {"pt-BR": " (o problema que você reportou)", "en": " (the problem you reported)"}
+_WHICH_REQUIREMENT = {"pt-BR": " (o requisito {number})", "en": " (requirement {number})"}
+_ACCEPTED = {
+    "pt-BR": "{sig}Ótimo — considero encerrado então{which}. Obrigada por confirmar.",
+    "en": "{sig}Great — I will consider it closed, then{which}. Thank you for confirming.",
+}
+_REJECTED = {
+    "pt-BR": ("{sig}Entendido — então NÃO está resolvido{which}, e eu não vou dar como entregue. "
+              "Me conta o que ainda acontece que eu registro como defeito contra a promessa que "
+              "ficou por cumprir."),
+    "en": ("{sig}Understood — so it is NOT resolved{which}, and I will not count it as delivered. "
+           "Tell me what still happens and I will record it as a defect against the promise that "
+           "was not kept."),
+}
+_ACCEPTANCE_CHASE = {
+    "pt-BR": ("{sig}{who}voltando no que te entreguei: chegou a conferir? Um \"sim\" ou um \"não "
+              "resolveu\" já me basta — se não for prioridade agora, me diga e eu paro de "
+              "perguntar."),
+    "en": ("{sig}{who}coming back to what I delivered: did you get to check it? A \"yes\" or a "
+           "\"it did not work\" is enough — if it is not a priority right now, tell me and I "
+           "will stop asking."),
+}
+
+
+def accepted_text(loop: Loop, *, agent_name: str = "", ambiguous: bool = False,
+                  language: str | None = None) -> str:
     sig = f"{agent_name}: " if agent_name else ""
-    return (f"{sig}Ótimo — considero encerrado então{_which(loop, ambiguous=ambiguous)}. "
-            f"Obrigada por confirmar.")
+    return _say(_ACCEPTED, language).format(
+        sig=sig, which=_which(loop, ambiguous=ambiguous, language=language))
 
 
-def rejected_text(loop: Loop, *, agent_name: str = "", ambiguous: bool = False) -> str:
+def rejected_text(loop: Loop, *, agent_name: str = "", ambiguous: bool = False,
+                  language: str | None = None) -> str:
     sig = f"{agent_name}: " if agent_name else ""
-    return (f"{sig}Entendido — então NÃO está resolvido{_which(loop, ambiguous=ambiguous)}, e eu "
-            f"não vou dar como entregue. Me conta o que ainda acontece que eu registro como "
-            f"defeito contra a promessa que ficou por cumprir.")
+    return _say(_REJECTED, language).format(
+        sig=sig, which=_which(loop, ambiguous=ambiguous, language=language))
 
 
 #: How long a decision waits before one reminder. Longer than a question about a card: a decision
@@ -564,12 +595,11 @@ def decision_chase_text(loop: Loop, *, mention: str = "", agent_name: str = "",
     return _say(_DECISION_CHASE, language).format(sig=sig, who=who, asked=asked)
 
 
-def acceptance_chase_text(loop: Loop, *, mention: str = "", agent_name: str = "") -> str:
+def acceptance_chase_text(loop: Loop, *, mention: str = "", agent_name: str = "",
+                          language: str | None = None) -> str:
     who = f"{mention} " if mention else ""
     sig = f"{agent_name}: " if agent_name else ""
-    return (f"{sig}{who}voltando no que te entreguei: chegou a conferir? Um \"sim\" ou um "
-            f"\"não resolveu\" já me basta — se não for prioridade agora, me diga e eu paro de "
-            f"perguntar.")
+    return _say(_ACCEPTANCE_CHASE, language).format(sig=sig, who=who)
 
 
 def release_of(issue: str, *, channel: str, ts: str, requirement: str = "",

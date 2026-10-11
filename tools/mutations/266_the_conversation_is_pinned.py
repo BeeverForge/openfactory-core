@@ -501,8 +501,8 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24 (#267 slice 3): the breakdown is handed where it was asked for
     ("an acceptance agreed with no card is never broken down", CONFIRM,
-     "    return _also_broke_it_down(module, entry[\"number\"], user, head, lang, project, "
-     "entry=entry)",
+     # RE-PINNED 2026-10-11 (#563 slice 18b): the composer no longer takes the module
+     "    return _also_broke_it_down(entry[\"number\"], user, head, lang, project, entry=entry)",
      "    return head"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
@@ -550,11 +550,14 @@ MUTATIONS = [
      '"in_favour_of": in_favour_of, "reason": reason,', '"in_favour_of": None, "reason": reason,'),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-10 (#567): the close's question gained what only the closed card carries
     ("a close does not name who can confirm it", ENGINE,
-     "                                 language=lang)\n        if not may_act(project, user):\n"
+     "                                 carried=carried, unread=unread, language=lang)\n"
+     "        if not may_act(project, user):\n"
      "            admins = _admin_mentions(project)\n            if admins:\n"
      '                ask += admins_must_confirm(admins, "closing"',
-     "                                 language=lang)\n        if False:\n"
+     "                                 carried=carried, unread=unread, language=lang)\n"
+     "        if False:\n"
      "            admins = _admin_mentions(project)\n            if admins:\n"
      '                ask += admins_must_confirm(admins, "closing"'),
 
@@ -627,22 +630,25 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a breakdown files work for anybody who types it", ENGINE,
-     "            return unauthorized_message(project)\n        if on_it:\n            on_it()\n"
-     "        # `asked_for=True`",
-     "            pass\n        if on_it:\n            on_it()\n        # `asked_for=True`"),
+     # RE-PINNED 2026-10-11 (#563 slice 18b): the start answers at once, with no receipt
+     "            return unauthorized_message(project)\n        # STARTED, NEVER RUN IN THE TURN",
+     "            pass\n        # STARTED, NEVER RUN IN THE TURN"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a refused breakdown still buys a receipt", ENGINE,
+     # RE-PINNED 2026-10-11 (#563 slice 18b): no receipt is bought at all now; the row puts one
+     # back in front of the gate
      "        if not may_act(project, user):\n            return unauthorized_message(project)\n"
-     "        if on_it:\n            on_it()\n        # `asked_for=True`",
+     "        # STARTED, NEVER RUN IN THE TURN",
      "        if on_it:\n            on_it()\n"
      "        if not may_act(project, user):\n            return unauthorized_message(project)\n"
-     "        # `asked_for=True`"),
+     "        # STARTED, NEVER RUN IN THE TURN"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a typed breakdown is filed as the acceptance's automatic one", ENGINE,
-     "        results = module.break_down(number, actor=user, asked_for=True)",
-     "        results = module.break_down(number, actor=user, asked_for=False)"),
+     # RE-PINNED 2026-10-11 (#563 slice 18b): the gesture starts the breakdown on the worker
+     "            how = breaking.start_now(project, number, actor=user, asked_for=True,",
+     "            how = breaking.start_now(project, number, actor=user, asked_for=False,"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a refine is answered as conversation", ENGINE,
@@ -743,10 +749,13 @@ MUTATIONS = [
      '    title = (getattr(answer, "ticket_title", "") or "").strip()'),
 
     # RE-PINNED 2026-09-28: the confirmation now carries the drafted card (#383)
+    # PROVED ELSEWHERE 2026-10-10: this suite's module drafts no card, so it reaches only the
+    # title-only staging and survived this cut; the drafted card's own suite holds it
     ("an admin's own card is told to ask the admins", ENGINE,
      "                              disputed=disputed, language=lang)\n"
      "    if not may_act(project, user):",
-     "                              disputed=disputed, language=lang)\n    if True:"),
+     "                              disputed=disputed, language=lang)\n    if True:",
+     "tests/test_a_card_is_drafted_and_judged_before_the_yes.py"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("an order for the backlog is never staged", ENGINE,
@@ -789,9 +798,10 @@ MUTATIONS = [
      "            say = accepted_text"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-11 (#535): the reply is told in the project's language
     ("the delivery a bare yes settled among several is not named", ENGINE,
-     "            return Settled(say(loop, agent_name=agent, ambiguous=ambiguous), waiting)",
-     "            return Settled(say(loop, agent_name=agent), waiting)"),
+     "            return Settled(say(loop, agent_name=agent, ambiguous=ambiguous, language=lang),",
+     "            return Settled(say(loop, agent_name=agent, language=lang),"),
 
     # RE-PINNED 2026-09-24 (#267 slice 3): the acceptance is asked where the reply is written
     ("a sentence the word list cannot read never reaches the acceptance judge", MODULE,

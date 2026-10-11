@@ -460,6 +460,25 @@ class ProductBreakdownInput(BaseModel):
     #: chain into an explicit request — the one thing that lets `ProductModule.break_down` file
     #: work for a requirement that describes what the code already does (#182).
     asked_for: bool = False
+    #: THE CONVERSATION THAT STARTED IT, when one did (#563 slice 18b, ADR-0051 D18 items 1 and 3).
+    #: A conversation does not wait minutes on a breakdown, so it is told what was filed when the
+    #: breakdown ends, and the delivery loop is announced there too (#267 slice 3). `room` is where
+    #: that conversation is held and `requester` who asked. EMPTY for the panel's and the command
+    #: line's doors, which wait on the result as before; a payload from an older caller carries
+    #: none, and is told to nobody.
+    conversation: str = ""
+    room: str = ""
+    requester: str = ""
+    #: the language that conversation speaks, which the sentence it is told is written in — the
+    #: project's when empty (#432: a conversation is answered in its own language)
+    language: str = ""
+
+
+def breakdown_workflow_id(project: str, number: int) -> str:
+    """The one execution a requirement's breakdown runs as, whichever door starts it (ADR-0051
+    D18, #563). The engine holds one RUNNING execution per id, on every host, and refuses a
+    second start while it runs; after it ends, a new start runs again — a retry is allowed."""
+    return f"openfactory-product-breakdown-{project}-{number}"
 
 
 class ProductQueueInput(BaseModel):

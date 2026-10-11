@@ -743,7 +743,7 @@ def test_the_turn_asks_the_acceptance_WHERE_the_reply_was_written(registry, ledg
     in_hers = engine.settle(registry, text="funcionou", user=ANA, thread=ANAS, module=module)
 
     assert in_the_room.reply is None, in_the_room
-    assert in_hers.reply == followup.accepted_text(asked, agent_name=AGENT)
+    assert in_hers.reply == followup.accepted_text(asked, agent_name=AGENT, language=LANG)
 
 
 def test_the_sweep_chases_a_did_it_work_WHERE_it_was_asked_and_a_private_decision_NOWHERE(
@@ -1043,7 +1043,9 @@ def test_every_filing_path_of_a_confirmation_passes_where_it_was_asked():
     assert "**_whose(module.file_defect, entry)" in source
     assert "**_whose(module.file_ticket, entry)" in source
     assert "**_whose(module.open_cards_for, entry or {})" in source
-    assert "**_whose(module.break_down, entry or {})" in source
+    # THE BREAKDOWN IS STARTED ON THE WORKER (#563 slice 18b), and carries where it was asked to
+    # the module there: the conversation the entry names, and who asked
+    assert "conversation=conversation" in source and "requester=requester_of(entry)" in source
 
 
 # ── 6. an event cannot be forged from outside ────────────────────────────────────────────────────

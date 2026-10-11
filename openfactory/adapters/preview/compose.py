@@ -614,10 +614,12 @@ def _checkout(sources: Sequence[TreeSource], out: dict[str, Tree], *, workdir: s
     for s in sources:
         base = os.path.join(workdir, "base", s.dir)
         branch = s.base_branch or _default_branch(s.source)
-        # `--no-hardlinks`, NOT git's default: a preview container may mount the whole tree,
+        # NO HARDLINKS, NOT git's default: a preview container may mount the whole tree,
         # `.git` included, as root with DAC_OVERRIDE — and a hardlinked object is the SAME
         # inode as the cache's, so a write through it would reach every later job's checkout.
-        r = _git("clone", "--local", "--no-hardlinks", "--quiet",
+        # `--no-local` gives that and reads through the pack protocol, never copying the objects
+        # directory file by file while git's own maintenance repacks it (#594).
+        r = _git("clone", "--no-local", "--quiet",
                  *(["--branch", branch] if branch else []), s.source, base)
         if r.rc:
             raise _Refusal(f"`{s.repo}`'s base branch `{branch or 'HEAD'}` could not be "

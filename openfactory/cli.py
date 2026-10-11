@@ -3179,6 +3179,8 @@ def people_invite(
     display: str = typer.Option("", help="how the team will see them (they may change it)"),
     product: bool = typer.Option(False, "--product", help="scope them to the product surface — a "
                                                           "requirement-writer, refused the floor"),
+    board: bool = typer.Option(False, "--board", help="scope them to the board — whoever runs it, "
+                                                      "refused the product owner's area"),
     by: str = typer.Option("", help="who vouches for them; your login on this host by default"),
 ) -> None:
     """Issue a one-time registration link. Printed ONCE; the store keeps only its hash.
@@ -3194,7 +3196,8 @@ def people_invite(
     voucher = by.strip() or getpass.getuser()
     outcome = asyncio.run(act_layer.perform(
         "people_invite", by=act_layer.Actor(id=voucher, display=voucher, via="cli", admin=True),
-        person=person, display=display, product="yes" if product else ""))
+        person=person, display=display, product="yes" if product else "",
+        board="yes" if board else ""))
     if not outcome.ok:
         typer.echo(f"people invite: {outcome.message}", err=True)
         raise typer.Exit(code=1)
@@ -3203,7 +3206,8 @@ def people_invite(
     # one, the path is what there is to say.
     from openfactory.adapters.tracker.local import panel_url
 
-    typer.echo(f"{outcome.message}{' (product surface only)' if product else ''}"
+    only = " (product surface only)" if product else " (the board only)" if board else ""
+    typer.echo(f"{outcome.message}{only}"
                f"{'' if panel_url() else ' — append this to the address your panel answers on'}:")
     typer.echo(f"  {panel_url()}{outcome.data['link']}")
 
@@ -3687,8 +3691,8 @@ def _seed_the_context_repository(name: str) -> None:
                 subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
                                check=True, timeout=60)
 
-            subprocess.run(["git", "clone", "-q", where, tmp], capture_output=True, text=True,
-                           check=True, timeout=60)
+            subprocess.run(["git", "clone", "--no-local", "-q", where, tmp], capture_output=True,
+                           text=True, check=True, timeout=60)
             seed = Path(tmp) / namespace.DIR / "product.yaml"
             seed.parent.mkdir(parents=True, exist_ok=True)
             seed.write_text(f"product: {name}\nsources:\n  - {name}\n"
@@ -4766,7 +4770,7 @@ def product_init(
         root = _Path(tmp) / "docs"
         if docs_repo:
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--depth", "1", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", "--depth", "1", url, str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
@@ -4790,7 +4794,7 @@ def product_init(
             docs_repo, made = _create_context_repo(project, name)
             typer.echo(f"{'✓ created' if made else '· found'} {docs_repo}")
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", url, str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")

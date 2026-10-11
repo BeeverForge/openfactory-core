@@ -90,9 +90,11 @@ MUTATIONS = [
      '    if False:\n        log.info("OPENFACTORY_LOGIN_REFUSED'),
 
     # ── the panel's action and the shell ──
+    # RE-PINNED 2026-10-11 (#562): the row takes `board` too
     ("anybody may invite from the panel", CATALOG,
-     '            optional=("display", "product"),\n            params={\n',
-     '            optional=("display", "product"),\n            needs_admin=False,\n            params={\n'),
+     '            optional=("display", "product", "board"),\n            params={\n',
+     '            optional=("display", "product", "board"),\n            needs_admin=False,\n'
+     '            params={\n'),
 
     ("the actor is not the voucher", CATALOG,
      '                                       by=(by.id or "").strip())\n',

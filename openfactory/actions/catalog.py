@@ -2925,7 +2925,8 @@ async def _product_discard_attachment(*, project: str, by: Actor, attachment: st
     return done(f"{found.name} was discarded from this conversation.", discarded=found.id)
 
 
-async def _product_thread(*, project: str, by: Actor, thread: str = "") -> Outcome:
+async def _product_thread(*, project: str, by: Actor, thread: str = "",
+                          before: str = "") -> Outcome:
     """The recent turns of one conversation with the product role — the room, or your own.
 
     WHAT MAKES THE ROOM A ROOM. The panel offered one box and kept what it said in the page:
@@ -2953,13 +2954,18 @@ async def _product_thread(*, project: str, by: Actor, thread: str = "") -> Outco
     # THE PRODUCT'S MEMORY (ADR-0051 D2): the conversation as every registry project of this
     # product holds it, rows from before the move included — the one the door's turns write to.
     # EVERY LINE OF IT, the ones the room said to each other included (ADR-0051 D14): this SHOWS
-    # the conversation to the people in it, who saw them anyway — it builds no prompt
-    turns = transcript.recent(proj, thread=key, overheard=True)
+    # the conversation to the people in it, who saw them anyway — it builds no prompt. A PAGE AT A
+    # TIME, by the conversation's key (#566): it read the prompt's 6,000-character window, so the
+    # CLI showed the end of a conversation and nothing could reach the rest. `earlier` is the
+    # cursor of the page before this one, passed back as `before`.
+    turns, earlier = transcript.page(proj, thread=key, before=(before or "").strip())
     agent = getattr(getattr(proj, "product", None), "agent_name", "") or "product"
     rows = [{"role": t.role, "actor": agent if t.role == "agent" else (t.actor or ""),
              "text": t.text, "ts": t.ts} for t in turns]
-    return done(transcript.render(turns, agent_name=agent) or "nothing was said here yet.",
-                thread=key, private=is_private(key), turns=rows)
+    said = transcript.render(turns, agent_name=agent) or "nothing was said here yet."
+    if earlier:
+        said += f"\n\n(earlier turns: pass before={earlier})"
+    return done(said, thread=key, private=is_private(key), turns=rows, earlier=earlier)
 
 
 async def _product_agenda(*, project: str, by: Actor) -> Outcome:
@@ -3524,6 +3530,11 @@ async def _with_the_work_filed(accepted: Outcome, *, project: str, number: int,
         # act, and saying so is what lets the module refuse a reading of the code (#182).
         filed = await _broken_down_on_the_worker(project=project, number=number, by=by,
                                                  asked_for=False)
+    except _AlreadyBreakingDown as running:
+        data = {**accepted.data, "project": project, "number": number,
+                "filed": running.filed or [], "nothing_to_build": False, "running": True}
+        return done(f"{accepted.message} {_the_running_breakdown(number, running.filed)}",
+                    **data)
     except Exception:  # noqa: BLE001 — the promise is written; this is a courtesy on top of it
         # ERROR, UNDER ITS OWN CODE. This catch-all is wide enough to swallow a refactor: rename
         # the workflow and every acceptance would go on answering politely that it filed nothing,
@@ -3562,18 +3573,65 @@ async def _broken_down_on_the_worker(*, project: str, number: int, by: Actor,
     workflow id is shared on purpose: an acceptance still breaking a requirement down and a person
     asking for the same breakdown are one piece of work, and the engine refuses the second start
     rather than filing every card twice."""
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
     from openfactory.runtime.temporal import TASK_QUEUE
-    from openfactory.runtime.temporal.io import ProductBreakdownInput
+    from openfactory.runtime.temporal.io import ProductBreakdownInput, breakdown_workflow_id
 
     client, bad = await _connected()
     if bad:
         raise RuntimeError(bad.message)
-    return await client.execute_workflow(
-        "ProductBreakdownWorkflow",
-        ProductBreakdownInput(project=project, number=number, actor=by.id, asked_for=asked_for),
-        id=f"openfactory-product-breakdown-{project}-{number}",
-        task_queue=TASK_QUEUE,
-    ) or []
+    breaking = breakdown_workflow_id(project, number)
+    try:
+        return await client.execute_workflow(
+            "ProductBreakdownWorkflow",
+            ProductBreakdownInput(project=project, number=number, actor=by.id,
+                                  asked_for=asked_for),
+            id=breaking,
+            task_queue=TASK_QUEUE,
+        ) or []
+    except WorkflowAlreadyStartedError:
+        # THE REFUSAL THIS ID WAS SHARED FOR, SAID AS WHAT IT IS (#563, ADR-0051 D18). The engine
+        # does not hand a second start the running execution's result: it refuses the start, and
+        # both callers' catch-alls turned that into "nothing was filed" / "I could not turn it
+        # into units of work" while the first breakdown was filing the cards. This door files
+        # nothing and waits on THE SAME execution, as a second answer to a proposal does (#456).
+        log.info("OPENFACTORY_PRODUCT_BREAKDOWN_RUNNING project=%s req=%s — another start of it "
+                 "is running; this one files nothing and reads its result", project, number)
+        try:
+            filed = await client.get_workflow_handle(breaking).result() or []
+        except Exception as exc:  # noqa: BLE001 — what it filed is on the board either way
+            log.warning("the running breakdown of %s req=%s could not be read (%s)", project,
+                        number, str(exc)[:200])
+            raise _AlreadyBreakingDown(None) from exc
+        raise _AlreadyBreakingDown(list(filed)) from None
+
+
+class _AlreadyBreakingDown(Exception):
+    """A breakdown of the same requirement was already running when this door asked for one, and
+    this door filed nothing (#563). `filed` is what the running one filed, read off the same
+    execution — None when it could not be read."""
+
+    def __init__(self, filed: list[dict] | None) -> None:
+        super().__init__("a breakdown of this requirement was already running")
+        self.filed = filed
+
+
+def _the_running_breakdown(number: int, filed: list[dict] | None) -> str:
+    """What a door says when the breakdown it asked for was already running: that, and what it
+    filed — never "nothing was filed", which is what a person was told while the first one was
+    filing the cards (#563)."""
+    if filed is None:
+        return (f"A breakdown of requirement {number} was already running, so this did not start "
+                f"another; its cards will be on the board when it ends.")
+    made = [r for r in filed if r.get("ok")]
+    if made:
+        refs = ", ".join(r.get("ref") or r.get("url") or "?" for r in made)
+        return (f"A breakdown of requirement {number} was already running, so this did not start "
+                f"another; it filed {refs}. Starting any of it is still a person's decision.")
+    detail = next((r.get("detail") for r in filed if not r.get("ok") and r.get("detail")), "")
+    return (f"A breakdown of requirement {number} was already running, so this did not start "
+            f"another, and it filed nothing{f': {detail}' if detail else '.'}")
 
 
 async def _product_break_down(*, project: str, number: str, by: Actor,
@@ -3633,6 +3691,13 @@ async def _product_break_down(*, project: str, number: str, by: Actor,
     try:
         filed = await _broken_down_on_the_worker(project=proj.name, number=num, by=by,
                                                  asked_for=True)
+    except _AlreadyBreakingDown as running:
+        data = {"project": proj.name, "number": num, "filed": running.filed or [],
+                "running": True}
+        said = _the_running_breakdown(num, running.filed)
+        if running.filed is not None and not any(r.get("ok") for r in running.filed):
+            return refused(FAILED, said, **data)
+        return done(said, **data)
     except Exception as exc:  # noqa: BLE001 — an engine that is down is an answer, not a crash
         from openfactory.util.causes import first_message
 
@@ -3933,8 +3998,10 @@ async def _product_board(*, project: str, by: Actor, card: str = "") -> Outcome:
     """The cards on the board, and one card's own view — for the product surface (#384).
 
     THE PRODUCT VIEW HAD NO CARD TO ACT ON. Its Board tab asked the role to triage and nothing more,
-    and `GET /api/board/{project}` is a floor read a product credential is refused — so a person
-    who asked for a card and wanted it gone could not even open it where they work. This is the
+    and `GET /api/board/{project}` was a floor read a product credential was refused — so a person
+    who asked for a card and wanted it gone could not even open it where they work. (Since #562
+    the product owner reads that board too, read only; this stays their page's own view of a
+    card, with its controls.) This is the
     read that page needs: the open cards with their column, and, for the card they opened, its text
     and what its controls do (`card_view`). It writes nothing; the controls are
     `product_withdraw_card`.
@@ -6549,24 +6616,42 @@ async def _env_apply_impl(*, project: str, by: Actor, yes: object = False,
 # ── people: an invitation from the panel (#33) ──────────────────────────────────────────────────
 
 async def _people_invite(*, person: str, by: Actor, display: str = "",
-                         product: object = "") -> Outcome:
+                         product: object = "", board: object = "") -> Outcome:
     """Issue a one-time registration link for `person`, vouched for by whoever asked.
 
     THE VOUCHER IS THE ACTOR, and an anonymous actor cannot vouch: a shared-token caller has no
     id, and the store refuses an invitation nobody stands behind — the audit line would otherwise
-    record a registration vouched for by "somebody with the panel token"."""
-    from openfactory.identity import people as _people
-    from openfactory.identity.local import PRODUCT_GROUP
+    record a registration vouched for by "somebody with the panel token".
 
+    ONE AREA, OR BOTH (#562): `product` invites the product owner, `board` whoever runs the board
+    and nothing else, and neither an administrator of both. Asked for both at once, it refuses:
+    that is the administrator's invitation, and saying so beats guessing which was meant.
+
+    AND ONLY THE ADMINISTRATOR INVITES (#562). The row is the floor's, and a board credential is the
+    floor's too: without this, whoever holds one could invite an administrator — an invitation
+    with neither area — redeem it, and reach the product owner's area it is refused by name. A
+    scoped actor, of either area, is refused; the administrator's credential is unscoped."""
+    from openfactory.identity import people as _people
+    from openfactory.identity.local import BOARD_GROUP, PRODUCT_GROUP
+
+    if by.scopes is not None:
+        return refused(DENIED, f"inviting somebody is the administrator's; this credential is "
+                               f"scoped to {', '.join(sorted(by.scopes)) or 'nothing'}")
+    scoped = _said_yes(product) or str(product or "").strip().lower() == "product"
+    boarded = _said_yes(board) or str(board or "").strip().lower() == "board"
+    if scoped and boarded:
+        return refused(INVALID, "an invitation is to the product owner's area or to the board; "
+                                "to both is the administrator's, which is an invitation with "
+                                "neither")
     why = _people.sink_is_durable()
     if why:
         return refused(UNAVAILABLE, why)
-    scoped = str(product or "").strip().lower() in ("1", "true", "yes", "y", "product")
     from openfactory.observability.query import StoreUnreadable
 
     try:
         got = _people.PeopleStore().invite(str(person or ""), display=str(display or ""),
-                                           groups=(PRODUCT_GROUP,) if scoped else (),
+                                           groups=((PRODUCT_GROUP,) if scoped else
+                                                   (BOARD_GROUP,) if boarded else ()),
                                            by=(by.id or "").strip())
     except StoreUnreadable as exc:
         # AN INVITATION IS CHECKED AGAINST WHO IS ALREADY REGISTERED, and a store that cannot be
@@ -6582,7 +6667,7 @@ async def _people_invite(*, person: str, by: Actor, display: str = "",
     return done(f"invitation for {invitation.id} issued, vouched for by {invitation.by}; send them "
                 f"the link appended to the panel's address — it registers them once and expires "
                 f"in {days} days", link=link, person=invitation.id, by=invitation.by,
-                expires_at=invitation.expires_at, product=scoped)
+                expires_at=invitation.expires_at, product=scoped, board=boarded)
 
 
 CATALOG: dict[str, ActionSpec] = {
@@ -6993,7 +7078,7 @@ CATALOG: dict[str, ActionSpec] = {
                     "project's room, or your own",
             run=_product_thread,
             required=("project",),
-            optional=("thread",),
+            optional=("thread", "before"),
             needs_admin=False,
         ),
         ActionSpec(
@@ -7286,13 +7371,15 @@ CATALOG: dict[str, ActionSpec] = {
                     "for by you",
             run=_people_invite,
             required=("person",),
-            optional=("display", "product"),
+            optional=("display", "product", "board"),
             params={
                 "person": "the person's id — an email or a handle, spelled the way a project's "
                           "`admins` will spell it, e.g. `ana@acme.example`",
                 "display": "how the team will see them; they may change it when they register",
                 "product": "`yes` to scope them to the product surface — a requirement-writer, "
                            "refused the floor by name",
+                "board": "`yes` to scope them to the board — whoever runs it, refused the "
+                         "product owner's area by name",
             },
         ),
     )

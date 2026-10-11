@@ -365,9 +365,11 @@ MUTATIONS = [
      "            record = records.get(path, digest)",
      "            if False:\n                continue\n            record = records.get(path, digest)"),
 
+    # RE-PINNED 2026-10-10 (#567): open cards are indexed too, so a reopened card is no longer
+    # dropped — it is replaced, open, because its state is part of its group's version
     ("a card reopened stays in the index as closed", SYNC,
-     "                if grp in known:  # reopened: no longer a closed card",
-     "                if False:  # reopened: no longer a closed card"),
+     "            version = digest_of(made[0].text, made[0].origin, made[0].date)",
+     "            version = digest_of(made[0].text, made[0].date)"),
 
     ("a line past the transcript's retention stays in the index", SYNC,
      "    if old:\n        with con:\n            Index.drop_groups(con, old)",

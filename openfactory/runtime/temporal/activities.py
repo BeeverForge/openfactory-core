@@ -3709,14 +3709,46 @@ async def product_role_break_down(inp: ProductBreakdownInput) -> list[dict]:
     # minutes of model calls — and a worker that dies mid-breakdown must be noticed at the
     # heartbeat, not at the activity's ceiling
     def _break(_abandoned=None):
-        return _product_break_down(project, inp.number, inp.actor, inp.asked_for)
+        return _product_break_down(project, inp.number, inp.actor, inp.asked_for,
+                                   conversation=inp.conversation, requester=inp.requester)
 
-    results = (await _turning(_break, f"breaking REQ-{inp.number} of {inp.project} into cards")
-               if activity.in_activity() else await asyncio.to_thread(_break))
+    try:
+        results = (await _turning(_break, f"breaking REQ-{inp.number} of {inp.project} into cards")
+                   if activity.in_activity() else await asyncio.to_thread(_break))
+    except Exception:
+        # A CONVERSATION THAT STARTED IT IS TOLD IT FAILED, and the failure still fails the
+        # workflow: a door waiting on the result reads it as before
+        await _tell_the_breakdown(project, inp, None)
+        raise
+    await _tell_the_breakdown(project, inp, results)
     return [{"ok": bool(getattr(r, "ok", False)), "detail": str(getattr(r, "detail", "") or ""),
              "ref": str(getattr(r, "ref", "") or ""), "url": str(getattr(r, "url", "") or ""),
-             "existed": bool(getattr(r, "existed", False))}
+             "existed": bool(getattr(r, "existed", False)),
+             "nothing_to_build": bool(getattr(r, "nothing_to_build", False))}
             for r in (results or [])]
+
+
+async def _tell_the_breakdown(project, inp: ProductBreakdownInput, results) -> None:
+    """What a breakdown filed, said in the conversation that started it (#563 slice 18b, ADR-0051
+    D18 item 3) — the sentence the turn used to answer with, now that the turn only starts it.
+    `results` None is a breakdown that raised. NEVER RAISES: the cards are on the board whether or
+    not the telling worked, and the door logs a telling it refused."""
+    if not inp.conversation:
+        return
+    from openfactory.product.confirm import breakdown_told
+    from openfactory.product.door import announce
+
+    try:
+        text = await asyncio.to_thread(breakdown_told, project, inp.number, results,
+                                       asked_for=inp.asked_for, language=inp.language or None)
+        # THE HAPPENING'S ID, so a retried telling is one item the conversation drops
+        run = activity.info().workflow_run_id if activity.in_activity() else ""
+        await announce(project, id=f"breakdown-{inp.project}-{inp.number}" + (f"-{run}" if run
+                                                                            else ""),
+                       conversation=inp.conversation, text=text, room=inp.room)
+    except Exception:  # noqa: BLE001 — the cards stand; only the telling failed, and says so
+        activity.logger.exception("OPENFACTORY_PRODUCT_BREAKDOWN_UNTOLD project=%s req=%s "
+                                  "conversation=%s", inp.project, inp.number, inp.conversation)
 
 
 @activity.defn
@@ -4198,13 +4230,17 @@ def _product_queue_proposal(project, limit: int):
         engine.release(module)     # its view of the product goes with it (#369)
 
 
-def _product_break_down(project, number: int, actor: str, asked_for: bool):
+def _product_break_down(project, number: int, actor: str, asked_for: bool, *,
+                        conversation: str = "", requester: str = ""):
     from openfactory.product.module import ProductModule
 
     # WHAT THE DOOR SAID, handed on as it arrived: the workflow is started by an acceptance
     # (`asked_for=False`) and by the `product_break_down` row (`True`), and only the module may
-    # decide what the difference means (#182).
-    return ProductModule(project, via="api").break_down(number, actor=actor, asked_for=asked_for)
+    # decide what the difference means (#182). WHERE IT WAS ASKED too, when a conversation started
+    # it: the delivery loop is announced there, whichever door started the breakdown (D18 item 1)
+    return ProductModule(project, via="api").break_down(number, actor=actor, asked_for=asked_for,
+                                                        conversation=conversation,
+                                                        requester=requester)
 
 
 @activity.defn
@@ -5193,7 +5229,7 @@ def _product_followup(project, module, report, cfg) -> str:
                    if x.state == CHASED and x.kind == ACCEPTANCE][:followup.MAX_QUESTIONS_PER_PASS]
                   if _where_asked(loop, followup.acceptance_chase_text(
                       loop, mention=_mention(loop.context.get("asked_by") or ""),
-                      agent_name=name))]
+                      agent_name=name, language=lang))]
 
     # 6. CHASE a decision nobody made — once, and never closed by time. A decision she asked for
     #    and nobody answered is the most expensive thing to lose silently: work either stops or

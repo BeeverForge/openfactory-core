@@ -114,11 +114,14 @@ MUTATIONS = [
     # RE-PINNED 2026-09-24 (#267 slice 3): the call carries where the requirement was asked for
     # on the line after
     ("the executor's second act claims a person asked, so the sink lets it through",
-     CONFIRM, "        results = module.break_down(number, actor=user, asked_for=False,\n",
-     "        results = module.break_down(number, actor=user, asked_for=True,\n"),
+     # RE-PINNED 2026-10-11 (#563 slice 18b): the acceptance starts the breakdown on the worker
+     CONFIRM, "        how = breaking.start_now(project, number, actor=user, asked_for=False,\n",
+     "        how = breaking.start_now(project, number, actor=user, asked_for=True,\n"),
 
     ("the module's refusal is told as a failed breakdown — 'não consegui… tento de novo'",
-     CONFIRM, '    if any(getattr(r, "nothing_to_build", False) for r in results):',
+     # RE-PINNED 2026-10-11 (#563 slice 18b): what the conversation is told when it ends
+     CONFIRM,
+     '    if results is not None and any(getattr(r, "nothing_to_build", False) for r in results):',
      "    if False:"),
 
     # ── the sink ────────────────────────────────────────────────────────────────────────────────
@@ -143,18 +146,21 @@ MUTATIONS = [
     # ── the explicit door ───────────────────────────────────────────────────────────────────────
     # RE-PINNED 2026-09-24: moved to engine.py
     ("the chat's own gesture reaches the module as if nobody had asked",
-     ENGINE, "        results = module.break_down(number, actor=user, asked_for=True)",
-     "        results = module.break_down(number, actor=user, asked_for=False)"),
+     # RE-PINNED 2026-10-11 (#563 slice 18b): the gesture starts the breakdown on the worker
+     ENGINE, "            how = breaking.start_now(project, number, actor=user, asked_for=True,",
+     "            how = breaking.start_now(project, number, actor=user, asked_for=False,"),
 
     ("`product_break_down` reaches the worker as the automatic chain",
      CATALOG, "by=by,\n                                                 asked_for=True)",
      "by=by,\n                                                 asked_for=False)"),
 
+    # RE-PINNED 2026-10-10 (#563 slice 18a): the dispatch moved inside the `try` that catches
+    # the engine's refusal of a second start, one indent deeper
     ("the dispatch drops the flag on its way into the workflow input",
      CATALOG,
-     "        ProductBreakdownInput(project=project, number=number, actor=by.id, "
-     "asked_for=asked_for),",
-     "        ProductBreakdownInput(project=project, number=number, actor=by.id),"),
+     "            ProductBreakdownInput(project=project, number=number, actor=by.id,\n"
+     "                                  asked_for=asked_for),",
+     "            ProductBreakdownInput(project=project, number=number, actor=by.id),"),
 
     ("the explicit door spends an agent without a yes",
      CATALOG,
@@ -177,15 +183,17 @@ MUTATIONS = [
     # ── the process boundary ────────────────────────────────────────────────────────────────────
     ("the activity forgets what the door said",
      # RE-PINNED 2026-09-29 (review of #390): the breakdown heartbeats now, through `_break`
-     ACTIVITIES, "        return _product_break_down(project, inp.number, inp.actor, inp.asked_for)",
-     "        return _product_break_down(project, inp.number, inp.actor, False)"),
+     # RE-PINNED 2026-10-11 (#563 slice 18b): where it was asked rides along on the next line
+     ACTIVITIES, "        return _product_break_down(project, inp.number, inp.actor, inp.asked_for,",
+     "        return _product_break_down(project, inp.number, inp.actor, False,"),
 
     ("the worker tells the module a person asked, whatever arrived",
      ACTIVITIES,
+     # RE-PINNED 2026-10-11 (#563 slice 18b): where it was asked rides along on the next line
      '    return ProductModule(project, via="api").break_down(number, actor=actor, '
-     "asked_for=asked_for)",
+     "asked_for=asked_for,",
      '    return ProductModule(project, via="api").break_down(number, actor=actor, '
-     "asked_for=True)"),
+     "asked_for=True,"),
 
     ("a payload with no field — an older panel's — reads as an explicit request",
      IO, "    asked_for: bool = False", "    asked_for: bool = True"),

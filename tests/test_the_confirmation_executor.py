@@ -490,7 +490,10 @@ def test_a_yes_can_cost_an_agent_pass_and_the_row_knows_it():
 
     assert kinds, ("no staged kind reaches an agent any more — either the derivation broke, or "
                    "`product_answer` can stop dispatching to the worker")
-    assert {"accept", "align"} <= kinds, sorted(kinds)
+    assert "align" in kinds, sorted(kinds)
+    # THE ACCEPTANCE LEFT THE SET (#563 slice 18b): its breakdown is started on the worker under
+    # the requirement's one id, and the yes no longer waits on an agent pass for it
+    assert "accept" not in kinds, sorted(kinds)
 
 
 def _reaches(names: set[str], source: str) -> list[tuple[str, int]]:

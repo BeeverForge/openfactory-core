@@ -46,6 +46,7 @@ from openfactory.product.index.items import (
     DISTILLATE,
     DOCUMENT,
     DROPPED,
+    OPEN,
     REQUIREMENT,
     TURN,
     UNREADABLE,
@@ -218,6 +219,10 @@ def for_the_role(project, queries: list[str], *, round_: int, audience: str = IN
 
 _STANDING = {
     CLOSED: "a closed card",
+    # AN OPEN CARD IS FOUND BY ITS WORDS (#567), and where it stands moves faster than the index:
+    # its body is what it asks for and builds on, its column is the board's to say
+    OPEN: "an open card, as the board showed it when last read — what it asks for and builds on "
+          "is in its words; where it stands now is on the board (`board.md`)",
     DROPPED: "DROPPED — decided against, and nothing replaced it: history, not what holds today",
     UNREADABLE: "EXISTS AND COULD NOT BE READ — say that it exists and could not be read; never "
                 "that it is absent or says nothing",
