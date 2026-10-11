@@ -74,7 +74,18 @@ CONTEXT = "context"
 #: question — never by time; chased once. Its own kind for the reason the two above are: it has
 #: no board finding to be absent from, so `followup.answered()` would close it the next sweep.
 CARD_QUESTION = "card_question"
-KINDS = (REMEDY, FINDING, QUESTION, DELIVERY, ACCEPTANCE, DECISION, CONTEXT, CARD_QUESTION)
+
+#: THE FRONTS A BREAKDOWN DID NOT FILE (#564). A breakdown's reply named the front the vet refused
+#: or the clock cut off, and the reply was a toast: gone in seconds, and with it the only place
+#: the work that does not exist was said. `subject` is the requirement; `context["fronts"]` the
+#: module's sentence for each front not filed, as JSON. Its closing observation is THE
+#: REQUIREMENT'S NEXT BREAKDOWN ENDING, whatever it filed: that one's outcome is the truth now,
+#: and a new loop opens if it too left fronts out (`product/unfiled.py`). Owned by `unfiled.OWNER`,
+#: not by the product role: nobody is chased about it and no agenda lists it — it is shown where
+#: the requirement is shown, beside the retry.
+UNFILED = "unfiled"
+KINDS = (REMEDY, FINDING, QUESTION, DELIVERY, ACCEPTANCE, DECISION, CONTEXT, CARD_QUESTION,
+         UNFILED)
 
 #: How a loop about a card ends when THE CARD IS GONE — closed as not delivered, withdrawn or
 #: removed (ADR-0055 D10). Outcomes are each kind's own words; this one is shared because the

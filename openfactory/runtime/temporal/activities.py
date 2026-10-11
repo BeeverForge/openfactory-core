@@ -3721,11 +3721,25 @@ async def product_role_break_down(inp: ProductBreakdownInput) -> list[dict]:
         await _tell_the_breakdown(project, inp, None)
         raise
     await _tell_the_breakdown(project, inp, results)
+    await _keep_what_was_not_filed(project, inp, results)
     return [{"ok": bool(getattr(r, "ok", False)), "detail": str(getattr(r, "detail", "") or ""),
              "ref": str(getattr(r, "ref", "") or ""), "url": str(getattr(r, "url", "") or ""),
              "existed": bool(getattr(r, "existed", False)),
              "nothing_to_build": bool(getattr(r, "nothing_to_build", False))}
             for r in (results or [])]
+
+
+async def _keep_what_was_not_filed(project, inp: ProductBreakdownInput, results) -> None:
+    """The fronts this breakdown did not file, kept where the requirement is shown (#564) — over
+    what the requirement's last breakdown left out. NEVER RAISES: the cards are on the board
+    whether or not the ledger took it, and the log says it did not."""
+    from openfactory.product import unfiled
+
+    try:
+        await asyncio.to_thread(unfiled.record, project, inp.number, results)
+    except Exception:  # noqa: BLE001 — the cards stand; only the record of what is missing failed
+        activity.logger.exception("OPENFACTORY_PRODUCT_UNFILED_NOT_KEPT project=%s req=%s",
+                                  inp.project, inp.number)
 
 
 async def _tell_the_breakdown(project, inp: ProductBreakdownInput, results) -> None:
