@@ -75,13 +75,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from openfactory.contracts.refs import canonical_ref, ref_label
 from openfactory.product import progress as _progress
-from openfactory.product.confirm import (
-    _client_detail,
-    _is_requester,
-    _still_to_say,
-    _unfinished,
-    receipt,
-)
+from openfactory.product.confirm import _is_requester, receipt
 from openfactory.product.confirm import confirm as confirm_staged
 from openfactory.product.staging import (
     _expired_recently,
@@ -1773,12 +1767,12 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
     `key` is where what an intent stages waits — the turn's `key_for(conversation, person)`
     (#266 slice 4) — and `thread` the conversation it was asked in. A caller that gives no key
     stages under the conversation itself, as every caller did before."""
-    # IMPORTED ONCE, AT THE TOP — both of them, because a gate and its refusal are never used
-    # apart. It used to be imported inside the `fact` branch, which makes it a function-local name
-    # for the WHOLE function — so the next branch added above that line raised UnboundLocalError on
-    # its authorisation check and the client got "algo quebrou do meu lado". A landmine that arms
-    # itself for whoever writes the next intent is worth removing, not documenting.
-    from openfactory.product.module import may_act, unauthorized_message
+    # IMPORTED ONCE, AT THE TOP. It used to be imported inside the `fact` branch, which makes it a
+    # function-local name for the WHOLE function — so the next branch added above that line raised
+    # UnboundLocalError on its authorisation check and the client got "algo quebrou do meu lado".
+    # A landmine that arms itself for whoever writes the next intent is worth removing, not
+    # documenting. (Its refusal left with the two writes that ran on the match alone, #565.)
+    from openfactory.product.module import may_act
     from openfactory.product.voice import triage_report
 
     name = getattr(getattr(project, "product", None), "agent_name", "") or ""
@@ -1872,39 +1866,31 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
 
     if intent == "breakdown":
         number = int(captures.get("number") or 0)
-        # ONE OF THE TWO GESTURES THAT WRITE ON THE MATCH ALONE — a declared exception, argued in
-        # full at the top of product_intents.py: filing spends nothing, the way out of Backlog is
-        # separately staged and gated, and the four pattern guards are what pays for the missing
-        # confirmation. The gate is NOT part of the exception. Checked here rather than only in
-        # `file_issues`: a non-approver was buying a receipt and a round-trip before hearing no,
-        # and an authorisation that lives one layer down is one nobody writing the next branch sees.
-        if not may_act(project, user):
-            return unauthorized_message(project)
-        # STARTED, NEVER RUN IN THE TURN (#563 slice 18b, ADR-0051 D18). It ran here while the
-        # panel started `ProductBreakdownWorkflow` under one id per requirement, and nothing shared
-        # told the two apart: one requirement was broken down twice at once. Every door starts that
-        # workflow now; the turn does not wait minutes on it, and this conversation is told what
-        # was filed when it ends (`activities._tell_the_breakdown`).
-        # `asked_for=True` — A PERSON TYPED THIS, which is the one thing that tells it apart from
-        # an acceptance's automatic second act. It is what keeps the breakdown available for a
-        # requirement that was read off the code and then edited into more than the code does:
-        # the file cannot show that, and a person saying so can (#182).
-        from openfactory.product import breaking
-        from openfactory.product.voice import breakdown_begun, breakdown_not_begun
+        # STAGED FOR A YES LIKE EVERY OTHER WRITE (#565 slice c). It wrote on the match alone, the
+        # declared exception of `intents.py`, while the person could not know which sentence
+        # reached it: "ok, pode escrever o card e colocar no backlog" matched nothing and filed a
+        # free-standing card beside the breakdown already running (#563). The role proposes it
+        # now (`[[QUEBRAR: REQ-N]]`), what is checked before the question is checked here, and the
+        # yes starts it on the worker (`confirm._confirm_breakdown`, #563 slice 18b).
+        req, _corpus, instead = _named_requirement(project, module, number,
+                                                   "" if preamble else name, lang)
+        if instead:
+            return preamble + instead
+        if not req.is_promise:
+            from openfactory.product.module import _not_a_promise
 
-        try:
-            how = breaking.start_now(project, number, actor=user, asked_for=True,
-                                     conversation=conversation, room=channel, requester=user,
-                                     language=lang or "")
-        except Exception:  # noqa: BLE001 — an engine that does not answer is a sentence
-            log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_NOT_STARTED project=%s req=%s — a person "
-                          "asked for it and nothing was filed", getattr(project, "name", "?"),
-                          number)
-            sentence = breakdown_not_begun(number=number, language=lang)
-        else:
-            sentence = breakdown_begun(number=number, running=how == breaking.RUNNING,
-                                       language=lang)
-        return f"{name}: {sentence}" if name else sentence
+            return said(_not_a_promise(number, req, language=lang))
+        from openfactory.product.voice import breakdown_confirmation
+
+        body = remember(thread, {"kind": "breakdown", "number": number, "channel": channel,
+                                 "asked_by": user or ""},
+                        lang=lang, project=project, person=user)
+        ask = breakdown_confirmation(number=number, title=req.title or req.slug, language=lang)
+        if not may_act(project, user):
+            admins = _admin_mentions(project)
+            if admins:
+                ask += admins_must_confirm(admins, "breakdown", language=lang)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "accept":
         number = int(captures.get("number") or 0)
@@ -1992,17 +1978,9 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         reason = (captures.get("reason") or "").strip()[:300]
         if not number:
             return None
-        unclear = int(captures.get("in_favour_of_unclear") or 0) or None
-        if unclear and not in_favour_of:
-            # A SURVIVOR NAMED WITHOUT A `#` IS AMBIGUITY, AND AMBIGUITY COSTS A QUESTION. Closing
-            # anyway would perform the other of the two acts these texts exist to keep apart: the
-            # card would go with no pointer, under the wording for work being given up, in answer
-            # to a sentence that said the work moved. Nothing is staged — a question that displaced
-            # a pending proposal would be charging for the doubt twice.
-            from openfactory.product.voice import survivor_unclear
-
-            asked = survivor_unclear(number=number, other=unclear, language=lang)
-            return f"{name}: {asked}" if name else asked
+        # A SURVIVOR NAMED WITHOUT A `#` cost a question here while a pattern read the sentence: it
+        # could not tell "duplicate of 288" from a number in passing. The role names the survivor
+        # as the board spells it, or names none (#565 slice b), so there is nothing left to ask.
         # "ALREADY CLOSED" AND "NO SUCH CARD" ARE NOT READ FIRST: `close_card` reports both as a
         # sentence a client can read, after the yes. What IS read first, for a close in favour of
         # another card, is what the closed card carries that the survivor does not (#567): the
@@ -2029,7 +2007,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "closing", language=lang)
-        return offer(project, thread, body + ask)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "correct":
         # A CARD (C-05), and what it should say instead (#156). Nothing is read first, for the
@@ -2051,7 +2029,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "correction", language=lang)
-        return offer(project, thread, body + ask)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "align":
         # THE TWO AXES IN ONE GESTURE, and the reason bare `number` is not a safe name to guard
@@ -2061,13 +2039,13 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         requirement = int(captures.get("requirement") or 0)
         if not number or not requirement:
             return None
-        req, corpus, instead = _named_requirement(project, module, requirement, name, lang)
+        req, corpus, instead = _named_requirement(project, module, requirement,
+                                                  "" if preamble else name, lang)
         if instead:
-            return instead
+            return preamble + instead
         if not req.is_promise:
-            refusal = _align_refusal(project, corpus, req, number=number,
-                                     requirement=requirement, lang=lang)
-            return f"{name}: {refusal}" if name else refusal
+            return said(_align_refusal(project, corpus, req, number=number,
+                                       requirement=requirement, lang=lang))
         from openfactory.product.voice import align_confirmation
 
         body = remember(thread, {"kind": "align", "number": number, "requirement": requirement,
@@ -2080,22 +2058,27 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "change", language=lang)
-        return offer(project, thread, body + ask)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "refine":
         # A CARD (C-05) — see `close` above.
         number = canonical_ref(captures.get("number"))
         if not number:
             return None
-        # the sibling of `breakdown`, under the same declared exception and the same reasoning:
-        # this writes criteria only where there are NONE — `align` is the act that replaces
-        # criteria somebody may already be working from, and that one is staged.
+        # STAGED FOR A YES LIKE EVERY OTHER WRITE (#565 slice c), and `breakdown` beside it: it
+        # edited a client's card on the match alone. The yes writes the criteria
+        # (`confirm._confirm_refine`), which it still writes only where there are none.
+        from openfactory.product.voice import refine_confirmation
+
+        body = remember(thread, {"kind": "refine", "number": number, "channel": channel,
+                                 "asked_by": user or ""},
+                        lang=lang, project=project, person=user)
+        ask = refine_confirmation(number=number, language=lang)
         if not may_act(project, user):
-            return unauthorized_message(project)
-        if on_it:
-            on_it()
-        _progress.stage("writing")
-        return _refine_reply(module.refine(number, actor=user), number, name, lang, project)
+            admins = _admin_mentions(project)
+            if admins:
+                ask += admins_must_confirm(admins, "refine", language=lang)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "baseline":
         return _baseline_reply(project, module, name, user, on_it, conversation=conversation,
@@ -2521,49 +2504,10 @@ def _name_of(user: str) -> str:
 # ── `_where_it_came_from`, `_also_broke_it_down` and `_breakdown_reply` moved with the executor ──
 #
 # They are the confirmation's own prose: the provenance cell of a decision row, the acceptance's
-# automatic breakdown, and what the client reads afterwards. A typed "quebra o requisito 7" starts
-# the same breakdown the acceptance does (#563 slice 18b), and the sentence about what it filed is
-# `confirm.breakdown_told`'s — one voice, whether it was asked for or followed an acceptance.
-
-
-def _refine_reply(result, number: str, name: str, lang=None, project=None) -> str:
-    """What the client reads after a ticket was given something testable to be judged against.
-
-    Composed from the real `WriteResult`, like every other write reply — the agent never narrates
-    this (ADR-0028). Three outcomes, three sentences: written, already had criteria, failed.
-
-    THE REFUSAL POINTS SOMEWHERE. It is still a refusal — this act unblocks a card with nothing
-    written, and amending criteria somebody may already be working from is a different risk that
-    costs a model call and changes what gets built. But it now names that other act, because a
-    refusal with no alternative reads as "this cannot be done", and the person who hit it in
-    production was holding exactly the card the other act was built for.
-
-    THE FOURTH TWO-WRITE BRANCH, and the one left out when `close`, `defect` and `align` learned
-    the rule. `refine` writes the criteria and then comments to say who wrote them, and the comment
-    failing comes back as a SUCCESS carrying the module's own sentence about it. This line
-    announced the comment regardless AND put that sentence where the count goes, so the client read
-    a denial and an assertion of the same note eight words apart.
-    """
-    head = f"{name}: " if name else ""
-    if not result.ok:
-        return f"{head}{_client_detail(result.detail, lang, project=project)}"
-    if getattr(result, "existed", False):
-        from openfactory.product.voice import refine_refused
-
-        return head + refine_refused(number=number, language=lang)
-    from openfactory.product.voice import criteria_written
-
-    # the count is shown only when there is a count: the same field carries the residue instead
-    # whenever the second write failed, and `_unfinished` is the one reading that tells them apart.
-    # Through the sanitiser even on SUCCESS — every detail a client reads is sanitised, with no
-    # exception anybody has to remember.
-    residue = _unfinished(result)
-    return _still_to_say(
-        head + criteria_written(
-            number=number, noted=not residue,
-            measure="" if residue else _client_detail(result.detail, lang, project=project),
-            language=lang),
-        result, lang, project=project)
+# automatic breakdown, and what the client reads afterwards. A breakdown the role proposed starts,
+# on the person's yes, the same breakdown the acceptance does (#563 slice 18b, #565 slice c), and
+# the sentence about what it filed is `confirm.breakdown_told`'s — one voice, whether it was asked
+# for or followed an acceptance. `_refine_reply` followed them when the refine became a yes (#565).
 
 
 def _baseline_reply(project, module, name: str, user: str, on_it=None, *,

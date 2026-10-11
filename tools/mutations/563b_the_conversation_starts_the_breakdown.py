@@ -65,15 +65,21 @@ MUTATIONS = [
      "                                   )"),
 
     # 3. the doors
-    ("the gesture starts it without where it was asked", ENGINE,
-     "                                     conversation=conversation, room=channel, requester=user,",
-     '                                     conversation="", room="", requester="",'),
-    ("a breakdown already running is said as started", ENGINE,
-     "            sentence = breakdown_begun(number=number, running=how == breaking.RUNNING,",
-     "            sentence = breakdown_begun(number=number, running=False,"),
-    ("an engine that does not answer the gesture is a crash", ENGINE,
-     "        except Exception:  # noqa: BLE001 — an engine that does not answer is a sentence",
-     "        except ArithmeticError:  # noqa: BLE001"),
+    # RE-PINNED 2026-10-11 (#565 slice c): the role proposes the breakdown and the person's yes
+    # starts it (`confirm._confirm_breakdown`) — the three rows of the gesture's door follow it
+    ("the gesture starts it without where it was asked", CONFIRM,
+     '                                 conversation=str(entry.get("conversation") or ""),\n'
+     '                                 room=str(entry.get("channel") or ""),\n'
+     '                                 requester=requester_of(entry), language=lang or "")',
+     '                                 conversation="",\n'
+     '                                 room="",\n'
+     '                                 requester="", language=lang or "")'),
+    ("a breakdown already running is said as started", CONFIRM,
+     "    return breakdown_begun(number=number, running=how == breaking.RUNNING, language=lang)",
+     "    return breakdown_begun(number=number, running=False, language=lang)"),
+    ("an engine that does not answer the gesture is a crash", CONFIRM,
+     "    except Exception:  # noqa: BLE001 — an engine that does not answer is a sentence",
+     "    except ArithmeticError:  # noqa: BLE001"),
     ("the acceptance starts it without where it was asked", CONFIRM,
      '                                 conversation=conversation, room=str(entry.get("channel") or ""),',
      '                                 conversation="", room="",'),

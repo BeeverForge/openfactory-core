@@ -41,7 +41,7 @@ from pathlib import Path
 import pytest
 
 import openfactory.product.channel as pc
-from openfactory.product import engine
+from openfactory.product import confirm, engine
 from openfactory.product.corpus import _KNOWN_STATUS
 from openfactory.product.intents import match_intent
 from openfactory.product.voice import (
@@ -60,111 +60,11 @@ from openfactory.product.voice import (
     drop_confirmation,
     jargon_in,
     refine_refused,
-    survivor_unclear,
 )
 from tests.the_breakdown_runs_here import run_here
 from tests.the_chat_turn import AS_NAMED, CHAT, chat_turn
 
 # ── 1. the gesture: closing a card, in the words a person uses ─────────────────────────────────
-
-@pytest.mark.parametrize(("phrase", "number", "in_favour_of"), [
-    ("fecha o #511 como duplicado do #288", "511", "288"),
-    ("encerra o #511 em favor do #288", "511", "288"),
-    ("o #511 é duplicado do #288", "511", "288"),
-    ("Nina, fecha o #511 como duplicata do #288", "511", "288"),
-    ("encerra o #511, está coberto pelo #288", "511", "288"),
-    ("fecha o #511", "511", None),
-    ("encerra o cartão 511", "511", None),
-    ("feche o #511, não vamos fazer isso", "511", None),
-])
-def test_a_person_can_close_a_card_in_their_own_words(phrase, number, in_favour_of):
-    matched = match_intent(phrase)
-
-    assert matched, phrase
-    assert matched[0] == "close", f"{phrase!r} matched {matched[0]!r}"
-    assert matched[1]["number"] == number, matched
-    assert matched[1].get("in_favour_of") == in_favour_of, matched
-
-
-def test_a_PREAMBLE_no_longer_kills_the_gesture():
-    """The regression that cost a spurious requirement: intents were anchored at the start, and
-    people do not write that way. Widened only where the gesture names a card."""
-    matched = match_intent("Nina, boa observação — e sim, fecha o #511 como duplicado do #288")
-
-    assert matched and matched[0] == "close", matched
-    assert matched[1]["number"] == "511" and matched[1]["in_favour_of"] == "288"
-
-
-@pytest.mark.parametrize(("phrase", "intent", "number"), [
-    ("Nina, boa observação — e sim, refina o #523", "refine", "523"),
-    # `accept` and `drop` left these rows (#565): the role proposes them, wherever in the message
-    # the person says it
-    ("Nina, boa observação — e sim, quebra o requisito 8 em tarefas", "breakdown", "8"),
-    ("boa, e alinha o #288 ao requisito 6", "align", "288"),
-    ("Nina, boa observação — e sim, fecha o #511", "close", "511"),
-])
-def test_the_preamble_rule_reaches_EVERY_gesture_that_names_a_number(phrase, intent, number):
-    """The first row is the literal sentence quoted at the top of `product_intents`: it is the one
-    the 2026-07-31 regression happened to, and it was the one still anchored at the start after the
-    lesson was written down. The set of scanned intents was maintained by hand beside the patterns,
-    so one intent was widened and five were left behind — this repository's signature defect,
-    committed inside the fix for it.
-    """
-    matched = match_intent(phrase)
-
-    assert matched and matched[0] == intent, f"{phrase!r} -> {matched}"
-    assert matched[1]["number"] == number, matched
-
-
-def test_no_gesture_can_be_scanned_without_saying_so():
-    """The structural half: `_SCANNED` is derived from the patterns instead of listed next to them.
-    A hand-kept list is what let the two facts sit four lines apart looking consistent."""
-    from openfactory.product.intents import _INTENTS, _SCANNED
-
-    for name, pattern in _INTENTS:
-        anchored = pattern.pattern.startswith("^")
-        assert anchored != (name in _SCANNED), (
-            f"{name} is {'anchored' if anchored else 'scanned'} and the set disagrees")
-
-
-@pytest.mark.parametrize(("plan", "order"), [
-    ("amanhã a gente quebra o requisito 8 em tarefas", "quebra o requisito 8 em tarefas"),
-    ("hoje a gente define os critérios do 288", "define os critérios do 288"),
-    ("a gente fecha o #511 amanhã", "fecha o #511"),
-    ("amanhã a gente alinha o #288 ao requisito 6", "alinha o #288 ao requisito 6"),
-    # `accept` and `drop` left this table (#565): telling a plan from an order is the role's
-    # judgement now, written into the instruction of the marker that proposes each
-    # the same verb as a NOUN, which the mood guard cannot see either: "a quebra do requisito 8"
-    ("a quebra do requisito 8 em tarefas foi ontem", "quebra o requisito 8 em tarefas"),
-])
-def test_a_PLAN_is_not_an_ORDER_even_when_they_are_spelled_the_same(plan, order):
-    """The hole the widening opened, and the reason it is not closed with a list of pronouns.
-
-    Portuguese spells the imperative and the third person singular identically, and "a gente +
-    3rd person" is how this language says "we" — so "amanhã a gente quebra o requisito 8 em
-    tarefas" reads as an order under every one of the other guards. It is a sentence about
-    tomorrow, and it FILED WORK on the client's board today, with no confirmation in between.
-
-    Every noun phrase in the language is a candidate subject, so a list of the ones to refuse has
-    holes nobody can see and each hole is a write. What has no holes is the grammar: an imperative
-    OPENS ITS CLAUSE. The pair is asserted together — the plan matching nothing proves nothing on
-    its own, since a broken pattern would also match nothing.
-    """
-    assert match_intent(plan) is None, f"{plan!r} was read as an instruction"
-    assert match_intent(order) is not None, f"the guard also killed the real order: {order!r}"
-
-
-@pytest.mark.parametrize(("phrase", "intent"), [
-    ("beleza, e fecha o #511", "close"),
-    ("Nina, por favor encerra o #511", "close"),
-    ("boa, e alinha o #288 ao requisito 6", "align"),
-])
-def test_a_CONNECTIVE_still_reaches_the_gestures_that_only_ask(phrase, intent):
-    """People write "beleza, e fecha o #511", and each of these stages a proposal somebody has to
-    confirm. Being wrong here costs a question, so the connective is affordable."""
-    matched = match_intent(phrase)
-
-    assert matched and matched[0] == intent, f"{phrase!r} -> {matched}"
 
 
 @pytest.mark.parametrize("phrase", [
@@ -181,89 +81,6 @@ def test_the_SAME_CONNECTIVE_never_reaches_the_two_that_write_on_the_match_alone
     the other choice was eight tickets nobody released.
     """
     assert match_intent(phrase) is None, f"{phrase!r} filed work off a plan"
-
-
-def test_the_gestures_matched_STRICTLY_are_the_ones_the_handler_leaves_ungated():
-    """The two-tier rule is only sound while the tiers describe the handler, and a set maintained
-    by hand beside the fact it describes is what this file already exists downstream of. So the
-    membership is re-derived from `_run_intent` itself: an intent that stages a proposal calls
-    `remember`, and one that does not reaches a client's board on the match alone."""
-    from openfactory.product.intents import _SCANNED, _UNCONFIRMED
-
-    ungated = {name for name, branch in _intent_branches().items()
-               if name in _SCANNED and not any(
-                   getattr(c.func, "id", "") == "remember"
-                   for c in ast.walk(branch) if isinstance(c, ast.Call))}
-
-    assert ungated == set(_UNCONFIRMED), (
-        f"the handler writes without a confirmation for {ungated}, and the matcher believes "
-        f"{set(_UNCONFIRMED)}")
-
-
-def test_the_gestures_with_NO_confirmation_STILL_check_who_is_asking():
-    """THE OTHER HALF OF THE DECLARED EXCEPTION, and the half that was missing. Running on the
-    pattern alone is a decision this codebase can defend — filing spends nothing, and the way out
-    of Backlog is separately staged and gated. Running on the pattern alone for ANYBODY is not.
-
-    These two branches checked nothing and leaned on `file_issues`/`refine` to refuse one call
-    deeper, so a non-approver bought a receipt and a round-trip before hearing no — and the day a
-    second caller reaches those methods, the only gate is somewhere nobody writing a new branch is
-    looking. Derived from the dispatcher rather than asserted about today's two, because the next
-    gesture added to `_UNCONFIRMED` must inherit this rather than be remembered.
-    """
-    from openfactory.product.intents import _UNCONFIRMED
-
-    branches = _intent_branches()
-    unchecked = sorted(name for name in _UNCONFIRMED
-                       if not any(isinstance(c, ast.Call) and getattr(c.func, "id", "") == "may_act"
-                                  for c in ast.walk(branches[name])))
-
-    assert not unchecked, (
-        f"{unchecked} write on the match alone AND ask nobody whether the person may act — the "
-        "exception covers the missing confirmation, never the missing gate")
-
-
-@pytest.mark.parametrize(("text", "wrote"), [
-    ("quebra o requisito 7 em tarefas", "broke_down"),
-    ("refina o #412", "refined"),
-])
-def test_a_gesture_that_writes_on_the_MATCH_ALONE_is_refused_to_a_non_approver(text, wrote,
-                                                                               monkeypatch):
-    """Driven through `handle`, because the gate being present in the source is not the same fact
-    as the write not happening. Both directions: refused to an outsider, and still working for the
-    person whose yes would have unlocked it anyway."""
-    project, module = _Project(admins=["UADM"]), _Module()
-    run_here(monkeypatch, module)   # a breakdown runs on the worker (#563 slice 18b)
-
-    reply = chat_turn(project, text=text, user="UOUTRO", thread="C1", channel="C1", module=module)
-
-    assert getattr(module, wrote) is None, f"{text!r} wrote for somebody who may not approve"
-    assert reply and "permissão" in reply, f"the refusal was swallowed or unreadable: {reply}"
-    assert _waiting() is None, "a refused gesture left something staged"
-
-    chat_turn(project, text=text, user="UADM", thread="C1", channel="C1", module=module)
-
-    assert getattr(module, wrote) is not None, "the gate refused the approver too"
-
-
-def test_no_scanned_gesture_can_be_matched_without_the_clause_anchor():
-    """The structural half, like `_SCANNED` before it: the anchor is applied over the whole table
-    in one place rather than written into eleven patterns by hand. Eleven copies is eleven chances
-    to leave one out, which is the defect this file is downstream of, committed twice."""
-    from openfactory.product.intents import (
-        _BRIDGE,
-        _CLAUSE_START,
-        _INTENTS,
-        _SCANNED,
-        _UNCONFIRMED,
-    )
-
-    for name, pattern in _INTENTS:
-        if name not in _SCANNED:
-            continue
-        expected = _CLAUSE_START + ("" if name in _UNCONFIRMED else _BRIDGE)
-        assert pattern.pattern.startswith(expected), (
-            f"{name} scans the whole message and does not require the gesture to open a clause")
 
 
 @pytest.mark.parametrize("phrase", [
@@ -321,43 +138,6 @@ def test_a_bare_number_is_not_a_card_in_an_accounting_firms_channel(phrase):
     assert (match_intent(phrase) or ("", {}))[0] != "close", phrase
 
 
-def test_the_surviving_card_is_read_off_a_CONNECTIVE_not_off_the_next_number():
-    """Without the connective, the closing comment would name a card nobody mentioned — in writing,
-    on the client's board, in their name."""
-    _, captures = match_intent("fecha o #511, já falamos disso na semana 32")
-
-    assert captures["number"] == "511"
-    assert "in_favour_of" not in captures, captures
-
-
-@pytest.mark.parametrize("phrase", [
-    "fecha o #511, por favor, e depois o #288",
-    "fecha o #511 por favor, olha o #288 também",
-    "encerra o #511, por favor veja o #288",
-    "fecha o #511 por favor e me avisa no #288",
-    "fecha o #511. Por favor confira o #288 também",
-    "fecha o #511, em lugar disso vamos ver o #288",
-    # the same politeness with no comma to lean on — people type this way, and the connective is
-    # then the only thing between an ordinary request and a duplicate relation on their board
-    "fecha o #511 por favor o #288 também",
-    "encerra o #511 por favor o #288",
-])
-def test_POLITENESS_never_names_a_surviving_card(phrase):
-    """`favor` was a connective on its own, and "por favor" is the commonest politeness phrase in
-    this language — so an ordinary sentence closed a card in favour of an unrelated one, and the
-    closing comment said so in writing on the client's board.
-
-    A connective is a PHRASE: "em favor de", "a favor de", "em lugar de". The noun alone means
-    nothing, and neither does the clause that happens to follow it.
-    """
-    matched = match_intent(phrase)
-
-    assert matched and matched[0] == "close", f"{phrase!r} -> {matched}"
-    assert matched[1]["number"] == "511", matched
-    assert "in_favour_of" not in matched[1], (
-        f"{phrase!r} invented a duplicate relation nobody stated")
-
-
 def test_the_number_a_gesture_NAMES_is_the_one_attached_to_it():
     """The other half of the same rule. A gap of "any twenty characters" is a whole clause, and a
     clause is where the next unrelated number lives."""
@@ -367,27 +147,6 @@ def test_the_number_a_gesture_NAMES_is_the_one_attached_to_it():
 
 # ── 2. the gesture: aligning a card to a requirement ───────────────────────────────────────────
 
-@pytest.mark.parametrize("phrase", [
-    "alinha o #288 ao requisito 6",
-    "Nina, realinha o #288 ao requisito 6",
-    "escreve os critérios do #288 a partir do requisito 6",
-    "reescreve os critérios do #523 com base no requisito 6",
-    "atualiza os critérios do #516 para o requisito 6",
-    "boa, e alinha o #288 ao requisito 6",
-])
-def test_a_person_can_ask_for_a_card_to_be_re_aimed(phrase):
-    matched = match_intent(phrase)
-
-    assert matched and matched[0] == "align", f"{phrase!r} -> {matched}"
-    assert matched[1]["requirement"] == "6", matched
-
-
-def test_naming_a_requirement_is_the_WHOLE_difference_from_refine():
-    """One writes where nothing was written; the other replaces what somebody may already have
-    worked from. The same sentence means both, and the requirement is what tells them apart."""
-    assert match_intent("escreve os critérios do #288")[0] == "refine"
-    assert match_intent("escreve os critérios do #288 a partir do requisito 6")[0] == "align"
-
 
 @pytest.mark.parametrize("phrase", [
     "dá pra alinhar o #288 ao requisito 6?",
@@ -396,34 +155,6 @@ def test_naming_a_requirement_is_the_WHOLE_difference_from_refine():
 ])
 def test_a_question_or_a_refusal_never_re_aims_a_card(phrase):
     assert (match_intent(phrase) or ("", {}))[0] != "align", phrase
-
-
-def test_the_NEGATION_guard_is_WHAT_REFUSES_a_negated_gesture():
-    """One of the four guards this file advertises, and it used to decide nothing. Nothing could
-    place "não " immediately before a verb — the clause anchor cannot span it and no bridge word
-    carried it — so the lookbehind was never consulted and "não fecha o #511" was refused purely by
-    where the clause begins.
-
-    That matters on the day somebody widens the anchor, which this file has already done once: the
-    guard would have looked present, and an instruction NOT to close would have become a staged
-    close on a client's board with every test still green. So the negator is admitted as far as the
-    verb and refused there, and this asserts the refusal comes from the guard by taking the guard
-    out: with `_NOT_NEGATED` removed the sentence must match, or it is inert again.
-    """
-    from openfactory.product import intents
-
-    close = next(p for name, p in intents._PATTERNS if name == "close")
-    without_the_guard = close.pattern.replace(intents._NOT_NEGATED, "")
-    assert without_the_guard != close.pattern, "the guard is no longer part of this pattern"
-    disarmed = re.compile(intents._CLAUSE_START + intents._BRIDGE + without_the_guard, close.flags)
-
-    assert disarmed.search("fecha o #511"), "the rebuilt pattern matches nothing at all"
-    assert disarmed.search("não fecha o #511"), (
-        "with the negation guard removed nothing changes — it decides nothing, and the clause "
-        "anchor is the only thing refusing an instruction NOT to close a card")
-
-    for negated in ("não fecha o #511", "nunca fecha o #511", "e não fecha o #511"):
-        assert match_intent(negated) is None, negated
 
 
 # ── the doubles ────────────────────────────────────────────────────────────────────────────────
@@ -446,6 +177,28 @@ class _Result:
     def __init__(self, ok=True, detail="", ref="", existed=False):
         self.ok, self.detail, self.ref, self.existed = ok, detail, ref, existed
         self.url, self.merged = "", True
+
+
+#: WHAT THE ROLE WRITES FOR EACH SENTENCE THESE CASES SAY (#565). Closing, correcting, aligning,
+#: refining and breaking down are acts the role proposes from what it understood — the sentence no
+#: longer reaches them on a pattern. The model is not in these cases, so this table stands in for
+#: its reading, sentence by sentence and never by rule: a sentence missing here is conversation.
+#: The marker alone, with no prose before it, so the reply reads as it did when the sentence did.
+_ROLE_READS = {
+    "Nina, fecha o #511 como duplicado do #288": "[[FECHAR: #511; em favor de #288]]",
+    "fecha o #511 como duplicado do #288": "[[FECHAR: #511; em favor de #288]]",
+    "fecha o #511 em favor do #288": "[[FECHAR: #511; em favor de #288]]",
+    "fecha o #511": "[[FECHAR: #511]]",
+    "fecha o #511 porque o cliente desistiu": "[[FECHAR: #511; o cliente desistiu]]",
+    "fecha o #511 porque o cliente desistiu do módulo":
+        "[[FECHAR: #511; o cliente desistiu do módulo]]",
+    "corrige o #512: um relatório semanal das vendas":
+        "[[CORRIGIR: #512; um relatório semanal das vendas]]",
+    "troca o título do #512 para Relatório semanal": "[[TITULO: #512; Relatório semanal]]",
+    "refina o #412": "[[REFINAR: #412]]",
+    **{f"alinha o #288 ao requisito {n}": f"[[ALINHAR: #288; REQ-{n:04d}]]" for n in (2, 4, 6, 7, 9)},
+    **{f"quebra o requisito {n} em tarefas": f"[[QUEBRAR: REQ-{n:04d}]]" for n in (7, 8)},
+}
 
 
 class _Module:
@@ -514,10 +267,12 @@ class _Module:
     def answer(self, question, *, conversation="", pending="", **_):
         from types import SimpleNamespace
 
-        if self._said:
-            from openfactory.product.role import read_answer
+        from openfactory.product.role import read_answer
 
+        if self._said:
             return read_answer(self._said)
+        if str(question).strip() in _ROLE_READS:
+            return read_answer(_ROLE_READS[str(question).strip()])
         return SimpleNamespace(ok=True, is_defect=False, is_request=False, decisions=[],
                                text="não sei dizer.", violates=None)
 
@@ -763,8 +518,8 @@ def test_a_HALF_DONE_refinement_is_not_announced_as_a_finished_one():
 
     This line took that sentence, put it in the parenthesis where the COUNT goes, and then said "e
     deixei um comentário dizendo que fui eu" anyway — so the client read a denial and an assertion
-    of the same note eight words apart, in one sentence. Driven through `handle` on the production
-    gesture: the branch is reached by the match alone, with no confirmation in between.
+    of the same note eight words apart, in one sentence. Driven through the conversation: the role
+    proposes the refine (`[[REFINAR`, #565), and the yes writes it.
     """
     project = _Project()
     unexplained = _Result(ok=True, ref="#412",
@@ -773,8 +528,9 @@ def test_a_HALF_DONE_refinement_is_not_announced_as_a_finished_one():
                                  "item. O time foi avisado.")
     module = _Module(refines=unexplained)
 
-    said = chat_turn(project, text="refina o #412", user="UADM", thread="C1", channel="C1",
-                     module=module)
+    chat_turn(project, text="refina o #412", user="UADM", thread="C1", channel="C1",
+              module=module)
+    said = chat_turn(project, text="sim", user="UADM", thread="C1", channel="C1", module=module)
 
     assert module.refined == ("412", "UADM"), "the gesture never reached the write"
     assert "não consegui deixar o comentário" in said, (
@@ -788,8 +544,9 @@ def test_a_WHOLE_refinement_still_reads_as_one():
     something still to say. It belongs in the parenthesis, and the note it wrote may be claimed."""
     project, module = _Project(), _Module()
 
-    said = chat_turn(project, text="refina o #412", user="UADM", thread="C1", channel="C1",
-                     module=module)
+    chat_turn(project, text="refina o #412", user="UADM", thread="C1", channel="C1",
+              module=module)
+    said = chat_turn(project, text="sim", user="UADM", thread="C1", channel="C1", module=module)
 
     assert "(3 critérios)" in said, said
     assert "e deixei um comentário" in said, said
@@ -1028,11 +785,12 @@ def test_a_card_THE_BOARD_REFUSED_is_not_announced_as_being_in_Backlog(monkeypat
     refused = _Result(ok=True, ref="#101",
                       detail="criado, mas o quadro recusou a colocação — o cartão está sem coluna "
                              "e o time foi avisado.")
-    module = _Module(breaks=[refused])
+    module = _Module(_Req(7), breaks=[refused])
     ran = run_here(monkeypatch, module)
 
     chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
               channel="C1", module=module)
+    chat_turn(project, text="sim", user="UADM", thread="C1", channel="C1", module=module)
     said = ran.told[-1]   # what the conversation is told when the breakdown ends (#563 slice 18b)
 
     assert module.broke_down == (7, "UADM"), "the gesture never reached the write"
@@ -1053,12 +811,13 @@ def test_a_card_that_ALREADY_EXISTED_is_not_announced_as_being_in_Backlog(monkey
     none. It was still announced as being in Backlog, by a turn that neither filed it nor moved it.
     """
     project = _Project()
-    module = _Module(breaks=[_Result(ok=True, ref="#404", existed=True,
+    module = _Module(_Req(7), breaks=[_Result(ok=True, ref="#404", existed=True,
                                      detail="an issue titled 'Gerar o pacote' already exists")])
 
     ran = run_here(monkeypatch, module)
     chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
               channel="C1", module=module)
+    chat_turn(project, text="sim", user="UADM", thread="C1", channel="C1", module=module)
     said = ran.told[-1]   # what the conversation is told when the breakdown ends (#563 slice 18b)
 
     assert "na coluna Backlog" not in said, (
@@ -1073,7 +832,7 @@ def test_the_cards_that_DID_land_are_still_claimed_as_such(monkeypatch):
     a reply that stopped saying anything — the happy path must keep its sentence, and a mixed batch
     must tell the three outcomes apart instead of collapsing them into the safest one."""
     project = _Project()
-    module = _Module(breaks=[
+    module = _Module(_Req(7), breaks=[
         _Result(ok=True, ref="#101"),
         _Result(ok=True, ref="#404", existed=True, detail="an issue already exists"),
         _Result(ok=True, ref="#102", detail="criado, mas o quadro recusou a colocação."),
@@ -1082,6 +841,7 @@ def test_the_cards_that_DID_land_are_still_claimed_as_such(monkeypatch):
     ran = run_here(monkeypatch, module)
     chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
               channel="C1", module=module)
+    chat_turn(project, text="sim", user="UADM", thread="C1", channel="C1", module=module)
     said = ran.told[-1]   # what the conversation is told when the breakdown ends (#563 slice 18b)
 
     assert "#101 está na coluna Backlog" in said, f"the card that landed lost its sentence: {said}"
@@ -1162,107 +922,6 @@ def test_the_reason_is_read_off_a_CONNECTIVE_and_shown_before_it_is_written():
                       thread="C1", channel="C1", module=module)
 
     assert "o cliente desistiu" in shown, shown
-
-
-def test_a_survivor_named_without_a_hash_costs_a_QUESTION_and_never_a_write():
-    """The two acts these texts exist to keep apart, one keystroke away from each other. "como
-    duplicado do 288" says the work MOVED; dropping the second number closed the card with no
-    pointer, under the wording for work being GIVEN UP — the opposite fact, confirmed by somebody
-    who had said the first one. Ambiguity costs a question, and the question names the sentence
-    that works."""
-    project, module = _Project(), _Module()
-
-    asked = chat_turn(project, text="fecha o #511 como duplicado do 288", user="UADM",
-                      thread="C1", channel="C1", module=module)
-
-    assert _waiting() is None, "it staged the other act on a guess"
-    assert "#288" in asked and "#511" in asked, asked
-    assert "Confirma?" not in asked, "a doubt was offered as a decision"
-
-    quoted = re.search(r"fecha o #\d+ como duplicado do #\d+", asked)
-    assert quoted, f"the question names no sentence to say: {asked}"
-    matched = match_intent(quoted.group(0))
-    assert matched and matched[0] == "close", matched
-    assert matched[1].get("in_favour_of") == "288", matched
-
-
-@pytest.mark.parametrize("phrase", [
-    "fecha o #511 (duplicado do #288)",
-    "encerra o #511, o #288 já cobre isso",
-    "fecha o #511 porque já está coberto pelo #288",
-])
-def test_a_SECOND_CARD_NAMED_is_never_dropped_in_silence(phrase):
-    """THE GUARD WAS KEYED ON THE CONNECTIVE AND THE FACT IS THE SECOND CARD. A survivor was read
-    only through a listed word close enough to the number, so a parenthesis, an unlisted verb and
-    three words of distance each threw #288 away — and closing with no survivor is the OTHER act:
-    #511 goes under the wording for work being given up, and nothing on #288 says it absorbed
-    anything. Meanwhile the strictly weaker signal, a bare number after a recognised connective,
-    correctly cost a question. The clearer sentence bought the worse outcome.
-
-    Driven through the handler: what must not happen is a staged close that has forgotten #288.
-    Either it reads the relation or it asks — never silence.
-    """
-    project, module = _Project(), _Module()
-
-    said = chat_turn(project, text=phrase, user="UADM", thread="C1", channel="C1", module=module)
-
-    staged = _waiting()
-    if staged is None:
-        assert "#288" in said and "#511" in said, f"#288 vanished from the question: {said}"
-        assert "Confirma?" not in said, "a doubt was offered as a decision"
-    else:
-        assert staged.get("in_favour_of") == "288", (
-            f"a close was staged with no survivor from a sentence that named one: {staged}")
-
-
-def test_a_PARENTHESISED_duplicate_is_read_as_the_relation_it_states():
-    """The stronger half of the rule above. A question is the safe answer to a doubt, and this is
-    not one: the connective is there, the relation is stated, and only a bracket stood between them
-    — so the clearest way a person can write it must not be the one that costs an extra round."""
-    project, module = _Project(), _Module()
-
-    chat_turn(project, text="fecha o #511 (duplicado do #288)", user="UADM", thread="C1",
-              channel="C1", module=module)
-
-    staged = _waiting()
-    assert staged is not None and staged.get("in_favour_of") == "288", staged
-
-
-def test_a_CARD_named_in_passing_still_reads_as_a_plain_closure():
-    """The other side, and the reason this asks about a CARD rather than about a number: "fecha o
-    #511, já falamos disso na semana 32" names no second card, so nothing is doubtful and the
-    ordinary closure must not start costing a question."""
-    project, module = _Project(), _Module()
-
-    chat_turn(project, text="fecha o #511, já falamos disso na semana 32", user="UADM",
-              thread="C1", channel="C1", module=module)
-
-    staged = _waiting()
-    assert staged is not None and staged.get("in_favour_of") is None, staged
-
-
-def test_A_PLANNING_SENTENCE_REACHES_NO_WRITE_THROUGH_THE_HANDLER(monkeypatch):
-    """Through the production path, because the harm is not a wrong label: `breakdown` is one of
-    the two gestures with nothing between the match and the act. The sentence is somebody saying
-    what the team will do tomorrow, and it called `break_down` — a model pass and eight tickets on
-    the client's board, spent by a message that asked for nothing.
-
-    Both directions in one test: the plan writes nothing, and the order still does. A guard that
-    only proves the first is indistinguishable from a pattern somebody broke.
-    """
-    project, module = _Project(), _Module()
-    run_here(monkeypatch, module)   # a breakdown runs on the worker (#563 slice 18b)
-
-    chat_turn(project, text="amanhã a gente quebra o requisito 8 em tarefas", user="UADM",
-              thread="C1", channel="C1", module=module)
-
-    assert module.broke_down is None, "a sentence about tomorrow filed work today"
-    assert _waiting() is None
-
-    chat_turn(project, text="quebra o requisito 8 em tarefas", user="UADM", thread="C1",
-              channel="C1", module=module)
-
-    assert module.broke_down == (8, "UADM"), "the real instruction stopped working"
 
 
 def test_a_confirmed_write_says_something_BEFORE_the_slow_part():
@@ -1355,7 +1014,7 @@ def test_the_whole_correction_gesture_reaches_the_write_through_the_channel():
 
     assert module.corrected_with == ("512", "UADM", "um relatório semanal das vendas", ""), (
         module.corrected_with)
-    assert "Corrigi o *#512*" in done and "«escreve os critérios do #512»" in done, done
+    assert "Corrigi o *#512*" in done and "é só me pedir" in done, done
 
 
 def test_a_title_correction_stages_the_title_and_nothing_else():
@@ -1422,12 +1081,12 @@ def test_the_refusal_names_the_END_of_the_chain_and_not_the_next_link():
     reply = chat_turn(project, text="alinha o #288 ao requisito 2", user="UADM", thread="C1",
                       channel="C1", module=module)
 
-    quoted = re.search(r"alinh[ae] o #\d+ ao requisito (\d+)", reply)
-    assert quoted, reply
-    assert quoted.group(1) == "6", f"the refusal points at a retired requirement: {reply}"
+    named = re.search(r"Se o (\d+) é o que vale", reply)
+    assert named, reply
+    assert named.group(1) == "6", f"the refusal points at a retired requirement: {reply}"
 
-    followed = chat_turn(project, text=quoted.group(0), user="UADM", thread="C1", channel="C1",
-                         module=module)
+    followed = chat_turn(project, text="alinha o #288 ao requisito 6", user="UADM", thread="C1",
+                         channel="C1", module=module)
     assert "Confirma?" in followed, f"following the instruction hit another refusal: {followed}"
 
 
@@ -1539,13 +1198,13 @@ def test_a_replacement_NOBODY_HAS_AGREED_TO_YET_is_not_reported_as_a_BROKEN_BASE
     assert "requisito 6" in reply, reply
     assert _waiting() is None, "it staged a write the module would refuse"
 
-    # THE FIRST STEP IS SAID, THE SECOND QUOTED (#565): agreeing is an act the role proposes from
-    # any words, so only the alignment is a sentence to copy
-    assert "está acordado" in reply.split("«")[0], reply
-    # …AND AGREEING IS ITSELF STAGED FOR A YES, so the alignment comes after that answer
-    assert "confirme quando eu perguntar" in reply.split("«")[0], reply
-    steps = re.findall(r"«([^»]+)»", reply)
-    assert [match_intent(s) and match_intent(s)[0] for s in steps] == ["align"], steps
+    # BOTH STEPS ARE SAID, NEITHER QUOTED (#565): agreeing and aligning are acts the role
+    # proposes from any words, so there is no sentence to copy — and agreeing is itself staged for
+    # a yes, so the alignment comes after that answer
+    assert "«" not in reply, reply
+    agree = reply.index("está acordado")
+    assert agree < reply.index("confirme quando eu perguntar") < reply.index("alinhar o #288"), (
+        reply)
 
 
 def test_a_replacement_THE_CLIENT_KILLED_is_never_offered_as_one_confirmation_away(caplog):
@@ -1631,7 +1290,7 @@ def test_the_refine_refusal_names_the_other_act():
 
     # the language is NAMED: this guard asserts the Portuguese refusal, and the platform's
     # default became English in 2026-08-14
-    said = engine._refine_reply(WriteResult(ok=True, ref="#516", existed=True, detail="x"), 516,
+    said = confirm._refine_reply(WriteResult(ok=True, ref="#516", existed=True, detail="x"), 516,
                             "Nina", lang="pt-BR")
 
     assert "já dizia quando estaria pronto" in said, said
@@ -1642,46 +1301,6 @@ def test_the_refine_refusal_names_the_other_act():
 #: requirement applies to the card, so its instruction is a SHAPE — and a shape has to be declared
 #: as one, here, rather than patched away inside the assertion.
 _PLACEHOLDER = "N"
-
-
-@pytest.mark.parametrize(("text", "card", "placeholder"), [
-    (refine_refused(number=516, language="pt-BR"), 516, _PLACEHOLDER),
-    (align_refused(number=288, requirement=4, successor=6, language="pt-BR"), 288, ""),
-])
-def test_the_sentence_a_refusal_TELLS_YOU_TO_SAY_is_one_this_surface_matches(text, card,
-                                                                            placeholder):
-    """THE ASSERTION THIS FILE EXISTS FOR, generalised. A refusal that names an act nobody
-    implemented is precisely what it is replacing: Nina told a client a request had been recorded
-    by an operation that did not exist. So the instruction is lifted out of the message verbatim
-    and run back through the matcher.
-
-    VERBATIM IS THE WHOLE POINT, and it was not. The instruction used to be rewritten — "requisito
-    N" swapped for "requisito 6" — before it was matched, so the one sentence this file exists to
-    prove executable was the one asserted against a string the channel never emits. A refusal that
-    names a shape must SAY it is a shape: the placeholder is declared per row, the substitution is
-    the only edit allowed, and the row that carries a real number is matched untouched.
-
-    QUOTATION IS PART OF THE SENTENCE, and stripping it is how this test used to pass over the
-    defect it was written for. The message shows «alinha o #288 ao requisito 6»; the clause anchor
-    rejected a leading «, so the client who copied what they were shown matched nothing — while
-    this test lifted the instruction from the verb onward and removed the very characters they see.
-    """
-    quoted = re.search(r"«\s*alinh[ae] o #\d+ ao requisito [^»]+»", text, re.IGNORECASE)
-    assert quoted, f"the refusal names no sentence to say: {text}"
-
-    instruction = quoted.group(0)
-    if placeholder:
-        assert instruction.endswith(f"requisito {placeholder}»"), (
-            f"the placeholder moved and the substitution below is now a rewrite: {instruction!r}")
-        instruction = instruction.replace(f"requisito {placeholder}»", "requisito 6»")
-    else:
-        assert re.search(r"requisito \d+»$", instruction), (
-            f"a refusal that knows the number must quote it: {instruction!r}")
-
-    matched = match_intent(instruction)
-
-    assert matched and matched[0] == "align", f"{instruction!r} -> {matched}"
-    assert matched[1]["number"] == str(card), matched
 
 
 # ── 7. what the client reads ───────────────────────────────────────────────────────────────────
@@ -1702,7 +1321,6 @@ def _every_new_sentence() -> list[str]:
         card_closed(number=511, in_favour_of=288, language="pt-BR", agent_name="Nina"),
         card_closed(number=511, in_favour_of=288, linked=False, language="pt-BR",
                     agent_name="Nina"),
-        survivor_unclear(number=511, other=288, language="pt-BR"),
         align_confirmation(number=288, requirement=6, title="Aviso acionável", language="pt-BR"),
         card_aligned(number=288, requirement=6, language="pt-BR", agent_name="Nina"),
         card_aligned(number=288, requirement=6, noted=False, language="pt-BR", agent_name="Nina"),
@@ -1722,31 +1340,6 @@ def _every_new_sentence() -> list[str]:
         criteria_written(number=412, measure="3 critérios", language="pt-BR"),
         criteria_written(number=412, noted=False, language="pt-BR"),
     ]
-
-
-def test_every_sentence_a_message_TELLS_THE_CLIENT_TO_TYPE_is_matched_AS_SHOWN():
-    """Every refusal that names the sentence that works quotes it in «…», and the clause anchor
-    rejected a leading « — so a client who copied the instruction exactly as they had been shown it
-    matched NOTHING and fell through to the conversational model, the path that has already minted
-    a requirement nobody asked for. The one sentence this surface asks a person to type was the one
-    it could not read.
-
-    Derived from the messages themselves rather than from a list beside them, and lifted WITH the
-    quotation: a sentence added to any of these texts is covered on the day it is written.
-    """
-    shown = [q for text in _every_new_sentence() for q in re.findall(r"«[^»]*»", text)
-             if q.strip("«»") != _A_CLIENTS_OWN_WORDS]
-    assert shown, "no message quotes a sentence to say — this test would prove nothing"
-
-    for quoted in shown:
-        # the ONE edit allowed, and it is declared: `refine_refused` cannot know which requirement
-        # applies to the card, so its instruction is a shape
-        typed = quoted.replace(f"requisito {_PLACEHOLDER}»", "requisito 6»")
-        matched = match_intent(typed)
-
-        assert matched, f"the client is told to type {quoted!r} and this surface matches nothing"
-        assert matched[0] == match_intent(typed.strip("«»"))[0], (
-            f"the quotation marks changed what {quoted!r} means")
 
 
 def test_a_QUOTED_gesture_never_carries_its_QUOTATION_into_a_record():

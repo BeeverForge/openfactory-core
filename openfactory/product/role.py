@@ -192,6 +192,46 @@ _DROP_RE = re.compile(r"\[\[DESCARTE:\s*" + _REQUIREMENT_WRITTEN
 _RECORD_RE = re.compile(r"\[\[REGISTRO:\s*" + _REQUIREMENT_WRITTEN
                         + rf"\s*;\s*(?P<decision>{_THEIR_WORDS}{{5,}})\]\]", re.IGNORECASE)
 _FACT_RE = re.compile(rf"\[\[FATO:\s*(?P<fact>{_THEIR_WORDS}{{10,}})\]\]", re.IGNORECASE)
+
+#: THE REST OF THE ROLE'S ACTS, PROPOSED THE SAME WAY (#565 slices b and c). On the same run, "pode
+#: fechar o final 9" matched nothing, and the model that understood it ("fechando #1000009")
+#: answered that only the person could close a card; "ok, pode escrever o card e colocar no
+#: backlog" reached for the one filing marker it had and filed a free-standing card beside the
+#: breakdown already running (#563). Breakdown and refine wrote on the match alone, a declared
+#: exception to the yes every other write waits for; staged now like the rest.
+#:
+#: `[[QUEBRAR: REQ-NNNN]]` — break an agreed requirement into its cards.
+BREAKDOWN_MARKER = "[[QUEBRAR"
+#: `[[FECHAR: <card>]]`, `[[FECHAR: <card>; em favor de <card>]]`, and `; <why, in their words>`
+#: after either — close a card, its work given up or moved to the other card.
+CLOSE_MARKER = "[[FECHAR"
+#: `[[CORRIGIR: <card>; <what it should say, in their words>]]` — correct the card's text.
+CORRECT_MARKER = "[[CORRIGIR"
+#: `[[TITULO: <card>; <the new title>]]` — correct the card's title alone.
+RETITLE_MARKER = "[[TITULO"
+#: `[[ALINHAR: <card>; REQ-NNNN]]` — write the card's criteria from an agreed requirement.
+ALIGN_MARKER = "[[ALINHAR"
+#: `[[REFINAR: <card>]]` — write the criteria of a card that has none.
+REFINE_MARKER = "[[REFINAR"
+#: A card as the tracker spells it (`contracts.refs.REF_AS_WRITTEN`): `#1000009`, `DAR-7`,
+#: `acme/web#1` — never only a number of four digits, which is what the sentences read.
+_CARD = REF_AS_WRITTEN
+_BREAKDOWN_RE = re.compile(r"\[\[QUEBRAR:\s*" + _REQUIREMENT_WRITTEN + r"\s*\]\]", re.IGNORECASE)
+_CLOSE_RE = re.compile(
+    rf"\[\[FECHAR:\s*(?P<number>{_CARD})\s*"
+    rf"(?:;\s*(?:em\s+favor\s+d[oae]|in\s+favou?r\s+of)\s+(?P<in_favour_of>{_CARD})\s*)?"
+    rf"(?:;\s*(?P<reason>{_THEIR_WORDS}*))?\]\]", re.IGNORECASE)
+#: The corrected text may run over lines — it is a card's description — and ends at the `]]`.
+_CORRECT_RE = re.compile(
+    rf"\[\[CORRIGIR:\s*(?P<number>{_CARD})\s*;\s*(?P<text>(?:(?!\]\])[\s\S]){{3,2000}})\]\]",
+    re.IGNORECASE)
+_RETITLE_RE = re.compile(
+    rf"\[\[TITULO:\s*(?P<number>{_CARD})\s*;\s*(?P<title>{_THEIR_WORDS}{{2,200}})\]\]",
+    re.IGNORECASE)
+_ALIGN_RE = re.compile(
+    rf"\[\[ALINHAR:\s*(?P<number>{_CARD})\s*;\s*(?:REQ-?)?#?(?P<requirement>\d{{1,6}})\s*\]\]",
+    re.IGNORECASE)
+_REFINE_RE = re.compile(rf"\[\[REFINAR:\s*(?P<number>{_CARD})\s*\]\]", re.IGNORECASE)
 #: The quotation a person's words arrive in — «…», "…" — taken off what an act carries: a reason
 #: or a decision is written on the record in the person's name, and a stray » must not become the
 #: grounds somebody decided on. ONLY A PAIR AROUND THE WHOLE VALUE, and only when neither of its
@@ -214,15 +254,27 @@ def _unquoted(value: str) -> str:
 #: conversation (`staging.remember`), and agreeing to a requirement outranks what is said about it.
 REQUIREMENT_ACTS: tuple[tuple[str, re.Pattern[str], str, str], ...] = (
     (AGREE_MARKER, _AGREE_RE, "agree", "accept"),
+    (BREAKDOWN_MARKER, _BREAKDOWN_RE, "breakdown", "breakdown"),
     (DROP_MARKER, _DROP_RE, "drop", "drop"),
     (RECORD_MARKER, _RECORD_RE, "record", "decision"),
     (FACT_MARKER, _FACT_RE, "fact", "fact"),
 )
+#: The acts on a CARD, after those on a requirement when a reply carries one of each. A correction
+#: of the title alone is the `correct` intent with no text, as the sentence was.
+CARD_ACTS: tuple[tuple[str, re.Pattern[str], str, str], ...] = (
+    (CLOSE_MARKER, _CLOSE_RE, "close", "close"),
+    (CORRECT_MARKER, _CORRECT_RE, "correct", "correct"),
+    (RETITLE_MARKER, _RETITLE_RE, "retitle", "correct"),
+    (ALIGN_MARKER, _ALIGN_RE, "align", "align"),
+    (REFINE_MARKER, _REFINE_RE, "refine", "refine"),
+)
+#: EVERY ACT THE ROLE PROPOSES, in the order one is staged when a reply carries several.
+ACTS = REQUIREMENT_ACTS + CARD_ACTS
 #: The intent each act's gesture is staged through, read off the table above.
-GESTURE_INTENT = {gesture: intent for _marker, _pattern, gesture, intent in REQUIREMENT_ACTS}
+GESTURE_INTENT = {gesture: intent for _marker, _pattern, gesture, intent in ACTS}
 #: An act's opener, which the safety net reads as an act that did not parse: `[[ACORDO: o 66]]`.
 _ACT_SHAPED_RE = re.compile(
-    r"\[\[(?:" + "|".join(re.escape(marker[2:]) for marker, *_rest in REQUIREMENT_ACTS) + r")\b",
+    r"\[\[(?:" + "|".join(re.escape(marker[2:]) for marker, *_rest in ACTS) + r")\b",
     re.IGNORECASE)
 
 #: WHAT EVERY STAGING MARKER'S INSTRUCTION TELLS THE MODEL ABOUT THE NEXT STEP (#430). A marker that
@@ -244,7 +296,7 @@ STAGED_AFTER_YOUR_REPLY = (
 #: nothing (teach, evidence, decision) must not be here.
 STAGING_MARKERS = (REQUEST_MARKER, DEFECT_MARKER, TICKET_MARKER, ORDER_MARKER, QUEUE_MARKER,
                    ADJUST_MARKER, ACCEPT_MARKER,
-                   *(marker for marker, _pattern, _gesture, _intent in REQUIREMENT_ACTS))
+                   *(marker for marker, _pattern, _gesture, _intent in ACTS))
 
 #: THE ROLE ASKS THE ENGINE TO SEARCH THE PRODUCT'S MEMORY (#269 slice 2, ADR-0053 D8) — in the
 #: family of `[[DECISAO: …]]`: text the model writes, so it works on every harness, with no tool
@@ -515,9 +567,10 @@ class ProductAnswer(BaseModel):
     #: THE CARD A GESTURE IS ABOUT, when it names one — the `#N` of `[[AJUSTE: #N]]` and of
     #: `[[ACEITE: #N]]` (#448); "" for a gesture about no card, which is every other one today
     gesture_card: str = ""
-    #: WHAT AN ACT ON A REQUIREMENT CARRIES (`REQUIREMENT_ACTS`, #565): its `number`, and the
-    #: `reason`, `decision` or `fact` in the person's words — the captures `engine._run_intent`
-    #: stages it with. Empty for every other gesture.
+    #: WHAT AN ACT CARRIES (`ACTS`, #565): its `number` — a requirement's, or a card as the tracker
+    #: spells it — and the `reason`, `decision`, `fact`, `text`, `title`, `in_favour_of` or
+    #: `requirement` it names, in the person's words: the captures `engine._run_intent` stages it
+    #: with. Empty for every other gesture.
     gesture_args: dict[str, str] = Field(default_factory=dict)
     #: HOW MANY MORE ACTS the reply carried, which were not staged (#565): one entry is staged per
     #: conversation, and the person who asked for two is told the rest waits for this one.
@@ -658,10 +711,10 @@ def read_answer(text: str, *, raw: str = "", harness: str = "") -> ProductAnswer
     # …AND SO DOES A YES TO IT (#448 slice 3). Both at once is a reply that could not decide,
     # and "not yet" wins: nothing is recorded that the person may still want changed
     accepted = None if adjusted else _ACCEPT_RE.search(text)
-    # AN ACT ON A REQUIREMENT (#565), after the two about a change waiting on the person and before
-    # a start: agreeing to a requirement is not asking for work to begin. One is staged; a second
-    # in the same reply is said in the log, never staged over the first
-    acts = [(gesture, found) for _marker, pattern, gesture, _intent in REQUIREMENT_ACTS
+    # AN ACT ON A REQUIREMENT OR A CARD (#565), after the two about a change waiting on the person
+    # and before a start: agreeing to a requirement is not asking for work to begin. One is
+    # staged; a second in the same reply is said in the log, never staged over the first
+    acts = [(gesture, found) for _marker, pattern, gesture, _intent in ACTS
             for found in pattern.finditer(text)]
     act = None if (adjusted or accepted) or not acts else acts[0]
     if act and len(acts) > 1:
@@ -683,7 +736,7 @@ def read_answer(text: str, *, raw: str = "", harness: str = "") -> ProductAnswer
     text = text.replace(QUEUE_MARKER, "").rstrip()
     text = _ADJUST_RE.sub("", text).rstrip()
     text = _ACCEPT_RE.sub("", text).rstrip()
-    for _marker, pattern, _gesture, _intent in REQUIREMENT_ACTS:
+    for _marker, pattern, _gesture, _intent in ACTS:
         text = pattern.sub("", text).rstrip()
     text = text.replace(REQUEST_MARKER, "").rstrip()
     text = _DEFECT_RE.sub("", text).rstrip()
@@ -937,6 +990,35 @@ class ProductRole:
             "Only what they TOLD you to note down: never a fact you inferred, a hypothesis being "
             "discussed, or a question (\"remember the system went down last week?\"). A decision "
             "about one requirement is [[REGISTRO: …]], not this.\n\n"
+            "IF THEY ASK FOR AN AGREED REQUIREMENT'S CARDS — \"you can write the cards for 66\", "
+            "\"put 66 on the board\", \"break 66 into tasks\" — end with [[QUEBRAR: REQ-NNNN]] on "
+            f"its own line. {STAGED_AFTER_YOUR_REPLY} It files the requirement's cards where new "
+            "work waits; starting any of them is still a person's decision. NOT for a requirement "
+            "not agreed yet (agreeing comes first), and never a single free-standing card for an "
+            "agreed requirement's work: its cards come from its breakdown alone.\n\n"
+            "THE ACTS ON A CARD below are read the same way, and a card is named as the board "
+            "spells it — #1000009, DAR-7, acme/web#1 — in full, never by its last digits.\n\n"
+            "IF THEY ASK TO CLOSE A CARD — \"close #1000009\", \"you can close the one ending in "
+            "9\", \"511 is a duplicate of 288\" — end with [[FECHAR: <card>]] on its own line, "
+            "[[FECHAR: <card>; em favor de <card>]] when its work moved to another card, and "
+            "`; <why, in their words>` after either when they said why. "
+            f"{STAGED_AFTER_YOUR_REPLY} Closed in favour of another card, its work goes on there; "
+            "closed on its own, the work is not being done. NOT for a requirement (that is "
+            "[[DESCARTE: …]]), for a question about a card, nor for one they say NOT to close "
+            "(\"don't close 511 yet\").\n\n"
+            "IF THEY CORRECT WHAT A CARD SAYS — a card you opened from their request or report — "
+            "end with [[CORRIGIR: <card>; <what it should say, in their words>]] on its own line, "
+            "or [[TITULO: <card>; <the new title>]] when only its title changes. "
+            f"{STAGED_AFTER_YOUR_REPLY} The text replaces what the card says, under their name: "
+            "carry their words, never yours.\n\n"
+            "IF THEY ASK TO WRITE A CARD'S CRITERIA FROM AN AGREED REQUIREMENT — \"align #288 to "
+            "requirement 6\" — end with [[ALINHAR: <card>; REQ-NNNN]] on its own line. "
+            f"{STAGED_AFTER_YOUR_REPLY} It replaces what the card must satisfy with what the "
+            "requirement promises, and cites it.\n\n"
+            "IF THEY ASK TO WRITE THE CRITERIA OF A CARD THAT HAS NONE — \"write the criteria for "
+            "#412\", \"refine 412\" — end with [[REFINAR: <card>]] on its own line. "
+            f"{STAGED_AFTER_YOUR_REPLY} It writes criteria only where there are none; a card that "
+            "has them and no longer says what was agreed is aligned, not refined.\n\n"
             "If instead they REPORTED THAT SOMETHING IS NOT WORKING — a MALFUNCTION: a control "
             "or content cut off, hidden or unreachable, an error, lost or wrong data, something "
             "that does not respond, a layout that breaks — end with [[DEFEITO:REQ-NNNN]] naming "

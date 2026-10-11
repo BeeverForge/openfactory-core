@@ -1176,7 +1176,10 @@ WRITES = {"queue": "promote", "defect": "file_defect", "ticket": "file_ticket",
           # #448: another pass, the card's bar corrected with it
           "adjust": "send_back",
           # #448 slice 3: the requester's "that's it", recorded against the head they tried
-          "accept_change": "accept_change"}
+          "accept_change": "accept_change",
+          # #565 slice c: the two that wrote on a matched sentence alone — the breakdown's yes
+          # starts it on the worker (#563 slice 18b), the refine's writes the criteria
+          "breakdown": "breaking.start_now", "refine": "refine"}
 
 
 def _entry(kind: str) -> dict:
@@ -1192,13 +1195,15 @@ def _entry(kind: str) -> dict:
 def test_every_confirmation_writes_when_it_is_confirmed(kind, monkeypatch):
     """The rule, walked over every kind a person can say yes to: the yes performs its write in the
     confirmation itself — nothing confirmed waits for the conversation to end."""
+    from openfactory.product import breaking, staging
     from openfactory.product import confirm as confirm_module
-    from openfactory.product import staging
 
     assert set(WRITES) == {*confirm_module._EXECUTORS, "draft"}, "a kind this walk does not know"
     monkeypatch.setattr(confirm_module, "_also_broke_it_down",
                         lambda *a, **k: "broken down")
     module = _Writes()
+    monkeypatch.setattr(breaking, "start_now", lambda *a, **k: module.called.append(
+        "breaking.start_now") or breaking.STARTED)
     project = _project()
     staging.forget("walk")
     staging.remember("walk", _entry(kind))

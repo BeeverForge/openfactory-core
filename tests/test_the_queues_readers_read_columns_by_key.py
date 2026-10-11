@@ -358,11 +358,11 @@ def test_a_card_filed_on_jira_is_said_to_be_in_the_boards_own_backlog(site, jira
 ])
 def test_a_breakdown_says_the_boards_own_backlog_in_either_door(site, jira, lang, sentence,
                                                                 monkeypatch):
-    """The automatic second act of an acceptance, and an admin asking for it by name — each told
-    to the conversation when the breakdown ends on the worker (#563 slice 18b)."""
-    from openfactory.product import engine
+    """The automatic second act of an acceptance, and an admin's yes to the breakdown the role
+    proposed — each told to the conversation when the breakdown ends on the worker (#563 slice
+    18b, #565 slice c)."""
     from openfactory.product.authoring import WriteResult
-    from openfactory.product.confirm import _also_broke_it_down
+    from openfactory.product.confirm import _also_broke_it_down, _confirm_breakdown
     from tests.the_breakdown_runs_here import run_here
 
     project, module, _tracker, _board = jira()
@@ -371,7 +371,8 @@ def test_a_breakdown_says_the_boards_own_backlog_in_either_door(site, jira, lang
     ran = run_here(monkeypatch, filed)
 
     _also_broke_it_down(7, ANA, "Aceito.", lang, project)
-    engine._run_intent(project, "breakdown", {"number": "7"}, module=filed, lang=lang, user=ANA)
+    _confirm_breakdown(project, {"number": 7, "conversation": "C1", "channel": "C1",
+                                 "asked_by": ANA}, module=filed, user=ANA, lang=lang)
 
     assert len(ran.told) == 2, ran.told
     for said in ran.told:

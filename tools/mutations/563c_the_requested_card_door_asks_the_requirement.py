@@ -44,8 +44,12 @@ MUTATIONS = [
     ("every card is listed, whatever requirement it executes", MODULE,
      "                and _cited_requirement(getattr(t, \"body\", \"\") or \"\") == number]",
      "                and True]"),
-    ("the breakdown is offered in words that start nothing", VOICE,
-     "«quebra o requisito {number} em tarefas»", "«pode quebrar o {number}»"),
+    # RETIRED 2026-10-11 (#565 slice c): "the breakdown is offered in words that start nothing".
+    # No words start it: the role proposes the breakdown from whatever words ask for it, so the
+    # offer asks to be asked, and the row below cuts that instead.
+    ("the breakdown is offered as a sentence to copy again", VOICE,
+     "peça para quebrá-lo e eu preparo a quebra para você confirmar.",
+     "diga «quebra o requisito {number} em tarefas» e eu registro as frentes dele."),
 
     # 3. filed as before
     ("a requirement that is not a promise holds the card", MODULE,

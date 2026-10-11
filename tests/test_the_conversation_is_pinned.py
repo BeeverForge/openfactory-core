@@ -1264,17 +1264,18 @@ def test_drop_is_staged_with_its_reason_and_taken_off_the_table_on_a_yes(table, 
 
 
 def test_close_in_favour_of_a_named_card_is_staged_and_closed_on_a_yes(table, ledger):
-    """"fecha o #12 como duplicado do #7" stages the close with the card that survives it, names
-    the admins, and reads nothing from the board first; the admin's yes closes it in favour of
-    that card."""
+    """"fecha o #12 como duplicado do #7" is proposed as a close (`[[FECHAR`, #565) and staged with
+    the card that survives it, under the role's reply, with the admins named; the admin's yes
+    closes it in favour of that card."""
     project = _project()
-    module = _Module(project)
+    module = _Module(project, replies=_proposing("fecha o #12 como duplicado do #7",
+                                                 "[[FECHAR: #12; em favor de #7]]"))
     talk = _Conversation(project, module)
 
     reply = talk.say("fecha o #12 como duplicado do #7", user=CLIENT)
 
-    assert reply == voice.close_confirmation(number="12", in_favour_of="7", reason="",
-                                             language=LANG) + _admins_note("o encerramento")
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.close_confirmation(
+        number="12", in_favour_of="7", reason="", language=LANG) + _admins_note("o encerramento")
     staged = _staged()
     assert {k: staged[k] for k in ("kind", "number", "in_favour_of", "reason", "channel",
                                    "asked_by")} == {
@@ -1290,35 +1291,20 @@ def test_close_in_favour_of_a_named_card_is_staged_and_closed_on_a_yes(table, le
                                      language=LANG, agent_name=AGENT)
 
 
-def test_a_survivor_named_without_a_hash_is_asked_about_and_displaces_nothing(table, ledger):
-    """"fecha o #12 como duplicado do 7" names the survivor without a `#`: that is ambiguity, and
-    it costs a question — nothing is staged, and the draft already waiting in the conversation is
-    still the one a "sim" would confirm."""
-    project = _project()
-    module = _asking(project)
-    talk = _Conversation(project, module)
-    talk.say(REQUEST, user=CLIENT)
-    staged = _staged()
-
-    reply = talk.say("fecha o #12 como duplicado do 7", user=ADMIN)
-
-    assert reply == f"{AGENT}: " + voice.survivor_unclear(number="12", other="7", language=LANG)
-    assert _staged() is staged
-    assert not _writes(module)
-
-
 def test_a_correction_of_a_card_is_shown_back_and_written_on_a_yes(table, ledger):
-    """"corrige o #12: …" stages the new text as said, names the admins, and the admin's yes
-    corrects the card with exactly that text."""
+    """"corrige o #12: …" is proposed as a correction (`[[CORRIGIR`, #565), stages the new text as
+    the marker carries it, names the admins, and the admin's yes corrects the card with exactly
+    that text."""
     project = _project()
-    module = _Module(project)
-    talk = _Conversation(project, module)
     text = "o relatório é semanal, não mensal"
+    module = _Module(project, replies=_proposing(f"corrige o #12: {text}",
+                                                 f"[[CORRIGIR: #12; {text}]]"))
+    talk = _Conversation(project, module)
 
     reply = talk.say(f"corrige o #12: {text}", user=CLIENT)
 
-    assert reply == voice.correct_confirmation(number="12", text=text, title="",
-                                               language=LANG) + _admins_note("a correção")
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.correct_confirmation(
+        number="12", text=text, title="", language=LANG) + _admins_note("a correção")
     staged = _staged()
     assert {k: staged[k] for k in ("kind", "number", "text", "new_title", "channel",
                                    "asked_by")} == {
@@ -1335,16 +1321,18 @@ def test_a_correction_of_a_card_is_shown_back_and_written_on_a_yes(table, ledger
 
 
 def test_aligning_a_card_to_a_promise_is_staged_and_written_on_a_yes(table, ledger):
-    """"alinha o #12 ao requisito 5" — 5 is a promise — stages the alignment with the requirement's
-    title, names the admins, and the admin's yes rewrites the card from that requirement."""
+    """"alinha o #12 ao requisito 5" — 5 is a promise — is proposed as an alignment (`[[ALINHAR`,
+    #565), staged with the requirement's title, names the admins, and the admin's yes rewrites the
+    card from that requirement."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    module = _Module(project, requirements=BASE,
+                     replies=_proposing("alinha o #12 ao requisito 5", "[[ALINHAR: #12; REQ-0005]]"))
     talk = _Conversation(project, module)
 
     reply = talk.say("alinha o #12 ao requisito 5", user=CLIENT)
 
-    assert reply == voice.align_confirmation(number="12", requirement=5,
-                                             title="Extrato conciliado", language=LANG) + (
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.align_confirmation(
+        number="12", requirement=5, title="Extrato conciliado", language=LANG) + (
         _admins_note("a mudança"))
     staged = _staged()
     assert {k: staged[k] for k in ("kind", "number", "requirement", "channel", "asked_by")} == {
@@ -1379,14 +1367,16 @@ def test_aligning_to_what_is_not_a_promise_is_refused_before_anybody_is_asked(re
     nothing staged, nobody asked to authorise an act that cannot happen — and the refusal names
     what would work, read to the end of the supersession chain."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    said = f"alinha o #12 ao requisito {requirement}"
+    module = _Module(project, requirements=BASE,
+                     replies=_proposing(said, f"[[ALINHAR: #12; REQ-{requirement:04d}]]"))
     talk = _Conversation(project, module)
 
-    reply = talk.say(f"alinha o #12 ao requisito {requirement}", user=ADMIN)
+    reply = talk.say(said, user=ADMIN)
 
-    assert reply == f"{AGENT}: {refusal}"
+    assert reply == f"{UNDERSTOOD}\n\n{refusal}"
     assert _nothing_staged()
-    assert not _writes(module) and "answer" not in module.verbs()
+    assert not _writes(module)
 
 
 @pytest.mark.parametrize("said, marker, refused", [
@@ -1427,12 +1417,12 @@ NAMING = {
     "decision": "registra no requisito {n} que o pró-labore entra como despesa fixa",
     "align": "alinha o #12 ao requisito {n}",
 }
-#: …and the marker the role proposes each with, for the three that are its acts now (#565); `align`
-#: is still a typed intent.
+#: …and the marker the role proposes each with — every one of them its act now (#565).
 PROPOSED = {
     "accept": "[[ACORDO: REQ-{n}]]",
     "drop": "[[DESCARTE: REQ-{n}]]",
     "decision": "[[REGISTRO: REQ-{n}; o pró-labore entra como despesa fixa]]",
+    "align": "[[ALINHAR: #12; REQ-{n}]]",
 }
 
 
@@ -1476,71 +1466,93 @@ def test_a_gesture_naming_a_requirement_while_the_base_cannot_be_read_says_THAT(
 BREAK = "quebra o requisito 5 em tarefas"
 
 
-def test_a_breakdown_asked_for_by_somebody_off_the_admin_list_is_refused_before_anything(
-        table, ledger):
-    """One of the two gestures that write on the match alone: the gate is checked in the channel
-    BEFORE anything is called — no receipt bought, nothing filed, the refusal said."""
+def test_a_breakdown_asked_for_by_somebody_off_the_admin_list_is_staged_for_an_admins_yes(
+        table, ledger, monkeypatch):
+    """It wrote on the match alone and refused anybody off the admin list; staged like every other
+    write now (#565 slice c): proposed by the role, the admins named, nothing filed — and the
+    requester's own yes does not start it."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    module = _Module(project, requirements=BASE,
+                     replies=_proposing(BREAK, "[[QUEBRAR: REQ-0005]]"))
     talk = _Conversation(project, module)
+    run_here(monkeypatch, module)
 
     reply = talk.say(BREAK, user=CLIENT)
 
-    assert reply == unauthorized_message(project)
-    assert talk.receipts == []
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.breakdown_confirmation(
+        number=5, title="Extrato conciliado", language=LANG) + _admins_note("a quebra")
+    assert _staged()["kind"] == "breakdown" and _staged()["number"] == 5
+    assert talk.receipts == [_receipt(BREAK)], "the role's turn, nothing more"
     assert not _writes(module)
+
+    assert talk.say("sim", user=CLIENT) == unauthorized_message(project)
+    assert module.asked("break_down") == [] and _staged()["kind"] == "breakdown"
 
 
 def test_a_breakdown_an_admin_types_files_the_work_as_ASKED_FOR(table, ledger, monkeypatch):
-    """An admin's "quebra o requisito 5 em tarefas" starts the breakdown at once, in that admin's
-    name and marked `asked_for=True` — a PERSON typed it, which is what
-    tells it apart from an acceptance's automatic second act — and says it began; the conversation
-    is told what was filed when it ends on the worker (#563 slice 18b)."""
+    """An admin's "quebra o requisito 5 em tarefas" is proposed as the breakdown (`[[QUEBRAR`, #565
+    slice c) and staged; the admin's yes starts it, in that admin's name and marked
+    `asked_for=True` — a PERSON asked, which is what tells it apart from an acceptance's automatic
+    second act — and says it began; the conversation is told what was filed when it ends on the
+    worker (#563 slice 18b)."""
     project = _project()
-    module = _Module(project, requirements=BASE)
+    module = _Module(project, requirements=BASE,
+                     replies=_proposing(BREAK, "[[QUEBRAR: REQ-0005]]"))
     talk = _Conversation(project, module)
     ran = run_here(monkeypatch, module)
 
     reply = talk.say(BREAK, user=ADMIN)
 
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.breakdown_confirmation(
+        number=5, title="Extrato conciliado", language=LANG)
+    assert not _writes(module)
+
+    done = talk.say("sim", user=ADMIN)
+
     assert module.asked("break_down") == [{"number": 5, "actor": ADMIN, "asked_for": True}]
-    assert reply == f"{AGENT}: " + voice.breakdown_begun(number=5, language=LANG)
+    assert done == voice.breakdown_begun(number=5, language=LANG)
     assert ran.told == ["O requisito 5 virou **1** tarefa: #40.\n\nEstá na coluna Backlog — "
                         "começar a trabalhar nela continua sendo decisão de uma pessoa."]
-    # NO RECEIPT: a receipt says slow work is under way, and the start answers at once with the
-    # sentence that says it began
-    assert talk.receipts == []
     assert _nothing_staged()
 
 
-def test_a_refine_asked_for_by_somebody_off_the_admin_list_is_refused_before_anything(table,
-                                                                                    ledger):
-    """The other gesture that writes on the match alone, gated the same way: no receipt,
-    nothing written, the refusal said."""
+def test_a_refine_asked_for_by_somebody_off_the_admin_list_is_staged_for_an_admins_yes(table,
+                                                                                      ledger):
+    """The other act that wrote on the match alone, staged the same way now (#565 slice c), and
+    the requester's own yes does not write it."""
     project = _project()
-    module = _Module(project)
+    module = _Module(project, replies=_proposing("refina o #12", "[[REFINAR: #12]]"))
     talk = _Conversation(project, module)
 
     reply = talk.say("refina o #12", user=CLIENT)
 
-    assert reply == unauthorized_message(project)
-    assert talk.receipts == []
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.refine_confirmation(number="12", language=LANG) + (
+        _admins_note("escrever o que ele precisa cumprir"))
+    assert _staged()["kind"] == "refine"
+    assert talk.receipts == [_receipt("refina o #12")], "the role's turn, nothing more"
     assert not _writes(module)
+
+    assert talk.say("sim", user=CLIENT) == unauthorized_message(project)
+    assert module.asked("refine") == [] and _staged()["kind"] == "refine"
 
 
 def test_a_refine_an_admin_types_writes_the_criteria_at_once(table, ledger):
-    """An admin's "refina o #12" writes criteria where there were none, with a receipt first and
-    in that admin's name, and says so."""
+    """An admin's "refina o #12" is proposed (`[[REFINAR`, #565 slice c) and staged; the admin's
+    yes writes criteria where there were none, in that admin's name, and says so."""
     project = _project()
-    module = _Module(project)
+    module = _Module(project, replies=_proposing("refina o #12", "[[REFINAR: #12]]"))
     talk = _Conversation(project, module)
 
     reply = talk.say("refina o #12", user=ADMIN)
 
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.refine_confirmation(number="12", language=LANG)
+    assert not _writes(module)
+
+    done = talk.say("sim", user=ADMIN)
+
     assert module.asked("refine") == [{"number": "12", "actor": ADMIN}]
-    assert reply == f"{AGENT}: " + voice.criteria_written(number="12", noted=True, measure="",
-                                                          language=LANG)
-    assert talk.receipts == [_receipt("refina o #12")]
+    assert done == f"{AGENT}: " + voice.criteria_written(number="12", noted=True, measure="",
+                                                         language=LANG)
 
 
 BASELINE = "documenta o que já existe no código"

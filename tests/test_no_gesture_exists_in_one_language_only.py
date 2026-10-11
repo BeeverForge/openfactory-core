@@ -66,29 +66,12 @@ PRODUCT: dict[str, dict[str, str]] = {
     "announce":     {"pt-BR": "se apresenta", "en": "introduce yourself"},
     "triage":       {"pt-BR": "faz a triagem do quadro", "en": "run the board triage"},
     "needs_action": {"pt-BR": "olha os impedimentos", "en": "check needs-action"},
-    "breakdown":    {"pt-BR": "quebra o requisito 4", "en": "break down requirement 4"},
     # RETIRED 2026-10-10 (#565): `accept`, `decision`, `drop` and `fact`, with their
     # shapes. They are acts the role proposes with a marker (`role.REQUIREMENT_ACTS`), read by the
     # model in whatever language the person writes, so no row of this table reaches them; the
     # marker's instruction carries its examples in both languages.
-    "close":        {"pt-BR": "fecha o card 511 como duplicado do 288",
-                     "en": "close card 511 as a duplicate of 288"},
-    "close/state":  {"pt-BR": "o card 511 e uma duplicata do 288",
-                     "en": "card 511 is a duplicate of 288"},
-    "correct":      {"pt-BR": "corrige o card 511: o relatorio e semanal",
-                     "en": "correct card 511: the report is weekly"},
-    "correct/request": {"pt-BR": "corrige o pedido do #511: o relatorio e semanal",
-                        "en": "correct the request on #511: the report is weekly"},
-    "correct/title": {"pt-BR": "troca o titulo do #511 para Relatorio semanal",
-                      "en": "rename #511 to Weekly report"},
-    "correct/title-of": {"pt-BR": "muda o titulo do card 511 pra Relatorio semanal",
-                         "en": "change the title of #511 to Weekly report"},
-    "align":        {"pt-BR": "realinha o card 511 com o requisito 4",
-                     "en": "realign card 511 to requirement 4"},
-    "align/criteria": {"pt-BR": "reescreve os criterios do card 511 pelo requisito 4",
-                       "en": "rewrite the criteria of card 511 from requirement 4"},
-    "refine":       {"pt-BR": "reescreve os criterios do 511",
-                     "en": "rewrite the criteria of 511"},
+    # RETIRED 2026-10-11 (#565 slices b and c): `breakdown`, `close`, `correct`, `align` and
+    # `refine`, with their shapes, are acts the role proposes the same way (`role.ACTS`).
     "baseline":     {"pt-BR": "faz o levantamento do produto",
                      "en": "start a survey of the code"},
     "queue":        {"pt-BR": "o que entra agora", "en": "what's next in the queue"},

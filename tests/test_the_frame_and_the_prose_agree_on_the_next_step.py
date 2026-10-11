@@ -57,6 +57,10 @@ def test_the_markers_that_stage_are_the_ones_the_engine_stages():
         # #565: the acts on a requirement, proposed by the role instead of matched by a sentence
         role_module.AGREE_MARKER, role_module.DROP_MARKER, role_module.RECORD_MARKER,
         role_module.FACT_MARKER,
+        # #565 slices b and c: the acts on a card, and the breakdown and the refine that wrote on
+        # a matched sentence alone
+        role_module.BREAKDOWN_MARKER, role_module.CLOSE_MARKER, role_module.CORRECT_MARKER,
+        role_module.RETITLE_MARKER, role_module.ALIGN_MARKER, role_module.REFINE_MARKER,
     }
 
 

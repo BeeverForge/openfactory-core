@@ -119,8 +119,6 @@ COMPOSERS = {
         voice.card_closed(number=a, in_favour_of=other, linked=linked, reasoned=reasoned,
                           language=lang)
         for other in (None, b) for linked in (True, False) for reasoned in (True, False)],
-    "survivor_unclear": lambda a, b, lang: voice.survivor_unclear(number=a, other=b,
-                                                                  language=lang),
     "correct_confirmation": lambda a, b, lang: voice.correct_confirmation(number=a, text="t",
                                                                           language=lang),
     "card_corrected": lambda a, b, lang: [

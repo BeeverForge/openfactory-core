@@ -126,11 +126,10 @@ MUTATIONS = [
      '        body = remember(thread, {"kind": "correct", "number": number, "text": "",',
      CHANNEL_TESTS),
 
-    ("the colon is optional, so a sentence that only mentions correcting a card stages a write",
-     INTENTS,
-     '        + r"\\s*:\\s*(?P<text>\\S.{2,1999})$",',
-     '        + r"\\s*:?\\s*(?P<text>\\S.{2,1999})$",',
-     CHANNEL_TESTS),
+    # RETIRED 2026-10-11 (#565 slice b): "the colon is optional, so a sentence that only mentions
+    # correcting a card stages a write". The `correct` pattern is gone: the role proposes the
+    # correction (`[[CORRIGIR: <card>; <text>]]`), so a sentence that only mentions one is read by
+    # the model, and the marker carries the text it stages.
 
     ("two corrections of one card to different words share a button", STAGING,
      # re-pinned 2026-10-02: #475 added a plain ticket's request to the same line

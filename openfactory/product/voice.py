@@ -1268,13 +1268,15 @@ _ADMINS_MUST_CONFIRM = {
         "frame": "({admins}: {what} precisa da sua confirmação.)",
         "record": "o registro", "order": "gravar a ordem", "card": "abrir o cartão",
         "note": "a anotação", "decision": "a decisão", "closing": "o encerramento",
-        "correction": "a correção", "change": "a mudança",
+        "correction": "a correção", "change": "a mudança", "breakdown": "a quebra",
+        "refine": "escrever o que ele precisa cumprir",
     },
     "en": {
         "frame": "({admins}: {what} needs your confirmation.)",
         "record": "registering this", "order": "saving the order", "card": "opening the card",
         "note": "the note", "decision": "the decision", "closing": "closing it",
-        "correction": "the correction", "change": "the change",
+        "correction": "the correction", "change": "the change", "breakdown": "the breakdown",
+        "refine": "writing what it must meet",
     },
 }
 
@@ -3146,6 +3148,36 @@ def breakdown_begun(*, number: int, running: bool = False, language: str | None 
                  language).format(number=number)
 
 
+#: THE BREAKDOWN, ASKED BEFORE IT IS STARTED (#565 slice c): it wrote on the match alone, and a
+#: person could not know which words reached it. What a yes does, in their terms.
+_BREAKDOWN_CONFIRM = {
+    "pt-BR": ("Só para confirmar antes: quebro o *requisito {number}: {title}* em tarefas? Um "
+              "agente lê o requisito e registra os cards dele onde o trabalho novo espera — o que "
+              "já existe não é registrado duas vezes, e começar qualquer um deles continua sendo "
+              "decisão de uma pessoa.\n\nConfirma?"),
+    "en": ("To confirm first: shall I break *requirement {number}: {title}* into tasks? An agent "
+           "reads it and files its cards where new work waits — what already exists is not filed "
+           "twice, and starting any of them is still a person's decision.\n\nConfirm?"),
+}
+#: REFINE, ASKED BEFORE IT WRITES (#565 slice c) — the one act that edited a client's card with no
+#: yes in between. It writes only where nothing is written, which the question says.
+_REFINE_CONFIRM = {
+    "pt-BR": ("Só para confirmar antes: escrevo o que o *{number}* precisa cumprir para estar "
+              "pronto? Eu só escrevo onde ainda não há nada escrito — se já houver, não "
+              "mexo.\n\nConfirma?"),
+    "en": ("To confirm first: shall I write what *{number}* must meet to be done? I only write it "
+           "where nothing is written yet — if something is, I leave it alone.\n\nConfirm?"),
+}
+
+
+def breakdown_confirmation(*, number: int, title: str, language: str | None = None) -> str:
+    return _pick(_BREAKDOWN_CONFIRM, language).format(number=number, title=title)
+
+
+def refine_confirmation(*, number: str, language: str | None = None) -> str:
+    return _pick(_REFINE_CONFIRM, language).format(number=ref_label(number))
+
+
 def breakdown_not_begun(*, number: int, language: str | None = None) -> str:
     return _pick(_BREAKDOWN_NOT_BEGUN, language).format(number=number)
 
@@ -3153,7 +3185,7 @@ def breakdown_not_begun(*, number: int, language: str | None = None) -> str:
 #: A REQUESTED CARD FOR AN ACCEPTED REQUIREMENT, HELD (#563 slice 18c, ADR-0051 D18 item 4). The
 #: work of an accepted requirement is filed by its breakdown alone, so the card is not opened, and
 #: the sentence says what the requirement already has — and offers the breakdown when it has
-#: nothing, in the words that start it.
+#: nothing, which the role proposes from whatever words ask for it (#565 slice c).
 _TICKET_HELD = {
     "pt-BR": {
         "head": "Não abri esse card: ele é do *requisito {number}*, que está acordado",
@@ -3161,8 +3193,8 @@ _TICKET_HELD = {
                    "aparecem no quadro quando a quebra terminar.",
         "cards": ", e o trabalho dele já está nos cards {cards}. Se falta alguma coisa neles, me "
                  "diga o que é.",
-        "offer": ". O trabalho de um requisito acordado entra pela quebra dele em tarefas: diga "
-                 "«quebra o requisito {number} em tarefas» e eu registro as frentes dele.",
+        "offer": ". O trabalho de um requisito acordado entra pela quebra dele em tarefas: me "
+                 "peça para quebrá-lo e eu preparo a quebra para você confirmar.",
     },
     "en": {
         "head": "I did not open that card: it belongs to *requirement {number}*, which is agreed",
@@ -3170,8 +3202,8 @@ _TICKET_HELD = {
                    "on the board when that ends.",
         "cards": ", and its work is already in cards {cards}. If something is missing from them, "
                  "tell me what.",
-        "offer": ". The work of an agreed requirement comes in through its breakdown: say \"break "
-                 "requirement {number} into tasks\" and I will file its fronts.",
+        "offer": ". The work of an agreed requirement comes in through its breakdown: ask me to "
+                 "break it down and I will prepare it for you to confirm.",
     },
 }
 
@@ -3280,19 +3312,6 @@ _CLOSE_REASON_LINE = {
     "pt-BR": "\n\nVou deixar escrito no cartão o motivo que você deu: «{reason}».",
     "en": "\n\nI'll write the reason you gave on the card: “{reason}”.",
 }
-#: Somebody named a surviving card and did not write it as a card. Closing anyway would perform the
-#: OTHER act — the one whose whole text says the work is being given up — over a sentence that said
-#: the work moved. So it costs a question, and the question names the sentence that works.
-_SURVIVOR_UNCLEAR = {
-    "pt-BR": ("você quer encerrar o *{number}* porque esse trabalho passou para outro item, e eu "
-              "não tenho certeza de qual — encerrar sozinho diria que o trabalho foi abandonado, e "
-              "não foi isso que você me disse. Se for o *{other}*, me diga «fecha o {number} "
-              "como duplicado do {other}» e eu preparo."),
-    "en": ("you want to close *{number}* because that work moved to another item, and I am not "
-           "sure which — closing it on its own would say the work was given up, which is not what "
-           "you told me. If it is *{other}*, say “close {number} as a duplicate of "
-           "{other}” and I'll prepare it."),
-}
 
 
 #: A CLOSE IN FAVOUR OF A CARD THAT DOES NOT CARRY EVERYTHING (#567). "They ask for the same
@@ -3365,12 +3384,6 @@ def card_closed(*, number: str, in_favour_of: str | None = None, linked: bool = 
         catalogue = _CARD_CLOSED_REASONED if reasoned else _CARD_CLOSED
     return sig + _pick(catalogue, language).format(number=ref_label(number),
                                                    other=ref_label(in_favour_of))
-
-
-def survivor_unclear(*, number: str, other: str, language: str | None = None) -> str:
-    """Which card the work moved to, asked rather than guessed."""
-    return _pick(_SURVIVOR_UNCLEAR, language).format(number=ref_label(number),
-                                                     other=ref_label(other))
 
 
 # ── what the role leaves written ON a card (#538) ───────────────────────────────────────────────
@@ -3492,13 +3505,13 @@ _CARD_ALREADY_SAID = {
     "pt-BR": "O *{number}* já dizia isso, então não mexi nele.",
     "en": "*{number}* already said that, so I left it alone.",
 }
-#: The criteria a refine wrote came from the old text, and they went with it. The sentence that
-#: gets new ones is shown AS IT IS TYPED, because a person copies it.
+#: The criteria a refine wrote came from the old text, and they went with it. New ones are one
+#: request away, in whatever words (#565: the role proposes the refine, no sentence is copied).
 _CORRECTED_CRITERIA_WENT = {
     "pt-BR": (" Os critérios de aceite que ele tinha foram escritos a partir do texto antigo, "
-              "então saíram. Para eu escrever novos, diga «escreve os critérios do {number}»."),
+              "então saíram. Para eu escrever novos para o {number}, é só me pedir."),
     "en": (" The acceptance criteria it had were written from the old text, so they went. For new "
-           "ones, say «write the criteria for {number}»."),
+           "ones for {number}, just ask me."),
 }
 
 
@@ -4064,10 +4077,11 @@ _CARD_ALIGNED_UNEXPLAINED = {
 _ALIGN_TO_SUPERSEDED = {
     "pt-BR": ("o *requisito {requirement}* foi substituído pelo *requisito {successor}* — escrever "
               "um item a partir de um texto aposentado é justamente o problema que eu estaria "
-              "criando. Me diga «alinha o {number} ao requisito {successor}» e eu preparo."),
+              "criando. Se o {successor} é o que vale, me peça para alinhar o {number} a ele e eu "
+              "preparo."),
     "en": ("*Requirement {requirement}* was replaced by *requirement {successor}* — writing an "
-           "item from a retired text is exactly the problem I would be creating. Say \"align "
-           "{number} to requirement {successor}\" and I'll prepare it."),
+           "item from a retired text is exactly the problem I would be creating. If {successor} "
+           "is what holds, ask me to align {number} to it and I'll prepare it."),
 }
 _ALIGN_TO_DROPPED = {
     "pt-BR": ("o *requisito {requirement}* foi abandonado e nada entrou no lugar dele — não dá "
@@ -4091,12 +4105,12 @@ _ALIGN_TO_UNAGREED = {
     "pt-BR": ("o *requisito {requirement}* foi substituído pelo *requisito {successor}*, e o "
               "{successor} ainda não foi acordado — escrever o *{number}* a partir de uma "
               "proposta seria decidir por vocês. Se ele já vale, me diga que o {successor} "
-              "está acordado e confirme quando eu perguntar; depois, «alinha o {number} ao "
-              "requisito {successor}»."),
+              "está acordado e confirme quando eu perguntar; depois, me peça para alinhar o "
+              "{number} a ele."),
     "en": ("*Requirement {requirement}* was replaced by *requirement {successor}*, and "
            "{successor} has not been agreed yet — writing *{number}* from a proposal would be "
            "deciding for you. If it holds, tell me {successor} is agreed and confirm when I "
-           "ask; then say \"align {number} to requirement {successor}\"."),
+           "ask; then ask me to align {number} to it."),
 }
 #: Replaced by a text that was ITSELF taken off the table — REQ-0004 `superseded-by 0006` with 0006
 #: `dropped`. None of the sentences around it can say that: the chain is not broken (both texts read
@@ -4258,13 +4272,13 @@ _REFINE_REFUSED = {
     "pt-BR": ("o *{number}* já dizia quando estaria pronto — não mexi. Reescrever o que ninguém "
               "reclamou só ensina o time a parar de ler o que eu escrevo.\n\n"
               "Se o que está escrito ali não é mais o que foi combinado, aí é outro pedido, e ele "
-              "tem nome: *alinhar*. Me diga «alinha o {number} ao requisito N» e eu preparo a "
+              "tem nome: *alinhar*. Me diga a qual requisito ele deve se alinhar e eu preparo a "
               "mudança para vocês confirmarem — nada muda antes disso."),
     "en": ("*{number}* already said when it would be done — I left it alone. Rewriting what "
            "nobody complained about only teaches the team to stop reading what I write.\n\nIf what "
            "is written there is no longer what was agreed, that is a different request and it has "
-           "a name: *align*. Say \"align {number} to requirement N\" and I'll prepare the change "
-           "for you to confirm — nothing changes before that."),
+           "a name: *align*. Tell me which requirement it should align to and I'll prepare the "
+           "change for you to confirm — nothing changes before that."),
 }
 
 

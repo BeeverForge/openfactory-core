@@ -379,8 +379,13 @@ def started(monkeypatch):
     return seen
 
 
-def _asked(module, text="quebra o requisito 7 em tarefas"):
-    return chat_turn(_Project(), text=text, user="UADM", thread="C1", channel="R1", module=module)
+def _asked(module):
+    """The breakdown the role proposed (`[[QUEBRAR: REQ-0007]]`), staged as the engine stages it,
+    and the admin's yes (#565 slice c): the yes is the door that starts it now."""
+    pc.remember("C1", {"kind": "breakdown", "number": 7, "channel": "R1", "asked_by": "UADM"},
+                person="UADM")
+    return chat_turn(_Project(), text="sim", user="UADM", thread="C1", channel="R1",
+                     module=module)
 
 
 def test_asking_for_the_breakdown_starts_it_and_says_so(started):
@@ -390,7 +395,7 @@ def test_asking_for_the_breakdown_starts_it_and_says_so(started):
 
     assert started.calls == [(7, {"actor": "UADM", "asked_for": True, "conversation": "C1",
                                   "room": "R1", "requester": "UADM", "language": "pt-BR"})]
-    assert said.startswith("Nina: Comecei a quebrar o requisito 7 em tarefas."), said
+    assert said.startswith("Comecei a quebrar o requisito 7 em tarefas."), said
     assert "digo aqui o que virou card" in said, said
     assert module.broke == []
 

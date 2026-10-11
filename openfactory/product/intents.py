@@ -24,52 +24,16 @@ THE READING ONES NEVER WRITE. Triage reports, the sweep reports, the announcemen
 the first-pass rule from ADR-0019, and it holds for the same reason: on request or on a schedule,
 this role has the least context exactly when it is asked to look at everything at once.
 
-MOST OF THE WRITING ONES ONLY PROPOSE. `close` and `align` each change what the factory builds, so
-matching one stages a confirmation and nothing else; an authorised person's yes is what reaches the
-pen. For those a pattern is never the last thing standing between a sentence and an irreversible
-act in a client's name — which is what makes it possible to match a gesture in the middle of a
-paragraph at all.
-
-AND THE PREMISE ABOVE IS BEING RETIRED, ACT BY ACT (#565). "A missed intent means somebody
-rephrases" is false in a conversation with a model: the person does not know there is a sentence to
-find, and the model that understood them had no act to hand it to. `accept`, `drop`, `decision`
-and `fact` left this file first — the role proposes each with a marker (`role.REQUIREMENT_ACTS`),
-staged by the same branch of `engine._run_intent` these rows reached. The rest follow.
-
-TWO OF THEM ARE THE LAST THING STANDING. `refine` edits a client's ticket and `breakdown` files
-work, both on the match alone, with no confirmation in between. They are matched in the middle of a
-paragraph for the same reason as the rest — that is where the regression happened — and they pay
-for it with the strictest form of the four guards below: the imperative, a reference the gesture is
-ATTACHED to, a clause that is not a question, and the gesture OPENING that clause.
-
-AND THAT IS A DECLARED EXCEPTION, NOT AN OVERSIGHT. It is written down here, beside the rule it
-breaks, because "is this deliberate?" is a question a reader of this file should never have to
-carry into `_run_intent`. The argument, in full:
-
-    what it costs      FILING SPENDS NOTHING. A card lands in Backlog, the poller pulls TO-DO, and
-                       the only way out of Backlog is `promote` — reached by the `queue` gesture,
-                       which IS staged and gated. So a wrong `breakdown` costs cards somebody can
-                       close, never a run. `refine` writes criteria only where there are NONE (it
-                       answers `existed` and refuses otherwise); the act that REPLACES criteria
-                       somebody may already be working from is `align`, and that one is staged.
-    who may do it      an approver, checked in the channel before anything is called and again in
-                       the module. Never "whoever is in the room".
-    what pays for it   the four guards below, which no staged gesture is held to.
-
-WHAT IS NOT PART OF THE EXCEPTION: the authorisation. A gesture with no confirmation behind it must
-still be refused to somebody who could not have confirmed one, and both branches check that in the
-channel BEFORE they call anything. The channel used to check nothing here and lean entirely on the
-module: a non-approver bought a receipt and a round-trip before hearing no, and the only gate lived
-one layer down, where nobody writing the next branch would look for it.
-
-If either of these ever grows a second write, or reaches anything outside Backlog, the exception
-stops holding and they get staged like the rest — the cost of that is one extra message.
-
-THE FOURTH GUARD IS WHERE THE TWO GROUPS DIFFER, and the difference is what a mistake costs. A
-gesture that stages a proposal may be reached across a connective ("beleza, e fecha o #511"),
-because being wrong there costs a person one question. The two that write on the match alone are
-reached only where the clause itself begins, because being wrong there costs money and a client's
-board — and «a gente vê isso, e quebra o requisito 8» is a plan with a connective in front of it.
+AND THE WRITING ONES ARE GONE (#565). This file's premise — "a missed intent means somebody
+rephrases" — is false in a conversation with a model: the person does not know there is a sentence
+to find, and the model that understood them had no act to hand it to. `accept`, `drop`, `decision`
+and `fact` left first (slice a); `close`, `correct`, `align`, `breakdown` and `refine` followed
+(slices b and c). The role proposes each with a marker (`role.ACTS`), staged for the person's yes
+by the same branch of `engine._run_intent` these rows reached. Breakdown and refine wrote on the
+match alone, an exception this file argued for; they are staged like the rest now, at the price it
+named for that: one extra message. What is left reads, or proposes the queue — which is staged —
+and every row anchors at the start of the message, so the guards that kept a scan honest went with
+the rows that scanned.
 """
 
 from __future__ import annotations
@@ -85,218 +49,11 @@ _VOCATIVE = r"(?:[@<]?[\w.-]{1,20}[>,:]\s*)?"
 #: intent → pattern. Anchored at the start so "what did the triage say last week?" stays a question.
 _START = r"^\s*" + _VOCATIVE
 
-#: THE OTHER HALF OF THE ANCHOR, for the gestures that NAME A CARD OR A REQUIREMENT.
-#:
-#: Anchoring at the start is right for an intent whose verb is ordinary. It is wrong for one whose
-#: object is a number, and the cost was measured: on 2026-07-31 "Nina, boa observação e vamos …
-#: Refina o #523 …" fell through to conversation and minted a requirement nobody had asked for.
-#: A preamble is how people write.
-#:
-#: So every gesture that names a thing scans the WHOLE message, and pays for it four times over:
-#:
-#:   the reference  the thing must be NAMED — a card (`#511`, "cartão 511") or a requirement
-#:                  ("requisito 8") — and the number must be ATTACHED to the gesture (see
-#:                  `_ATTACHED`). This is an accounting firm's channel: "fecha o mês 10" is an
-#:                  ordinary sentence there, and a loose number would have read it as an
-#:                  instruction to close a card.
-#:   the mood       the IMPERATIVE only. Every modal in Portuguese takes the infinitive — "vamos
-#:                  fechar", "podemos fechar", "quando vamos fechar" — so refusing the infinitive
-#:                  refuses that entire class in one rule instead of a list of modals somebody has
-#:                  to keep extending. The verbs therefore end at a word boundary on their
-#:                  imperative form: "fecha"/"feche", never "fechar", never "fechamos". A near-miss
-#:                  is cheap here: "escrever os critérios do #288 a partir do requisito 6" falls to
-#:                  `refine`, whose refusal now names `alinhar`.
-#:   the position   the gesture OPENS ITS CLAUSE (`_CLAUSE_START`). The mood guard alone assumes
-#:                  every non-imperative reading takes the infinitive, and in this language one
-#:                  does not: "a gente quebra" is the everyday first person plural and is spelled
-#:                  exactly like the order.
-#:   the negation   "não fecha o #511" is an instruction NOT to, and it is the one shape whose
-#:                  meaning inverts while every other signal stays identical.
-#: A LOOKBEHIND IS FIXED-WIDTH, so each negator is its own alternative and each must be spelled at
-#: its own length. That is why this is a list of groups rather than one — and why a table like
-#: `language/assent.py` cannot serve it directly.
-#:
-#: `no` IS NOT HERE AND MUST NOT BE, though it is how a Spanish or English speaker negates. In
-#: Portuguese `no` is *in the* — "no PR 101 faz o merge" is an ordinary instruction with `no`
-#: sitting right before the verb, and admitting it would refuse the sentence this platform exists
-#: to obey. That is the collision discipline #157 wrote down for `ta`, on the other surface: a word
-#: enters only if, as it appears here, it can mean nothing else in every catalogued language.
-#: A Spanish deployment needs the gesture matcher to take its verbs from a table (#161's third
-#: section); it does not need this list to guess.
-_NOT_NEGATED = (r"(?<!n[ãa]o )(?<!nao )(?<!nunca )(?<!jamais )(?<!nem )"
-                r"(?<!never )(?<!don't )(?<!dont )(?<!do not )")
-
-#: Typographic quotes, and they are load-bearing twice. Every refusal that names "the sentence that
-#: works" shows it in «…», and a client who copies it as shown types the guillemets too: a leading
-#: one used to block the clause anchor, so the one instruction this surface asks people to say
-#: matched NOTHING and fell through to the conversational model — the path that has already minted
-#: a requirement nobody requested. Admitted as a clause boundary below, and stripped off captures
-#: in `match_intent`, because a trailing » left inside a reason is written onto a client's card as
-#: the grounds somebody decided.
+#: Typographic quotes, stripped off captures in `match_intent`: a trailing » left inside a capture
+#: is written onward as the person's words.
 _QUOTES = "«»\"“”'‘’"
 
-#: WHERE AN INSTRUCTION IS ALLOWED TO BEGIN — the guard the other three cannot supply.
-#:
-#: Widening the scan made "amanhã a gente quebra o requisito 8 em tarefas" FILE WORK on a client's
-#: board with nothing in between: a sentence about tomorrow, spending money today. The mood guard
-#: could not see it, because "quebra" is both the imperative and the third person singular, and
-#: "a gente + 3rd person" is how this language says "we". The same reading is available to every
-#: scanned gesture — "o time aceita o requisito 1 na quinta", "a gente fecha o #511 amanhã".
-#:
-#: NOT A LIST OF PRONOUNS. Every noun phrase in the language is a candidate subject, so such a list
-#: has holes nobody can see, and each hole is a write. What is not a list is the grammar: an
-#: imperative OPENS ITS CLAUSE, and anything in front of the verb inside that clause is a subject or
-#: an adjunct — a sentence describing rather than ordering. So the gesture must sit at the start of
-#: the message or straight after a clause boundary.
-_CLAUSE_START = r"(?:^|(?<=[,;:>\n…—–!?.\-" + re.escape(_QUOTES) + r"]))\s*"
-
-#: What may still stand between the boundary and the gesture where a mistake costs a QUESTION.
-#: People write "beleza, e fecha o #511" and "Nina, por favor encerra o #511", and refusing those
-#: would push them back to prose. These are function words that cannot be a subject; the list is
-#: closed, and its holes cost a rephrase rather than a write — the direction this surface is allowed
-#: to fail in. The article is here for the gestures whose OBJECT comes first ("o #511 é duplicado do
-#: #288"), and it is an article alone: "a gente" gets past it and then has to be the verb, and is
-#: not.
-#:
-#: THE NEGATORS ARE ADMITTED HERE SO THAT `_NOT_NEGATED` IS THE THING THAT REFUSES THEM. Without
-#: them nothing could ever place "não " immediately before a verb — `_CLAUSE_START` cannot anchor
-#: past it and no bridge word could carry it — so the lookbehind the docstring above counts as one
-#: of four guards decided nothing, and "não fecha o #511" was refused only by the clause anchor.
-#: The next widening of that anchor (this file has already made one) would then have turned an
-#: instruction NOT to close into a staged close on a client's board, with no test failing. Letting
-#: the bridge consume the negator costs nothing — the lookbehind refuses at that position, and the
-#: only other reading leaves the verb sitting on "não" — and it makes the guard real.
-#: EVERY NEGATOR `_NOT_NEGATED` REFUSES IS ADMITTED HERE, and the two lists move together — a
-#: guard asserts it. A negator the bridge does not carry can never reach the position the
-#: lookbehind watches, so the lookbehind decides nothing about it and the clause anchor is the
-#: only thing left; a widening of that anchor then turns an instruction NOT to close into a close.
-_BRIDGE = (r"(?:(?:e|ent[ãa]o|a[íi]|da[íi]|mas|sim|ok|beleza|agora|depois|j[áa]|"
-           r"n[ãa]o|nunca|jamais|nem|never|don'?t|do\s+not|por\s+favor|favor)[\s,]+){0,2}"
-           r"(?:(?:os?|as?)\s+)?")
-
-#: The gestures that reach a client's board with NO confirmation behind them — the declared
-#: exception at the top of this file, and its membership. They get the boundary and nothing else: a
-#: connective is exactly what carries an elided subject into the next clause ("a gente vê isso, e
-#: quebra o requisito 8"), and there is nobody to ask before that files work.
-#: Kept honest by two tests that derive, from the handler itself, which intents stage a proposal and
-#: which merely gate — a set maintained by hand beside the fact it describes is what this file has
-#: already paid for.
-_UNCONFIRMED = frozenset({"breakdown", "refine"})
-
-#: WHAT MAY STAND BETWEEN A GESTURE AND THE NUMBER IT NAMES: articles and prepositions, nothing
-#: else. It used to be "any 20 to 40 characters", which is a whole clause — and a clause is where
-#: the NEXT, unrelated number lives. That gap read a survivor out of "em lugar disso vamos ver o
-#: #288", and it would read a card out of "refina isso pra mim até o dia 3". A number this rule
-#: admits is attached to the gesture; one further away belongs to another sentence and is not
-#: being named by it.
-#: The English prepositions ride in the same bridge (#24 item 5): "as a duplicate OF #288" used
-#: to stop at "of", so the survivor fell to the ask-which-card path — the taught sentence ending
-#: in a question round-trip instead of the act it states. These are skippable connectors only;
-#: none of them can start a match on its own.
-_ATTACHED = (r"(?:\s+(?:d[oae]s?|pel[oa]s?|por|para|pra|pro|com|ao|[aoà]|os|as|um|uma"
-             r"|of|to|with|by|for|the|an?)\b)*\s*")
-
-
-def _card(group: str) -> str:
-    """A CARD reference — `#511`, `# 511`, "cartão 511" — captured under `group`.
-
-    Written once and used for both numbers a close can carry: the card that goes and the card that
-    stays. A second hand-written copy is how one of them ends up accepting a bare number.
-    """
-    return (r"(?:#\s?|\b(?:cards?|cart[õo]es|cart[ãa]o|chamados?|itens|item|tarefas?)\s+#?)"
-            rf"(?P<{group}>\d{{1,4}})\b")
-
-
-def _requirement(group: str) -> str:
-    """A REQUIREMENT reference — "requisito 8", "req 8", "requirement 8" — captured under `group`.
-
-    The counterpart of `_card`, and written once for the same reason: four gestures name a
-    requirement by number, and the fourth hand-written copy is where the word list drifts.
-    """
-    return rf"\b(?:requisito|req|requirement)\s*#?(?P<{group}>\d{{1,4}})\b"
-
-
-#: The PHRASE that says a closure has a survivor. Never a bare word: `favor` was one, and "por
-#: favor" is the commonest politeness phrase in this language — "fecha o #511, por favor, e depois
-#: o #288" closed #511 in favour of #288, a relation nobody stated, written on the client's board
-#: in their name. "em favor de" / "a favor de" is what means it; the noun on its own means nothing,
-#: and the same is true of "lugar" ("em lugar de") and "prol" ("em prol de").
-#: The ENGLISH half exists because the voice already spoke it (#24 item 5): every refusal and
-#: instruction has an `en` catalogue entry — "close #N as a duplicate of #M" — and the connective
-#: list only knew Portuguese, so an English deployment's own taught sentence stated a relation the
-#: parser could not see: the close landed with no pointer, the exact half-act the connective rule
-#: exists to prevent.
-#: WHAT ONE CARD IS OF ANOTHER, as a NOUN — spelled ONCE (#161). This list lived here in both
-#: languages and a second, Portuguese-only copy lived inside the copula row below, so "card 511 is
-#: a duplicate of 288" matched nothing while "o card 511 é uma duplicata do 288" closed the card.
-#: One fact spelled twice, and only one of the two spellings learned English.
-_DUPLICATE_NOUN = (r"duplicad\w*|duplicata|duplicat\w*|\bdupe?\b|repetid\w*|c[óo]pia"
-                   r"|cobert\w*|resolvid\w*|substitu\w*"
-                   r"|\bcovered\b|\bresolved\b|supersed\w*|\breplaced\b")
-
-_SURVIVOR_CONNECTIVE = (r"(?:" + _DUPLICATE_NOUN +
-                        r"|\b(?:em|[aà]|ao|no|na)\s+favor\b|\b(?:em|no|ao)\s+prol\b|"
-                        r"\b(?:em|no)\s+lugar\b|\bin\s+favou?r\b)")
-
-#: The card a closure is decided IN FAVOUR OF, read off the CONNECTIVE rather than off "the next
-#: number in the sentence". Without it, "fecha o #511, já falamos disso na semana 32" would have
-#: closed #511 in favour of card 32 — and the closing comment would name it, in writing, on the
-#: client's board.
-#: The words before the connective are left free ("como duplicado", "está coberto") and capped at
-#: two, so the connective is what has to be there and the phrasing around it is not a list somebody
-#: maintains.
-#:
-#: THE SURVIVOR IS ALSO READ WHEN IT IS WRITTEN WITHOUT A `#`, under its own name. "fecha o #511
-#: como duplicado do 288" is a stated duplicate, and dropping the second number silently turned it
-#: into the OTHER act — the card closed with no pointer and the client shown the wording for work
-#: being given up. Captured separately because a bare number is not proof enough to write with: it
-#: costs a question (`survivor_unclear`), never a staged write.
-#:
-#: The separator admits a BRACKET because "fecha o #511 (duplicado do #288)" is how people write a
-#: parenthetical, and there the connective is present and the relation stated plainly.
-_IN_FAVOUR_OF = (r"(?:[\s,;:.()\[\]–—-]*(?:\w+\s+){0,2}" + _SURVIVOR_CONNECTIVE + _ATTACHED
-                 + r"(?:" + _card("in_favour_of") + r"|(?P<in_favour_of_unclear>\d{1,4})\b))?")
-
-#: A CARD reference ANYWHERE in the message. It answers the one question the survivor rule cannot:
-#: did the person name a second card at all.
-_ANY_CARD = re.compile(_card("card"), re.IGNORECASE)
-
-
-def _other_card_named(text: str, number: str) -> str:
-    """A card other than `number` named in this message, or "".
-
-    THE GUARD WAS KEYED ON THE CONNECTIVE WHEN THE FACT IS THE SECOND CARD. `_IN_FAVOUR_OF` reads a
-    survivor only through a listed word, so "fecha o #511 (duplicado do #288)", "encerra o #511, o
-    #288 já cobre isso" and "fecha o #511 porque já está coberto pelo #288" each dropped #288 in
-    silence and performed the OTHER of the two acts these texts exist to keep apart: #511 closed
-    with no pointer, under the wording for work being given up, in answer to a sentence saying the
-    work moved — and #288 never told it had absorbed anything. Meanwhile the strictly WEAKER signal,
-    a bare number after a recognised connective, correctly cost a question. The clearer sentence
-    bought the worse outcome.
-
-    So a second card that the connective rule did not claim is ambiguity, and ambiguity costs a
-    question. Never a survivor to write with: this cannot tell "o #288 já cobre isso" from "já
-    falamos disso no #288", and only one of those states a relation. A CARD, not a number — "fecha
-    o #511, já falamos na semana 32" names no second card and asks nothing.
-    """
-    for match in _ANY_CARD.finditer(text or ""):
-        found = match.group("card")
-        if found != number:
-            return found
-    return ""
-
-#: WHY a card is being closed, read off a CAUSAL connective — never off the tail of the sentence.
-#: `drop` takes everything after the number and can afford to: it is one requirement and the rest of
-#: the message is the argument for retiring it. A closure is matched anywhere in a message, so a
-#: tail capture would write the next unrelated clause onto a client's card as the reason somebody
-#: decided. Without it the success line promised "quem decidiu e por quê" over a note that only ever
-#: held the who.
-_BECAUSE = (r"(?:[\s,;:—–-]*\b(?:porque|porqu[êe]|por que|pois|j[áa] que|uma vez que|visto que|"
-            r"motivo:|raz[ãa]o:)\s+(?P<reason>[^.!?\n]{3,200}))?")
-
-#: THE GESTURES AS THEY READ. What is matched is `_INTENTS` below, which is this table with the
-#: clause anchor applied — kept apart so each pattern says only what makes it that gesture, and the
-#: rule they all obey is written once instead of eleven times.
+#: THE GESTURES AS THEY READ, each anchored at the start of the message.
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("announce", re.compile(
         _START + r"(se apresent|apresent[ae]([- ]se)?|quem (é|e) voc[êe]"
@@ -308,15 +65,6 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         _START + r"(olh(a|ar|e)|v[êe]|ver|revis(a|ar|e)|check|look)\b"
                  r".{0,30}\b(needs?[- ]action|impedimentos?|parad[ao]s?|bloquead[ao]s?)\b",
         re.IGNORECASE)),
-    # "quebra o requisito 8 em tarefas" — the step that turns an agreed requirement into work.
-    # Carries the number, because filing work for the wrong requirement is not a typo to shrug at.
-    # ONE OF THE TWO THAT WRITE ON THE MATCH ALONE, so the mood guard is the whole defence:
-    # "vamos quebrar o requisito 8 amanhã" is a plan, and filing eight tickets off it spends money
-    # nobody released.
-    ("breakdown", re.compile(
-        _NOT_NEGATED + r"\b(?:quebr[ae]|divid[ae]|transform[ae]|break|split)\b"
-                       r"[^\d]{0,40}" + _requirement("number"),
-        re.IGNORECASE)),
     # RETIRED 2026-10-10 (#565): `accept`, `decision` and `drop` are acts the role proposes —
     # `[[ACORDO: REQ-N]]`, `[[REGISTRO: REQ-N; …]]`, `[[DESCARTE: REQ-N; …]]`
     # (`role.REQUIREMENT_ACTS`). On a live run "pode aceitar o 66" and "sim, concordo com o
@@ -324,109 +72,13 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # to hand them to. What the rows guarded — said, not asked, planned or refused; the
     # decision and the reason in the person's own words — is in each marker's instruction,
     # and the branches that stage them are unchanged.
-    # "fecha o #511 como duplicado do #288" / "encerra o #511 em favor do #288" — the everyday PO
-    # act the board had no operation behind. On 2026-07-31 the decision to close #511 in favour of
-    # #288 was taken and confirmed by the client, the agent answered "registrado o pedido junto ao
-    # time", and nothing existed to record it: the sentence matched no intent, fell through to
-    # conversation, and the client was invited to check a request that did not exist. The next
-    # queue proposal then put #511 first.
-    #
-    # The card it is closed in favour of is OPTIONAL: closing a card that simply will not be done
-    # is the same gesture with nothing surviving it, and forcing a second number would push people
-    # back to prose — which is where the missing operation was hiding in the first place.
-    ("close", re.compile(
-        _NOT_NEGATED + r"\b(?:fech[ae]|encerr[ae]|close)\b" + _ATTACHED + _card("number")
-        + _IN_FAVOUR_OF + _BECAUSE,
-        re.IGNORECASE)),
-    # "o #511 é duplicado do #288" — the object first, which is how somebody says it when the card
-    # is what they were already talking about. No verb: the duplication IS the instruction, and
-    # this is the shape the real conversation used.
-    ("close", re.compile(
-        # `is`/`are` BESIDE `é`/`são` (#161): the whole row is one copula wide, and it spoke one
-        # language — so "card 511 is a duplicate of 288" fell through to conversation while its
-        # Portuguese twin closed the card.
-        _NOT_NEGATED + _card("number") + r"\s+(?:[ée]|eh|s[ãa]o|is|are)\s+(?:an?\s+|uma?\s+)?"
-        r"(?:" + _DUPLICATE_NOUN + r")" + _ATTACHED
-        + r"(?:" + _card("in_favour_of") + r"|(?P<in_favour_of_unclear>\d{1,4})\b)",
-        re.IGNORECASE)),
-    # "corrige o #512: o relatório é semanal, não mensal" — the product owner correcting a card this
-    # role opened from a request or a defect (#156). The board refuses to edit such a card (#150),
-    # so this is the one way what it says changes. The COLON is required: what follows it is the new
-    # text, written onto the client's card, and a sentence that merely mentions correcting a card
-    # ("corrige o #512 depois") names no text and must not stage a write.
-    ("correct", re.compile(
-        _NOT_NEGATED + r"\b(?:corrig[ea]|corrija|reescrev[ae])\b" + _ATTACHED
-        + r"(?:(?:pedido|texto|descri[çc][ãa]o|relato)\b)?" + _ATTACHED + _card("number")
-        + r"\s*:\s*(?P<text>\S.{2,1999})$",
-        re.IGNORECASE | re.DOTALL)),
-    ("correct", re.compile(
-        _NOT_NEGATED + r"\b(?:correct|rewrite)\b" + _ATTACHED
-        + r"(?:(?:request|text|description|report)\b(?:\s+(?:on|in|of)\b)?)?" + _ATTACHED
-        + _card("number") + r"\s*:\s*(?P<text>\S.{2,1999})$",
-        re.IGNORECASE | re.DOTALL)),
-    # "troca o título do #512 para Relatório semanal" / "rename #512 to Weekly report" — the title
-    # alone, the other half of a correction. The new title runs to the end of the message.
-    ("correct", re.compile(
-        _NOT_NEGATED + r"\b(?:corrig[ea]|corrija|troc[ae]|troque|mud[ae])\b" + _ATTACHED
-        + r"t[íi]tulo\b" + _ATTACHED + _card("number")
-        + r"\s+(?:para|pra)\s*:?\s*(?P<title>\S[^\n]{1,199})$",
-        re.IGNORECASE)),
-    ("correct", re.compile(
-        _NOT_NEGATED + r"\b(?:rename|(?:change|correct|fix)\s+the\s+title\s+of)\b" + _ATTACHED
-        + _card("number") + r"\s+to\s*:?\s*(?P<title>\S[^\n]{1,199})$",
-        re.IGNORECASE)),
-    # "alinha o #288 ao requisito 6" — rewrite what this card must satisfy FROM that requirement,
-    # and cite it. The gap it closes: REQ-0004 was replaced by REQ-0006 and thirteen open cards
-    # still execute the retired text, under a printed rule telling whoever works them not to go
-    # beyond it.
-    #
-    # BOTH numbers are required, and that is the whole separation from `refine`: `refine` owns the
-    # identical sentence WITHOUT a requirement in it, and the two are different acts. One writes
-    # where nothing was written; this one REPLACES what somebody may already have worked from, so
-    # it is staged for a confirmation and never runs on a hunch.
-    ("align", re.compile(
-        _NOT_NEGATED + r"\b(?:re)?alinh[ae]\b" + _ATTACHED + _card("number")
-        + r"[^\d]{0,30}" + _requirement("requirement"),
-        re.IGNORECASE)),
-    # "align #288 to requirement 6" — the voice's own English instruction, verbatim (#24 item 5).
-    # The preposition is REQUIRED ("to/with/against"): "align" floats free in English prose, and
-    # the taught sentence always carries it.
-    ("align", re.compile(
-        _NOT_NEGATED + r"\b(?:re)?align\s+(?:the\s+)?" + _card("number")
-        + r"\s+(?:to|with|against)\s+(?:the\s+)?" + _requirement("requirement"),
-        re.IGNORECASE)),
-    # "escreve os critérios do #288 a partir do requisito 6" — the same act said the long way, and
-    # the reason `align` sits ABOVE `refine`: without the requirement this sentence is a refine,
-    # with it the criteria are being derived from an agreed text instead of from the card's own
-    # description.
-    ("align", re.compile(
-        _NOT_NEGATED + r"\b(?:(?:reescrev|escrev|defin|atualiz|ajust|corrig)[ae]"
-                       r"|(?:re)?write|define|update|adjust|fix)\s+(?:os\s+|the\s+)?"
-        r"(?:crit[ée]rios?|criteria|criterion)\b" + _ATTACHED + _card("number")
-        + r"[^\d]{0,40}" + _requirement("requirement"),
-        re.IGNORECASE)),
-    # "escreve os critérios do #412" / "refina o #412" — the door `refine` never had. It is the one
-    # capability here that EDITS a client's ticket; it was written, tested and reached by nothing,
-    # while `triage` already finds exactly the tickets it fixes (`no-criteria`). The role could see
-    # the problem it was built to solve and had no way to act on it.
-    # Requires the number: rewriting the wrong ticket is not a typo to shrug at.
-    #
-    # THE INTENT THE PREAMBLE REGRESSION ACTUALLY HAPPENED TO, and the one it went on being anchored
-    # on. "Nina, boa observação — e sim, refina o #523" is the sentence quoted at the top of this
-    # file: it matched nothing, fell to conversation, and a requirement nobody asked for was drafted
-    # from it. The number here may be written bare ("define os critérios do 412"), which only holds
-    # because `_ATTACHED` keeps it welded to the gesture — a loose one would read the day out of
-    # "refina isso pra mim até o dia 3".
-    ("refine", re.compile(
-        # THE NOUN IN BOTH LANGUAGES (#161). `refin[ae]` reaches English "refine" by an accident
-        # of morphology, and the criteria phrasings did not reach it at all.
-        _NOT_NEGATED + r"\b(?:refin[ae]"
-                       r"|(?:re)?(?:escrev[ae]|write)\s+(?:os\s+|the\s+)?"
-                       r"(?:crit[ée]rios?|criteria)"
-                       r"|(?:defin[ae]|define)\s+(?:os\s+|the\s+)?"
-                       r"(?:crit[ée]rios?|criteria))\b" + _ATTACHED
-        + r"#?(?P<number>\d{1,4})\b",
-        re.IGNORECASE)),
+    # RETIRED 2026-10-11 (#565 slices b and c): `close`, `correct`, `align`, `breakdown` and
+    # `refine` are acts the role proposes — `[[FECHAR: …]]`, `[[CORRIGIR: …]]`, `[[TITULO: …]]`,
+    # `[[ALINHAR: …]]`, `[[QUEBRAR: …]]`, `[[REFINAR: …]]` (`role.ACTS`). On the run, "pode fechar o
+    # final 9" matched none of these rows and the role, which understood it, said only the person
+    # could close a card. What the rows guarded — said, not asked or planned; the card and the
+    # requirement named, never guessed — is in each marker's instruction, and the branches that
+    # stage them are the ones these rows reached; breakdown and refine now wait for the yes too.
     # the brownfield first pass
     # Two shapes, because people say both: the verb ("documenta o que existe") and the noun with a
     # helper verb ("faz o levantamento do código"). Anchoring on only one of them missed the other,
@@ -489,92 +141,40 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 
-#: THE CLAUSE ANCHOR IS APPLIED HERE, ONCE, over the whole table. Written into eleven patterns by
-#: hand it would be eleven chances to leave one out — and "the rule that reached one gesture and not
-#: its siblings" is the defect this file exists downstream of, committed twice already. A pattern
-#: that anchors at `^` already says where it begins and is left exactly as it is.
-_INTENTS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
-    (name, pattern if pattern.pattern.startswith("^") else re.compile(
-        _CLAUSE_START + ("" if name in _UNCONFIRMED else _BRIDGE) + pattern.pattern, pattern.flags))
-    for name, pattern in _PATTERNS)
-
-
-#: The intents matched ANYWHERE in the message rather than at its start. Scanning is what lets a
-#: preamble through; it is also what lets a QUESTION through, which anchoring used to prevent for
-#: free. "quando fecha o #511?" is somebody asking, and the two mistakes still do not cost the
-#: same: a miss is a rephrase, while a false positive stages an irreversible act against a card in
-#: the client's name — and displaces whatever else was awaiting confirmation in the thread.
-#:
-#: DERIVED FROM THE PATTERNS, NEVER MAINTAINED BESIDE THEM. This was a hand-written set, and the
-#: hand-written set was the defect: `close` and `align` were widened and listed here, the intent
-#: the regression had actually happened to was not, and the two facts sat four lines apart looking
-#: consistent. A pattern that does not anchor at `^` is scanned, and now cannot be scanned quietly.
-_SCANNED = frozenset(name for name, pattern in _PATTERNS if not pattern.pattern.startswith("^"))
+#: EVERY ROW ANCHORS AT THE START OF THE MESSAGE (#565): the gestures that named a card or a
+#: requirement were scanned anywhere in it, behind a clause anchor, a bridge, a negation lookbehind
+#: and a question test — all four left with them.
+_INTENTS: tuple[tuple[str, re.Pattern[str]], ...] = _PATTERNS
 
 
 def _asks_rather_than_tells(text: str, end: int) -> bool:
-    """Whether the gesture that ended at `end` sits inside a question.
+    """Whether the gesture that ended at `end` sits inside a question — read by the floor's own
+    gestures (`actions/floor_intents.py`), which still scan a message.
 
-    The CLAUSE decides, not the message: "Nina, o que você acha? fecha o #511 como duplicado do
-    #288" is a question followed by an instruction, and reading the whole message would throw the
-    instruction away with it.
+    The CLAUSE decides, not the message: "o que você acha? faz o merge do #12" is a question
+    followed by an instruction, and reading the whole message would throw the instruction away.
     """
     terminator = re.search(r"[.!?;\n]", text[end:])
     return bool(terminator) and terminator.group(0) == "?"
 
 
-def _gesture_end(m: re.Match) -> int:
-    """Where the GESTURE ends — at the number it names, not at the end of the match.
-
-    Several of these patterns swallow the rest of the message into a `reason`, so reading the
-    question mark from `m.end()` looked past the whole sentence and found nothing: "cancela o
-    requisito 2, isso ainda faz sentido?" is somebody wondering aloud, and it matched as an
-    instruction to retire a requirement.
-    """
-    try:
-        end = m.end("number")
-    except (IndexError, re.error):
-        return m.end()
-    return end if end >= 0 else m.end()
-
-
 def _unquote(value: str) -> str:
-    """A capture with the quotation the person copied around it taken off.
-
-    The clause anchor admits `_QUOTES` so a client can type the sentence exactly as it was shown to
-    them. The other half of that is here: a capture is free text that travels ONWARD — `drop`'s
-    reason is written onto the record in the client's name and read back to them — so a stray »
-    must not become the grounds on which somebody decided something.
-    """
+    """A capture with the quotation the person copied around it taken off: a capture is free text
+    that travels onward, and a stray » must not travel with it."""
     return value.strip().strip(_QUOTES).strip()
 
 
 def match_intent(text: str) -> tuple[str, dict] | None:
-    """`(intent, captures)`. The captures matter for the intents that name a thing: filing work for
-    the wrong requirement is not a typo to shrug at."""
+    """`(intent, captures)` for the first row the message matches, or None."""
     body = text or ""
     for name, pattern in _INTENTS:
         m = pattern.search(body)
         if not m:
             continue
-        if name in _SCANNED and _asks_rather_than_tells(body, _gesture_end(m)):
-            # `continue`, not `return None`: a question about closing a card is still allowed to be
-            # some other intent further down (a status, a queue proposal). Refusing this gesture
-            # must not make the whole message unmatchable.
-            continue
-        groups = m.groupdict() or {}
         captures = {}
-        for key, value in groups.items():
+        for key, value in (m.groupdict() or {}).items():
             trimmed = _unquote(value) if value else ""
             if trimmed:
                 captures[key] = trimmed
-        # KEYED ON THE GROUP THE PATTERN DECLARES, not on the intent's name. Whichever gesture can
-        # carry a survivor asks this question, and one written later cannot forget to — a set kept
-        # beside the fact it describes is what this file has already paid for twice.
-        if ("in_favour_of_unclear" in groups and not captures.get("in_favour_of")
-                and not captures.get("in_favour_of_unclear")):
-            other = _other_card_named(body, captures.get("number", ""))
-            if other:
-                captures["in_favour_of_unclear"] = other
         return name, captures
     return None

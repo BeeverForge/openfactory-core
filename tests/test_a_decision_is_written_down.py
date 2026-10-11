@@ -184,10 +184,12 @@ def test_a_negation_or_a_question_writes_nothing():
         assert match_intent(phrase) is None, phrase
 
 
+#: The writing neighbours — breakdown, align, close — left the patterns with #565's second and third
+#: slices (`tests/test_the_role_proposes_what_a_requirement_needs.py`); the reads are what is left.
 @pytest.mark.parametrize(("phrase", "intent"), [
-    ("quebra o requisito 8 em tarefas", "breakdown"),
-    ("alinha o #288 ao requisito 6", "align"),
-    ("fecha o #511", "close"),
+    ("faz a triagem", "triage"),
+    ("documenta o que existe no código", "baseline"),
+    ("status?", "status"),
 ])
 def test_the_neighbouring_gestures_are_untouched(phrase, intent):
     assert match_intent(phrase)[0] == intent, match_intent(phrase)

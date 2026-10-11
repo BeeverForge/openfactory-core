@@ -80,13 +80,9 @@ RECOGNISERS = {
     ("openfactory/product/voice.py", "_CANNOT_OBSERVE"): "see the",
     # DECLARED 2026-10-10 (review of #579): what reads a person's gestures, assent and refusals —
     # they were counted as the sweep's debt, and no sweep will ever move what the platform READS.
-    # `intents._BECAUSE` is not here: it knows Portuguese only, which is the defect on the way in,
-    # so it stays in the list until it reads an English reason too.
-    ("openfactory/product/intents.py", "_NOT_NEGATED"): "never",
-    ("openfactory/product/intents.py", "_BRIDGE"): "never",
-    ("openfactory/product/intents.py", "_ATTACHED"): "with",
-    ("openfactory/product/intents.py", "_DUPLICATE_NOUN"): "covered",
-    ("openfactory/product/intents.py", "_SURVIVOR_CONNECTIVE"): r"in\s+favou?r",
+    # The negators, the bridge, the attached-text and duplicate-noun readers, the survivor's
+    # connective and `_BECAUSE` left `intents.py` with the gestures that named a card or a
+    # requirement (#565 slices b and c): the role proposes those acts now.
     ("openfactory/product/intents.py", "_PATTERNS"): "introduce yourself",
     ("openfactory/actions/floor_intents.py", "_LEADER_WORDS"): "please",
     ("openfactory/actions/floor_intents.py", "_PATTERNS"): "rework",

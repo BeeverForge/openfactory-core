@@ -1,6 +1,5 @@
-
-
 from openfactory.product.intents import match_intent
+from openfactory.product.role import read_answer
 
 # ── the English half of the taught sentences (#24 item 5) ───────────────────────────────────────
 #
@@ -15,32 +14,33 @@ from openfactory.product.intents import match_intent
 # the pattern's adjacency guarded is in that marker's instruction
 # (`tests/test_the_role_proposes_what_a_requirement_needs.py`).
 
-
-def test_the_taught_english_align_parses_with_both_numbers():
-    got = match_intent("align #288 to requirement 6")
-    assert got is not None and got[0] == "align"
-    assert got[1]["number"] == "288" and got[1]["requirement"] == "6"
-    assert match_intent("realign the #288 with requirement 6")[0] == "align"
-
-
-def test_english_align_requires_the_preposition():
-    """"align" floats free in English prose; the taught sentence always carries to/with/against."""
-    assert match_intent("we should align the roadmap with requirement 4 someday?") is None
+# RETIRED 2026-10-11 (#565 slice b): the four tests of the `align` and `close` patterns. Both are
+# acts the role proposes (`[[ALINHAR: #N; REQ-M]]`, `[[FECHAR: #N; em favor de #M]]`), so "align
+# #288 to requirement 6" and "close #511 as a duplicate of #288" are read by the model in whatever
+# language the person writes. What the English bridge carried — the survivor named after "of" —
+# is a connector of the close marker now, in both languages, and is held below.
 
 
-def test_the_taught_english_close_carries_its_survivor():
-    """"as a duplicate OF #288" used to stop at "of": the survivor fell to the ask-which-card
-    path, and the taught sentence ended in a question round-trip instead of the act it states."""
-    got = match_intent("close #511 as a duplicate of #288")
-    assert got is not None and got[0] == "close"
-    assert got[1]["in_favour_of"] == "288", "the stated survivor was dropped to the unclear path"
-
-    got = match_intent("close #511 in favour of #288")
-    assert got[1]["in_favour_of"] == "288"
+def test_the_taught_sentences_reach_no_pattern():
+    for sentence in ("align #288 to requirement 6", "close #511 as a duplicate of #288",
+                     "alinha o #288 ao requisito 6", "fecha o #511 como duplicado do #288"):
+        assert match_intent(sentence) is None, (sentence, match_intent(sentence))
 
 
-def test_the_portuguese_grammar_did_not_move():
-    """The bridge gained English connectors; the Portuguese sentences must parse exactly as
-    before — this file's own earlier cases re-asserted beside the new ones."""
-    assert match_intent("fecha o #511 como duplicado do #288")[1]["in_favour_of"] == "288"
-    assert match_intent("alinha o #288 ao requisito 6")[1]["requirement"] == "6"
+def test_the_close_marker_carries_its_survivor_in_either_language():
+    """"as a duplicate OF #288" used to stop at "of" and the survivor fell to the ask-which-card
+    path; the marker names it with either connector, in either spelling."""
+    for written in ("[[FECHAR: #511; em favor de #288]]", "[[FECHAR: #511; em favor do #288]]",
+                    "[[FECHAR: #511; in favour of #288]]", "[[FECHAR: #511; in favor of #288]]"):
+        answer = read_answer(f"Entendi.\n{written}")
+        assert answer.gesture == "close", (written, answer.gesture)
+        assert answer.gesture_args["number"] == "#511", (written, answer.gesture_args)
+        assert answer.gesture_args["in_favour_of"] == "#288", (written, answer.gesture_args)
+
+
+def test_the_align_marker_carries_both_numbers():
+    for written in ("[[ALINHAR: #288; REQ-0006]]", "[[ALINHAR: #288; 6]]"):
+        answer = read_answer(f"Entendi.\n{written}")
+        assert answer.gesture == "align", (written, answer.gesture)
+        assert answer.gesture_args["number"] == "#288", (written, answer.gesture_args)
+        assert int(answer.gesture_args["requirement"]) == 6, (written, answer.gesture_args)
