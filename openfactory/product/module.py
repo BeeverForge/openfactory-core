@@ -78,6 +78,7 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from openfactory.adapters.board.base import stage_column
@@ -4548,6 +4549,25 @@ class ProductModule:
 
     # ---- maintaining the cards themselves --------------------------------------------------------
 
+    def what_only_it_carries(self, number: str, survivor: str) -> Carried | None:
+        """What card `number` carries that `survivor` does not, read off the board — None when
+        either card could not be read there (#567).
+
+        THE PERSON'S YES IS GIVEN ON THIS. The role offered to close a card "or" another as if
+        they were equal, and the one it was asked to close was the only card carrying the
+        requirement's first front: its title said less than its criteria. A close in favour of
+        another card now says, before the yes, the criteria the closed card states and the
+        survivor does not, and the requirement it executes when the survivor executes another or
+        none. From the board snapshot this module already reads, so it costs no extra call."""
+        tickets, error = self._read_board()
+        if error:
+            return None
+        bodies = {canonical_ref(t.number): t.body or "" for t in tickets}
+        closing, staying = bodies.get(canonical_ref(number)), bodies.get(canonical_ref(survivor))
+        if closing is None or staying is None:
+            return None
+        return only_in(closing, staying)
+
     def close_card(self, number: str, *, actor: str, in_favour_of: str | None = None,
                    reason: str = "") -> WriteResult:
         """Close one card, naming the one that stays — the hand behind a decision already taken.
@@ -5756,6 +5776,45 @@ def _rewritten(body: str, canonical: str, headings: tuple[str, ...]) -> str:
 #: nowhere else, and it is as much a card of that requirement as one filed from it (#265 §6.1).
 _DEFECT_CITES_RE = re.compile(r"^## (?:A promessa violada|The broken promise) — REQ-(\d{4})\s*$",
                               re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class Carried:
+    """What one card carries that another does not (#567): the acceptance criteria only it states,
+    and the requirement it executes when the other executes another one or none."""
+
+    criteria: tuple[str, ...] = ()
+    executes: int | None = None
+
+    def __bool__(self) -> bool:
+        return bool(self.criteria) or self.executes is not None
+
+
+def _plain(text: str) -> str:
+    """A criterion as compared: case, punctuation and spacing are not what it promises."""
+    return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+
+def only_in(closing: str, staying: str, *, at_most: int = 5) -> Carried:
+    """What the card whose body is `closing` carries that the one whose body is `staying` does not
+    — PURE, read with the parser the pickup gate reads with (#567).
+
+    A criterion counts as carried when the other card does not state it, in any case or
+    punctuation. Reworded criteria count as carried: the person reads them and decides, and an
+    overlap that is only claimed is what this exists to stop."""
+    from openfactory.adapters.tracker.parse import parse_ticket_body
+
+    def criteria(body: str) -> list[str]:
+        return [c.text.strip() for c in parse_ticket_body(id="", title="", body=body,
+                                                         repo="").acceptance_criteria
+                if c.text.strip()]
+
+    stated = {_plain(c) for c in criteria(staying)}
+    only = tuple(dict.fromkeys(c[:160] for c in criteria(closing)
+                               if _plain(c) not in stated))[:at_most]
+    executes = _cited_requirement(closing)
+    return Carried(criteria=only,
+                   executes=executes if executes != _cited_requirement(staying) else None)
 
 
 def _cited_requirement(body: str) -> int | None:

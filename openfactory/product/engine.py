@@ -1952,13 +1952,20 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
 
             asked = survivor_unclear(number=number, other=unclear, language=lang)
             return f"{name}: {asked}" if name else asked
-        # NOTHING IS READ FIRST, deliberately, and it is the one place this branch differs from
-        # `drop`. `drop` can check the requirement in the corpus it already holds in memory; the
-        # equivalent check here is a read of the client's board — seconds, over the network, on the
-        # listener thread, before the person has even confirmed. The contract puts "already closed"
-        # and "no such card" behind `close_card`, which reports both as a sentence a client can
-        # read, so the cost is paid once and only when somebody actually decided.
+        # "ALREADY CLOSED" AND "NO SUCH CARD" ARE NOT READ FIRST: `close_card` reports both as a
+        # sentence a client can read, after the yes. What IS read first, for a close in favour of
+        # another card, is what the closed card carries that the survivor does not (#567): the
+        # person's yes is given on it. The role offered to close one card "or" another as equals,
+        # and the one closed was the only card carrying the requirement's first front. The read
+        # is the board snapshot the module keeps, inside the turn — not the listener thread this
+        # branch once avoided reading on, which the turn no longer runs on (ADR-0051).
         from openfactory.product.voice import close_confirmation
+
+        carried, unread = None, False
+        compare = getattr(module, "what_only_it_carries", None)
+        if in_favour_of and compare is not None:
+            carried = compare(number, in_favour_of)
+            unread = carried is None
 
         body = remember(thread, {"kind": "close", "number": number,
                                  "in_favour_of": in_favour_of, "reason": reason,
@@ -1966,7 +1973,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
                                  "asked_by": user or ""},
                         lang=lang, project=project, person=user)
         ask = close_confirmation(number=number, in_favour_of=in_favour_of, reason=reason,
-                                 language=lang)
+                                 carried=carried, unread=unread, language=lang)
         if not may_act(project, user):
             admins = _admin_mentions(project)
             if admins:
