@@ -5358,7 +5358,9 @@ def _land_product_proposals(project, *, token: str | None = None) -> list[str]:
             # the folder a proposal may touch and still land unattended (#265 §6.4): the one the
             # product declares, never a guess — an unreadable context keeps the default, and a
             # proposal in another folder is then left open and said, never merged
-            requirements_dir=module.context().requirements_dir)
+            requirements_dir=module.context().requirements_dir,
+            # the review request it opens is read in the project's language (#535)
+            language=getattr(project, "language", None))
         if rescued:
             activity.logger.warning("OPENFACTORY_PRODUCT_PROPOSAL_RESCUE project=%s landed %s "
                                     "proposal(s) into the base: %s",
@@ -6341,11 +6343,15 @@ async def techlead_watch(project_name: str) -> str:
         verdict_now = classify(here.note if here else "", cause=here.cause if here else "")
         spent = here.attempts_spent if here else 0
         tempered = temper(
-            remedy_for(verdict_now, already_spent=spent, language=lang), history.get(sig))
+            remedy_for(verdict_now, already_spent=spent, language=lang), history.get(sig),
+            language=lang)
         if finding.resumable and tempered.action != "retry":
+            from openfactory.techlead.memory import MEMORY
+            from openfactory.techlead.voice import say as tech_say
+
             finding.resumable = False
-            finding.action = tempered.say or (tempered.reason +
-                                              " — precisa de alguém olhando a causa")
+            finding.action = tempered.say or (tempered.reason
+                                              + tech_say(MEMORY, "needs_a_person", lang))
         if not (finding.resumable and finding.ticket):
             continue
         # One open remedy per (ticket, signature) at a time: a resume already in flight from the

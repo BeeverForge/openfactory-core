@@ -250,7 +250,7 @@ def test_the_FALLBACK_is_the_LAST_comment_because_that_is_what_it_CALLS_itself()
 
     assert "pode seguir sem essa parte" in got
     assert "abro isso amanhã" not in got, "the OLDEST comment was presented as the last one"
-    assert "de alice" in got and "de ana" not in got
+    assert "by alice" in got and "by ana" not in got
 
 
 def test_an_unmarked_last_comment_is_QUALIFIED_not_impersonated():
@@ -269,12 +269,12 @@ def test_an_unmarked_last_comment_is_QUALIFIED_not_impersonated():
     got = board._last_diagnosis(
         _tracker_with([{"body": "vou olhar isso amanhã", "author": "alice"}]), "412")
 
-    assert got.startswith("(sem diagnóstico do tech-lead")
-    assert "de alice" in got, "the author the port carries was thrown away"
+    assert got.startswith("(no diagnosis from the tech lead")
+    assert "by alice" in got, "the author the port carries was thrown away"
     assert "vou olhar isso amanhã" in got
 
     anonymous = board._last_diagnosis(_tracker_with([{"body": "amanhã eu vejo"}]), "412")
-    assert "de autor não identificado" in anonymous
+    assert "by an author not identified" in anonymous
 
 
 def test_a_history_that_could_NOT_be_read_says_so_and_never_reads_as_silence(caplog):
@@ -294,7 +294,7 @@ def test_a_history_that_could_NOT_be_read_says_so_and_never_reads_as_silence(cap
         unreadable = board._last_diagnosis(_tracker_with(None), "412")
 
     assert unreadable, "an unreadable history came back as silence"
-    assert "NÃO quer dizer que ninguém comentou" in unreadable
+    assert "does NOT mean nobody commented" in unreadable
     assert "could not be read" in caplog.text
 
     assert board._last_diagnosis(_tracker_with([]), "412") == "", (
@@ -316,7 +316,7 @@ def test_a_tracker_that_RAISES_is_still_an_unreadable_history(caplog):
     with caplog.at_level(logging.WARNING, logger="openfactory.product"):
         got = board._last_diagnosis(_Broken(), "412")
 
-    assert "NÃO quer dizer que ninguém comentou" in got
+    assert "does NOT mean nobody commented" in got
     assert "401" not in got, "the transport error reached a prompt"
 
 

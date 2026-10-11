@@ -172,11 +172,12 @@ MUTATIONS = [
      "        return loop.about == room", "        return True"),
 
     # ── no name across conversations ─────────────────────────────────────────────────────────────
+    # RE-PINNED 2026-10-11 (#535): the glossary's header is English now — it is read by a model
     ("the glossary carries who told each fact into every conversation's prompt", DOMAIN,
-     '    rows = ["| termo | status |", "|---|---|"]\n'
+     '    rows = ["| term | status |", "|---|---|"]\n'
      "    for f in sorted(live, key=lambda x: x.term.lower())[:limit]:\n"
      '        rows.append(f"| {f.term} | {f.status} |")',
-     '    rows = ["| termo | status | fonte |", "|---|---|---|"]\n'
+     '    rows = ["| term | status | source |", "|---|---|---|"]\n'
      "    for f in sorted(live, key=lambda x: x.term.lower())[:limit]:\n"
      "        rows.append(f\"| {f.term} | {f.status} | {f.source or '—'} |\")"),
     ("the role is told to say who told it a learned fact", ROLE,

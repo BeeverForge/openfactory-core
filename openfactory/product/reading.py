@@ -146,16 +146,29 @@ def bound(reading: Reading, *, bundle_dir: Path | list[Path] | None, corpus,
                                       "verified": verified})
 
 
+#: HOW A READING IS SAID on a case, a row or a log line, per language (#535) — the kind, and the
+#: confidence by the level it was given (`ALTA`, `MEDIA` and `BAIXA` are the reading's own values,
+#: kept as written).
+_SAID = {
+    "pt-BR": {"defect": "problema", "request": "pedido", "misuse": "funciona assim",
+              "question": "pergunta", "reading": "leitura", "confidence": "confiança",
+              ALTA: ALTA, MEDIA: MEDIA, BAIXA: BAIXA},
+    "en": {"defect": "defect", "request": "request", "misuse": "working as designed",
+           "question": "question", "reading": "reading", "confidence": "confidence",
+           ALTA: "high", MEDIA: "medium", BAIXA: "low"},
+}
+
+
 def render_reading(reading: Reading, *, language: str | None = None) -> str:
     """One line for a case, a row, a log: the kind, the confidence, what it stood on."""
-    kinds = {"defect": ("problema", "defect"), "request": ("pedido", "request"),
-             "misuse": ("funciona assim", "working as designed"),
-             "question": ("pergunta", "question")}
-    pt = (language or "pt-BR").lower().startswith("pt")
-    kind = kinds.get(reading.kind, (reading.kind, reading.kind))[0 if pt else 1]
-    parts = [f"{'leitura' if pt else 'reading'}: {kind}"]
+    from openfactory.product.voice import _pick
+
+    # any Portuguese reads the Portuguese line, as it always did — `pt-PT` included
+    said = _pick(_SAID, "pt-BR" if str(language or "").lower().startswith("pt") else language)
+    kind = said.get(reading.kind, reading.kind)
+    parts = [f"{said['reading']}: {kind}"]
     if reading.confidence:
-        parts.append(f"{'confiança' if pt else 'confidence'} {reading.confidence}")
+        parts.append(f"{said['confidence']} {said.get(reading.confidence, reading.confidence)}")
     stood = [f"{c} ({reading.verified.get('concepts', {}).get(c, '?')})" for c in reading.concepts]
     stood += [f"REQ-{n}" + ("" if reading.verified.get("requirements", {}).get(n) else " (?)")
               for n in reading.requirements]

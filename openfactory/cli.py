@@ -231,7 +231,7 @@ def project_add(
                        f"could not be read from {repo_path!r}")
             # vendor-url-ok: this is help text SHOWING A HUMAN the shape to paste, not a URL this
             # platform builds and sends anybody to.
-            typer.echo("  a dev.azure.com clone URL carries all three: "
+            typer.echo("  the clone URL of an Azure DevOps repository carries all three: "
                        "https://dev.azure.com/<organization>/<project>/_git/<repository>")
             raise typer.Exit(2)
         tracker_options: dict[str, str] = {"organization": org}

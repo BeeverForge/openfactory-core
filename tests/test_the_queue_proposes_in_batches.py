@@ -283,7 +283,7 @@ def test_the_opening_line_never_lies_about_what_is_RUNNING():
     busy = proposal_prompt(readiness=Readiness(todo=[], ready=[40], in_progress=2),
                            candidates=[Ticket(number=40, title="x")], limit=5).splitlines()[0]
 
-    assert "nada" in idle and "2" not in idle, idle
+    assert "nothing" in idle and "2" not in idle, idle
     assert "2" in busy, busy
 
 
@@ -299,7 +299,7 @@ def test_candidates_CUT_by_the_caller_are_declared():
                              total_candidates=60)
 
     assert "+59" in prompt, prompt
-    assert "NÃO por falta de acesso" in prompt
+    assert "NOT for lack of access" in prompt
 
 
 def test_a_judgement_is_never_ASKED_over_bare_numbers():

@@ -187,14 +187,21 @@ def _where_it_came_from(project, channel: str) -> str:
     as something it may not be.
     """
     from openfactory.adapters.channel.registry import channel_destination
+    from openfactory.product.voice import _pick
 
+    room = _pick(_PRODUCT_ROOM, getattr(project, "language", None))
     # the product's own room, wherever its channel keeps it (#266 slice 6): the add-on's address,
     # or the project's name on the panel
     known = channel_destination(project, product=True)
     if channel and known and channel == known:
-        return "conversa com o time de produto"
-    return f"conversa com o time de produto ({channel})" if channel else \
-        "conversa com o time de produto"
+        return room
+    return f"{room} ({channel})" if channel else room
+
+
+#: The provenance cell a decision row names its conversation by, in the project's language (#535):
+#: the decision register is the requirement's own document, read in three months by its team.
+_PRODUCT_ROOM = {"pt-BR": "conversa com o time de produto",
+                 "en": "conversation with the product team"}
 
 
 def receipt(project, notify, *, seed: str = ""):

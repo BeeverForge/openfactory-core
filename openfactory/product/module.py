@@ -2548,7 +2548,7 @@ class ProductModule:
                     # under the semaphore (`propose_requirement`)
                     number=next_number(ctx.corpus),
                     requirements_dir=ctx.requirements_dir, asked_by=asked_by, date=date,
-                    source=source, base=cfg.docs_branch),
+                    source=source, base=cfg.docs_branch, language=lang),
                 # a number minted is a number saved, landed or not: the next writer must see it
                 saved=lambda r: ((f"REQ-{r.number:04d}", r.url)
                                  if r.number and not r.existed else None),
@@ -2641,7 +2641,7 @@ class ProductModule:
                     number=number,
                     # decorated HERE, for the record alone — the raw id was what authorised the act
                     accepted_by=actor,
-                    base=getattr(cfg, "docs_branch", "main")),
+                    base=getattr(cfg, "docs_branch", "main"), language=lang),
                 saved=_saved_in_the_repository))
             # WHAT WAS JUST AGREED TO IS ALREADY BUILT, and the act says so itself (#182). Decided
             # on the requirement's own data — the evidence a baseline pass wrote into the file —
@@ -2688,7 +2688,7 @@ class ProductModule:
                     docs_repo=ctx.link.docs_repo, clone_url=self._clone_url(ctx.link.docs_repo),
                     path=self._requirement_path(req),
                     number=number, dropped_by=actor, reason=reason,
-                    base=getattr(cfg, "docs_branch", "main")),
+                    base=getattr(cfg, "docs_branch", "main"), language=lang),
                 saved=_saved_in_the_repository))
         except Exception as exc:  # noqa: BLE001 — a chat listener must not see a traceback
             return _could_not(record_said("drop_failed", number=number, language=lang),
@@ -2790,7 +2790,7 @@ class ProductModule:
                     docs_repo=ctx.link.docs_repo, clone_url=self._clone_url(ctx.link.docs_repo),
                     path=self._requirement_path(req), number=number,
                     decision=decision, decided_by=actor, where=where,
-                    base=getattr(cfg, "docs_branch", "main")),
+                    base=getattr(cfg, "docs_branch", "main"), language=lang),
                 saved=_saved_in_the_repository))
         except Exception as exc:  # noqa: BLE001 — a chat listener must not see a traceback
             return _could_not(record_said("decision_failed", number=number, language=lang),
@@ -2837,7 +2837,8 @@ class ProductModule:
                             docs_repo=ctx.link.docs_repo,
                             clone_url=self._clone_url(ctx.link.docs_repo),
                             path=self._requirement_path(req), number=requirement,
-                            decision=said, decided_by=who, where=where, base=base),
+                            decision=said, decided_by=who, where=where, base=base,
+                            language=lang),
                         saved=_saved_in_the_repository))
             term = (about or "").strip()[:120] or " ".join(question.split())[:120]
             existing = ctx.domain.get(term)
@@ -2855,7 +2856,8 @@ class ProductModule:
                                                                   language=lang)),
                 write=lambda: record_fact(
                     docs_repo=ctx.link.docs_repo, clone_url=self._clone_url(ctx.link.docs_repo),
-                    term=term, body=text, said_by=who, where=where, base=base),
+                    term=term, body=text, said_by=who, where=where, base=base,
+                    language=lang),
                 saved=_saved_in_the_repository)
         except Exception as exc:  # noqa: BLE001 — the sweep reads the result; never a traceback
             return _could_not(record_said("answer_failed", term=about, language=lang),
@@ -3358,7 +3360,7 @@ class ProductModule:
                     docs_repo=ctx.link.docs_repo,
                     clone_url=self._clone_url(ctx.link.docs_repo),
                     term=term, body=body, said_by=said_by, where=where,
-                    base=getattr(self.project.product, "docs_branch", "main")),
+                    base=getattr(self.project.product, "docs_branch", "main"), language=lang),
                 saved=_saved_in_the_repository)
         except Exception as exc:  # noqa: BLE001
             return _could_not(record_said("fact_failed", term=term, language=lang),
@@ -3478,7 +3480,7 @@ class ProductModule:
                 clone_url=self._clone_url(ctx.link.docs_repo),
                 files=files, product=self.project.name,
                 observations=len(baseline.observations), covered=baseline.covered,
-                base=getattr(self.project.product, "docs_branch", "main"))
+                base=getattr(self.project.product, "docs_branch", "main"), language=lang)
         except Exception as exc:  # noqa: BLE001 — a chat listener must not see a traceback
             return _could_not(record_said("survey_failed", language=lang),
                               act="write the baseline", cause=exc)
@@ -3698,7 +3700,8 @@ class ProductModule:
                 fields, source=source, rubric=rubric, judge=judge, redraft=redraft,
                 body_of=lambda f: self._issue_body(draft.model_copy(update=f), requirement,
                                                    tracker),
-                project_name=getattr(self.project, "name", "") or "")
+                project_name=getattr(self.project, "name", "") or "",
+                language=getattr(self.project, "language", None))
             return (None if kept is None else draft.model_copy(update=kept)), why
 
         return vet

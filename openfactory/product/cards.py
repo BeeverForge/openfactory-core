@@ -970,9 +970,21 @@ REQUIREMENT_NOTE = (
     "less than its front of the requirement lost something; one that promises more invented it.")
 
 
+#: Why a breakdown's card was held when its judge could not be read — said to the person who asked
+#: for the breakdown, in the project's language (#535).
+_JUDGE_UNREAD = {"pt-BR": "a revisão automática não respondeu",
+                 "en": "the automatic review did not answer"}
+
+
+def _pick(catalogue: dict[str, str], language: str | None) -> str:
+    from openfactory.product.voice import _pick as pick
+
+    return pick(catalogue, language)
+
+
 def vet_issue(fields: dict, *, body_of: Callable[[dict], str], source: str, rubric: Rubric,
               judge: Judge | None, redraft: Callable[[str], dict | None] | None,
-              project_name: str = "") -> tuple[dict | None, str]:
+              project_name: str = "", language: str | None = None) -> tuple[dict | None, str]:
     """One card of a requirement's breakdown, checked by the floor and the judge before it is
     filed — `(fields, "")` to file (possibly redrafted once), `(None, why)` to refuse (#392).
 
@@ -1009,7 +1021,7 @@ def vet_issue(fields: dict, *, body_of: Callable[[dict], str], source: str, rubr
                 # breakdown says which and why — the direction an unknown must fail in.
                 log.warning("OPENFACTORY_CARD_JUDGE_UNREADABLE project=%s attempt=%s — the "
                             "requirement's card is NOT filed", project_name, attempt)
-                return None, "a revisão automática não respondeu"
+                return None, _pick(_JUDGE_UNREAD, language)
             log_verdict(project_name, attempt, rubric, said=said)
             if said.passed:
                 return fields, ""

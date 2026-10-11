@@ -83,10 +83,10 @@ class ProductContext(BaseModel):
         if not self.available:
             return f"product module unavailable: {self.reason}"
         out = (f"product module ready on {self.link.docs_repo} — {self.corpus.summary()}"
-               + (f" · glossário: {self.domain.summary()}" if self.domain.facts else ""))
+               + (f" · glossary: {self.domain.summary()}" if self.domain.facts else ""))
         warnings = list(getattr(self.link, "warnings", None) or [])
         if warnings:
-            out += f" · {len(warnings)} aviso(s) de configuração: " + " | ".join(warnings)
+            out += f" · {len(warnings)} configuration warning(s): " + " | ".join(warnings)
         return out
 
 

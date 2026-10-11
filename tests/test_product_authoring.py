@@ -279,7 +279,7 @@ def test_the_first_yes_writes_the_requirement_on_the_base_and_opens_no_review_re
     which promises nothing — so it is committed on the base, and nothing is left for a review, a
     merge or a rescue."""
     forge = _Forge()
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
                               number=12, asked_by="Alice", date="2026-07-26", forge=forge)
     assert res.ok and res.merged is True and res.number == 12
     assert res.ref == "main" and res.url == ""
@@ -299,7 +299,7 @@ def test_a_base_that_refuses_the_write_takes_the_review_request_road(protect_mai
     branch with a review request, and the client hears ADR-0032's sentence for it."""
     origin = protect_main
     forge = _Forge()
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
                               number=12, forge=forge)
     assert res.ok and res.ref == branch_for(12, _draft().title)
     assert forge.did("open_pr"), "the base refused and no review request was opened"
@@ -312,7 +312,7 @@ def test_a_base_that_refuses_the_write_takes_the_review_request_road(protect_mai
 @pytest.mark.usefixtures("protect_main")
 def test_a_proposal_commits_the_file_and_opens_a_pull_request(origin):
     forge = _Forge()
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
                               number=12, asked_by="Alice", date="2026-07-26", forge=forge)
     assert res.ok and res.url == f"https://forge/{DOCS}/pull/1"
     assert res.ref == branch_for(12, _draft().title)
@@ -339,7 +339,7 @@ def test_the_proposal_LANDS_and_the_branch_it_landed_from_is_removed(origin):
     re-examines it for ever. `req/0002` was found in exactly that state on the live client
     repository, outliving its squash-merged pull request."""
     forge = _Forge()
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=12,
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=12,
                               forge=forge)
 
     assert res.merged is True
@@ -355,7 +355,7 @@ def test_a_merge_that_never_LANDED_is_not_announced_as_landed_and_keeps_its_bran
     "we ran a command" — and the branch must SURVIVE, because deleting it on an assumed merge
     deletes the requirement."""
     forge = _Forge(merges=False)
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=12,
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=12,
                               forge=forge)
 
     assert res.ok is True and res.merged is False
@@ -366,7 +366,7 @@ def test_a_retry_finds_its_own_pull_request_instead_of_opening_a_second(origin):
     """Slack retries, a worker replaced mid-operation, a signal delivered twice — each would
     otherwise leave a second PR proposing the same requirement."""
     forge = _Forge(proposed={branch_for(12, _draft().title): "https://forge/x/pull/1"})
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
                               number=12, forge=forge)
     assert res.ok and res.existed is True
     assert forge.did("open_pr") == [], "a second pull request was opened"
@@ -376,7 +376,7 @@ def test_a_retry_finds_its_own_pull_request_instead_of_opening_a_second(origin):
 def test_the_conflicts_lead_the_pull_request_body(origin):
     """They are the reason a reviewer might reject the proposal outright, so they go first."""
     forge = _Forge()
-    propose_requirement(
+    propose_requirement(language="pt-BR", 
         docs_repo=DOCS, clone_url=str(origin), number=13, forge=forge,
         draft=_draft(conflicts=[Conflict(requirement=7, kind="contradicts",
                                          explanation="REQ-0007 says immutable")]))
@@ -386,7 +386,7 @@ def test_the_conflicts_lead_the_pull_request_body(origin):
 
 
 def test_an_unreachable_docs_repo_reports_instead_of_raising(tmp_path):
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(tmp_path / "nope"),
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(tmp_path / "nope"),
                               draft=_draft(), number=1, forge=_Forge())
     assert res.ok is False and "could not clone" in res.detail
 
@@ -403,7 +403,7 @@ def test_a_pushed_branch_whose_PR_failed_says_the_work_is_not_lost(origin):
     and `OPENFACTORY_PRODUCT_PR_FAILED` carries branch, base and repo into the log. What the client gets is
     that nothing was lost and the team has it.
     """
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
                               number=14, forge=_Forge(opens=False))
     assert res.ok is False
     assert res.ref, "the branch is not recoverable by the team"
@@ -423,7 +423,7 @@ def test_the_two_QUESTIONS_go_to_the_port_and_name_the_DOCUMENTATION_repository(
     so `list_branches(repo)` and `pr_for_head(head, repo=)` take one, exactly as `clone_url` does.
     An implementation that ignored the argument would answer confidently about the wrong repo."""
     forge = _Forge()
-    propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=16,
+    propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=16,
                         forge=forge)
 
     assert ("list_branches", DOCS) in forge.asked
@@ -450,7 +450,7 @@ def test_a_retry_CONVERGES_on_its_own_branch_even_with_a_rival_above_it(origin):
     ours, rival = "req/0001-editable-reconciled-statements", "req/0002-outra-coisa"
     forge = _Forge(("main", ours, rival))
 
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=1,
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=1,
                               forge=forge)
 
     assert res.number == 1, f"a retry minted a second number for one draft: {res.ref}"
@@ -468,7 +468,7 @@ def test_a_requirement_already_on_the_remote_with_no_request_SAYS_that(origin, c
     `number` field exists to prevent."""
     ours = "req/0001-editable-reconciled-statements"
     with caplog.at_level(logging.WARNING, logger="openfactory.product"):
-        res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=1,
+        res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=1,
                                   forge=_Forge(("main", ours)))
 
     assert res.ok is False
@@ -507,7 +507,7 @@ def test_a_branch_list_that_could_NOT_be_read_mints_NOTHING(origin, caplog):
     So nothing is cloned, nothing is committed and nothing is pushed — asserted against the origin,
     not against the return value."""
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=17,
+        res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=17,
                                   forge=_Forge(branches_unreadable=True))
 
     assert res.ok is False
@@ -525,7 +525,7 @@ def test_an_unreadable_PRIOR_PROPOSAL_never_opens_a_second_one(origin, caplog):
     `if not pr: create_one()` puts "there is none" and "I could not ask" back together and files the
     duplicate on a transient error. The check is `is None`."""
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=18,
+        res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=18,
                                   forge=_Forge(prs_unreadable=True))
 
     assert res.ok is False
@@ -546,7 +546,7 @@ def test_a_caller_that_handed_NO_forge_has_not_READ_anything(origin, caplog):
     The behavioural half first, then the two helpers directly with their positive twins — the
     behavioural drive can only reach the branch half, because one absent forge answers both."""
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
+        res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
                                   number=19)
 
     assert res.ok is False and res.number == 0
@@ -579,7 +579,7 @@ def test_the_BASELINE_asks_the_same_question_and_refuses_the_same_unreadable_ans
 
     files = {"requirements/0001-observed.md": "# REQ-0001 — observado\n"}
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        refused = propose_baseline(docs_repo=DOCS, clone_url=str(origin), files=files,
+        refused = propose_baseline(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), files=files,
                                    product="books", observations=1, covered=["fecho"],
                                    forge=_Forge(prs_unreadable=True))
 
@@ -589,7 +589,7 @@ def test_the_BASELINE_asks_the_same_question_and_refuses_the_same_unreadable_ans
 
     # the positive twin, or the refusal above would be indistinguishable from a function that
     # never writes at all
-    landed = propose_baseline(docs_repo=DOCS, clone_url=str(origin), files=files,
+    landed = propose_baseline(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), files=files,
                               product="books", observations=1, covered=["fecho"],
                               forge=_Forge())
     assert landed.ok and landed.ref == "product/baseline"
@@ -614,7 +614,7 @@ def test_on_a_NON_github_forge_the_WHOLE_ceremony_happens(origin):
     (2026-08-06)."""
     forge = _Forge(("main", "req/0002-relatorio-mensal"))
 
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin),
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin),
                               draft=_draft(title="Exportar extratos"), number=2,
                               forge_kind="azure_devops", token="an-azure-pat", forge=forge)
 
@@ -643,7 +643,7 @@ def test_a_review_request_that_could_NOT_open_is_never_reported_as_opened(origin
     branch and the number. What must never happen is the opposite: `ok=True` with no URL."""
     forge = _Forge(opens=False)
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
+        res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(),
                                   number=20, forge=forge)
 
     assert res.ok is False and res.url == ""
@@ -657,7 +657,7 @@ def test_a_review_request_that_could_NOT_open_is_never_reported_as_opened(origin
 
 
 def test_a_custom_requirements_dir_is_honoured(origin):
-    res = propose_requirement(docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=15,
+    res = propose_requirement(language="pt-BR", docs_repo=DOCS, clone_url=str(origin), draft=_draft(), number=15,
                               requirements_dir="specs/", forge=_Forge())
     assert res.ok
     out = subprocess.run(["git", "ls-tree", "-r", "--name-only", res.ref],

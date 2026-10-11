@@ -572,10 +572,11 @@ _DIAGNOSIS_MARKERS = ("🔧", "tech lead", "tech-lead", "diagnóstico", "diagnos
 #: repeats an answer that has already failed, and says it with the confidence of a clean read. The
 #: qualifier travels WITH the text, as the fallback below does, because a flag returned beside a
 #: string is a flag one caller forgets to read.
-_HISTORY_UNREADABLE = ("(não consegui ler o histórico deste ticket — isto NÃO quer dizer que "
-                       "ninguém comentou nele. Pode já existir um diagnóstico ou uma instrução de "
-                       "uma pessoa que eu não estou vendo; leve isso em conta antes de propor "
-                       "qualquer coisa.)")
+#: IN ENGLISH (#535): it is read by a model, never by a person, as every instruction to the role is.
+_HISTORY_UNREADABLE = ("(I could not read this ticket's history — this does NOT mean nobody "
+                       "commented on it. A diagnosis, or an instruction from a person, may already "
+                       "be there that I cannot see; take that into account before proposing "
+                       "anything.)")
 
 
 def _last_diagnosis(tracker, number: str) -> str:
@@ -622,7 +623,7 @@ def _last_diagnosis(tracker, number: str) -> str:
     # it here.
     if comments:
         last = comments[-1]
-        who = f"de {last.author}" if last.author else "de autor não identificado"
-        return (f"(sem diagnóstico do tech-lead — abaixo, o último comentário do ticket, {who})"
+        who = f"by {last.author}" if last.author else "by an author not identified"
+        return (f"(no diagnosis from the tech lead — below, the ticket's last comment, {who})"
                 f"\n\n{(last.body or '')[:6000]}")
     return ""

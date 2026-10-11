@@ -191,8 +191,8 @@ Return ONLY a JSON object (no prose, no code fences):
 `why` is one short sentence in the product's terms: what it unblocks, who is waiting, what it
 completes. Never a technical reason.
 `batch` groups tickets that ONLY MAKE SENSE DELIVERED TOGETHER — name what the client will be able
-to try once the whole group is done, in their words ("emitir e cancelar uma nota", not "backend do
-módulo fiscal"). Keep grouped items adjacent in the order. Leave it empty when a ticket delivers
+to try once the whole group is done, in their words ("issue and cancel an invoice", not "the tax
+module's backend"). Keep grouped items adjacent in the order. Leave it empty when a ticket delivers
 something testable on its own, which is the common case: group only when half of it would be
 untestable, never to tidy the list up.
 Hold something back when starting it now would be wasteful — it duplicates work already in flight,
@@ -214,7 +214,7 @@ def _named(numbers: list[str], titles: dict[str, str] | None = None) -> str:
     by_ref = {canonical_ref(k): v for k, v in (titles or {}).items()}
     return " · ".join(f"#{n}" + (f": {by_ref[canonical_ref(n)]}" if by_ref.get(canonical_ref(n))
                                  else "") for n in numbers) \
-        or "nada"
+        or "nothing"
 
 
 #: HOW MUCH OF A CANDIDATE THE ROLE READS (#567), per card, so forty candidates stay a prompt.
@@ -300,7 +300,7 @@ def proposal_prompt(*, readiness: Readiness, candidates: list[Ticket], limit: in
     """
     lines = [
         f"Right now — queued in TO-DO: {_named(readiness.todo, titles)}. "
-        f"Being worked on: {readiness.in_progress or 'nada'}. "
+        f"Being worked on: {readiness.in_progress or 'nothing'}. "
         f"Propose what should start next, in order, at most {limit} items.",
         "",
         "You are choosing what the product gains soonest — what unblocks other work, what finishes "
@@ -322,8 +322,8 @@ def proposal_prompt(*, readiness: Readiness, candidates: list[Ticket], limit: in
     hidden = max(0, (total_candidates or len(candidates)) - len(candidates))
     if hidden:
         lines.append(
-            f"- (+{hidden} outros candidatos omitidos por orçamento deste prompt, NÃO por falta "
-            f"de acesso — não afirme que esta lista é tudo o que existe pronto)")
+            f"- (+{hidden} more candidates left out for this prompt's budget, NOT for lack of "
+            f"access — do not claim this list is everything that is ready)")
     if readiness.parked:
         # CALCULATED AND THEN THROWN AWAY. `readiness()` reads labels and bodies to decide these
         # are somebody's (triage.human_owned / is_container) — the expensive part — and the prompt

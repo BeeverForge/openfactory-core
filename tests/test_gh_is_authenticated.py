@@ -110,7 +110,13 @@ def test_a_failed_PR_tells_the_CLIENT_something_they_can_act_on():
     detail = _SRC[i:i + 900].split("return WriteResult")[1]
     assert "{branch}" not in detail, "the branch name is still interpolated into the client's text"
     assert "by hand" not in detail, "the client is still told to open a pull request themselves"
-    assert "Nada se perdeu" in detail, "the client is not told the work is safe"
+    assert '_w(language, "pr_failed")' in detail, "the detail left the catalogue"
+    from openfactory.product.authoring import _WRITES
+
+    said = {lang: _WRITES[lang]["pr_failed"] for lang in ("pt-BR", "en")}
+    assert "Nada se perdeu" in said["pt-BR"] and "Nothing was lost" in said["en"], (
+        "the client is not told the work is safe")
+    assert not any("by hand" in s or "{branch}" in s for s in said.values()), said
 
     # and the old sentence would now be caught even if it came back
     old = ("the branch req/0001-x was pushed but the pull request could not be opened; "

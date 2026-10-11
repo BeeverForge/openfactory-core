@@ -93,6 +93,36 @@ class Episode:
     ts: str = ""
 
 
+#: WHAT THE MEMORY SAYS TO A PERSON, in the project's language (#535) — `techlead/voice.py`'s
+#: shape, a key and its sentence per language. It is the operator's escalation: "já vi isso em 4
+#: tickets" reached an `en` project's channel as it was written.
+MEMORY: dict[str, dict[str, str]] = {
+    "where": {"pt-BR": "em {n} ticket{s}", "en": "in {n} ticket{s}"},
+    "worked_every_time": {"pt-BR": "já vi isso {where} e retomar resolveu todas as vezes",
+                          "en": "I have seen this {where}, and resuming fixed it every time"},
+    "never_worked": {
+        "pt-BR": "já vi isso {where} e retomar não resolveu nenhuma das {failed} vezes que tentei",
+        "en": "I have seen this {where}, and resuming fixed it none of the {failed} times I tried"},
+    "mixed": {"pt-BR": "já vi isso {where}: retomar resolveu {worked} e não resolveu {failed}",
+              "en": "I have seen this {where}: resuming fixed it {worked} times and not "
+                    "{failed} times"},
+    "not_known_yet": {"pt-BR": "já vi isso {where}, mas ainda não sei se o que fiz resolveu",
+                      "en": "I have seen this {where}, but I do not know yet whether what I did "
+                            "fixed it"},
+    "reason": {"pt-BR": "retomar já falhou {failed}x nesta mesma falha e nunca resolveu",
+               "en": "resuming already failed {failed} times on this same failure and never "
+                     "fixed it"},
+    "say": {"pt-BR": "Não vou tentar de novo: {phrase}. Isso precisa de alguém olhando a causa, "
+                     "não de mais uma tentativa.",
+            "en": "I will not try again: {phrase}. This needs somebody looking at the cause, not "
+                  "one more attempt."},
+    "notes": {"pt-BR": "history: {attempts} tentativas, {worked} resolveram, {failed} não",
+              "en": "history: {attempts} attempts, {worked} fixed it, {failed} did not"},
+    "needs_a_person": {"pt-BR": " — precisa de alguém olhando a causa",
+                       "en": " — it needs somebody looking at the cause"},
+}
+
+
 @dataclass
 class History:
     """What the record says about one signature."""
@@ -115,22 +145,19 @@ class History:
         looked, and treating it as failure would give up on something that may be working."""
         return remedy == "retry" and self.failed >= GIVE_UP_AFTER and self.worked == 0
 
-    def phrase(self) -> str:
-        """One sentence a person can act on, in the client's terms. This is the whole value of
-        having a memory: "não consegui" is a shrug, "já vi isso 4 vezes e retomar nunca resolveu"
-        tells somebody where to look."""
+    def phrase(self, language: str | None = None) -> str:
+        """One sentence a person can act on, in the client's terms and the project's language.
+        This is the whole value of having a memory: "I could not" is a shrug, "I have seen this in
+        4 tickets and resuming never fixed it" tells somebody where to look."""
+        from openfactory.techlead.voice import say
+
         if not self.attempts:
             return ""
-        where = f"em {self.seen} ticket{'s' if self.seen != 1 else ''}"
-        if self.worked and not self.failed:
-            return f"já vi isso {where} e retomar resolveu todas as vezes"
-        if self.failed and not self.worked:
-            return (f"já vi isso {where} e retomar não resolveu nenhuma das "
-                    f"{self.failed} vezes que tentei")
-        if self.worked and self.failed:
-            return (f"já vi isso {where}: retomar resolveu {self.worked} "
-                    f"e não resolveu {self.failed}")
-        return f"já vi isso {where}, mas ainda não sei se o que fiz resolveu"
+        where = say(MEMORY, "where", language, n=self.seen, s="s" if self.seen != 1 else "")
+        key = ("worked_every_time" if self.worked and not self.failed
+               else "never_worked" if self.failed and not self.worked
+               else "mixed" if self.worked and self.failed else "not_known_yet")
+        return say(MEMORY, key, language, where=where, worked=self.worked, failed=self.failed)
 
 
 def collapse(episodes: list[Episode]) -> list[Episode]:
@@ -169,7 +196,7 @@ def learn(episodes: list[Episode]) -> dict[str, History]:
     return out
 
 
-def temper(remedy, history: History | None):
+def temper(remedy, history: History | None, language: str | None = None):
     """The remedy, corrected by what actually happened when it was tried before.
 
     ONE DIRECTION ONLY. History can withdraw a remedy that has failed; it can never propose one
@@ -180,16 +207,17 @@ def temper(remedy, history: History | None):
 
     from dataclasses import replace
 
+    from openfactory.techlead.voice import say
+
     return replace(
         remedy,
         action="escalate",
         wait_seconds=0,
         attempts_left=0,
-        reason=f"retomar já falhou {history.failed}x nesta mesma falha e nunca resolveu",
-        say=(f"Não vou tentar de novo: {history.phrase()}. "
-             f"Isso precisa de alguém olhando a causa, não de mais uma tentativa."),
-        notes=[*remedy.notes, f"history: {history.attempts} tentativas, "
-                              f"{history.worked} resolveram, {history.failed} não"],
+        reason=say(MEMORY, "reason", language, failed=history.failed),
+        say=say(MEMORY, "say", language, phrase=history.phrase(language)),
+        notes=[*remedy.notes, say(MEMORY, "notes", language, attempts=history.attempts,
+                                  worked=history.worked, failed=history.failed)],
     )
 
 

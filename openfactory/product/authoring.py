@@ -383,6 +383,8 @@ def propose_requirement(
     #: Delete the argument and the parameter in the same commit, never one of the two.
     token: str = "",
     forge_kind: str = GITHUB,
+    #: the project's language: what a person reads, and the commit and pull request, are in it
+    language: str | None = None,
 ) -> WriteResult:
     """Write one requirement to the base — directly — and, only when the base refuses, propose it
     on a branch with a review request and land that.
@@ -435,10 +437,7 @@ def propose_requirement(
                   "not be "
                   "listed, so %04d was NOT minted and nothing was written", docs_repo, number)
         return WriteResult(ok=False,
-                           detail="não consegui conferir o que já foi escrito antes, então não "
-                                  "registrei nada. Sem essa conferência eu poderia gravar este "
-                                  "texto com o número de outro requisito. Nada se perdeu — me "
-                                  "peça de novo daqui a pouco.")
+                           detail=_w(language, "branches_unreadable"))
     own = [n for n, s in branches if s == own_slug]
     rivals = [n for n, s in branches if s != own_slug]
     if own:
@@ -487,10 +486,7 @@ def propose_requirement(
                   "whether this requirement was already proposed; nothing was written", docs_repo,
                   branch)
         return WriteResult(ok=False,
-                           detail="não consegui verificar se esse requisito já tinha sido escrito "
-                                  "antes, então não registrei nada — assim não fico com dois "
-                                  "pedidos para a mesma coisa. Nada se perdeu; me peça de novo "
-                                  "daqui a pouco.")
+                           detail=_w(language, "prior_unreadable"))
     if found.strip():
         return WriteResult(ok=True, url=found.strip(), ref=branch, existed=True, number=number,
                            detail="a pull request for this requirement already exists")
@@ -531,10 +527,7 @@ def propose_requirement(
                     "the "
                     "remote with no pull request; not re-pushing it", docs_repo, branch)
         return WriteResult(ok=False, ref=branch, number=number,
-                           detail="esse requisito já está escrito e guardado em segurança; o que "
-                                  "falta é abrir o pedido de revisão, e isso eu não consigo fazer "
-                                  "daqui. Nada se perdeu e nada precisa ser reescrito: me peça de "
-                                  "novo mais tarde, ou peçam ao time para dar esse último passo.")
+                           detail=_w(language, "already_pushed"))
 
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-req-"))
     try:
@@ -604,11 +597,7 @@ def propose_requirement(
                       docs_repo, listed)
             return WriteResult(
                 ok=False,
-                detail=f"já existe um requisito acordado com esse mesmo título (o {listed}), e "
-                       f"este texto não diz que veio no lugar dele. Não registrei nada: deixar os "
-                       f"dois valendo faria a fábrica defender um ou outro conforme lesse "
-                       f"primeiro, e aposentar uma promessa sozinha não é minha decisão. Me diga "
-                       f"que este texto substitui o {listed} e eu registro.")
+                detail=_w(language, "twin_agreed", listed=listed))
         unagreed = sorted(n for n, _ in twins)
         if unagreed or dead:
             merged = sorted(set(draft.supersedes) | set(unagreed))
@@ -638,10 +627,7 @@ def propose_requirement(
                       "%04d — nothing was committed", docs_repo,
                       ", ".join(f"{n:04d}" for n in failed), number)
             return WriteResult(ok=False,
-                               detail="esse texto substitui um requisito que já existe, mas não "
-                                      "consegui marcar a versão antiga como substituída. Não "
-                                      "registrei nada — assim não ficam duas versões valendo ao "
-                                      "mesmo tempo. O time foi avisado e resolve.")
+                               detail=_w(language, "supersede_failed"))
         for path_of_retired in retired:
             _git(["add", "--", path_of_retired], cwd=tmp)
 
@@ -649,7 +635,8 @@ def propose_requirement(
         # THE PRODUCT ROLE WRITES REQUIREMENTS AND NOTHING ELSE (#265 §6.4) — straight to the
         # base when it may, so what it staged is checked here, not only when a sweep lands it
         refused = _refused_staging(tmp, [requirements_dir or "requirements"],
-                                   docs_repo=docs_repo, writer="propose_requirement")
+                                   docs_repo=docs_repo, writer="propose_requirement",
+                                   language=language)
         if refused:
             return refused
         message = (f"REQ-{number:04d}: {draft.title}\n\n"
@@ -699,9 +686,7 @@ def propose_requirement(
             log.error("OPENFACTORY_PRODUCT_PR_FAILED branch=%s base=%s repo=%s — pushed, no PR",
                       branch, base, docs_repo)
             return WriteResult(ok=False, ref=branch, number=number,
-                               detail="escrevi o requisito e guardei em segurança, mas não "
-                                      "consegui abrir o pedido de revisão. Nada se perdeu — o time "
-                                      "foi avisado e conclui isso.")
+                               detail=_w(language, "pr_failed"))
         # MERGE IT. The content was approved by an authorised person in the channel, in business
         # language; the pull request is mechanism. Leaving it open costs three things: a person must
         # perform a git operation on a business artefact, the client gets a GitHub link they cannot
@@ -923,6 +908,238 @@ def _marker(markers: dict[str, str], language: str | None) -> str:
     return _pick(markers, language)
 
 
+#: WHAT THE DOCS REPOSITORY'S WRITES SAY, IN THE PROJECT'S LANGUAGE (#535). Each was a Portuguese
+#: literal welded into the write that said it: an `en` project read "não encontrei o requisito 7"
+#: when a requirement was missing, and its docs repository took commits and pull requests titled
+#: "requisito 0007: acordado por …". The sentence a person reads when a write did not happen (or
+#: happened already), the commit message the docs repository keeps, and the pull request a reviewer
+#: opens — each in the language the project speaks.
+_WRITES = {
+    "pt-BR": {
+        "branches_unreadable": (
+            "não consegui conferir o que já foi escrito antes, então não registrei nada. Sem essa "
+            "conferência eu poderia gravar este texto com o número de outro requisito. Nada se "
+            "perdeu — me peça de novo daqui a pouco."),
+        "prior_unreadable": (
+            "não consegui verificar se esse requisito já tinha sido escrito antes, então não "
+            "registrei nada — assim não fico com dois pedidos para a mesma coisa. Nada se perdeu; "
+            "me peça de novo daqui a pouco."),
+        "already_pushed": (
+            "esse requisito já está escrito e guardado em segurança; o que falta é abrir o pedido "
+            "de revisão, e isso eu não consigo fazer daqui. Nada se perdeu e nada precisa ser "
+            "reescrito: me peça de novo mais tarde, ou peçam ao time para dar esse último passo."),
+        "twin_agreed": (
+            "já existe um requisito acordado com esse mesmo título (o {listed}), e este texto não "
+            "diz que veio no lugar dele. Não registrei nada: deixar os dois valendo faria a "
+            "fábrica defender um ou outro conforme lesse primeiro, e aposentar uma promessa "
+            "sozinha não é minha decisão. Me diga que este texto substitui o {listed} e eu "
+            "registro."),
+        "supersede_failed": (
+            "esse texto substitui um requisito que já existe, mas não consegui marcar a versão "
+            "antiga como substituída. Não registrei nada — assim não ficam duas versões valendo ao "
+            "mesmo tempo. O time foi avisado e resolve."),
+        "pr_failed": (
+            "escrevi o requisito e guardei em segurança, mas não consegui abrir o pedido de "
+            "revisão. Nada se perdeu — o time foi avisado e conclui isso."),
+        "rescued_title": "Requisito proposto: {slug}",
+        "rescued_body": (
+            "Aberto pela varredura de propostas que ficaram fora da base: o texto tinha sido "
+            "escrito e enviado, mas o pedido de revisão não chegou a abrir. Nada foi reescrito — "
+            "este pedido é sobre exatamente o que já estava salvo."),
+        "staged_outside": "não gravei nada: {staged} ficaria fora do que este registro escreve",
+        "fact_outside": "não registrei: o fato iria para `{path}`, fora de `domain/`",
+        "fact_title": "Fato: {term}",
+        "fact_intro": "Anotado numa conversa com {said_by}.",
+        "fact_commit": "fato: {term}\n\nDito por {said_by}{where}.",
+        "fact_where": " em {where}",
+        "not_direct": "o repositório não aceita registro direto ({out})",
+        "not_direct_by_hand": "o repositório não aceita registro direto ({out}); anote à mão em "
+                              "{path}",
+        "undeclared": "(não declarado)",
+        "no_decision": "não entendi qual foi a decisão para registrar",
+        "decision_not_found": "não encontrei o requisito {number} para registrar a decisão",
+        "decision_duplicate": "essa decisão já estava registrada hoje",
+        "decision_no_section": (
+            "o requisito {number} não tem a tabela de decisões no documento, então não consegui "
+            "gravar lá. Avisei o time."),
+        "decision_commit": "requisito {number:04d}: decisão registrada por {by}",
+        "accept_not_found": "não encontrei o requisito {number} para aceitar",
+        "accept_already": "esse requisito já estava acordado",
+        "accept_commit": "requisito {number:04d}: acordado por {by}",
+        "drop_not_found": "não encontrei o requisito {number} para dar como abandonado",
+        "drop_already": "o requisito {number} já estava dado como abandonado",
+        "drop_commit": "requisito {number:04d}: abandonado por {by}",
+        "accept_refused_dropped": (
+            "o requisito {number} tinha sido dado como abandonado, então não há promessa a "
+            "registrar — não mexi em nada. Se ele voltou a valer, me peça de novo e eu escrevo o "
+            "texto outra vez para vocês confirmarem."),
+        "accept_refused_superseded": (
+            "o requisito {number} já tinha sido substituído por outro, então acordar com ele seria "
+            "assumir um texto que já não vale — não mexi em nada. Me diga o número do que ficou no "
+            "lugar dele e eu registro esse."),
+        "accept_refused_unknown": (
+            "não consegui registrar o acordo do requisito {number}: o texto dele está num formato "
+            "que não reconheço com segurança. Não mudei nada — o time foi avisado e resolve."),
+        "drop_refused_superseded": (
+            "o requisito {number} já tinha sido substituído por outro, então ele já não valia — "
+            "não mexi em nada. Se o que você quer é abandonar o texto que ficou no lugar dele, me "
+            "diga o número dele."),
+        "drop_refused_unknown": (
+            "não consegui dar o requisito {number} como abandonado: o texto dele está num formato "
+            "que não reconheço com segurança. Não mudei nada — o time foi avisado e resolve."),
+        "baseline_unreadable": (
+            "não consegui verificar se esse levantamento já tinha sido feito antes, então não "
+            "escrevi nada — assim não fico com dois levantamentos iguais para vocês revisarem. Me "
+            "peça de novo daqui a pouco."),
+        "baseline_already": "o levantamento já tinha sido proposto",
+        "baseline_rescued_title": "Levantamento inicial sobre {product}",
+        "baseline_rescued_body": (
+            "A branch deste levantamento já tinha sido enviada numa tentativa anterior que não "
+            "chegou a abrir o pull request. Este PR abre o que ficou faltando — o conteúdo é o "
+            "daquela passagem, e continua tudo como `observed`."),
+        "baseline_opened_now": ("o levantamento já estava enviado; só faltava abrir o pedido de "
+                                "revisão, e abri agora"),
+        "baseline_stuck": ("a branch {branch} já está enviada de uma tentativa anterior e o pull "
+                           "request não abriu; abra à mão contra {base}"),
+        "baseline_commit": (
+            "baseline: {observations} observações sobre {product}\n\nLeitura do código como ele "
+            "está hoje. Tudo entra como `observed` — nada aqui é promessa até alguém confirmar."),
+        "baseline_body_reading": (
+            "**Isto é uma LEITURA do código, não um conjunto de requisitos.** {observations} "
+            "observações sobre o que o sistema parece fazer hoje — cada uma entra como "
+            "`observed`, com a evidência que a sustenta."),
+        "baseline_body_promise": (
+            "Uma observação vira promessa quando uma pessoa a confirma e muda o status para "
+            "`accepted`. Até lá a fábrica NÃO defende nada disto: um bug lido do código é "
+            "indistinguível de uma funcionalidade."),
+        "baseline_body_areas": "Áreas cobertas nesta passagem: {areas}",
+        "baseline_whole_repo": "(o repositório)",
+        "baseline_body_not": (
+            "O que este PR **não** garante: que a cobertura seja completa, nem que cada "
+            "comportamento observado seja intencional. As duas coisas são decisão de quem revisa."),
+        "baseline_title": "Levantamento inicial: {observations} observações sobre {product}",
+        "baseline_pr_failed": ("a branch {branch} foi enviada mas o pull request não abriu; abra à "
+                               "mão contra {base}"),
+    },
+    "en": {
+        "branches_unreadable": (
+            "I could not check what was already written, so I recorded nothing. Without that check "
+            "I could have saved this text under another requirement's number. Nothing was lost — "
+            "ask me again in a moment."),
+        "prior_unreadable": (
+            "I could not check whether this requirement had already been written, so I recorded "
+            "nothing — that way there are not two requests for the same thing. Nothing was lost; "
+            "ask me again in a moment."),
+        "already_pushed": (
+            "this requirement is already written and safely kept; what is missing is opening the "
+            "review request, and I cannot do that from here. Nothing was lost and nothing needs "
+            "rewriting: ask me again later, or ask the team to take that last step."),
+        "twin_agreed": (
+            "an agreed requirement with this same title already exists ({listed}), and this text "
+            "does not say it takes its place. I recorded nothing: keeping both in force would have "
+            "the factory defend one or the other depending on which it read first, and retiring a "
+            "promise on my own is not my decision. Tell me this text replaces {listed} and I will "
+            "record it."),
+        "supersede_failed": (
+            "this text replaces an existing requirement, but I could not mark the old version as "
+            "replaced. I recorded nothing — that way two versions are not in force at once. The "
+            "team has been told and will sort it out."),
+        "pr_failed": (
+            "I wrote the requirement and kept it safe, but I could not open the review request. "
+            "Nothing was lost — the team has been told and will finish it."),
+        "rescued_title": "Proposed requirement: {slug}",
+        "rescued_body": (
+            "Opened by the sweep of proposals left outside the base: the text had been written and "
+            "pushed, but its review request never opened. Nothing was rewritten — this request is "
+            "about exactly what was already saved."),
+        "staged_outside": "I wrote nothing: {staged} would fall outside what this record writes",
+        "fact_outside": "I did not record it: the fact would go to `{path}`, outside `domain/`",
+        "fact_title": "Fact: {term}",
+        "fact_intro": "Noted in a conversation with {said_by}.",
+        "fact_commit": "fact: {term}\n\nSaid by {said_by}{where}.",
+        "fact_where": " in {where}",
+        "not_direct": "the repository does not accept a direct write ({out})",
+        "not_direct_by_hand": "the repository does not accept a direct write ({out}); note it by "
+                              "hand in {path}",
+        "undeclared": "(not stated)",
+        "no_decision": "I did not understand which decision to record",
+        "decision_not_found": "I did not find requirement {number} to record the decision in",
+        "decision_duplicate": "that decision was already recorded today",
+        "decision_no_section": (
+            "requirement {number} has no decision table in its document, so I could not record it "
+            "there. I told the team."),
+        "decision_commit": "requirement {number:04d}: decision recorded by {by}",
+        "accept_not_found": "I did not find requirement {number} to accept",
+        "accept_already": "this requirement was already agreed",
+        "accept_commit": "requirement {number:04d}: agreed by {by}",
+        "drop_not_found": "I did not find requirement {number} to drop",
+        "drop_already": "requirement {number} was already dropped",
+        "drop_commit": "requirement {number:04d}: dropped by {by}",
+        "accept_refused_dropped": (
+            "requirement {number} had been dropped, so there is no promise to record — I changed "
+            "nothing. If it holds again, ask me and I will write the text again for you to "
+            "confirm."),
+        "accept_refused_superseded": (
+            "requirement {number} had already been replaced by another, so agreeing to it would "
+            "take on a text that no longer holds — I changed nothing. Tell me the number of the "
+            "one that took its place and I will record that one."),
+        "accept_refused_unknown": (
+            "I could not record the agreement of requirement {number}: its text is in a format I "
+            "do not recognise safely. I changed nothing — the team has been told and will sort it "
+            "out."),
+        "drop_refused_superseded": (
+            "requirement {number} had already been replaced by another, so it no longer held — I "
+            "changed nothing. If what you want is to drop the text that took its place, tell me "
+            "its number."),
+        "drop_refused_unknown": (
+            "I could not drop requirement {number}: its text is in a format I do not recognise "
+            "safely. I changed nothing — the team has been told and will sort it out."),
+        "baseline_unreadable": (
+            "I could not check whether this survey had already been made, so I wrote nothing — "
+            "that way you do not get two identical surveys to review. Ask me again in a moment."),
+        "baseline_already": "the survey had already been proposed",
+        "baseline_rescued_title": "First survey of {product}",
+        "baseline_rescued_body": (
+            "This survey's branch had already been pushed by an earlier attempt that never opened "
+            "the pull request. This PR opens what was missing — the content is that pass's, and "
+            "everything is still `observed`."),
+        "baseline_opened_now": ("the survey was already pushed; only its review request was "
+                                "missing, and I opened it now"),
+        "baseline_stuck": ("the branch {branch} was already pushed by an earlier attempt and the "
+                           "pull request did not open; open it by hand against {base}"),
+        "baseline_commit": (
+            "baseline: {observations} observations about {product}\n\nA reading of the code as it "
+            "is today. Everything comes in as `observed` — nothing here is a promise until "
+            "somebody confirms it."),
+        "baseline_body_reading": (
+            "**This is a READING of the code, not a set of requirements.** {observations} "
+            "observations about what the system appears to do today — each comes in as "
+            "`observed`, with the evidence behind it."),
+        "baseline_body_promise": (
+            "An observation becomes a promise when a person confirms it and changes its status to "
+            "`accepted`. Until then the factory defends NONE of this: a bug read off the code is "
+            "indistinguishable from a feature."),
+        "baseline_body_areas": "Areas this pass covered: {areas}",
+        "baseline_whole_repo": "(the repository)",
+        "baseline_body_not": (
+            "What this PR does **not** guarantee: that the coverage is complete, or that every "
+            "observed behaviour is intended. Both are for whoever reviews it to decide."),
+        "baseline_title": "First survey: {observations} observations about {product}",
+        "baseline_pr_failed": ("the branch {branch} was pushed but the pull request did not open; "
+                               "open it by hand against {base}"),
+    },
+}
+
+
+def _w(language: str | None, key: str, **values) -> str:
+    """One of `_WRITES`'s sentences, in `language` (the default and then English when it has no
+    catalogue), with `values` put in."""
+    from openfactory.product.voice import _pick
+
+    text = _pick(_WRITES, language)[key]
+    return text.format(**values) if values else text
+
+
 def filed_by_the_product_role(body: str) -> str:
     """Which of this role's writers opened a card — `requirement`, `request` or `defect` — or `""`
     when none did, which on a board means somebody wrote it there.
@@ -1031,8 +1248,8 @@ def outside_requirements(forge, docs_repo: str, pr: str, requirements_dir: str) 
 
 
 def land_open_proposals(*, docs_repo: str, forge=None, base: str = "main",
-                        token: str = "", requirements_dir: str = "requirements"
-                        ) -> list[str] | None:
+                        token: str = "", requirements_dir: str = "requirements",
+                        language: str | None = None) -> list[str] | None:
     """Get every `req/*` branch INTO THE BASE — opening its review request if missing, then merging.
 
     `[]` = swept, nothing needed landing. `None` = THE SWEEP DID NOT RUN, which is a different fact
@@ -1140,10 +1357,8 @@ def land_open_proposals(*, docs_repo: str, forge=None, base: str = "main",
         if not pr:
             pr = _open_review_request(
                 forge, docs_repo=docs_repo, head=branch, base=base,
-                title=f"Requisito proposto: {branch.split('/', 1)[-1]}",
-                body="Aberto pela varredura de propostas que ficaram fora da base: o texto tinha "
-                     "sido escrito e enviado, mas o pedido de revisão não chegou a abrir. Nada foi "
-                     "reescrito — este pedido é sobre exatamente o que já estava salvo.")
+                title=_w(language, "rescued_title", slug=branch.split('/', 1)[-1]),
+                body=_w(language, "rescued_body"))
             if not pr:
                 log.warning("OPENFACTORY_PRODUCT_ORPHAN_STUCK repo=%s branch=%s — could not open a "
                             "review "
@@ -1200,7 +1415,7 @@ def _mark_superseded(root: Path, requirements_dir: str, numbers: list[int], *,
     for n in numbers or []:
         matches = sorted(folder.glob(f"{n:04d}-*.md")) if folder.is_dir() else []
         if not matches:
-            log.warning("OPENFACTORY_PRODUCT_SUPERSEDE_MISSING requisito %04d não existe", n)
+            log.warning("OPENFACTORY_PRODUCT_SUPERSEDE_MISSING requirement %04d does not exist", n)
             failed.append(n)
             continue
         file = matches[0]
@@ -1214,10 +1429,9 @@ def _mark_superseded(root: Path, requirements_dir: str, numbers: list[int], *,
             # the status above it. Exactly that happened to REQ-0005 on 2026-07-31, hours after
             # `dropped` was introduced: `is_live`, the status reader and the acceptance writer all
             # learned about the new dead state and this writer did not.
-            log.warning("OPENFACTORY_PRODUCT_SUPERSEDE_SKIPPED_DROPPED requisito %04d já foi "
-                        "abandonado "
-                        "por decisão de alguém — o registro de quem decidiu e por quê vale mais "
-                        "que um ponteiro para %04d", n, by)
+            log.warning("OPENFACTORY_PRODUCT_SUPERSEDE_SKIPPED_DROPPED requirement %04d was "
+                        "already dropped by somebody's decision — the record of who decided and "
+                        "why is worth more than a pointer to %04d", n, by)
             continue
         lines = text.splitlines()
         idx = next((i for i, line in enumerate(lines) if _STATUS_RE.match(line)), None)
@@ -1503,8 +1717,8 @@ def _staged_outside(checkout: Path, allowed) -> list[str]:
     return outside([p for p in out.split("\0") if p.strip()], allowed)
 
 
-def _refused_staging(checkout: Path, allowed, *, docs_repo: str, writer: str
-                     ) -> WriteResult | None:
+def _refused_staging(checkout: Path, allowed, *, docs_repo: str, writer: str,
+                     language: str | None = None) -> WriteResult | None:
     """The refusal a DIRECT writer answers when what it staged reaches past what it exists to
     write — or None, and it commits (#265 §6.4). Every writer here that lands on the context
     repository's base with no person between asks this before its commit: the base holds what a
@@ -1514,12 +1728,13 @@ def _refused_staging(checkout: Path, allowed, *, docs_repo: str, writer: str
         return None
     log.error("OPENFACTORY_PRODUCT_WRITE_OUTSIDE repo=%s writer=%s staged=%s — nothing was "
               "committed", docs_repo, writer, staged)
-    return WriteResult(ok=False, detail=f"não gravei nada: {', '.join(staged[:3])} ficaria fora "
-                                        f"do que este registro escreve")
+    return WriteResult(ok=False, detail=_w(language, "staged_outside",
+                                           staged=", ".join(staged[:3])))
 
 
 def record_fact(*, docs_repo: str, clone_url: str, term: str, body: str, said_by: str,
-                where: str = "", base: str = "main", today: str | None = None) -> WriteResult:
+                where: str = "", base: str = "main", today: str | None = None,
+                language: str | None = None) -> WriteResult:
     """Commit one `aprendido` fact straight to the docs branch — deliberately NOT a pull request.
 
     Requirements go through a PR because the factory DEFENDS them once accepted; a fact enters as
@@ -1541,8 +1756,7 @@ def record_fact(*, docs_repo: str, clone_url: str, term: str, body: str, said_by
     if outside([path], FACTS):
         log.error("OPENFACTORY_PRODUCT_FACT_OUTSIDE repo=%s path=%r — a fact lands under domain/ "
                   "only; nothing was written", docs_repo, path)
-        return WriteResult(ok=False, detail=f"não registrei: o fato iria para `{path}`, fora de "
-                                            f"`domain/`")
+        return WriteResult(ok=False, detail=_w(language, "fact_outside", path=path))
 
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-fact-"))
     try:
@@ -1554,24 +1768,26 @@ def record_fact(*, docs_repo: str, clone_url: str, term: str, body: str, said_by
         target = tmp / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
-            render_file([fact], title=f"Fato: {fact.term}",
-                        intro=f"Anotado numa conversa com {said_by}."),
+            render_file([fact], title=_w(language, "fact_title", term=fact.term),
+                        intro=_w(language, "fact_intro", said_by=said_by), language=language),
             encoding="utf-8")
         _git(["add", "--", path], cwd=tmp)
-        refused = _refused_staging(tmp, FACTS, docs_repo=docs_repo, writer="record_fact")
+        refused = _refused_staging(tmp, FACTS, docs_repo=docs_repo, writer="record_fact",
+                                   language=language)
         if refused:
             return refused
         rc, out = _git(["commit", "-m",
-                        f"fato: {fact.term}\n\nDito por {said_by}"
-                        + (f" em {where}" if where else "") + "."], cwd=tmp)
+                        _w(language, "fact_commit", term=fact.term, said_by=said_by,
+                           where=_w(language, "fact_where", where=where) if where else "")],
+                       cwd=tmp)
         if rc != 0:
             return WriteResult(ok=False, detail=f"nothing to commit: {_scrub(out)[-200:]}")
         rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)
         if rc != 0:
             # a protected branch is the docs repo owner's right — say exactly what to do instead
             return WriteResult(ok=False,
-                               detail=f"o repositório não aceita registro direto "
-                                      f"({_scrub(out)[-120:]}); anote à mão em {path}")
+                               detail=_w(language, "not_direct_by_hand", out=_scrub(out)[-120:],
+                                         path=path))
         return WriteResult(ok=True, ref=path)
     finally:
         import shutil
@@ -1831,12 +2047,12 @@ def file_document(*, docs_repo: str, clone_url: str, name: str, data: bytes, mes
 _CELL_UNSAFE = str.maketrans({"|": "\\|", "\n": " ", "\r": " "})
 
 
-def _cell(value: str, limit: int = 400) -> str:
-    return (value or "").translate(_CELL_UNSAFE).strip()[:limit] or "(não declarado)"
+def _cell(value: str, limit: int = 400, language: str | None = None) -> str:
+    return (value or "").translate(_CELL_UNSAFE).strip()[:limit] or _w(language, "undeclared")
 
 
 def add_decision_row(text: str, *, day: str, decision: str, who: str,
-                     where: str = "") -> tuple[str, str]:
+                     where: str = "", language: str | None = None) -> tuple[str, str]:
     """`(updated_text, outcome)` — append one row to the decision register.
 
     `outcome` is "written", "no-section" (the file predates the template, or somebody removed it)
@@ -1853,7 +2069,8 @@ def add_decision_row(text: str, *, day: str, decision: str, who: str,
         return text, "no-section"
     start, end = span
     body = text[start:end]
-    row = f"| {day} | {_cell(decision)} | {_cell(who + (f' — {where}' if where else ''), 200)} |"
+    row = (f"| {day} | {_cell(decision, language=language)} | "
+           f"{_cell(who + (f' — {where}' if where else ''), 200, language=language)} |")
     if row.strip() in {line.strip() for line in body.splitlines()}:
         # the same decision, the same day, the same person: a retried confirmation, not a second
         # decision. Writing it twice would make one act look like two in the only record that
@@ -1867,7 +2084,8 @@ def add_decision_row(text: str, *, day: str, decision: str, who: str,
 
 def record_decision(*, docs_repo: str, clone_url: str, path: str, number: int,
                     decision: str, decided_by: str, where: str = "", base: str = "main",
-                    today: str | None = None) -> WriteResult:
+                    today: str | None = None,
+                    language: str | None = None) -> WriteResult:
     """Write one decision into a requirement's register — THE WRITER THAT DID NOT EXIST.
 
     The register was rendered by `render_requirement`, read by `corpus._decision_rows`, and
@@ -1890,7 +2108,7 @@ a conversation that scrolls. The role said it better than anybody: *"if this onl
 
     day = today or datetime.datetime.now(datetime.UTC).date().isoformat()
     if not (decision or "").strip():
-        return WriteResult(ok=False, detail="não entendi qual foi a decisão para registrar")
+        return WriteResult(ok=False, detail=_w(language, "no_decision"))
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-decision-"))
     try:
         rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
@@ -1901,14 +2119,13 @@ a conversation that scrolls. The role said it better than anybody: *"if this onl
         target = tmp / path
         if not target.is_file():
             return WriteResult(ok=False,
-                               detail=f"não encontrei o requisito {number} para registrar a "
-                                      f"decisão")
+                               detail=_w(language, "decision_not_found", number=number))
         text = target.read_text(encoding="utf-8")
         updated, outcome = add_decision_row(text, day=day, decision=decision,
-                                            who=decided_by, where=where)
+                                            who=decided_by, where=where, language=language)
         if outcome == "duplicate":
             return WriteResult(ok=True, ref=path, existed=True,
-                               detail="essa decisão já estava registrada hoje")
+                               detail=_w(language, "decision_duplicate"))
         if outcome == "no-section":
             # SAID, not silently appended. A requirement written before the template had this
             # section is a real state in the live client's base, and inventing the heading here
@@ -1919,22 +2136,21 @@ a conversation that scrolls. The role said it better than anybody: *"if this onl
                         "no '%s' section, so there is nowhere to record a decision",
                         docs_repo, path, DECISIONS_HEADING)
             return WriteResult(ok=False,
-                               detail=f"o requisito {number} não tem a tabela de decisões no "
-                                      f"documento, então não consegui gravar lá. Avisei o time.")
+                               detail=_w(language, "decision_no_section", number=number))
         target.write_text(updated, encoding="utf-8")
         _git(["add", "--", path], cwd=tmp)
-        refused = _refused_staging(tmp, [path], docs_repo=docs_repo, writer="record_decision")
+        refused = _refused_staging(tmp, [path], docs_repo=docs_repo, writer="record_decision",
+                                   language=language)
         if refused:
             return refused
         rc, out = _git(["commit", "-m",
-                        f"requisito {number:04d}: decisão registrada por {decided_by}"], cwd=tmp)
+                        _w(language, "decision_commit", number=number, by=decided_by)], cwd=tmp)
         if rc != 0:
             return WriteResult(ok=False, detail=f"nothing to commit: {_scrub(out)[-200:]}")
         rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)
         if rc != 0:
             return WriteResult(ok=False,
-                               detail=f"o repositório não aceita registro direto "
-                                      f"({_scrub(out)[-120:]})")
+                               detail=_w(language, "not_direct", out=_scrub(out)[-120:]))
         return WriteResult(ok=True, ref=path)
     finally:
         import shutil
@@ -1944,7 +2160,8 @@ a conversation that scrolls. The role said it better than anybody: *"if this onl
 
 def accept_requirement(*, docs_repo: str, clone_url: str, path: str, number: int,
                        accepted_by: str, base: str = "main",
-                       today: str | None = None) -> WriteResult:
+                       today: str | None = None,
+                       language: str | None = None) -> WriteResult:
     """Flip one requirement from `proposed` to `accepted` — THE ONLY ACT THAT CREATES A PROMISE.
 
     THIS STEP DID NOT EXIST. `accepted` was read in four places — it is what makes the factory
@@ -1973,12 +2190,12 @@ def accept_requirement(*, docs_repo: str, clone_url: str, path: str, number: int
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
         target = tmp / path
         if not target.is_file():
-            return WriteResult(ok=False, detail=f"não encontrei o requisito {number} para aceitar")
+            return WriteResult(ok=False, detail=_w(language, "accept_not_found", number=number))
         text = target.read_text(encoding="utf-8")
         updated, outcome = _set_status_accepted(text, accepted_by=accepted_by, day=day)
         if outcome == "already":
             return WriteResult(ok=True, ref=path, existed=True,
-                               detail="esse requisito já estava acordado")
+                               detail=_w(language, "accept_already"))
         if outcome != "flipped":
             # NEVER "already agreed", whatever the reason. Reporting a status that did not flip as
             # a prior agreement is exactly how the live client was told "já estava acordado" while
@@ -1988,21 +2205,23 @@ def accept_requirement(*, docs_repo: str, clone_url: str, path: str, number: int
             _say_unflippable("OPENFACTORY_PRODUCT_ACCEPT_UNFLIPPABLE", docs_repo=docs_repo,
                              path=path,
                              outcome=outcome)
-            return WriteResult(ok=False, ref=path, detail=_accept_refusal(number, outcome))
+            return WriteResult(ok=False, ref=path,
+                               detail=_accept_refusal(number, outcome, language))
         target.write_text(updated, encoding="utf-8")
         _git(["add", "--", path], cwd=tmp)
-        refused = _refused_staging(tmp, [path], docs_repo=docs_repo, writer="accept_requirement")
+        refused = _refused_staging(tmp, [path], docs_repo=docs_repo, writer="accept_requirement",
+                                   language=language)
         if refused:
             return refused
-        rc, out = _git(["commit", "-m", f"requisito {number:04d}: acordado por {accepted_by}"],
+        rc, out = _git(["commit", "-m",
+                        _w(language, "accept_commit", number=number, by=accepted_by)],
                        cwd=tmp)
         if rc != 0:
             return WriteResult(ok=False, detail=f"nothing to commit: {_scrub(out)[-200:]}")
         rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)
         if rc != 0:
             return WriteResult(ok=False,
-                               detail=f"o repositório não aceita registro direto "
-                                      f"({_scrub(out)[-120:]})")
+                               detail=_w(language, "not_direct", out=_scrub(out)[-120:]))
         return WriteResult(ok=True, ref=path)
     finally:
         import shutil
@@ -2012,7 +2231,8 @@ def accept_requirement(*, docs_repo: str, clone_url: str, path: str, number: int
 
 def drop_requirement(*, docs_repo: str, clone_url: str, path: str, number: int,
                      dropped_by: str, reason: str = "", base: str = "main",
-                     today: str | None = None) -> WriteResult:
+                     today: str | None = None,
+                     language: str | None = None) -> WriteResult:
     """Mark one requirement as decided against — the act with no replacement.
 
     THE LIFECYCLE HAD NO WAY TO SAY "NOT THIS". A requirement could be written, agreed and replaced,
@@ -2045,31 +2265,30 @@ def drop_requirement(*, docs_repo: str, clone_url: str, path: str, number: int,
         target = tmp / path
         if not target.is_file():
             return WriteResult(ok=False,
-                               detail=f"não encontrei o requisito {number} para dar como "
-                                      f"abandonado")
+                               detail=_w(language, "drop_not_found", number=number))
         text = target.read_text(encoding="utf-8")
         updated, outcome = _set_status_dropped(text, dropped_by=dropped_by, day=day, reason=reason)
         if outcome == "already":
             return WriteResult(ok=True, ref=path, existed=True,
-                               detail=f"o requisito {number} já estava dado como abandonado")
+                               detail=_w(language, "drop_already", number=number))
         if outcome != "flipped":
             _say_unflippable("OPENFACTORY_PRODUCT_DROP_UNFLIPPABLE", docs_repo=docs_repo, path=path,
                              outcome=outcome)
-            return WriteResult(ok=False, ref=path, detail=_drop_refusal(number, outcome))
+            return WriteResult(ok=False, ref=path, detail=_drop_refusal(number, outcome, language))
         target.write_text(updated, encoding="utf-8")
         _git(["add", "--", path], cwd=tmp)
-        refused = _refused_staging(tmp, [path], docs_repo=docs_repo, writer="drop_requirement")
+        refused = _refused_staging(tmp, [path], docs_repo=docs_repo, writer="drop_requirement",
+                                   language=language)
         if refused:
             return refused
-        message = f"requisito {number:04d}: abandonado por {dropped_by}"
+        message = _w(language, "drop_commit", number=number, by=dropped_by)
         rc, out = _git(["commit", "-m", message + (f"\n\n{reason}" if reason else "")], cwd=tmp)
         if rc != 0:
             return WriteResult(ok=False, detail=f"nothing to commit: {_scrub(out)[-200:]}")
         rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)
         if rc != 0:
             return WriteResult(ok=False,
-                               detail=f"o repositório não aceita registro direto "
-                                      f"({_scrub(out)[-120:]})")
+                               detail=_w(language, "not_direct", out=_scrub(out)[-120:]))
         return WriteResult(ok=True, ref=path)
     finally:
         import shutil
@@ -2090,7 +2309,7 @@ def _say_unflippable(marker: str, *, docs_repo: str, path: str, outcome: str) ->
             "%s repo=%s path=%s — %s; nothing was changed", marker, docs_repo, path, outcome)
 
 
-def _accept_refusal(number: int, outcome: str) -> str:
+def _accept_refusal(number: int, outcome: str, language: str | None = None) -> str:
     """Why the acceptance did not happen, in words the person can act on — `_drop_refusal`'s
     sibling, drawing the same distinction on the other side of the lifecycle.
 
@@ -2101,18 +2320,13 @@ def _accept_refusal(number: int, outcome: str) -> str:
     and an invented fix nobody will perform.
     """
     if outcome == "dropped":
-        return (f"o requisito {number} tinha sido dado como abandonado, então não há promessa a "
-                f"registrar — não mexi em nada. Se ele voltou a valer, me peça de novo e eu "
-                f"escrevo o texto outra vez para vocês confirmarem.")
+        return (_w(language, "accept_refused_dropped", number=number))
     if outcome == "superseded":
-        return (f"o requisito {number} já tinha sido substituído por outro, então acordar com ele "
-                f"seria assumir um texto que já não vale — não mexi em nada. Me diga o número do "
-                f"que ficou no lugar dele e eu registro esse.")
-    return (f"não consegui registrar o acordo do requisito {number}: o texto dele está num formato "
-            f"que não reconheço com segurança. Não mudei nada — o time foi avisado e resolve.")
+        return (_w(language, "accept_refused_superseded", number=number))
+    return (_w(language, "accept_refused_unknown", number=number))
 
 
-def _drop_refusal(number: int, outcome: str) -> str:
+def _drop_refusal(number: int, outcome: str, language: str | None = None) -> str:
     """Why the drop did not happen, in words the person can act on.
 
     A requirement already REPLACED is a different answer from one whose file we cannot read: the
@@ -2120,12 +2334,8 @@ def _drop_refusal(number: int, outcome: str) -> str:
     One sentence for both would send the reader hunting the wrong thing.
     """
     if outcome == "superseded":
-        return (f"o requisito {number} já tinha sido substituído por outro, então ele já não "
-                f"valia — não mexi em nada. Se o que você quer é abandonar o texto que ficou no "
-                f"lugar dele, me diga o número dele.")
-    return (f"não consegui dar o requisito {number} como abandonado: o texto dele está num "
-            f"formato que não reconheço com segurança. Não mudei nada — o time foi avisado e "
-            f"resolve.")
+        return (_w(language, "drop_refused_superseded", number=number))
+    return (_w(language, "drop_refused_unknown", number=number))
 
 
 def _set_status_dropped(text: str, *, dropped_by: str, day: str,
@@ -2228,7 +2438,8 @@ def propose_baseline(*, docs_repo: str, clone_url: str, files: dict[str, str],
                      base: str = "main", forge=None,
                      #: accepted and ignored — see `propose_requirement`. `module.py:1371,1372`
                      #: still passes both.
-                     token: str = "", forge_kind: str = GITHUB) -> WriteResult:
+                     token: str = "", forge_kind: str = GITHUB,
+                     language: str | None = None) -> WriteResult:
     """The brownfield first pass as ONE pull request — inventory plus every candidate.
 
     One PR, not forty: a team asked to review forty requirement PRs reviews none, and the exercise
@@ -2257,13 +2468,10 @@ def propose_baseline(*, docs_repo: str, clone_url: str, files: dict[str, str],
                   "whether the baseline was already proposed; nothing was written",
                   docs_repo, branch)
         return WriteResult(ok=False,
-                           detail="não consegui verificar se esse levantamento já tinha sido "
-                                  "feito antes, então não escrevi nada — assim não fico com dois "
-                                  "levantamentos iguais para vocês revisarem. Me peça de novo "
-                                  "daqui a pouco.")
+                           detail=_w(language, "baseline_unreadable"))
     if found.strip():
         return WriteResult(ok=True, url=found.strip(), ref=branch, existed=True,
-                           detail="o levantamento já tinha sido proposto")
+                           detail=_w(language, "baseline_already"))
 
     # OUR OWN BRANCH, PUSHED, WITH NO PULL REQUEST ON IT — the window between the push below and
     # `_open_review_request`, which a rate limit, an expired token or a worker dying lands in.
@@ -2290,17 +2498,13 @@ def propose_baseline(*, docs_repo: str, clone_url: str, files: dict[str, str],
     if pushed:
         url = _open_review_request(
             forge, docs_repo=docs_repo, head=branch, base=base,
-            title=f"Levantamento inicial sobre {product}",
-            body="A branch deste levantamento já tinha sido enviada numa tentativa anterior que "
-                 "não chegou a abrir o pull request. Este PR abre o que ficou faltando — o "
-                 "conteúdo é o daquela passagem, e continua tudo como `observed`.")
+            title=_w(language, "baseline_rescued_title", product=product),
+            body=_w(language, "baseline_rescued_body"))
         if url:
             return WriteResult(ok=True, url=url, ref=branch, existed=True,
-                               detail="o levantamento já estava enviado; só faltava abrir o "
-                                      "pedido de revisão, e abri agora")
+                               detail=_w(language, "baseline_opened_now"))
         return WriteResult(ok=False, ref=branch,
-                           detail=f"a branch {branch} já está enviada de uma tentativa anterior e "
-                                  f"o pull request não abriu; abra à mão contra {base}")
+                           detail=_w(language, "baseline_stuck", branch=branch, base=base))
 
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-baseline-"))
     try:
@@ -2320,9 +2524,8 @@ def propose_baseline(*, docs_repo: str, clone_url: str, files: dict[str, str],
             _git(["add", "--", path], cwd=tmp)
 
         rc, out = _git(["commit", "-m",
-                        f"baseline: {observations} observações sobre {product}\n\n"
-                        f"Leitura do código como ele está hoje. Tudo entra como `observed` — "
-                        f"nada aqui é promessa até alguém confirmar."], cwd=tmp)
+                        _w(language, "baseline_commit", observations=observations,
+                           product=product)], cwd=tmp)
         if rc != 0:
             return WriteResult(ok=False, detail=f"nothing to commit: {_scrub(out)[-200:]}")
         rc, out = _git(["push", "-u", clone_url, branch], cwd=tmp)
@@ -2330,27 +2533,22 @@ def propose_baseline(*, docs_repo: str, clone_url: str, files: dict[str, str],
             return WriteResult(ok=False, detail=f"could not push {branch}: {_scrub(out)[-200:]}")
 
         body = "\n".join([
-            f"**Isto é uma LEITURA do código, não um conjunto de requisitos.** {observations} "
-            f"observações sobre o que o sistema parece fazer hoje — cada uma entra como "
-            f"`observed`, com a evidência que a sustenta.",
+            _w(language, "baseline_body_reading", observations=observations),
             "",
-            "Uma observação vira promessa quando uma pessoa a confirma e muda o status para "
-            "`accepted`. Até lá a fábrica NÃO defende nada disto: um bug lido do código é "
-            "indistinguível de uma funcionalidade.",
+            _w(language, "baseline_body_promise"),
             "",
-            "Áreas cobertas nesta passagem: "
-            + (", ".join(covered) if covered else "(o repositório)"),
+            _w(language, "baseline_body_areas",
+               areas=", ".join(covered) if covered else _w(language, "baseline_whole_repo")),
             "",
-            "O que este PR **não** garante: que a cobertura seja completa, nem que cada "
-            "comportamento observado seja intencional. As duas coisas são decisão de quem revisa.",
+            _w(language, "baseline_body_not"),
         ])
         url = _open_review_request(
             forge, docs_repo=docs_repo, head=branch, base=base,
-            title=f"Levantamento inicial: {observations} observações sobre {product}", body=body)
+            title=_w(language, "baseline_title", observations=observations, product=product),
+            body=body)
         if not url:
             return WriteResult(ok=False, ref=branch,
-                               detail=f"a branch {branch} foi enviada mas o pull request não "
-                                      f"abriu; abra à mão contra {base}")
+                               detail=_w(language, "baseline_pr_failed", branch=branch, base=base))
         return WriteResult(ok=True, url=url, ref=branch)
     finally:
         import shutil

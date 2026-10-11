@@ -118,7 +118,7 @@ def test_the_record_names_the_person_the_gate_took(origin, monkeypatch):
     assert mod.accept(7, actor=ADMIN).ok is True
 
     message = _git("log", "-1", "--format=%B", "main", cwd=origin).stdout
-    assert f"acordado por {ADMIN}" in message, "the commit record does not attribute the agreement"
+    assert f"agreed by {ADMIN}" in message, "the commit record does not attribute the agreement"
     assert ADMIN in _file_on_main(origin) and "<@" not in _file_on_main(origin)
 
 
@@ -149,7 +149,7 @@ def test_a_second_accept_says_already_agreed_only_when_that_is_TRUE(origin, monk
     res = _module(origin, monkeypatch).accept(7, actor=ADMIN)
 
     assert res.ok is True and res.existed is True
-    assert "acordado" in res.detail
+    assert "already agreed" in res.detail
 
 
 def test_an_unflippable_file_is_an_ERROR_not_a_false_agreement(origin, monkeypatch):
@@ -164,7 +164,7 @@ def test_an_unflippable_file_is_an_ERROR_not_a_false_agreement(origin, monkeypat
     res = mod.accept(9, actor=ADMIN)
 
     assert res.ok is False and res.existed is False
-    assert "já estava" not in res.detail, "an unreadable file was reported as a prior agreement"
-    assert "não consegui" in res.detail          # said to the client, in their language
+    assert "already" not in res.detail, "an unreadable file was reported as a prior agreement"
+    assert "I could not" in res.detail     # said to the client, in their project's language
     assert _git("log", "-1", "--format=%s", "main", cwd=origin).stdout.strip() == "seed broken", (
         "a commit landed for an accept that must have written nothing")

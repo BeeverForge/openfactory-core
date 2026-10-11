@@ -848,7 +848,7 @@ def test_the_sweep_leaves_open_a_req_branch_carrying_the_previews_shape(sweep, c
         ".openfactory/preview.compose.yml": "services:\n  x:\n    image: evil\n"}, "propose 2")
 
     with caplog.at_level("WARNING"):
-        landed = land_open_proposals(docs_repo=local.CONTEXT, forge=sweep.forge, base="main")
+        landed = land_open_proposals(language="pt-BR", docs_repo=local.CONTEXT, forge=sweep.forge, base="main")
 
     assert landed == ["req/0001-login"]
     shown = subprocess.run(["git", "-C", sweep.context, "cat-file", "-e",
@@ -902,7 +902,7 @@ def test_every_doubt_about_a_proposals_files_leaves_it_for_a_person(diff, said, 
 
     forge_ = _Diffs(diff)
     with caplog.at_level("WARNING"):
-        assert land_open_proposals(docs_repo="acme/shop-context", forge=forge_) == []
+        assert land_open_proposals(language="pt-BR", docs_repo="acme/shop-context", forge=forge_) == []
     assert forge_.merged == [], "a proposal nobody could vouch for was merged"
     assert said in caplog.text and "OPENFACTORY_PRODUCT_PROPOSAL_LEFT_OPEN" in caplog.text
 
@@ -911,7 +911,7 @@ def test_the_sweep_lands_a_proposal_in_the_folder_the_product_declares():
     from openfactory.product.authoring import land_open_proposals
 
     forge_ = _Diffs("diff --git a/reqs/0003.md b/reqs/0003.md\n")
-    assert land_open_proposals(docs_repo="acme/shop-context", forge=forge_,
+    assert land_open_proposals(language="pt-BR", docs_repo="acme/shop-context", forge=forge_,
                                requirements_dir="reqs") == ["req/0003-x"]
 
 
@@ -937,7 +937,7 @@ def test_a_fact_lands_under_domain_and_a_path_out_of_it_lands_nothing(tmp_path, 
     from openfactory.product import authoring
 
     bare = _bare(tmp_path, {"README.md": "# shop\n"})
-    ok = authoring.record_fact(docs_repo=CONTEXT, clone_url=str(bare), term="total",
+    ok = authoring.record_fact(language="pt-BR", docs_repo=CONTEXT, clone_url=str(bare), term="total",
                                body="the total includes shipping", said_by="ana",
                                today="2026-09-24")
     assert ok.ok and ok.ref == "domain/2026-09-24-total.md"
@@ -945,7 +945,7 @@ def test_a_fact_lands_under_domain_and_a_path_out_of_it_lands_nothing(tmp_path, 
 
     monkeypatch.setattr(authoring, "slugify", lambda term, limit=40:
                         "x/../../.openfactory/preview.compose")
-    refused = authoring.record_fact(docs_repo=CONTEXT, clone_url=str(bare), term="evil",
+    refused = authoring.record_fact(language="pt-BR", docs_repo=CONTEXT, clone_url=str(bare), term="evil",
                                     body="b", said_by="ana", today="2026-09-24")
     assert not refused.ok and "fora de `domain/`" in refused.detail
     assert not any(p.startswith(".openfactory") for p in _files_on(bare)), \
@@ -967,7 +967,7 @@ def test_a_fact_whose_checkout_staged_anything_else_commits_nothing(tmp_path, mo
         return real(args, cwd=cwd)
 
     monkeypatch.setattr(authoring, "_git", git)
-    refused = authoring.record_fact(docs_repo=CONTEXT, clone_url=str(bare), term="total",
+    refused = authoring.record_fact(language="pt-BR", docs_repo=CONTEXT, clone_url=str(bare), term="total",
                                     body="b", said_by="ana", today="2026-09-24")
     assert not refused.ok and ".openfactory/preview.compose.yml" in refused.detail
     assert _files_on(bare) == ["README.md"], "the commit went ahead"
@@ -1394,15 +1394,15 @@ def test_no_writer_that_lands_on_the_base_unattended_commits_under_openfactory(
     monkeypatch.setattr(authoring, "_git", git)
     common = {"docs_repo": CONTEXT, "clone_url": str(bare)}
     call = {
-        "propose": lambda: authoring.propose_requirement(
+        "propose": lambda: authoring.propose_requirement(language="pt-BR", 
             **common, draft=_draft(title="Another"), number=13, forge=_DocsForge()),
-        "accept": lambda: authoring.accept_requirement(**common, path=REQUIREMENT, number=12,
+        "accept": lambda: authoring.accept_requirement(language="pt-BR", **common, path=REQUIREMENT, number=12,
                                                        accepted_by="ana"),
-        "drop": lambda: authoring.drop_requirement(**common, path=REQUIREMENT, number=12,
+        "drop": lambda: authoring.drop_requirement(language="pt-BR", **common, path=REQUIREMENT, number=12,
                                                    dropped_by="ana"),
-        "decision": lambda: authoring.record_decision(**common, path=REQUIREMENT, number=12,
+        "decision": lambda: authoring.record_decision(language="pt-BR", **common, path=REQUIREMENT, number=12,
                                                       decision="ship it", decided_by="ana"),
-        "fact": lambda: authoring.record_fact(**common, term="total", body="b", said_by="ana"),
+        "fact": lambda: authoring.record_fact(language="pt-BR", **common, term="total", body="b", said_by="ana"),
     }[writer]
     before = _git(bare, "rev-parse", "main")
 

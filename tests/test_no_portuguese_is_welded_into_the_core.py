@@ -80,8 +80,6 @@ RECOGNISERS = {
     ("openfactory/product/voice.py", "_CANNOT_OBSERVE"): "see the",
     # DECLARED 2026-10-10 (review of #579): what reads a person's gestures, assent and refusals —
     # they were counted as the sweep's debt, and no sweep will ever move what the platform READS.
-    # `intents._BECAUSE` is not here: it knows Portuguese only, which is the defect on the way in,
-    # so it stays in the list until it reads an English reason too.
     ("openfactory/product/intents.py", "_NOT_NEGATED"): "never",
     ("openfactory/product/intents.py", "_BRIDGE"): "never",
     ("openfactory/product/intents.py", "_ATTACHED"): "with",
@@ -104,6 +102,29 @@ RECOGNISERS = {
     ("openfactory/product/followup.py", "_WORD"): "a-z",
     # DECLARED 2026-10-11 (#535): the names a board gives its finished column, read off the board
     ("openfactory/product/role.py", "_DONE_COLUMNS"): "done",
+    # DECLARED 2026-10-11 (#535): the rest of what reads words a person, a board or a file wrote —
+    # the inline ones named first. `_BECAUSE` waited for its English (`because`, `reason:`).
+    ("openfactory/adapters/tracker/azure_devops.py", "_NEEDS_ACTION_ALIASES"): "needs action",
+    ("openfactory/contracts/commands.py", "DECISION_RE"): "|ion)",
+    ("openfactory/contracts/ticket.py", "NOBODY"): "not recorded",
+    ("openfactory/language/assent.py", "_WORD_LETTERS"): "a-z",
+    ("openfactory/memory/recall.py", "_STOP"): "the and for",
+    ("openfactory/product/asked.py", "STOPWORDS"): "the a an of",
+    ("openfactory/product/board.py", "_DIAGNOSIS_MARKERS"): "diagnosis",
+    ("openfactory/product/documents/record.py", "CLIENT_FOLDERS"): "public",
+    ("openfactory/product/documents/record.py", "_DECLARED"): "public",
+    ("openfactory/product/documents/record.py", "_REQUIREMENTS"): "requirement",
+    ("openfactory/product/documents/record.py", "_CARDS"): "card",
+    ("openfactory/product/domain.py", "_FIELD_LABELS"): "Where",
+    ("openfactory/product/domain.py", "_METADATA_BULLET"): "source",
+    ("openfactory/product/evaluation/score.py", "_ABSTENTION"): "could not",
+    ("openfactory/product/evaluation/score.py", "_REQUIREMENT_WORD"): "requirement",
+    ("openfactory/product/index/search.py", "_CAPITALISED"): "A-Z",
+    ("openfactory/product/index/search.py", "_NOT_NAMES"): "what when where",
+    ("openfactory/product/index/search.py", "_ASKING"): "hold holds",
+    ("openfactory/product/intents.py", "_BECAUSE"): "because",
+    ("openfactory/product/intents.py", "_CARD_WORDS"): "cards?",
+    ("openfactory/product/intents.py", "_REQUIREMENT_WORDS"): "requirement",
 }
 
 
