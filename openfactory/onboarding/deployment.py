@@ -976,6 +976,16 @@ OPENFACTORY_PANEL_TOKEN={p.secret()}
 OPENFACTORY_PANEL_TOKEN=
 """)
 
+    # NAMED BY THE INSTALLER (#561): the default front end is a setting, and a setting nobody can
+    # see in their own file is one only somebody who read the code can change
+    parts.append("""
+# ── The default front end ──
+# The panel's page, at / and under /p/, /product/ and /logs/. `off` serves the API, its two
+# streams, the sign-in and the previews, and no page: for a deployment with screens of its own,
+# built on the same API the panel uses.
+OPENFACTORY_DEFAULT_FRONT_END=on
+""")
+
     parts.append(_preview_block(answers, p, out))
 
     work_dir = p.work_dir()

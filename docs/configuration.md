@@ -231,6 +231,16 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
 
 ---
 
+### The default front end, on or off
+
+**`OPENFACTORY_DEFAULT_FRONT_END`** — `on` (the default) or `off`. The panel's page is OpenFactory's
+default front end, and it uses the same API any other front end would. With `off`, the panel's
+process serves the API (`/api/*`), its two streams (`/api/stream`, `/api/product/stream`), the
+sign-in (`/auth/*`) and the previews, and no page: `/`, `/p/…`, `/product/…` and `/logs/…` answer
+404, saying why. Turn it off when a deployment has screens of its own; a dashboard served from
+another origin is admitted by `OPENFACTORY_PANEL_ORIGINS`. A value that is neither `on` nor `off`
+keeps the page on, and the log says so. `openfactory init` writes the line into `.env.compose`.
+
 ## 4. Prod-release approvers (panel)
 
 Only relevant when a project promotes to prod. Approvers authenticate the durable
