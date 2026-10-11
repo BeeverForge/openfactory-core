@@ -3122,6 +3122,40 @@ def breakdown_not_begun(*, number: int, language: str | None = None) -> str:
     return _pick(_BREAKDOWN_NOT_BEGUN, language).format(number=number)
 
 
+#: A REQUESTED CARD FOR AN ACCEPTED REQUIREMENT, HELD (#563 slice 18c, ADR-0051 D18 item 4). The
+#: work of an accepted requirement is filed by its breakdown alone, so the card is not opened, and
+#: the sentence says what the requirement already has — and offers the breakdown when it has
+#: nothing, in the words that start it.
+_TICKET_HELD = {
+    "pt-BR": {
+        "head": "Não abri esse card: ele é do *requisito {number}*, que está acordado",
+        "running": ", e o requisito já está sendo quebrado em tarefas agora. Os cards dele "
+                   "aparecem no quadro quando a quebra terminar.",
+        "cards": ", e o trabalho dele já está nos cards {cards}. Se falta alguma coisa neles, me "
+                 "diga o que é.",
+        "offer": ". O trabalho de um requisito acordado entra pela quebra dele em tarefas: diga "
+                 "«quebra o requisito {number} em tarefas» e eu registro as frentes dele.",
+    },
+    "en": {
+        "head": "I did not open that card: it belongs to *requirement {number}*, which is agreed",
+        "running": ", and the requirement is being broken into tasks right now. Its cards will be "
+                   "on the board when that ends.",
+        "cards": ", and its work is already in cards {cards}. If something is missing from them, "
+                 "tell me what.",
+        "offer": ". The work of an agreed requirement comes in through its breakdown: say \"break "
+                 "requirement {number} into tasks\" and I will file its fronts.",
+    },
+}
+
+
+def ticket_held_for_its_requirement(*, number: int, running: bool = False,
+                                    cards: list[str] | None = None,
+                                    language: str | None = None) -> str:
+    said = _pick(_TICKET_HELD, language)
+    tail = said["running"] if running else said["cards"] if cards else said["offer"]
+    return (said["head"] + tail).format(number=number, cards=", ".join(cards or []))
+
+
 def accepted_nothing_to_build(*, number: int, language: str | None = None,
                               agent_name: str = "") -> str:
     """The whole answer to accepting a reading of the code: the agreement, then why no work."""
