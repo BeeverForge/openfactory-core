@@ -207,7 +207,10 @@ def test_a_breakdown_that_RAISED_does_not_take_the_acceptance_with_it(monkeypatc
     said = _accept(module)
 
     assert "Acordado" in said, said
-    assert "O acordo está registrado" in ran.told[-1], ran.told
+    # A BREAKDOWN THAT RAISED MAY HAVE FILED SOME CARDS FIRST (review of #619): told that it did not
+    # finish, never that nothing was filed — and that the agreement stands
+    assert "não terminou" in ran.told[-1] and "O acordo continua registrado" in ran.told[-1], (
+        ran.told)
 
 
 def test_an_engine_that_does_not_START_it_is_loud_rather_than_merely_polite(monkeypatch, caplog):

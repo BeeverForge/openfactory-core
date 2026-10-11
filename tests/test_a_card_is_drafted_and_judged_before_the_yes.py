@@ -970,7 +970,8 @@ def test_an_unread_judge_files_no_card_of_a_requirement():
     the yes; a requirement's cards have nobody in the loop, so an unread judge files nothing."""
     kept, why = _vet(dict(ISSUE), lambda p: "looks fine to me")
 
-    assert kept is None and "não respondeu" in why
+    # the platform's default language: the module hands the project's (#535)
+    assert kept is None and "did not answer" in why
 
 
 def test_a_redraft_that_answers_nothing_spends_no_second_judge():

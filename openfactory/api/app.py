@@ -2124,7 +2124,7 @@ def open_loops(project: str, request: Request) -> dict:
     the product's agenda and chat use decides (`product/agenda.py`): the room's items — every
     agent's own among them — and the caller's own, never another person's."""
     from openfactory.memory import store as loop_store
-    from openfactory.memory.ledger import waiting
+    from openfactory.memory.ledger import UNFILED, waiting
     from openfactory.product import agenda, events
 
     actor = _actor(request)
@@ -2133,7 +2133,10 @@ def open_loops(project: str, request: Request) -> dict:
     except KeyError:
         room = project
     viewer = agenda.Viewer(own=actor.conversation, person=actor.id)
-    loops = waiting(agenda.visible(loop_store.read(project), viewer, room=room))
+    # WHAT A BREAKDOWN LEFT OUT WAITS ON NOBODY (#564, review of #621): it is on the requirement's
+    # row, and this list is of what somebody is waiting on
+    loops = [x for x in waiting(agenda.visible(loop_store.read(project), viewer, room=room))
+             if x.kind != UNFILED]
     return {
         "project": project,
         "waiting": [
@@ -3507,14 +3510,20 @@ DEFAULT_FRONT_END_ENV = "OPENFACTORY_DEFAULT_FRONT_END"
 _ON, _OFF = ("on", "true", "yes", "1", ""), ("off", "false", "no", "0")
 
 
+#: The unreadable values already said in this process: each is logged once (review of #611).
+_SAID_NEITHER: set[str] = set()
+
+
 def default_front_end_on() -> bool:
     """Whether this deployment serves the default front end. A value that is neither on nor off
     keeps it on and says so in the log: a typo must not take the panel away from the people who
-    use it, and must not pass in silence either."""
+    use it, and must not pass in silence either. ONCE PER VALUE AND PROCESS: this is asked on every
+    page request, and the same typo said on each of them buries the log it is in."""
     value = os.environ.get(DEFAULT_FRONT_END_ENV, "").strip().lower()
     if value in _OFF:
         return False
-    if value not in _ON:
+    if value not in _ON and value not in _SAID_NEITHER:
+        _SAID_NEITHER.add(value)
         log.warning("%s=%r is neither on nor off — the default front end stays on",
                     DEFAULT_FRONT_END_ENV, value)
     return True

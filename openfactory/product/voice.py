@@ -2340,6 +2340,16 @@ _BREAKDOWN_SAID = {
                   "dela — peça a quebra de novo quando “{base}” puder ser aberta."),
         "en": ("“{base}” was not opened, so I held “{title}”, which builds on it — ask for the "
                "breakdown again once “{base}” can be opened.")},
+    # A CARD OF THE REQUIREMENT APPEARED WHILE IT WAS BROKEN DOWN (#563 slice 18d): filed by hand
+    # or by another surface, it may carry what this front would have — so the front is held,
+    # naming the card, and the next breakdown starts from the list that includes it
+    "carried_meanwhile": {
+        "pt-BR": ("segurei a frente “{title}”: enquanto eu quebrava o requisito, o card {ref} foi "
+                  "aberto para ele. Veja o que ele cobre e peça a quebra de novo para registrar o "
+                  "que faltar."),
+        "en": ("I held “{title}”: while I was breaking the requirement down, card {ref} was "
+               "opened for it. See what it covers, and ask for the breakdown again to file what "
+               "is still missing.")},
     "file_failed": {
         "pt-BR": "não consegui registrar “{title}” agora. O time foi avisado e resolve.",
         "en": ("I could not record “{title}” just now. The team has been told and will sort it "
@@ -3182,6 +3192,27 @@ def breakdown_not_begun(*, number: int, language: str | None = None) -> str:
     return _pick(_BREAKDOWN_NOT_BEGUN, language).format(number=number)
 
 
+#: A BREAKDOWN THAT DID NOT FINISH (review of #619): it raised, its worker died, or its heartbeat
+#: stopped — and it may have filed some of its cards before that. "Nothing was filed" would be
+#: false then, so this says what is known: some may be on the board, and asking again does not file
+#: twice what is already there. After an acceptance, the agreement stands, and is said to.
+_BREAKDOWN_DID_NOT_FINISH = {
+    "pt-BR": ("A quebra do requisito {number} em tarefas não terminou. Alguns cards podem já estar "
+              "no quadro; se pedir a quebra de novo, o que já está lá não é registrado duas "
+              "vezes.{agreed}"),
+    "en": ("Breaking requirement {number} into tasks did not finish. Some cards may already be on "
+           "the board; if you ask for the breakdown again, what is already there is not filed "
+           "twice.{agreed}"),
+}
+_AGREEMENT_STANDS = {"pt-BR": " O acordo continua registrado.", "en": " The agreement stands."}
+
+
+def breakdown_did_not_finish(*, number: int, agreed: bool = False,
+                             language: str | None = None) -> str:
+    return _pick(_BREAKDOWN_DID_NOT_FINISH, language).format(
+        number=number, agreed=_pick(_AGREEMENT_STANDS, language) if agreed else "")
+
+
 #: A REQUESTED CARD FOR AN ACCEPTED REQUIREMENT, HELD (#563 slice 18c, ADR-0051 D18 item 4). The
 #: work of an accepted requirement is filed by its breakdown alone, so the card is not opened, and
 #: the sentence says what the requirement already has — and offers the breakdown when it has
@@ -3344,6 +3375,17 @@ _CLOSE_UNREAD_LINE = {
 }
 
 
+#: THE CLOSED CARD STATES NOTHING TO COMPARE (review of #602): no criteria, and no requirement it
+#: executes. The comparison found nothing it carries because it could see nothing, and the
+#: sentence above it claims they ask for the same thing — so this says it was not compared.
+_CLOSE_UNSTATED_LINE = {
+    "pt-BR": ("\n\n(O *{number}* não tem critérios nem diz que requisito executa, então não deu "
+              "para comparar o que cada um pede — vale abrir os dois antes de confirmar.)"),
+    "en": ("\n\n(*{number}* has no criteria and names no requirement it executes, so what each "
+           "asks for could not be compared — worth opening both before you confirm.)"),
+}
+
+
 def close_confirmation(*, number: str, in_favour_of: str | None = None, reason: str = "",
                        carried=None, unread: bool = False,
                        language: str | None = None) -> str:
@@ -3364,6 +3406,10 @@ def close_confirmation(*, number: str, in_favour_of: str | None = None, reason: 
         if in_favour_of and unread:
             text = text.removesuffix(_pick(_CONFIRM_TAIL, language)) \
                 + _pick(_CLOSE_UNREAD_LINE, language) + _pick(_CONFIRM_TAIL, language)
+        elif in_favour_of and carried is not None and not getattr(carried, "stated", True):
+            text = text.removesuffix(_pick(_CONFIRM_TAIL, language)) \
+                + _pick(_CLOSE_UNSTATED_LINE, language).format(number=ref_label(number)) \
+                + _pick(_CONFIRM_TAIL, language)
     if reason.strip():
         text += _pick(_CLOSE_REASON_LINE, language).format(reason=reason.strip())
     return text

@@ -111,8 +111,12 @@ MUTATIONS = [
      '        criteria=f"{criteria} critérios")'),
 
     # ── the capability write ───────────────────────────────────────────────────────────────────
+    # RE-PINNED 2026-10-11 (#535): every write of the docs repository is handed `lang` now, so the
+    # anchor carries the capability write's own line
     ("the module stops handing the capability write the project's language", MOD,
+     '                    slug=wanted, flow=flow, confirmed_by=actor,\n'
      '                    base=getattr(cfg, "docs_branch", "main"), language=lang),',
+     '                    slug=wanted, flow=flow, confirmed_by=actor,\n'
      '                    base=getattr(cfg, "docs_branch", "main")),'),
 
     ("a retired capability is refused in English whatever the caller speaks", CAPS,

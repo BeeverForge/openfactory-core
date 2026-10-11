@@ -187,14 +187,21 @@ def _where_it_came_from(project, channel: str) -> str:
     as something it may not be.
     """
     from openfactory.adapters.channel.registry import channel_destination
+    from openfactory.product.voice import _pick
 
+    room = _pick(_PRODUCT_ROOM, getattr(project, "language", None))
     # the product's own room, wherever its channel keeps it (#266 slice 6): the add-on's address,
     # or the project's name on the panel
     known = channel_destination(project, product=True)
     if channel and known and channel == known:
-        return "conversa com o time de produto"
-    return f"conversa com o time de produto ({channel})" if channel else \
-        "conversa com o time de produto"
+        return room
+    return f"{room} ({channel})" if channel else room
+
+
+#: The provenance cell a decision row names its conversation by, in the project's language (#535):
+#: the decision register is the requirement's own document, read in three months by its team.
+_PRODUCT_ROOM = {"pt-BR": "conversa com o time de produto",
+                 "en": "conversation with the product team"}
 
 
 def receipt(project, notify, *, seed: str = ""):
@@ -956,7 +963,8 @@ def breakdown_told(project, number: int, results, *, asked_for: bool, module=Non
     """What a breakdown filed, as the conversation that started it is told when it ends (#563 slice
     18b, ADR-0051 D18 item 3) — the sentences the turn and the acceptance answered with while each
     ran the breakdown in its own process, unchanged. `results` is `break_down`'s list, None for a
-    breakdown that raised; `module` names the board's columns, built here when not handed one;
+    breakdown that did not finish; `module` names the board's columns, built here when not handed
+    one;
     `language` is the conversation's, the project's when not given.
 
     Two shapes, and they are not the same news:
@@ -966,20 +974,25 @@ def breakdown_told(project, number: int, results, *, asked_for: bool, module=Non
         refusal of a reading of the code (#182); and otherwise that nothing was filed, that the
         agreement holds, and that asking again retries."""
     lang = language or getattr(project, "language", None)
-    if results is not None and any(getattr(r, "nothing_to_build", False) for r in results):
+    if results is None:
+        # IT DID NOT FINISH, AND MAY HAVE FILED SOME (review of #619): never "nothing was filed"
+        from openfactory.product.voice import breakdown_did_not_finish
+
+        return breakdown_did_not_finish(number=number, agreed=not asked_for, language=lang)
+    if any(getattr(r, "nothing_to_build", False) for r in results):
         # THE MODULE'S OWN REFUSAL, NEVER COUNTED AS A CARD: `ok` with no ref, so the breakdown
         # sentence would have announced "virou 1 tarefa" over it
         from openfactory.product.voice import nothing_to_build
 
         return nothing_to_build(number=number, language=lang)
-    if results is not None and (asked_for or any(getattr(r, "ok", False) for r in results)):
+    if asked_for or any(getattr(r, "ok", False) for r in results):
         if module is None:
             from openfactory.product.module import ProductModule
 
             module = ProductModule(project, via="api")
         return _breakdown_reply(results, number, "", lang, project=project,
                                 backlog=_board_word(module, "backlog"))
-    failed = [r for r in (results or []) if not getattr(r, "ok", False)]
+    failed = [r for r in results if not getattr(r, "ok", False)]
     detail = _client_detail(failed[0].detail, lang, project=project) if failed else ""
     said = _said(lang)
     return (said["no_breakdown"] + (f": {detail}" if detail else said["no_breakdown_now"])

@@ -35,8 +35,11 @@ MUTATIONS = [
      "                    DEFAULT_FRONT_END_ENV, value)\n    return True",
      "                    DEFAULT_FRONT_END_ENV, value)\n    return value in _ON"),
     ("a typo passes in silence", APP,
-     "    if value not in _ON:\n        log.warning(",
-     "    if False:\n        log.warning("),
+     # RE-PINNED 2026-10-11 (review of #611): said once per value and process
+     "    if value not in _ON and value not in _SAID_NEITHER:\n",
+     "    if False:\n"),
+    ("the same typo is said on every page request", APP,
+     "        _SAID_NEITHER.add(value)\n", ""),
 
     # 3. every route, and the installer
     ("a page route serves the panel by itself", APP,

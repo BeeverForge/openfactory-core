@@ -721,10 +721,12 @@ def _loops_of(member, model: ProductModel, loops_seen=None) -> list[dict] | None
     `/api/loops/{project}`, filtered for its viewer the same way (`build`'s `loops_seen`)."""
     try:
         from openfactory.memory import store as loop_store
-        from openfactory.memory.ledger import waiting
+        from openfactory.memory.ledger import UNFILED, waiting
 
-        rows = waiting(loops_seen(member) if loops_seen is not None
-                       else loop_store.read(member.name))
+        # WHAT A BREAKDOWN LEFT OUT WAITS ON NOBODY (#564, review of #621): it is shown on the
+        # requirement's row, beside the retry, and is never told as something waiting on someone
+        rows = [x for x in waiting(loops_seen(member) if loops_seen is not None
+                                   else loop_store.read(member.name)) if x.kind != UNFILED]
     except Exception as exc:  # noqa: BLE001 — an unreadable ledger is a gap, not a quiet one
         model.gaps.append(f"{member.name}: the open-loop ledger could not be read ({exc}) — what "
                           f"is waiting on whom is unknown, not empty")

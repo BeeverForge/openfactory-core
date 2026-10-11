@@ -48,6 +48,19 @@ def _field(block: str, name: str) -> str:
     return re.sub(r"<!--.*?-->", "", m.group("v")).strip() if m else ""
 
 
+#: The labels a fact's metadata is read under: a file is written in its project's language
+#: (`render_file`), and one written in either is read.
+_FIELD_LABELS = {"source": ("Fonte", "Source"), "where": ("Onde", "Where"),
+                 "date": ("Data", "Date")}
+#: A metadata bullet, in either language — what `_body_of` strips from the prose.
+_METADATA_BULLET = re.compile(r"^\s*[-*]\s*\**(status|fonte|source|onde|where|data|date)\b",
+                              re.IGNORECASE)
+
+
+def _labelled(block: str, field: str) -> str:
+    return next((v for v in (_field(block, label) for label in _FIELD_LABELS[field]) if v), "")
+
+
 #: After how long an unconfirmed fact is worth asking about again. Not a truth — a prompt. Long
 #: enough that a busy month does not generate a review queue nobody asked for.
 STALE_DAYS = 120
@@ -133,33 +146,33 @@ def parse_facts(text: str, *, path: str = "") -> tuple[list[Fact], list[Finding]
         status = (_field(block, "Status") or LEARNED).lower()
         if status not in _KNOWN_STATUS:
             findings.append(Finding(level="error", code="status-unknown", term=term,
-                                    message=f"status {status!r} desconhecido; tratado como "
+                                    message=f"unknown status {status!r}; read as "
                                             f"{LEARNED!r}"))
             status = LEARNED
-        source = _field(block, "Fonte") or _field(block, "Source")
+        source = _labelled(block, "source")
         fact = Fact(
             term=term, status=status, source=source,
-            where=_field(block, "Onde") or _field(block, "Where"),
-            learned_on=_field(block, "Data") or _field(block, "Date"),
+            where=_labelled(block, "where"),
+            learned_on=_labelled(block, "date"),
             body=_body_of(block), path=path,
         )
         if not source:
             # A fact with no source is a rumour with formatting: it reads exactly like the true
             # ones, and nobody can go back and ask.
             findings.append(Finding(level="error", code="no-source", term=term,
-                                    message="sem fonte — não dá para voltar e perguntar a ninguém"))
+                                    message="no source — there is nobody to go back to "
+                                            "and ask"))
         if not fact.learned_on:
             findings.append(Finding(level="warn", code="no-date", term=term,
-                                    message="sem data, então não há como saber se envelheceu"))
+                                    message="no date, so there is no telling whether it "
+                                            "has aged"))
         facts.append(fact)
     return facts, findings
 
 
 def _body_of(block: str) -> str:
     """The prose, with the metadata bullets stripped."""
-    lines = [ln for ln in block.splitlines()
-             if not re.match(r"^\s*[-*]\s*\**(status|fonte|source|onde|where|data|date)\b",
-                             ln, re.IGNORECASE)]
+    lines = [ln for ln in block.splitlines() if not _METADATA_BULLET.match(ln)]
     return "\n".join(lines).strip()
 
 
@@ -190,41 +203,63 @@ def load_domain(directory: str | Path) -> Domain:
                 # finds first wins, and they may say different things.
                 findings.append(Finding(
                     level="error", code="duplicate-term", term=fact.term,
-                    message=f"já definido em {seen[key]} — duas respostas para a mesma pergunta"))
+                    message=f"already defined in {seen[key]} — two answers to one question"))
                 continue
             seen[key] = path.name
             facts.append(fact)
     return Domain(facts=facts, findings=findings)
 
 
-def render_fact(fact: Fact) -> str:
-    """One entry, in the shape a human edits by hand."""
+#: A FACT'S FILE IN THE PROJECT'S LANGUAGE (#535): the labels `parse_facts` reads in either
+#: language, what is said for a field nobody recorded, and the note at the top of the file. The
+#: STATUS VALUES stay as they are written (`aprendido`, `confirmado`): they are the file format's
+#: own words, read back by `_KNOWN_STATUS`, and the note says what each one means.
+_FILE = {
+    "pt-BR": {"source": "Fonte", "where": "Onde", "date": "Data", "unrecorded": "não registrada",
+              "no_body": "(sem descrição)",
+              "note": ("> **`aprendido` não é `confirmado`.** Uma entrada aprendida veio de uma "
+                       "conversa e está atribuída a quem disse — é utilizável, nunca autoritativa. "
+                       "Só alguém que conhece o produto confirmando muda isso.")},
+    "en": {"source": "Source", "where": "Where", "date": "Date", "unrecorded": "not recorded",
+           "no_body": "(no description)",
+           "note": ("> **`aprendido` (learned) is not `confirmado` (confirmed).** A learned entry "
+                    "came from a conversation and is attributed to whoever said it — usable, never "
+                    "authoritative. Only somebody who knows the product confirming it changes "
+                    "that.")},
+}
+
+
+def _file_words(language: str | None) -> dict[str, str]:
+    from openfactory.product.voice import _pick
+
+    return _pick(_FILE, language)
+
+
+def render_fact(fact: Fact, *, language: str | None = None) -> str:
+    """One entry, in the shape a human edits by hand, in the project's language."""
+    said = _file_words(language)
     return "\n".join([
         f"### {fact.term}",
         "",
         f"- **Status:** {fact.status}",
-        f"- **Fonte:** {fact.source or 'não registrada'}",
-        f"- **Onde:** {fact.where or '—'}",
-        f"- **Data:** {fact.learned_on or 'não registrada'}",
+        f"- **{said['source']}:** {fact.source or said['unrecorded']}",
+        f"- **{said['where']}:** {fact.where or '—'}",
+        f"- **{said['date']}:** {fact.learned_on or said['unrecorded']}",
         "",
-        fact.body.strip() or "(sem descrição)",
+        fact.body.strip() or said["no_body"],
         "",
     ])
 
 
-def render_file(facts: list[Fact], *, title: str, intro: str = "") -> str:
+def render_file(facts: list[Fact], *, title: str, intro: str = "",
+                language: str | None = None) -> str:
     """A whole file, regenerated from its entries. Sorted, so a batch of new terms produces a diff
     a person can read instead of a reshuffle."""
     head = [f"# {title}", ""]
     if intro:
         head += [intro, ""]
-    head += [
-        "> **`aprendido` não é `confirmado`.** Uma entrada aprendida veio de uma conversa e está "
-        "atribuída a quem disse — é utilizável, nunca autoritativa. Só alguém que conhece o "
-        "produto confirmando muda isso.",
-        "",
-    ]
-    body = [render_fact(f) for f in sorted(facts, key=lambda f: f.term.lower())]
+    head += [_file_words(language)["note"], ""]
+    body = [render_fact(f, language=language) for f in sorted(facts, key=lambda f: f.term.lower())]
     return "\n".join(head + body)
 
 
@@ -240,8 +275,9 @@ def glossary_index(domain: Domain, *, limit: int = 200) -> str:
     fact's trust depends on is its status; its source stays in the file, which is the record."""
     live = domain.live()
     if not live:
-        return "(ainda não há vocabulário registrado sobre este produto)"
-    rows = ["| termo | status |", "|---|---|"]
+        # IN ENGLISH (#535): this index is read by a model, as every instruction to the role is
+        return "(no vocabulary has been recorded about this product yet)"
+    rows = ["| term | status |", "|---|---|"]
     for f in sorted(live, key=lambda x: x.term.lower())[:limit]:
         rows.append(f"| {f.term} | {f.status} |")
     return "\n".join(rows)

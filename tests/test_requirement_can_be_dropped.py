@@ -220,7 +220,7 @@ def origin(tmp_path):
 
 
 def test_dropping_lands_on_the_branch_everyone_reads(origin):
-    res = drop_requirement(docs_repo="a/b", clone_url=str(origin),
+    res = drop_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                            path="requirements/0002-pacote-de-fecho.md", number=2,
                            dropped_by="<@UADM>", reason="o cliente desistiu",
                            today="2026-07-31")
@@ -238,7 +238,7 @@ def test_dropping_lands_on_the_branch_everyone_reads(origin):
 def test_a_requirement_that_is_not_there_changes_nothing(origin):
     before = _git("rev-parse", "main", cwd=origin).stdout.strip()
 
-    res = drop_requirement(docs_repo="a/b", clone_url=str(origin),
+    res = drop_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                            path="requirements/0009-nao-existe.md", number=9,
                            dropped_by="<@UADM>")
 
@@ -527,7 +527,7 @@ def test_accepting_something_the_CLIENT_dropped_never_calls_their_decision_an_un
     before = _seeded(origin, dropped_text)
 
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        res = accept_requirement(docs_repo="a/b", clone_url=str(origin),
+        res = accept_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                                  path="requirements/0002-pacote-de-fecho.md", number=2,
                                  accepted_by="<@UADM>", today="2026-08-01")
 
@@ -546,7 +546,7 @@ def test_accepting_a_requirement_that_was_REPLACED_points_at_the_one_that_took_i
     `_drop_refusal` already says on the abandonment side."""
     before = _seeded(origin, _rendered(status="superseded-by 0003"))
 
-    res = accept_requirement(docs_repo="a/b", clone_url=str(origin),
+    res = accept_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                              path="requirements/0002-pacote-de-fecho.md", number=2,
                              accepted_by="<@UADM>", today="2026-08-01")
 
@@ -564,7 +564,7 @@ def test_a_requirement_file_NOBODY_can_parse_is_still_ours_to_fix_and_still_an_e
     before = _seeded(origin, "# REQ-0002 — Pacote de fecho\n\ncorpo sem linha de status\n")
 
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        res = accept_requirement(docs_repo="a/b", clone_url=str(origin),
+        res = accept_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                                  path="requirements/0002-pacote-de-fecho.md", number=2,
                                  accepted_by="<@UADM>", today="2026-08-01")
 

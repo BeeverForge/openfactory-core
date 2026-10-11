@@ -89,9 +89,13 @@ def filler_words() -> frozenset[str]:
     return _flat(FILLER)
 
 
+#: The letters a word is made of, accents kept — English and Portuguese alike.
+_WORD_LETTERS = r"[a-zà-ÿ']+"
+
+
 def words_of(text: str) -> list[str]:
     """The message as words, accents kept — the split all three callers used to write themselves."""
-    return re.findall(r"[a-zà-ÿ']+", (text or "").lower())
+    return re.findall(_WORD_LETTERS, (text or "").lower())
 
 
 def is_bare_assent(text: str) -> bool:

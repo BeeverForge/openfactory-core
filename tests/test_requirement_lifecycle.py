@@ -367,7 +367,7 @@ def test_a_proposal_outside_the_base_is_LANDED_not_merely_opened():
     reasoned to the cause herself."""
     forge = _SweepForge(["main", "req/0001-x", "product/baseline"])
 
-    assert land_open_proposals(docs_repo="a/b", forge=forge) == ["req/0001-x"]
+    assert land_open_proposals(language="pt-BR", docs_repo="a/b", forge=forge) == ["req/0001-x"]
     assert forge.did("open_pr") == ["req/0001-x"]
     assert forge.did("merge_pr"), "the review request was opened and left open"
     assert forge.deleted == ["req/0001-x"], "the landed branch stays and the sweep churns on it"
@@ -377,7 +377,7 @@ def test_a_branch_that_ALREADY_has_a_request_is_merged_rather_than_re_opened():
     """The common case after a failure: the request exists, nothing landed it."""
     forge = _SweepForge(["main", "req/0001-x"], open_prs=("req/0001-x",))
 
-    assert land_open_proposals(docs_repo="a/b", forge=forge) == ["req/0001-x"]
+    assert land_open_proposals(language="pt-BR", docs_repo="a/b", forge=forge) == ["req/0001-x"]
     assert forge.did("open_pr") == [], "a second review request was opened for the same branch"
     assert forge.did("merge_pr")
 
@@ -388,7 +388,7 @@ def test_a_merged_branch_that_survived_deletion_is_CLEARED_not_reproposed():
     already in the base. Recognise MERGED, delete the leftover, converge."""
     forge = _SweepForge(["main", "req/0002-totais"], merged_prs=("req/0002-totais",))
 
-    assert land_open_proposals(docs_repo="a/b", forge=forge) == []
+    assert land_open_proposals(language="pt-BR", docs_repo="a/b", forge=forge) == []
     assert forge.did("open_pr") == [], "a requirement already in the base was re-proposed"
     assert forge.did("merge_pr") == []
     assert forge.deleted == ["req/0002-totais"], (
@@ -407,7 +407,7 @@ def test_a_proposal_a_person_CLOSED_is_left_alone_rather_than_re_proposed(caplog
     forge = _SweepForge(["main", "req/0004-descartado"], closed_prs=("req/0004-descartado",))
 
     with caplog.at_level(logging.WARNING, logger="openfactory.product"):
-        assert land_open_proposals(docs_repo="a/b", forge=forge) == []
+        assert land_open_proposals(language="pt-BR", docs_repo="a/b", forge=forge) == []
 
     assert forge.did("open_pr") == [], "a proposal a person closed was re-proposed"
     assert forge.did("merge_pr") == [], "a proposal a person closed was merged anyway"
@@ -420,14 +420,14 @@ def test_a_merge_that_did_not_happen_is_not_reported_as_landed():
     ADR-0028's defect committed by the platform."""
     forge = _SweepForge(["main", "req/0001-x"], merges=False)
 
-    assert land_open_proposals(docs_repo="a/b", forge=forge) == []
+    assert land_open_proposals(language="pt-BR", docs_repo="a/b", forge=forge) == []
     assert forge.deleted == [], "a branch was deleted on a merge that did not happen"
 
 
 def test_only_req_branches_are_touched():
     forge = _SweepForge(["main", "product/baseline", "feature/x"])
 
-    assert land_open_proposals(docs_repo="a/b", forge=forge) == []
+    assert land_open_proposals(language="pt-BR", docs_repo="a/b", forge=forge) == []
     assert forge.acted == [("list_branches", "a/b")], "it acted on a branch that is not a proposal"
     assert forge.deleted == []
 
@@ -441,15 +441,15 @@ def test_a_sweep_that_could_not_look_answers_NONE_and_never_an_empty_list(caplog
     tech-lead round is in until its call site passes one), and a branch list that could not be
     read. The positive twin is right below: a forge that ANSWERED "no branches" gets `[]`."""
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        assert land_open_proposals(docs_repo="a/b") is None
+        assert land_open_proposals(language="pt-BR", docs_repo="a/b") is None
     assert "OPENFACTORY_PRODUCT_SWEEP_NO_FORGE" in caplog.text
 
     caplog.clear()
     with caplog.at_level(logging.ERROR, logger="openfactory.product"):
-        assert land_open_proposals(docs_repo="a/b", forge=_SweepForge([], unreadable=True)) is None
+        assert land_open_proposals(language="pt-BR", docs_repo="a/b", forge=_SweepForge([], unreadable=True)) is None
     assert "OPENFACTORY_PRODUCT_SWEEP_UNREADABLE" in caplog.text
 
-    assert land_open_proposals(docs_repo="a/b", forge=_SweepForge(["main"])) == [], (
+    assert land_open_proposals(language="pt-BR", docs_repo="a/b", forge=_SweepForge(["main"])) == [], (
         "a repository that was READ and holds no proposals must not read as unreachable")
 
 
@@ -648,7 +648,7 @@ def test_a_duplicates_conflict_IS_a_supersession_and_lands_in_the_same_commit(or
                                                    "existir ao lado dele")])
     assert draft.supersedes == []          # the drafter's exact live output shape
 
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin), draft=draft,
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin), draft=draft,
                               number=2, forge=_Forge())
 
     assert res.ok, res.detail
@@ -682,7 +682,7 @@ def test_half_a_supersession_NEVER_lands(origin):
     _git("add", "-A", cwd=origin)
     _git("commit", "-qm", "um requisito sem linha de status", cwd=origin)
 
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin),
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                               draft=_draft(title="Nova versão do fecho", supersedes=[3]),
                               number=4, forge=_Forge())
 
@@ -698,7 +698,7 @@ def test_a_number_claimed_by_an_unlanded_branch_is_never_reminted(origin):
     """Finding 60: a proposal pushed but never landed is invisible to the base corpus, so the next
     request re-minted its number — two files under one identity, and acceptance/supersession then
     act on whichever sorts first."""
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin),
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                               draft=_draft(title="Exportar extratos"), number=2,
                               forge=_Forge(("main", "req/0002-relatorio-mensal")))
 
@@ -715,7 +715,7 @@ def test_a_retry_ADOPTS_its_own_prior_branch_instead_of_stepping_past_it(origin)
     forge = _Forge(("main", "req/0003-exportar-extratos"),
                    proposed={"req/0003-exportar-extratos": "https://x/7"})
 
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin),
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                               draft=_draft(title="Exportar extratos"), number=2,
                               forge=forge)
 
@@ -746,7 +746,7 @@ def test_a_LIVE_TWIN_of_the_text_being_written_is_RETIRED_in_the_same_commit(ori
     draft = _draft(title=title)
     assert draft.supersedes == [] and draft.conflicts == []      # nothing to fold from the draft
 
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin), draft=draft,
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin), draft=draft,
                               number=3, forge=_Forge())
 
     assert res.ok, res.detail
@@ -773,7 +773,7 @@ def test_a_twin_that_was_ALREADY_retired_is_left_alone(origin):
     _git("add", "-A", cwd=origin)
     _git("commit", "-qm", "REQ-0002 retired", cwd=origin)
 
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin), draft=_draft(title=title),
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin), draft=_draft(title=title),
                               number=3, forge=_Forge())
 
     assert res.ok, res.detail
@@ -790,7 +790,7 @@ def test_a_DIFFERENT_promise_is_never_retired_for_sharing_a_base(origin):
     _git("add", "-A", cwd=origin)
     _git("commit", "-qm", "REQ-0002", cwd=origin)
 
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin),
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
                               draft=_draft(title="Totais de IVA verdadeiros"), number=3,
                               forge=_Forge())
 
@@ -850,7 +850,7 @@ def test_an_ACCEPTED_twin_is_never_retired_behind_a_persons_back(origin):
     _git("commit", "-qm", "REQ-0002 acordado", cwd=origin)
     before = _git("rev-parse", "main", cwd=origin).stdout.strip()
 
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin), draft=_draft(title=title),
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin), draft=_draft(title=title),
                               number=3, forge=_Forge())
 
     assert not res.ok, "an accepted promise was replaced on a title match alone"
@@ -872,7 +872,7 @@ def test_saying_it_replaces_the_promise_makes_the_write_legal(origin):
     _git("commit", "-qm", "REQ-0002 + REQ-0003", cwd=origin)
 
     draft = _draft(title=title, supersedes=[3])          # the person said so; the drafter recorded
-    res = propose_requirement(docs_repo="a/b", clone_url=str(origin), draft=draft,
+    res = propose_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin), draft=draft,
                               number=4, forge=_Forge())
 
     assert res.ok, res.detail

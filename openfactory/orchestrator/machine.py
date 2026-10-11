@@ -505,14 +505,14 @@ def _spec_refusal(ticket: Ticket) -> None:
     if not found:
         raise SpecValidationError(
             "ticket has no acceptance criteria — in fact no sections at all. Add a "
-            "`## Acceptance criteria` (or `## Critérios de aceite`) heading with one `- ` bullet "
-            "per criterion, so the job can tell when it is done."
+            "`## Acceptance criteria` heading (or the same heading in the ticket's language) with "
+            "one `- ` bullet per criterion, so the job can tell when it is done."
         )
     raise SpecValidationError(
         "ticket has no acceptance criteria. The sections I found were "
         + ", ".join(f"'{name}'" for name in found)
         + " — none of them reads as a criteria heading. Rename one to `## Acceptance criteria` "
-          "or `## Critérios de aceite`, with one `- ` bullet per criterion."
+          "(or the same heading in the ticket's language), with one `- ` bullet per criterion."
     )
 
 
@@ -2540,7 +2540,7 @@ class JobRunner:
             f"**{dr.question}**\n\n"
             + (f"{dr.context}\n\n" if dr.context else "")
             + "\n".join(lines)
-            + "\n\nAnswer on the panel, or in the project channel with `decis\u00e3o: <key>`."
+            + "\n\nAnswer on the panel, or in the project channel with `decision: <key>`."
         )
         try:
             self.tracker.comment(ticket.id, body)

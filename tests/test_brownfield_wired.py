@@ -151,7 +151,7 @@ def test_everything_lands_as_ONE_pull_request():
 
     # the world where a previous attempt left the branch behind with no pull request
     forge = _Forge(["main", "product/baseline"])
-    authoring.propose_baseline(
+    authoring.propose_baseline(language="pt-BR", 
         forge=forge, docs_repo="acme/ctx", clone_url="https://x/acme/ctx.git", base="main",
         product="acme", observations=3, covered=["a"], files={"a.md": "x"})
     assert len(forge.opened) <= 1, f"more than one PR per pass: {forge.opened}"
@@ -199,11 +199,16 @@ def test_the_files_carry_the_inventory_and_one_candidate_each():
 def test_the_pull_request_says_it_is_a_READING_not_a_set_of_promises():
     """The one moment somebody could mistake a reverse-engineered description for something the
     product agreed to — so the PR body says it in its first line."""
+    from openfactory.product.authoring import _w
+
     src = Path("openfactory/product/authoring.py").read_text()
     start = src.index("def propose_baseline")
     body = src[start:]
     body = body[:body.index("\ndef ")] if "\ndef " in body else body
-    assert "LEITURA do código" in body
+    # the body's first line is a catalogue sentence now, in the project's language (#535)
+    assert '_w(language, "baseline_body_reading"' in body
+    assert "LEITURA do código" in _w("pt-BR", "baseline_body_reading", observations=3)
+    assert "READING of the code" in _w("en", "baseline_body_reading", observations=3)
     assert "observed" in body
 
 

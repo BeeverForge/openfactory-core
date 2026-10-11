@@ -3717,11 +3717,25 @@ async def product_role_break_down(inp: ProductBreakdownInput) -> list[dict]:
     results = (await _turning(_break, f"breaking REQ-{inp.number} of {inp.project} into cards")
                if activity.in_activity() else await asyncio.to_thread(_break))
     await _tell_the_breakdown(project, inp, results)
+    await _keep_what_was_not_filed(project, inp, results)
     return [{"ok": bool(getattr(r, "ok", False)), "detail": str(getattr(r, "detail", "") or ""),
              "ref": str(getattr(r, "ref", "") or ""), "url": str(getattr(r, "url", "") or ""),
              "existed": bool(getattr(r, "existed", False)),
              "nothing_to_build": bool(getattr(r, "nothing_to_build", False))}
             for r in (results or [])]
+
+
+async def _keep_what_was_not_filed(project, inp: ProductBreakdownInput, results) -> None:
+    """The fronts this breakdown did not file, kept where the requirement is shown (#564) — over
+    what the requirement's last breakdown left out. NEVER RAISES: the cards are on the board
+    whether or not the ledger took it, and the log says it did not."""
+    from openfactory.product import unfiled
+
+    try:
+        await asyncio.to_thread(unfiled.record, project, inp.number, results)
+    except Exception:  # noqa: BLE001 — the cards stand; only the record of what is missing failed
+        activity.logger.exception("OPENFACTORY_PRODUCT_UNFILED_NOT_KEPT project=%s req=%s",
+                                  inp.project, inp.number)
 
 
 @activity.defn
@@ -5344,7 +5358,9 @@ def _land_product_proposals(project, *, token: str | None = None) -> list[str]:
             # the folder a proposal may touch and still land unattended (#265 §6.4): the one the
             # product declares, never a guess — an unreadable context keeps the default, and a
             # proposal in another folder is then left open and said, never merged
-            requirements_dir=module.context().requirements_dir)
+            requirements_dir=module.context().requirements_dir,
+            # the review request it opens is read in the project's language (#535)
+            language=getattr(project, "language", None))
         if rescued:
             activity.logger.warning("OPENFACTORY_PRODUCT_PROPOSAL_RESCUE project=%s landed %s "
                                     "proposal(s) into the base: %s",
@@ -6327,11 +6343,15 @@ async def techlead_watch(project_name: str) -> str:
         verdict_now = classify(here.note if here else "", cause=here.cause if here else "")
         spent = here.attempts_spent if here else 0
         tempered = temper(
-            remedy_for(verdict_now, already_spent=spent, language=lang), history.get(sig))
+            remedy_for(verdict_now, already_spent=spent, language=lang), history.get(sig),
+            language=lang)
         if finding.resumable and tempered.action != "retry":
+            from openfactory.techlead.memory import MEMORY
+            from openfactory.techlead.voice import say as tech_say
+
             finding.resumable = False
-            finding.action = tempered.say or (tempered.reason +
-                                              " — precisa de alguém olhando a causa")
+            finding.action = tempered.say or (tempered.reason
+                                              + tech_say(MEMORY, "needs_a_person", lang))
         if not (finding.resumable and finding.ticket):
             continue
         # One open remedy per (ticket, signature) at a time: a resume already in flight from the

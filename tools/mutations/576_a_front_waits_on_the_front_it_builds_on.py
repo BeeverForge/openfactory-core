@@ -34,8 +34,9 @@ MUTATIONS = [
 
     # 2. filing
     ("TODAY'S DEFECT: a front on a refused one is filed anyway", MODULE,
-     "            if waits_on is not None:\n",
-     "            if False:\n"),
+     # RE-PINNED 2026-10-11 (#563 slice 18d): the fence's hold is asked first
+     "            elif waits_on is not None:\n",
+     "            elif False:\n"),
     ("the fronts are filed in the order they were listed", MODULE,
      "        for index in _filing_order(fronts):\n",
      "        for index in range(len(fronts)):\n"),

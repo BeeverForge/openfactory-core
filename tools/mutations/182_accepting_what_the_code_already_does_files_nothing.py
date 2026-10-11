@@ -121,7 +121,8 @@ MUTATIONS = [
     ("the module's refusal is told as a failed breakdown — 'não consegui… tento de novo'",
      # RE-PINNED 2026-10-11 (#563 slice 18b): what the conversation is told when it ends
      CONFIRM,
-     '    if results is not None and any(getattr(r, "nothing_to_build", False) for r in results):',
+     # RE-PINNED 2026-10-11 (review of #619): an unfinished breakdown is said first, on its own
+     '    if any(getattr(r, "nothing_to_build", False) for r in results):',
      "    if False:"),
 
     # ── the sink ────────────────────────────────────────────────────────────────────────────────

@@ -191,8 +191,9 @@ MUTATIONS = [
      "            reply=reply, answer=answered.answer if answered is not None else \"\")), rubric)",
      "            reply=\"\", answer=\"\")), rubric)"),
 
+    # RE-PINNED 2026-10-11 (#535): the sentence is picked from a catalogue by the project's language
     ("REVIEW OF #390: an unread judge files a requirement's card nobody will see", CARDS,
-     '                return None, "a revisão automática não respondeu"',
+     '                return None, _pick(_JUDGE_UNREAD, language)',
      '                return fields, ""'),
 
     ("a redraft that answered nothing spends a second judge on the same input", CARDS,

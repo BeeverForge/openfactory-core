@@ -90,11 +90,17 @@ MUTATIONS = [
 
     # 4. what the conversation is told
     ("an acceptance that filed nothing is told the breakdown sentence", CONFIRM,
-     '    if results is not None and (asked_for or any(getattr(r, "ok", False) for r in results)):',
-     "    if results is not None:"),
+     # RE-PINNED 2026-10-11 (review of #619): an unfinished breakdown is said first, on its own
+     '    if asked_for or any(getattr(r, "ok", False) for r in results):',
+     "    if True:"),
     ("the conversation is told in the project's language, not its own", CONFIRM,
      '    lang = language or getattr(project, "language", None)\n'
-     "    if results is not None and any(",
+     "    if results is None:",
      '    lang = getattr(project, "language", None)\n'
-     "    if results is not None and any("),
+     "    if results is None:"),
+    ("a breakdown that did not finish is told that nothing was filed", CONFIRM,
+     "        return breakdown_did_not_finish(number=number, agreed=not asked_for, language=lang)",
+     "        results = []"),
+    ("an unfinished acceptance's breakdown does not say the agreement stands", CONFIRM,
+     "agreed=not asked_for, language=lang)", "agreed=False, language=lang)"),
 ]

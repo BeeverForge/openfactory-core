@@ -646,6 +646,21 @@ def test_a_caller_cannot_ask_for_SOMEBODY_ELSES_agenda(panel):
     assert r.status_code != 200 or "7" not in [i["subject"] for i in r.json()["data"]["items"]]
 
 
+def test_the_operators_list_never_carries_a_front_a_breakdown_left_out(panel, ledger):
+    """Review of #621: what a breakdown did not file is shown on the requirement's row (#564) and
+    waits on nobody, so the list of what somebody is waiting on does not carry it."""
+    from openfactory.memory.ledger import UNFILED, open_loop
+    from openfactory.product import unfiled
+
+    ledger.rows.append(open_loop(UNFILED, "66", owner=unfiled.OWNER, ts=T0,
+                                 context={"fronts": '["a frente não foi registrada"]'}))
+    r = panel.get(f"/api/loops/{ROOM}", headers={"authorization": "Bearer tok-ana"})
+
+    assert r.status_code == 200, r.text
+    assert UNFILED not in {x["kind"] for x in r.json()["waiting"]}, r.json()["waiting"]
+    assert r.json()["waiting"], "the list lost everything else with it"
+
+
 def test_the_operators_list_of_loops_carries_nobody_elses_private_items(panel):
     r = panel.get(f"/api/loops/{ROOM}", headers={"authorization": "Bearer tok-bruno"})
     assert r.status_code == 200, r.text
