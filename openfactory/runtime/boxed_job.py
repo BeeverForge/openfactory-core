@@ -207,7 +207,8 @@ def _a_count(raw: str | None) -> int:
 
 def _clone(cfg: BoxConfig, dest: Path, token: str | None) -> None:
     p = subprocess.run(
-        ["git", "clone", "--no-single-branch", clone_url(cfg, token=token), str(dest)],
+        ["git", "clone", "--no-local", "--no-single-branch", clone_url(cfg, token=token),
+         str(dest)],
         capture_output=True, text=True, timeout=300,
     )
     if p.returncode != 0:
