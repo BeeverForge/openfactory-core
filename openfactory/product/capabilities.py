@@ -377,7 +377,8 @@ def confirm_in_repository(*, docs_repo: str, clone_url: str, slug: str, flow: Fl
                                                         language=language))
 
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return failed("could not clone", out)
         target = tmp / rel

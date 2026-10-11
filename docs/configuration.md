@@ -155,6 +155,26 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
     A secret configured in **both** a panel variable and a product one resolves to the **product**
     credential: a copy-paste mistake must not be able to widen a BA into an operator. And these
     variables **count as configuration** — a deployment that sets only these is closed, not open.
+
+    **The product owner reads the board too** (#562): a product credential may open
+    `/p/<project>/board` for a project with a product role and read it (`GET /api/board/<project>`),
+    with no second credential, and a card on it (`?card=`) as their own page does. Not a pull
+    request's diff (`?pr=`): code stays on the floor. Moving a card stays an action of the board;
+    what the product owner could already do to a card the role filed — close it, correct it — is
+    still theirs.
+  - **`OPENFACTORY_BOARD_TOKENS` / `OPENFACTORY_BOARD_TOKEN` — a credential for the floor and
+    nothing of the product owner's** (#562). Same two shapes, for whoever runs the board and is not
+    the product owner: the
+    holder reaches the floor — the board, the jobs, the actions — and is refused the product
+    owner's area **by name**: its page, its chat, its documents and attachments, the `product_*`
+    rows. The panel token stays what it was, the administrator's, and reaches both.
+
+    ```
+    OPENFACTORY_BOARD_TOKENS="s3cret-d:leo:Leo Martins"
+    ```
+
+    A secret in both a product and a board variable resolves to the product credential, as above;
+    these variables count as configuration too.
   - `OPENFACTORY_IDENTITY` names the identity provider; `local` (the default) is the variables above.
     A provider that asserts groups grants a scope by naming it (`product`); groups it does not
     recognise are ignored rather than treated as areas. SAML and the like are add-ons registered
@@ -170,7 +190,8 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
     were opened with again every few seconds, whatever the identity provider, and close with a
     typed `ended` event once it is revoked, expired or no longer allowed their path.
     `--product` scopes them to the product surface, exactly as a
-    `OPENFACTORY_PRODUCT_TOKENS` row would; `openfactory people list` shows who is registered and
+    `OPENFACTORY_PRODUCT_TOKENS` row would, and `--board` to the board, as an
+    `OPENFACTORY_BOARD_TOKENS` row would (an invitation with neither is the administrator's); `openfactory people list` shows who is registered and
     which links are still open (a link lasts 7 days, a session 30). Not open sign-up: a person
     nobody vouched for would be a name in an audit line nobody stands behind. The people live in
     the metrics store the worker and the panel share (`OPENFACTORY_METRICS_SINK=sqlite` on
@@ -202,7 +223,7 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
     on Entra, app assignment on Okta, an *Internal* app on Google); the platform decides what
     they may reach. `OPENFACTORY_OIDC_GROUPS` maps a provider group to the platform's word for
     it — `product` scopes its members to the product surface, as `OPENFACTORY_PRODUCT_TOKENS`
-    does — and a group not named passes through unchanged, so a project's `admins` may name it
+    does, and `floor` to the board, as `OPENFACTORY_BOARD_TOKENS` does — and a group not named passes through unchanged, so a project's `admins` may name it
     directly — **which means a group name the provider emits can match an allowlist entry on its
     own**: the map is not the only thing that decides, so read `admins` and `product.admins` as
     lists of *ids or group names* and pick names your directory does not already use by accident.
@@ -230,6 +251,16 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
   is kept OFF as a fallback; App Runner is the deployed one.
 
 ---
+
+### The default front end, on or off
+
+**`OPENFACTORY_DEFAULT_FRONT_END`** — `on` (the default) or `off`. The panel's page is OpenFactory's
+default front end, and it uses the same API any other front end would. With `off`, the panel's
+process serves the API (`/api/*`), its two streams (`/api/stream`, `/api/product/stream`), the
+sign-in (`/auth/*`) and the previews, and no page: `/`, `/p/…`, `/product/…` and `/logs/…` answer
+404, saying why. Turn it off when a deployment has screens of its own; a dashboard served from
+another origin is admitted by `OPENFACTORY_PANEL_ORIGINS`. A value that is neither `on` nor `off`
+keeps the page on, and the log says so. `openfactory init` writes the line into `.env.compose`.
 
 ## 4. Prod-release approvers (panel)
 

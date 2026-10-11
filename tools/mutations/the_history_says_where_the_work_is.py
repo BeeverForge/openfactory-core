@@ -163,11 +163,12 @@ MUTATIONS = [
      "    out.append(f\"## {w['hot']}\")",
      '    out.append("")'),
 
+    # RE-PINNED 2026-10-10 (#594): every clone passes `--no-local`
     ("`history=True` clones shallow anyway, so every caller downstream gets the shallow refusal "
      "and the whole path is decoration",
      "openfactory/onboarding/propose_manifest.py",
-     ('    rc, out = (_git(["clone", "--filter=blob:none", *(["--branch", base] if base else []),\n'
-      '                     clone_url, str(tmp)])\n'
+     ('    rc, out = (_git(["clone", "--no-local", "--filter=blob:none",\n'
+      '                     *(["--branch", base] if base else []), clone_url, str(tmp)])\n'
       "               if history else _git(shallow))"),
      "    rc, out = _git(shallow)"),
 

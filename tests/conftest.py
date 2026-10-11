@@ -293,13 +293,26 @@ def _git_asks_this_suite_who_it_is() -> object:
 
     It also cuts the OTHER ambient dependencies in the same stroke: a developer with
     `commit.gpgsign = true` cannot run this suite at all, and `init.defaultBranch` differs between
-    machines — both are the machine leaking into the measurement."""
+    machines — both are the machine leaking into the measurement.
+
+    AND NO GIT MAINTENANCE RUNS BEHIND A TEST'S BACK (#592). A commit, and a push into a bare
+    repository, end with `git maintenance run --auto`, DETACHED: it repacks the repository in the
+    background after the command has returned. Newer git (the CI runner's 2.55) repacks on far less
+    than the old `gc --auto` thresholds, so the fixture repositories this suite builds get repacked
+    while the next line clones them — and a clone of a local path copies the objects directory file
+    by file. It met a pack being written (`hardlink different from source at
+    …/objects/pack/tmp_idx_…`) or a loose object just packed away (`failed to copy file to
+    …/objects/5b/908c…: No such file or directory`), about one CI run in ten, a different test
+    each time. Which git the machine runs is the machine leaking into the measurement too."""
     config = Path(tempfile.mkdtemp(prefix="openfactory-suite-git")) / "gitconfig"
     config.write_text(
         "[user]\n\tname = OpenFactory Suite\n\temail = suite@openfactory.invalid\n"
         "[commit]\n\tgpgsign = false\n"
         "[tag]\n\tgpgsign = false\n"
         "[gpg]\n\tformat = openpgp\n"
+        "[maintenance]\n\tauto = false\n"
+        "[gc]\n\tauto = 0\n"
+        "[receive]\n\tautogc = false\n"
     )
     patch = pytest.MonkeyPatch()
     patch.setenv("GIT_CONFIG_GLOBAL", str(config))

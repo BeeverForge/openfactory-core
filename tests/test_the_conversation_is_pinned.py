@@ -1898,8 +1898,9 @@ def test_it_did_not_work_closes_the_delivery_as_rejected_and_invites_the_defect(
 def test_an_answer_the_word_list_cannot_read_is_judged_and_a_worked_closes_the_delivery(table,
                                                                                        ledger):
     """ADR-0029: "testei, tá ok" is no word the list trusts, and with a delivery open the model is
-    asked whether the person said it works — about the delivery it names. Its "worked" closes the
-    delivery exactly as a "funcionou" would."""
+    asked whether the person said it works — about the delivery it names, in English like every
+    instruction to the role (#535). Its "worked" closes the delivery exactly as a "funcionou"
+    would."""
     project = _project()
     loop = _awaiting_acceptance(ledger)
     module = _Module(project, acceptance="worked")
@@ -1908,7 +1909,7 @@ def test_an_answer_the_word_list_cannot_read_is_judged_and_a_worked_closes_the_d
     reply = talk.say("testei, tá ok", user=CLIENT)
 
     assert module.asked("judge_acceptance") == [{"reply": "testei, tá ok",
-                                                 "delivered": "requisito 7"}]
+                                                 "delivered": "requirement 7"}]
     assert reply == followup.accepted_text(loop, agent_name=AGENT, language=LANG)
     [closed] = [x for x in fold(ledger) if x.kind == ACCEPTANCE]
     assert (closed.state, closed.outcome) == ("closed", "worked")

@@ -75,10 +75,11 @@ MUTATIONS = [
      'continuing "\n              f"without them", flush=True)\n', ""),
 
     # ── reachability ────────────────────────────────────────────────────────────────────────────
+    # RE-PINNED 2026-10-10 (#594): every clone passes `--no-local`
     ("`_clone` spells the URL by hand and the port is decoration", BOX,
-     '["git", "clone", "--no-single-branch", clone_url(cfg, token=token), str(dest)],',
-     '["git", "clone", "--no-single-branch",\n'
-     '         f"https://x-access-token:{token}@github.com/{cfg.repo}.git", str(dest)],'),
+     '["git", "clone", "--no-local", "--no-single-branch", clone_url(cfg, token=token),',
+     '["git", "clone", "--no-local", "--no-single-branch",\n'
+     '         f"https://x-access-token:{token}@github.com/{cfg.repo}.git",'),
 
     ("the origin reset is dropped — the agent keeps a credentialed remote", BOX,
      '            ["git", "-C", str(dest), "remote", "set-url", "origin", '

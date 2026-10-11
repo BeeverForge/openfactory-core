@@ -124,8 +124,8 @@ def test_a_cut_EXPLAINS_ITSELF():
     section = "\n".join(ProductRole(None, board=board,
                                     titles={i: f"c{i}" for i in range(1, 400)})._board_section())
 
-    assert "NÃO por falta de acesso" in section, section[-300:]
-    assert "orçamento" in section, "the reason for the cut is not stated"
+    assert "NOT for lack of access" in section, section[-300:]
+    assert "budget" in section, "the reason for the cut is not stated"
 
 
 def test_Done_drops_the_TITLE_and_never_the_IDENTITY():
@@ -174,10 +174,13 @@ def test_a_card_closed_as_NOT_PLANNED_can_never_be_read_as_delivered():
     # every prompt — seven times what the first version of this claimed — and put `fechado`, a word
     # `voice._CLAIMED_DONE` watches for, in front of the role two hundred times a turn. Marking
     # only what CONTRADICTS the column says strictly more for ~1.700.
-    assert "#500 (cancelado)" in section, section
+    assert "#500 (cancelled)" in section, section
     assert "#511" in section and "#511 (" not in section, (
         f"a delivered card in Done should carry no mark at all: {section}")
-    assert "fechado" not in section, "the prompt primes her with the word the detector watches"
+    # in either language (#535): the section is English now, and `closed` is in the English half
+    # of the detector's list
+    for watched in ("fechado", "closed"):
+        assert watched not in section, "the prompt primes her with the word the detector watches"
 
 
 def test_a_card_whose_STATE_IS_UNKNOWN_gets_no_verdict_at_all():
@@ -192,7 +195,7 @@ def test_a_card_whose_STATE_IS_UNKNOWN_gets_no_verdict_at_all():
                                     titles={511: "Decrypt"})._board_section())
 
     assert "#511" in section
-    assert "cancelado" not in section and "aberto" not in section, (
+    assert "cancelled" not in section and "still open" not in section, (
         f"it guessed an outcome from the column: {section}")
 
 
@@ -221,8 +224,8 @@ def test_the_two_divergences_triage_names_are_both_VISIBLE_in_the_prompt():
                state_reason="completed", column="TO-DO"),
     ])._board_section())
 
-    assert "#250 (ainda aberto)" in section, section      # done-but-open
-    assert "#511 (entregue)" in section, section          # closed-elsewhere
+    assert "#250 (still open)" in section, section        # done-but-open
+    assert "#511 (delivered)" in section, section         # closed-elsewhere
 
 
 def test_a_card_the_PLATFORM_closed_as_a_duplicate_is_not_read_as_delivered():

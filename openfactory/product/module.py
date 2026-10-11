@@ -78,6 +78,7 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from openfactory.adapters.board.base import stage_column
@@ -534,8 +535,8 @@ def _log_mount(project, root, *, docs, code, mounted=(), missing=None) -> None:
     if not isinstance(project, str):
         _tell_the_factory(project, _IMP_MOUNT_EMPTY, line, ok=not empty)
         _tell_the_factory(project, _IMP_NO_CODE,
-                          f"{line}{f' missing={said}' if said else ''} — a agente respondeu sem "
-                          f"poder abrir o código",
+                          f"{line}{f' missing={said}' if said else ''} — the agent answered "
+                          f"without being able to open the code",
                           ok=bool(code) and n_code > 0 and not missing)
 
 
@@ -788,6 +789,27 @@ _FILING = {
 }
 
 
+def _filing_order(fronts) -> list[int]:
+    """The fronts' indexes with every front after the ones it builds on (#576), and otherwise in
+    the decomposition's own order. A cycle names no front to start from: its fronts go in their
+    own order, as though none built on another — logged, because the model said something that
+    cannot be true."""
+    order: list[int] = []
+    left = list(range(len(fronts)))
+    unordered: set[int] = set()
+    while left:
+        ready = [i for i in left if i in unordered
+                 or all(b - 1 in order for b in getattr(fronts[i], "builds_on", []) or [])]
+        if not ready:
+            log.info("the breakdown's fronts %s build on one another in a circle; filed in their "
+                     "own order", [i + 1 for i in left])
+            unordered.update(left)
+            ready = left
+        order.append(ready[0])
+        left.remove(ready[0])
+    return order
+
+
 def _could_not(sentence: str, *, act: str, cause: object = "", ref: str = "") -> WriteResult:
     """The one way this module reports a write that did not happen.
 
@@ -810,6 +832,15 @@ def _could_not(sentence: str, *, act: str, cause: object = "", ref: str = "") ->
     """
     log.warning("OPENFACTORY_PRODUCT_WRITE_FAILED act=%s ref=%s — %s", act, ref or "-", cause)
     return WriteResult(ok=False, ref=ref, detail=sentence)
+
+
+def _held(sentence: str, *, act: str, why: str) -> WriteResult:
+    """A write the module DECIDED not to start — a front held on the one it builds on (#576), a
+    front past the breakdown's budget — reported as `_could_not` reports one that failed, and
+    logged as what it is (review of #586): whoever counts `OPENFACTORY_PRODUCT_WRITE_FAILED` counts
+    writes that were tried and did not happen, never a hold."""
+    log.info("OPENFACTORY_PRODUCT_WRITE_HELD act=%s — %s", act, why)
+    return WriteResult(ok=False, detail=sentence)
 
 
 #: What the client is told when the board cannot be read for an act about ONE card is
@@ -2347,8 +2378,8 @@ class ProductModule:
                 title = str(marks.get("title") or "")
                 delivered = "the card they asked for" + (f": {title}" if title else "")
             else:
-                delivered = f"requisito {loop.subject}" + (
-                    " (um defeito reportado)" if marks.get("defect") else "")
+                delivered = f"requirement {loop.subject}" + (
+                    " (a reported defect)" if marks.get("defect") else "")
             verdict = self._role().judge_acceptance(
                 sandbox=sandbox, workspace=ws, reply=text, delivered=delivered)
         except Exception:  # noqa: BLE001
@@ -2885,21 +2916,38 @@ class ProductModule:
         held = self._born_in_the_queue(tracker, board, act="break a requirement into work")
         if held is not None:
             return [held]
-        results: list[WriteResult] = []
         vet = self._vetter(requirement, tracker)
         from openfactory.product.cards import BREAKDOWN_BUDGET_SECONDS
 
         started = time.monotonic()
-        for draft in drafts.issues:
-            if time.monotonic() - started > BREAKDOWN_BUDGET_SECONDS:
+        # A FRONT IS FILED AFTER THE FRONTS IT BUILDS ON, AND NOT AT ALL WHEN ONE OF THEM WAS NOT
+        # (#576). A run whose first front the review refused filed the second anyway — built on
+        # the first's rows — and the pre-flight parked it a move later. The decomposition says what
+        # each front builds on (`IssueDraft.builds_on`); a front standing on one that was refused,
+        # ran out of time, failed to file or was itself held is held, and said with the front it
+        # waits on. The results keep the decomposition's order, whatever order they were filed in.
+        fronts = drafts.issues
+        filed: dict[int, WriteResult] = {}
+        for index in _filing_order(fronts):
+            draft = fronts[index]
+            waits_on = next((fronts[b - 1] for b in getattr(draft, "builds_on", None) or []
+                             if b - 1 in filed and not filed[b - 1].ok), None)
+            if waits_on is not None:
+                filed[index] = _held(
+                    breakdown_said("held", title=draft.title.strip()[:80],
+                                   base=waits_on.title.strip()[:80], language=lang),
+                    act="break a requirement into work",
+                    why=f"front {index + 1} builds on one that was not filed")
+            elif time.monotonic() - started > BREAKDOWN_BUDGET_SECONDS:
                 # PAST THE BUDGET, NOTHING NEW IS STARTED (review of #390): the fronts not reached
                 # are said, and nothing of them was written — asking again files what is missing
-                results.append(_could_not(
+                filed[index] = _held(
                     breakdown_said("out_of_time", title=draft.title.strip()[:80], language=lang),
-                    act="break a requirement into work", cause="breakdown budget spent"))
-                continue
-            results.append(self._file_one(draft, requirement, tracker, board, vet=vet,
-                                          known_open=known_open, by=actor))
+                    act="break a requirement into work", why="breakdown budget spent")
+            else:
+                filed[index] = self._file_one(draft, requirement, tracker, board, vet=vet,
+                                              known_open=known_open, by=actor)
+        results = [filed[index] for index in range(len(fronts))]
         self._open_delivery(requirement, results, by=actor, tracker=tracker,
                             conversation=conversation, requester=requester)
         return results
@@ -4453,10 +4501,12 @@ class ProductModule:
         sandbox, ws = self._workspace()
         answer = self._role().ask_json(
             sandbox=sandbox, workspace=ws, phase="product_refine",
-            prompt=("Este item não diz quando estaria pronto, então seria recusado na entrada. "
-                    "Escreva o que precisa ser verdade para considerá-lo feito, no nível do "
-                    "PRODUTO.\n\n"
-                    f"## Item #{ticket.number} — {ticket.title}\n\n{ticket.body}\n\n"
+            # IN ENGLISH, LIKE EVERY INSTRUCTION TO THE ROLE (#535): the criteria come back in
+            # the project's language, which the phase's language directive sets
+            prompt=("This card does not say when it would be done, so it would be refused at "
+                    "intake. Write what has to be true for it to count as done, at the level of "
+                    "the PRODUCT.\n\n"
+                    f"## Card #{ticket.number} — {ticket.title}\n\n{ticket.body}\n\n"
                     + self._REFINE_SCHEMA))
         criteria = (answer or {}).get("criteria") or []
         if not isinstance(answer, dict) or not criteria:
@@ -4500,6 +4550,25 @@ class ProductModule:
         return WriteResult(ok=True, ref=f"#{number}", detail=detail)
 
     # ---- maintaining the cards themselves --------------------------------------------------------
+
+    def what_only_it_carries(self, number: str, survivor: str) -> Carried | None:
+        """What card `number` carries that `survivor` does not, read off the board — None when
+        either card could not be read there (#567).
+
+        THE PERSON'S YES IS GIVEN ON THIS. The role offered to close a card "or" another as if
+        they were equal, and the one it was asked to close was the only card carrying the
+        requirement's first front: its title said less than its criteria. A close in favour of
+        another card now says, before the yes, the criteria the closed card states and the
+        survivor does not, and the requirement it executes when the survivor executes another or
+        none. From the board snapshot this module already reads, so it costs no extra call."""
+        tickets, error = self._read_board()
+        if error:
+            return None
+        bodies = {canonical_ref(t.number): t.body or "" for t in tickets}
+        closing, staying = bodies.get(canonical_ref(number)), bodies.get(canonical_ref(survivor))
+        if closing is None or staying is None:
+            return None
+        return only_in(closing, staying)
 
     def close_card(self, number: str, *, actor: str, in_favour_of: str | None = None,
                    reason: str = "") -> WriteResult:
@@ -5319,13 +5388,14 @@ class ProductModule:
             sandbox=sandbox, workspace=ws, phase="product_align",
             # the SAME schema `refine` writes criteria against — one shape for "what must be true
             # about a card", so the two cannot drift into producing different-looking cards
-            prompt=(f"Este cartão foi escrito a partir de outro texto e precisa passar a executar "
-                    f"o requisito abaixo. Reescreva o que precisa ser verdade para considerá-lo "
-                    f"feito, no nível do PRODUTO e SOMENTE a partir deste requisito: nada pode "
-                    f"entrar que o requisito não peça, e o que ele mudou em relação ao texto "
-                    f"anterior tem de aparecer.\n\n"
-                    f"## Requisito REQ-{req.number:04d} — {req.title}\n\n{req.body}\n\n"
-                    f"## Cartão #{card.number} — {card.title}\n\n{card.body}\n\n"
+            # in English, like every instruction to the role (#535) — see `refine`
+            prompt=(f"This card was written from another text and has to execute the requirement "
+                    f"below instead. Rewrite what has to be true for it to count as done, at the "
+                    f"level of the PRODUCT and ONLY from this requirement: nothing may go in that "
+                    f"the requirement does not ask for, and what it changed from the earlier text "
+                    f"has to show.\n\n"
+                    f"## Requirement REQ-{req.number:04d} — {req.title}\n\n{req.body}\n\n"
+                    f"## Card #{card.number} — {card.title}\n\n{card.body}\n\n"
                     + self._REFINE_SCHEMA))
         criteria = (answer or {}).get("criteria") or []
         if not isinstance(answer, dict) or not criteria:
@@ -5709,6 +5779,45 @@ def _rewritten(body: str, canonical: str, headings: tuple[str, ...]) -> str:
 #: nowhere else, and it is as much a card of that requirement as one filed from it (#265 §6.1).
 _DEFECT_CITES_RE = re.compile(r"^## (?:A promessa violada|The broken promise) — REQ-(\d{4})\s*$",
                               re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class Carried:
+    """What one card carries that another does not (#567): the acceptance criteria only it states,
+    and the requirement it executes when the other executes another one or none."""
+
+    criteria: tuple[str, ...] = ()
+    executes: int | None = None
+
+    def __bool__(self) -> bool:
+        return bool(self.criteria) or self.executes is not None
+
+
+def _plain(text: str) -> str:
+    """A criterion as compared: case, punctuation and spacing are not what it promises."""
+    return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+
+def only_in(closing: str, staying: str, *, at_most: int = 5) -> Carried:
+    """What the card whose body is `closing` carries that the one whose body is `staying` does not
+    — PURE, read with the parser the pickup gate reads with (#567).
+
+    A criterion counts as carried when the other card does not state it, in any case or
+    punctuation. Reworded criteria count as carried: the person reads them and decides, and an
+    overlap that is only claimed is what this exists to stop."""
+    from openfactory.adapters.tracker.parse import parse_ticket_body
+
+    def criteria(body: str) -> list[str]:
+        return [c.text.strip() for c in parse_ticket_body(id="", title="", body=body,
+                                                         repo="").acceptance_criteria
+                if c.text.strip()]
+
+    stated = {_plain(c) for c in criteria(staying)}
+    only = tuple(dict.fromkeys(c[:160] for c in criteria(closing)
+                               if _plain(c) not in stated))[:at_most]
+    executes = _cited_requirement(closing)
+    return Carried(criteria=only,
+                   executes=executes if executes != _cited_requirement(staying) else None)
 
 
 def _cited_requirement(body: str) -> int | None:

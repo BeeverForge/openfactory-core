@@ -178,15 +178,15 @@ def test_the_PRODUCT_socket_asks_the_gate_about_its_own_path(scoped, monkeypatch
     asked = []
     real = scoped.api._gate_verdict
 
-    def _seen(path, credential):
+    def _seen(path, credential, *query):
         asked.append((path, credential))
-        return real(path, credential)
+        return real(path, credential, *query)
 
     monkeypatch.setattr(scoped.api, "_gate_verdict", _seen)
     assert handshake(scoped.api, path=PRODUCT_SOCKET, header=ANALYST, cookie=OPERATOR)[0] == "open"
     assert set(asked) == {(PRODUCT_SOCKET, ANALYST)}, asked
     monkeypatch.setattr(scoped.api, "_gate_verdict",
-                        lambda _p, _c: scoped.api._Refusal(403, {"detail": "no"}))
+                        lambda _p, _c, *_q: scoped.api._Refusal(403, {"detail": "no"}))
     assert handshake(scoped.api, path=PRODUCT_SOCKET, header=ANALYST) == AS_A_SOCKET[403]
 
 
@@ -242,9 +242,9 @@ def test_the_handshake_asks_the_GATE_about_its_own_path_with_what_was_presented(
     asked = []
     real = scoped.api._gate_verdict
 
-    def _seen(path, credential):
+    def _seen(path, credential, *query):
         asked.append((path, credential))
-        return real(path, credential)
+        return real(path, credential, *query)
 
     monkeypatch.setattr(scoped.api, "_gate_verdict", _seen)
     assert handshake(scoped.api, header=OPERATOR, cookie=ANALYST, query="stale")[0] == "open"
@@ -257,14 +257,14 @@ def test_the_gates_NO_is_the_handshakes_no(scoped, monkeypatch):
     """With the verdict swapped for one that refuses everybody, a good credential is refused: the
     decision is the function's. A handshake that decides for itself opens here."""
     api = scoped.api
-    monkeypatch.setattr(api, "_gate_verdict", lambda _p, _c: api._Refusal(403, {"detail": "no"}))
+    monkeypatch.setattr(api, "_gate_verdict", lambda _p, _c, *_q: api._Refusal(403, {"detail": "no"}))
     assert handshake(api, query=OPERATOR) == AS_A_SOCKET[403]
 
 
 def test_the_gates_YES_is_the_handshakes_yes(scoped, monkeypatch):
     """…and the other way, which is what proves no copy is left BESIDE the ask: with the verdict
     answering yes to everybody, nothing else in the handshake still has an opinion."""
-    monkeypatch.setattr(scoped.api, "_gate_verdict", lambda _p, _c: None)
+    monkeypatch.setattr(scoped.api, "_gate_verdict", lambda _p, _c, *_q: None)
     assert handshake(scoped.api, query="nobody-at-all") == AS_A_SOCKET[200]
 
 

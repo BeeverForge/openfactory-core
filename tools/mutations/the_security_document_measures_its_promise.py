@@ -6,7 +6,7 @@ was written by someone who did not run it — so restoring the old text proves n
 needed proving. What is cut here is the meaning while the VOCABULARY stays: the deny list keeps a
 name spelled `OPENFACTORY_TRACKER_TOKEN…` that nothing reads, the document keeps the word
 `AZURE_DEVOPS_PAT` while moving it out of the claim, the anchors are renamed rather than deleted,
-and the same defect arrives under a spelling nobody has seen (`OPENFACTORY_BOARD_TOKEN`). A guard
+and the same defect arrives under a spelling nobody has seen (`OPENFACTORY_CARD_TOKEN`). A guard
 that survives any of those is a guard a reviewer walks through.
 
 Point-in-time proof; anchors rot as code moves and fail loudly on rerun.
@@ -38,7 +38,9 @@ MUTATIONS = [
     ("one credential grows a third override that no list carries",
      CREDENTIALS,
      '    return (os.environ.get("OPENFACTORY_TRACKER_TOKEN")\n',
-     '    return (os.environ.get("OPENFACTORY_BOARD_TOKEN")\n'
+     # RE-PINNED 2026-10-11 (#562): `OPENFACTORY_BOARD_TOKEN` became a real credential, and one
+     # the scrub removes, so the unseen spelling is another one
+     '    return (os.environ.get("OPENFACTORY_CARD_TOKEN")\n'
      '            or os.environ.get("OPENFACTORY_TRACKER_TOKEN")\n'),
     ("a new credential the platform reads reaches the agent unannounced",
      CREDENTIALS,

@@ -100,7 +100,8 @@ def test_the_clone_ACTUALLY_asks_for_both(monkeypatch, tmp_path):
     monkeypatch.setattr(ep.subprocess, "run", _fake)
     ep._clone(ADO, tmp_path / "repo", "ghs_token")
 
-    urls = [c[c.index("clone") + 2] for c in asked if "clone" in c]
+    # the source is the argument before the destination, whatever options precede it (#594)
+    urls = [c[-2] for c in asked if "clone" in c]
     assert urls and "dev.azure.com" in urls[0], f"the clone went to {urls}"
     resets = [c[-1] for c in asked if "set-url" in c]
     assert resets and "dev.azure.com" in resets[0] and "@" not in resets[0]

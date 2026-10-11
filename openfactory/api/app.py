@@ -134,7 +134,7 @@ async def _panel_gate(request: Request, call_next):
     # that follows is gated exactly as before.
     if request.method == "OPTIONS" and request.headers.get("access-control-request-method"):
         return await call_next(request)
-    refused = await _ask_the_gate(request.url.path, _credential_of(request))
+    refused = await _ask_the_gate(request.url.path, _credential_of(request), request.url.query)
     if refused is not None:
         return JSONResponse(refused.body, status_code=refused.status)
     return await call_next(request)
@@ -642,7 +642,7 @@ def _clear_credential_cookies(response) -> None:
     response.delete_cookie(SECURE_TOKEN_COOKIE, path="/", secure=True)
 
 
-def _gate_verdict(path: str, credential: str) -> _Refusal | None:
+def _gate_verdict(path: str, credential: str, query: str = "") -> _Refusal | None:
     """WHO IS THIS, AND MAY THEY READ THAT — the HTTP gate's whole decision, in one function.
 
     None when `credential` opens `path`; otherwise the refusal a request is answered with. This
@@ -660,7 +660,10 @@ def _gate_verdict(path: str, credential: str) -> _Refusal | None:
 
     SYNCHRONOUS, AND IT MAY WAIT — `_admission` folds the people store for a session token, and a
     row may go further than that. So nothing on the event loop calls it directly; see
-    `_ask_the_gate` for what that was measured to cost, and what it cost not to."""
+    `_ask_the_gate` for what that was measured to cost, and what it cost not to.
+
+    `query` is the request's query string, which only the product owner's board read asks
+    (`_the_product_owners_board`); a stream and the socket ask with none."""
     if not _gated(path):
         return None
     door = _admission(credential)
@@ -674,6 +677,8 @@ def _gate_verdict(path: str, credential: str) -> _Refusal | None:
     scopes = _scopes_of(subject)
     wanted = _scope_of_path(path)
     if scopes is not None and wanted is not None and wanted not in scopes:
+        if _the_product_owners_board(path, scopes, query):
+            return None
         log.warning("DENIED_SCOPE_READ %s (%s) for a credential scoped to %s",
                     path, wanted, ", ".join(sorted(scopes)) or "nothing")
         return _Refusal(403, {
@@ -761,7 +766,7 @@ def _gated(path: str) -> bool:
     return path.startswith("/api/")
 
 
-async def _ask_the_gate(path: str, credential: str) -> _Refusal | None:
+async def _ask_the_gate(path: str, credential: str, query: str = "") -> _Refusal | None:
     """`_gate_verdict`, for whoever is ON THE EVENT LOOP — which is everyone who asks it.
 
     THE ASK LEAVES THE LOOP, ALWAYS, AND THAT WAS DECIDED WITH NUMBERS (2026-09-19, this
@@ -803,7 +808,7 @@ async def _ask_the_gate(path: str, credential: str) -> _Refusal | None:
     and the health check, which present nothing, must not queue with it."""
     if not _gated(path):
         return None
-    return await asyncio.to_thread(_gate_verdict, path, credential)
+    return await asyncio.to_thread(_gate_verdict, path, credential, query)
 
 
 def _unauthorized(provider) -> dict:
@@ -830,6 +835,36 @@ _PRODUCT_ROUTES = ("/api/product/", "/api/act/product_")
 #: analyst who asked for the change — wants to click through before it merges (ADR-0050); keeping
 #: it on the floor side would hand the link to everybody except the person it is for.
 _EVERY_AREA_PREFIXES = ("/api/preview/",)
+
+#: THE PRODUCT OWNER'S READ OF A BOARD (#562): `/api/board/<project>` — one segment, the one read
+#: under that prefix — for a project with a product role, the projects the product area reaches.
+#: DECIDED HERE, AT THE GATE, and not in the route: the gate holds the credential however it was
+#: presented (header, cookie, `?token=`), a route under the prefix added later is the floor's until
+#: somebody decides otherwise, and an unknown project and one with no product role are refused
+#: alike, so the refusal names nothing. Moving a card is an action, and the action layer refuses a
+#: product credential every row outside its area.
+#:
+#: THE BOARD, AND NOT A PULL REQUEST'S DIFF. The route takes `?card=` — the card view the product
+#: owner's own page already reads — and `?pr=`, which answers a pull request's body, diff and review
+#: events for any ref the forge knows. Code stays on the floor: a read naming `pr` is refused here,
+#: with the same sentence as the rest of the floor.
+_PRODUCT_BOARD_READ = re.compile(r"^/api/board/([^/]+)$")
+
+
+def _the_product_owners_board(path: str, scopes, query: str = "") -> bool:
+    """Whether `path` with `query` is the board a product credential may read (#562)."""
+    found = _PRODUCT_BOARD_READ.match(path) if actions.PRODUCT in scopes else None
+    if not found or any(key == "pr" and value for key, value in parse_qsl(query)):
+        return False
+    try:
+        project = ProjectRegistry().get(found.group(1))
+    except KeyError:
+        return False   # a project nobody registered is refused like the rest
+    except Exception:  # noqa: BLE001 — a registry that cannot be read refuses, and says why
+        log.warning("the board of %r could not be looked up for a product credential; refused",
+                    found.group(1), exc_info=True)
+        return False
+    return _has_product_role(project)
 
 
 def _scope_of_path(path: str) -> str | None:
@@ -3172,11 +3207,15 @@ def product_projects() -> list[dict]:
     `enabled` as TRUE — a project that declares `product:` at all has the role on — and a list
     that defaulted the other way would hide projects the actions then happily served, which is
     the "fix one, forget the neighbour" shape this codebase keeps paying for."""
-    def _has_product(p) -> bool:
-        cfg = getattr(p, "product", None)
-        return cfg is not None and bool(getattr(cfg, "enabled", True))
+    return [{"name": p.name} for p in ProjectRegistry().list() if _has_product_role(p)]
 
-    return [{"name": p.name} for p in ProjectRegistry().list() if _has_product(p)]
+
+def _has_product_role(project) -> bool:
+    """Whether a project has a product role: it declares `product:`, and does not turn it off. The
+    one rule both the product owner's list and their read of a board ask (#562) — the gate's
+    `_the_product_owners_board`."""
+    cfg = getattr(project, "product", None)
+    return cfg is not None and bool(getattr(cfg, "enabled", True))
 
 
 # ── FILES A PERSON HANDS THE PRODUCT ROLE (#336) ─────────────────────────────────────────────────
@@ -3459,10 +3498,44 @@ async def _preview_act(name: str, project: str, unit: str, request: Request) -> 
 _NO_CACHE = {"Cache-Control": "no-store"}  # the panel HTML changes on every deploy —
 # a browser must never serve a stale copy (else "I don't see the change" confusion).
 
+#: THE DEFAULT FRONT END, ON OR OFF (#561). The panel's page is OpenFactory's default front end,
+#: and a deployment with screens of its own turns it off: then this process serves the API, its
+#: two streams, the sign-in and the previews, and no page. ON BY DEFAULT, so an upgrade keeps the
+#: panel it had. The page is served by the routes below and nothing else, and every one of them
+#: asks `_page` — a test walks the app's routes so a page added later cannot skip the question.
+DEFAULT_FRONT_END_ENV = "OPENFACTORY_DEFAULT_FRONT_END"
+_ON, _OFF = ("on", "true", "yes", "1", ""), ("off", "false", "no", "0")
+
+
+def default_front_end_on() -> bool:
+    """Whether this deployment serves the default front end. A value that is neither on nor off
+    keeps it on and says so in the log: a typo must not take the panel away from the people who
+    use it, and must not pass in silence either."""
+    value = os.environ.get(DEFAULT_FRONT_END_ENV, "").strip().lower()
+    if value in _OFF:
+        return False
+    if value not in _ON:
+        log.warning("%s=%r is neither on nor off — the default front end stays on",
+                    DEFAULT_FRONT_END_ENV, value)
+    return True
+
+
+#: What a page address answers when the default front end is off.
+_NO_FRONT_END = (f"This deployment serves no page: its default front end is off "
+                 f"({DEFAULT_FRONT_END_ENV}=off). The API under /api, its streams, the sign-in and "
+                 f"the previews are served as always.")
+
+
+def _page() -> Response:
+    """The panel's page, or — with the default front end off — a 404 that says why."""
+    if not default_front_end_on():
+        return JSONResponse({"detail": _NO_FRONT_END}, status_code=404, headers=_NO_CACHE)
+    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+
 
 @app.get("/")
-def index() -> HTMLResponse:
-    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+def index() -> Response:
+    return _page()
 
 
 @app.get("/p/{project}")
@@ -3470,7 +3543,7 @@ def index() -> HTMLResponse:
 @app.get("/p/{project}/card/{ref}")
 @app.get("/p/{project}/pr/{ref}")
 @app.get("/p/{project}/preview/{ref}")
-def project_page(project: str, ref: str = "") -> HTMLResponse:
+def project_page(project: str, ref: str = "") -> Response:
     """The same single-page app; the client reads the path to focus one project's floor.
 
     THE DEEPER ADDRESSES ARE DECLARED HERE OR THEY 404 BEFORE THE PAGE CAN READ THEM (ADR-0049
@@ -3481,7 +3554,7 @@ def project_page(project: str, ref: str = "") -> HTMLResponse:
     `/p/x/preview/7` IS THE LINK A CARD'S COMMENT CARRIES (#405): the page opens card 7 and, its
     preview being up, walks into it with a key minted now, for whoever the panel lets in — the
     link itself carries no credential, so it may sit in a tracker for ever."""
-    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+    return _page()
 
 
 # ── the login, for a provider that has one (#33) ────────────────────────────────────────────────
@@ -3829,17 +3902,17 @@ def auth_logout(request: Request):
 @app.get("/logs")
 @app.get("/logs/{project}")
 @app.get("/logs/{project}/{issue}")
-def logs_page(project: str = "", issue: str = "") -> HTMLResponse:
+def logs_page(project: str = "", issue: str = "") -> Response:
     """The Logs page, and a single run's log at its own address.
 
     SERVED HERE TOO, not only reachable by clicking. A client-side route that the server does not
     answer works until somebody refreshes the page or pastes the link they were sent — and then it
     is a 404 on a URL the product handed them."""
-    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+    return _page()
 
 
 @app.get("/product/{project}")
-def product_page(project: str) -> HTMLResponse:
+def product_page(project: str) -> Response:
     """The product role's own surface (#98).
 
     A SEPARATE ADDRESS, not a tab on the floor, because it is a separate JOB: the person who
@@ -3851,7 +3924,7 @@ def product_page(project: str) -> HTMLResponse:
     browser and every byte of content behind this arrives through `/api/*`, which is gated and
     scoped. Serving different HTML per scope would put an authorization decision in a file that is
     handed out unauthenticated."""
-    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+    return _page()
 
 
 def _token_pool_from_env() -> dict:

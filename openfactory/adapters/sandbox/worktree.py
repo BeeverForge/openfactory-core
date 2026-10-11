@@ -143,7 +143,12 @@ _AGENT_CRED_VARS = ("OPENFACTORY_AGENT_TOKENS",)
 #
 # …and the key a human gate's answer is sealed with (`gate_seal`). A workload holding it could seal
 # its own production approval or merge — the exact bypass the seal exists to close.
-_PANEL_SECRET_VARS = ("OPENFACTORY_PREVIEW_SECRET", "OPENFACTORY_GATE_SECRET")
+#
+# …and the board's credentials (#562), new, and stripped from the day they exist: a workload
+# holding one could act on the board as whoever it names. (The panel's and the product's own still
+# reach a worktree workload, as SECURITY.md's measured table says.)
+_PANEL_SECRET_VARS = ("OPENFACTORY_PREVIEW_SECRET", "OPENFACTORY_GATE_SECRET",
+                      "OPENFACTORY_BOARD_TOKEN", "OPENFACTORY_BOARD_TOKENS")
 
 
 def _scrubbed_env(keep: tuple[str, ...] = ()) -> dict[str, str]:

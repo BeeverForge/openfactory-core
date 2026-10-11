@@ -45,10 +45,12 @@ DISTILLATE = "distillate"
 KINDS = (DOCUMENT, DECISION, REQUIREMENT, CARD, TURN, DISTILLATE)
 
 #: What an item says about itself. `current` is the only one handed over as what holds today;
-#: `superseded` and `dropped` are history, `closed` a card that is done with, `unreadable` a
-#: document that exists and could not be read.
+#: `superseded` and `dropped` are history, `closed` a card that is done with, `open` a card still
+#: on the board as the index last read it, `unreadable` a document that exists and could not be
+#: read.
 CURRENT, SUPERSEDED, DROPPED, CLOSED, UNREADABLE = ("current", "superseded", "dropped", "closed",
                                                      "unreadable")
+OPEN = "open"
 
 #: How long a chunk of a document is, in characters — about a paragraph or two: long enough to
 #: carry a decision with its reason, short enough that a hit points at the page that says it.
@@ -267,24 +269,33 @@ def from_requirement(requirement, *, product: str, requirements_dir: str = "") -
 # ── cards ───────────────────────────────────────────────────────────────────────────────────────
 
 def from_card(card, *, product: str, member: str) -> list[Item]:
-    """A CLOSED card, and how it closed — an open one is the board's business (`board.md`), and a
-    card reopened leaves the index (`sync.py`). Closed is not delivered: the reason says which."""
+    """A card with its body, open or closed, and how it stands: closed is not delivered, the
+    reason says which.
+
+    OPEN CARDS ARE INDEXED TOO (#567). Only closed ones were — "an open one is the board's
+    business" — and the board the role is handed carries a number, a state and a title. On a live
+    run the role judged two open cards' overlap from their titles, and advised closing the only
+    one that carried a requirement's first front; the other's body opened with "building on the
+    per-version storage", and nothing put that sentence in front of it. An open card is now found
+    by its words like a closed one, marked open as the board showed it when this read it — where
+    it stands now is still the board's to say."""
     from openfactory.product.documents.record import requirements_cited
 
-    if str(getattr(card, "state", "") or "").lower() != "closed":
-        return []
     ref = str(getattr(card, "number", "") or "").strip()
     if not ref:
         return []
     title = str(getattr(card, "title", "") or "").strip()
     body = str(getattr(card, "body", "") or "")[:CARD_CHARS]
+    closed = str(getattr(card, "state", "") or "").lower() == "closed"
     reason = str(getattr(card, "state_reason", "") or "").lower()
-    how = {"completed": "closed as delivered", "not_planned": "closed as not planned"}.get(
-        reason, "closed (the tracker does not say why)")
+    how = ({"completed": "closed as delivered", "not_planned": "closed as not planned"}.get(
+        reason, "closed (the tracker does not say why)") if closed
+        else "open when the index last read it")
     when = str(getattr(card, "updated_at", "") or "")[:10]
     return [Item(id=f"card:{member}:{ref}", grp=f"card:{member}:{ref}", product=product,
                  kind=CARD, source=f"card #{ref} ({member})", title=f"#{ref} — {title}",
-                 text=f"{title}\n\n{body}".strip(), audience=CLIENT, status=CLOSED,
+                 text=f"{title}\n\n{body}".strip(), audience=CLIENT,
+                 status=CLOSED if closed else OPEN,
                  date=when, date_from="the card's last update" if when else "",
                  origin=f"the board — {how}", cards=(ref,),
                  requirements=tuple(requirements_cited(f"{title}\n{body}")))]
@@ -313,7 +324,7 @@ def from_turn(said, *, product: str) -> Item:
 
 
 __all__ = [
-    "CARD", "CLOSED", "CURRENT", "DECISION", "DISTILLATE", "DOCUMENT", "DROPPED", "KINDS",
+    "CARD", "CLOSED", "CURRENT", "DECISION", "DISTILLATE", "DOCUMENT", "DROPPED", "KINDS", "OPEN",
     "REQUIREMENT", "SUPERSEDED", "TURN", "UNREADABLE", "Item", "chunks", "conversation_digest",
     "digest_of", "from_card", "from_record", "from_requirement", "from_turn",
 ]

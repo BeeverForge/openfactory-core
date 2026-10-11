@@ -259,12 +259,18 @@ class RepoCache:
             # THE CALLER'S OWN ANSWER DECIDES HERE, not `wanted`: `wanted` may have been inferred
             # from the checkout this line has just deleted, and cloning
             # `--branch <name-from-a-tree-we-judged-unusable>` fails on a name nobody asked for.
-            # An empty ask lets git pick, which is what it means.
-            rc, out = _git(["clone", *(["--branch", base_branch] if base_branch else []),
+            # An empty ask lets git pick, which is what it means. `--no-local`, like every clone
+            # the platform runs (#594): a path is read through the pack protocol, never copied
+            # file by file while the source's own maintenance repacks it.
+            rc, out = _git(["clone", "--no-local",
+                            *(["--branch", base_branch] if base_branch else []),
                             clone_url, str(master)])
             if rc != 0:
+                # GIT'S WHOLE SENTENCE (#592): the last 160 characters cut inside the object's path,
+                # and the words before it, what git was doing when the file was not there, were
+                # the only clue to which race it was
                 log.warning("OPENFACTORY_CACHE: clone failed for %s (%s)",
-                            project, _scrub(out)[-160:])
+                            project, _scrub(out).strip()[-2000:])
                 return None
             _scrub_remote(master, clone_url)
         if self._needs_publish(served, master):
@@ -614,7 +620,7 @@ class SparseRepoCache(RepoCache):
         if not ready:
             shutil.rmtree(master, ignore_errors=True)
             master.parent.mkdir(parents=True, exist_ok=True)
-            cloned = _git_out(["clone", "--filter=blob:none", "--no-checkout",
+            cloned = _git_out(["clone", "--no-local", "--filter=blob:none", "--no-checkout",
                                *(["--branch", base_branch] if base_branch else []),
                                public, str(master)], None, env)
             if cloned.returncode != 0:

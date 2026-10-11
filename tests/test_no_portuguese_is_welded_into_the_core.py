@@ -102,6 +102,8 @@ RECOGNISERS = {
     ("openfactory/product/followup.py", "_WORKED_CORE"): "works",
     ("openfactory/product/followup.py", "_CANNOT_DECIDE"): "no",
     ("openfactory/product/followup.py", "_WORD"): "a-z",
+    # DECLARED 2026-10-11 (#535): the names a board gives its finished column, read off the board
+    ("openfactory/product/role.py", "_DONE_COLUMNS"): "done",
 }
 
 

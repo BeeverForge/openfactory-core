@@ -271,16 +271,7 @@
   "· glossário"
  ],
  "openfactory/product/module.py": [
-  "## Cartão #",
-  "## Requisito REQ-",
-  "Escreva o que precisa ser verdade para considerá-lo feito, no nível do PRODUTO",
-  "Este cartão foi escrito a partir de outro texto e precisa passar a executar o requisito abaixo",
-  "Este item não diz quando estaria pronto, então seria recusado na entrada",
-  "Reescreva o que precisa ser verdade para considerá-lo feito, no nível do PRODUTO e SOMENTE a partir deste requisito",
-  "a agente respondeu sem poder abrir o código",
-  "cartao-",
-  "nada pode entrar que o requisito não peça, e o que ele mudou em relação ao texto anterior tem de aparecer",
-  "requisito"
+  "cartao-"
  ],
  "openfactory/product/queue.py": [
   "emitir e cancelar uma nota",
@@ -296,21 +287,7 @@
   "pedido"
  ],
  "openfactory/product/role.py": [
-  "PEDIDO",
-  "Sem marca = concluído e entregue",
-  "ainda aberto",
-  "concluído",
-  "entregue",
-  "há pouco",
-  "nesta coluna com o título omitido por orçamento deste prompt, NÃO por falta de acesso",
-  "os números ficam",
-  "os números seguem abaixo e você pode falar deles",
-  "pode começar",
-  "podemos avançar",
-  "só o que contradiz isso é anotado",
-  "títulos omitidos por economia",
-  "vamos começar a discutir o relatório",
-  "você fica com duas versões do mesmo requisito"
+  "PEDIDO"
  ],
  "openfactory/product/voice.py": [
   "#321 e #135 fechados em #136",

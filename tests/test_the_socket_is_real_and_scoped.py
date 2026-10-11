@@ -146,9 +146,9 @@ def test_the_scope_it_asks_for_is_the_one_the_HTTP_side_asks_for(scoped, monkeyp
     asked = []
     real = api._gate_verdict
 
-    def _seen(path, credential):
+    def _seen(path, credential, *query):
         asked.append(path)
-        return real(path, credential)
+        return real(path, credential, *query)
 
     monkeypatch.setattr(api, "_gate_verdict", _seen)
     with pytest.raises(WebSocketDisconnect) as refused:
