@@ -197,7 +197,8 @@ MUTATIONS = [
      "                module.project, corpus=ctx.corpus if ctx.available else None)"),
     ("the model reads the whole ledger even when it is handed the conversation's agenda",
      "openfactory/product/model.py",
-     "        rows = waiting(loops_seen(member) if loops_seen is not None\n"
-     "                       else loop_store.read(member.name))",
-     "        rows = waiting(loop_store.read(member.name))"),
+     # RE-PINNED 2026-10-11 (#564): the facts leave out what a breakdown did not file
+     "        rows = [x for x in waiting(loops_seen(member) if loops_seen is not None\n"
+     "                                   else loop_store.read(member.name)) if x.kind != UNFILED]",
+     "        rows = [x for x in waiting(loop_store.read(member.name)) if x.kind != UNFILED]"),
 ]

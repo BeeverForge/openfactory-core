@@ -226,8 +226,8 @@ def test_a_breakdown_from_the_page_reloads_the_rows():
 
 # ── 5. nobody is chased about them ──────────────────────────────────────────────────────────────
 
-def test_no_reader_of_the_product_roles_loops_sees_them(ledger):
-    """The agenda, the facts the role reads and the sweeps read the role's own loops
+def test_the_product_roles_own_loops_do_not_hold_them(ledger):
+    """The agenda, the sweeps and the role's chases read the role's own loops
     (`owner=followup.OWNER`): a front left out is shown on the row, never chased."""
     from openfactory.product import followup
 
@@ -236,3 +236,19 @@ def test_no_reader_of_the_product_roles_loops_sees_them(ledger):
     assert UNFILED in KINDS
     assert waiting(ledger.rows, owner=followup.OWNER) == []
     assert unfiled.OWNER != followup.OWNER
+
+
+def test_the_facts_the_role_reads_never_tell_them_as_waiting(ledger):
+    """REVIEW OF #621. `model._loops_of` reads every open loop the turn may see, with no owner
+    filter — the role was told a front was "waiting" on an owner who is nobody."""
+    from openfactory.memory.ledger import open_loop
+    from openfactory.product import model as product_model
+
+    unfiled.record(ACME, 66, _results(REFUSED), now=T0)
+    ledger.rows.append(open_loop("delivery", "7", owner="product", ts=T0))
+    read = product_model.ProductModel(key="acme", members=["acme"])
+
+    loops = product_model._loops_of(SimpleNamespace(name="acme"), read,
+                                    loops_seen=lambda _member: list(ledger.rows))
+
+    assert [(x["kind"], x["subject"]) for x in loops] == [("delivery", "7")], loops

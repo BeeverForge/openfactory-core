@@ -63,4 +63,11 @@ MUTATIONS = [
     # 5. nobody is chased
     ("the product role's readers see the fronts left out", UNFILED,
      'OWNER = "breakdown"', 'OWNER = "product"'),
+    # review of #621: nobody but the row sees them
+    ("the facts the role reads tell a front left out as waiting", "openfactory/product/model.py",
+     "                                   else loop_store.read(member.name)) if x.kind != UNFILED]",
+     "                                   else loop_store.read(member.name))]"),
+    ("the operator's list of what is waiting carries a front left out", "openfactory/api/app.py",
+     "             if x.kind != UNFILED]\n    return {", "             ]\n    return {",
+     "tests/test_events_and_the_agenda.py"),
 ]
