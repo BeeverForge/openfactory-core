@@ -535,8 +535,8 @@ def _log_mount(project, root, *, docs, code, mounted=(), missing=None) -> None:
     if not isinstance(project, str):
         _tell_the_factory(project, _IMP_MOUNT_EMPTY, line, ok=not empty)
         _tell_the_factory(project, _IMP_NO_CODE,
-                          f"{line}{f' missing={said}' if said else ''} — a agente respondeu sem "
-                          f"poder abrir o código",
+                          f"{line}{f' missing={said}' if said else ''} — the agent answered "
+                          f"without being able to open the code",
                           ok=bool(code) and n_code > 0 and not missing)
 
 
@@ -2378,8 +2378,8 @@ class ProductModule:
                 title = str(marks.get("title") or "")
                 delivered = "the card they asked for" + (f": {title}" if title else "")
             else:
-                delivered = f"requisito {loop.subject}" + (
-                    " (um defeito reportado)" if marks.get("defect") else "")
+                delivered = f"requirement {loop.subject}" + (
+                    " (a reported defect)" if marks.get("defect") else "")
             verdict = self._role().judge_acceptance(
                 sandbox=sandbox, workspace=ws, reply=text, delivered=delivered)
         except Exception:  # noqa: BLE001
@@ -4501,10 +4501,12 @@ class ProductModule:
         sandbox, ws = self._workspace()
         answer = self._role().ask_json(
             sandbox=sandbox, workspace=ws, phase="product_refine",
-            prompt=("Este item não diz quando estaria pronto, então seria recusado na entrada. "
-                    "Escreva o que precisa ser verdade para considerá-lo feito, no nível do "
-                    "PRODUTO.\n\n"
-                    f"## Item #{ticket.number} — {ticket.title}\n\n{ticket.body}\n\n"
+            # IN ENGLISH, LIKE EVERY INSTRUCTION TO THE ROLE (#535): the criteria come back in
+            # the project's language, which the phase's language directive sets
+            prompt=("This card does not say when it would be done, so it would be refused at "
+                    "intake. Write what has to be true for it to count as done, at the level of "
+                    "the PRODUCT.\n\n"
+                    f"## Card #{ticket.number} — {ticket.title}\n\n{ticket.body}\n\n"
                     + self._REFINE_SCHEMA))
         criteria = (answer or {}).get("criteria") or []
         if not isinstance(answer, dict) or not criteria:
@@ -5386,13 +5388,14 @@ class ProductModule:
             sandbox=sandbox, workspace=ws, phase="product_align",
             # the SAME schema `refine` writes criteria against — one shape for "what must be true
             # about a card", so the two cannot drift into producing different-looking cards
-            prompt=(f"Este cartão foi escrito a partir de outro texto e precisa passar a executar "
-                    f"o requisito abaixo. Reescreva o que precisa ser verdade para considerá-lo "
-                    f"feito, no nível do PRODUTO e SOMENTE a partir deste requisito: nada pode "
-                    f"entrar que o requisito não peça, e o que ele mudou em relação ao texto "
-                    f"anterior tem de aparecer.\n\n"
-                    f"## Requisito REQ-{req.number:04d} — {req.title}\n\n{req.body}\n\n"
-                    f"## Cartão #{card.number} — {card.title}\n\n{card.body}\n\n"
+            # in English, like every instruction to the role (#535) — see `refine`
+            prompt=(f"This card was written from another text and has to execute the requirement "
+                    f"below instead. Rewrite what has to be true for it to count as done, at the "
+                    f"level of the PRODUCT and ONLY from this requirement: nothing may go in that "
+                    f"the requirement does not ask for, and what it changed from the earlier text "
+                    f"has to show.\n\n"
+                    f"## Requirement REQ-{req.number:04d} — {req.title}\n\n{req.body}\n\n"
+                    f"## Card #{card.number} — {card.title}\n\n{card.body}\n\n"
                     + self._REFINE_SCHEMA))
         criteria = (answer or {}).get("criteria") or []
         if not isinstance(answer, dict) or not criteria:
