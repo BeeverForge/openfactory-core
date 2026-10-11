@@ -150,11 +150,13 @@ MUTATIONS = [
      CATALOG, "by=by,\n                                                 asked_for=True)",
      "by=by,\n                                                 asked_for=False)"),
 
+    # RE-PINNED 2026-10-10 (#563 slice 18a): the dispatch moved inside the `try` that catches
+    # the engine's refusal of a second start, one indent deeper
     ("the dispatch drops the flag on its way into the workflow input",
      CATALOG,
-     "        ProductBreakdownInput(project=project, number=number, actor=by.id, "
-     "asked_for=asked_for),",
-     "        ProductBreakdownInput(project=project, number=number, actor=by.id),"),
+     "            ProductBreakdownInput(project=project, number=number, actor=by.id,\n"
+     "                                  asked_for=asked_for),",
+     "            ProductBreakdownInput(project=project, number=number, actor=by.id),"),
 
     ("the explicit door spends an agent without a yes",
      CATALOG,
