@@ -1043,7 +1043,9 @@ def test_every_filing_path_of_a_confirmation_passes_where_it_was_asked():
     assert "**_whose(module.file_defect, entry)" in source
     assert "**_whose(module.file_ticket, entry)" in source
     assert "**_whose(module.open_cards_for, entry or {})" in source
-    assert "**_whose(module.break_down, entry or {})" in source
+    # THE BREAKDOWN IS STARTED ON THE WORKER (#563 slice 18b), and carries where it was asked to
+    # the module there: the conversation the entry names, and who asked
+    assert "conversation=conversation" in source and "requester=requester_of(entry)" in source
 
 
 # ── 6. an event cannot be forged from outside ────────────────────────────────────────────────────

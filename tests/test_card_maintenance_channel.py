@@ -62,6 +62,7 @@ from openfactory.product.voice import (
     refine_refused,
     survivor_unclear,
 )
+from tests.the_breakdown_runs_here import run_here
 from tests.the_chat_turn import AS_NAMED, CHAT, chat_turn
 
 # ── 1. the gesture: closing a card, in the words a person uses ─────────────────────────────────
@@ -226,11 +227,13 @@ def test_the_gestures_with_NO_confirmation_STILL_check_who_is_asking():
     ("quebra o requisito 7 em tarefas", "broke_down"),
     ("refina o #412", "refined"),
 ])
-def test_a_gesture_that_writes_on_the_MATCH_ALONE_is_refused_to_a_non_approver(text, wrote):
+def test_a_gesture_that_writes_on_the_MATCH_ALONE_is_refused_to_a_non_approver(text, wrote,
+                                                                               monkeypatch):
     """Driven through `handle`, because the gate being present in the source is not the same fact
     as the write not happening. Both directions: refused to an outsider, and still working for the
     person whose yes would have unlocked it anyway."""
     project, module = _Project(admins=["UADM"]), _Module()
+    run_here(monkeypatch, module)   # a breakdown runs on the worker (#563 slice 18b)
 
     reply = chat_turn(project, text=text, user="UOUTRO", thread="C1", channel="C1", module=module)
 
@@ -820,6 +823,10 @@ _WRITES_TWICE = {
     # then the note on the card saying so
     "accept_change": "records the acceptance, then notes it on the card",
 }
+#: TWO-WRITE METHODS THE CONVERSATION NO LONGER CALLS ITSELF (#563 slice 18b): the worker's activity
+#: runs them, and the sentence the conversation is told about the result is composed by the
+#: function named here — held to the same one path.
+_TOLD_BY = {"break_down": "breakdown_told"}
 #: Module methods that leave ONE mark, so an `ok` result has nothing left over to say.
 _WRITES_ONCE = {
     "accept": "one commit in the base",
@@ -980,6 +987,15 @@ def test_every_two_write_result_is_reported_through_the_ONE_path(method):
     functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
     calls = _module_calls(tree).get(method) or []
 
+    if method in _TOLD_BY:
+        assert not calls, f"{method} runs on the worker, and the conversation calls it again"
+        told = functions[_TOLD_BY[method]]
+        reached = _plainly_called(told)
+        indirect = {f for f in reached if f in functions and _ONE_PATH in _plainly_called(
+            functions[f])}
+        assert _ONE_PATH in reached or indirect, (
+            f"{_TOLD_BY[method]} tells {method}'s result without {_ONE_PATH}")
+        return
     assert calls, f"{method} writes twice and the channel never calls it"
     for call in calls:
         reached = _plainly_called(_reporting_block(tree, call))
@@ -991,7 +1007,7 @@ def test_every_two_write_result_is_reported_through_the_ONE_path(method):
             f"{_ONE_PATH}: whatever it could not do is computed, logged for us, and never said")
 
 
-def test_a_card_THE_BOARD_REFUSED_is_not_announced_as_being_in_Backlog():
+def test_a_card_THE_BOARD_REFUSED_is_not_announced_as_being_in_Backlog(monkeypatch):
     """DOOR ONE of the fifth branch. `_file_one` creates the issue and then places it; the board
     can refuse (no Backlog column, no card for the issue, no Status field, a failed `item-edit`),
     and that comes back as `ok` carrying the module's own sentence for the client.
@@ -1007,9 +1023,11 @@ def test_a_card_THE_BOARD_REFUSED_is_not_announced_as_being_in_Backlog():
                       detail="criado, mas o quadro recusou a colocação — o cartão está sem coluna "
                              "e o time foi avisado.")
     module = _Module(breaks=[refused])
+    ran = run_here(monkeypatch, module)
 
-    said = chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
-                     channel="C1", module=module)
+    chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
+              channel="C1", module=module)
+    said = ran.told[-1]   # what the conversation is told when the breakdown ends (#563 slice 18b)
 
     assert module.broke_down == (7, "UADM"), "the gesture never reached the write"
     assert "recusou a colocação" in said, (
@@ -1018,7 +1036,7 @@ def test_a_card_THE_BOARD_REFUSED_is_not_announced_as_being_in_Backlog():
         f"a card the board refused to place was announced as being in Backlog: {said}")
 
 
-def test_a_card_that_ALREADY_EXISTED_is_not_announced_as_being_in_Backlog():
+def test_a_card_that_ALREADY_EXISTED_is_not_announced_as_being_in_Backlog(monkeypatch):
     """DOOR TWO, and the reason routing this reply through `_still_to_say` does not close it on its
     own: `_unfinished` deliberately answers "" for `existed`, because the replies that carry it
     lead with the fact themselves. Here nothing led with anything.
@@ -1032,8 +1050,10 @@ def test_a_card_that_ALREADY_EXISTED_is_not_announced_as_being_in_Backlog():
     module = _Module(breaks=[_Result(ok=True, ref="#404", existed=True,
                                      detail="an issue titled 'Gerar o pacote' already exists")])
 
-    said = chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
-                     channel="C1", module=module)
+    ran = run_here(monkeypatch, module)
+    chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
+              channel="C1", module=module)
+    said = ran.told[-1]   # what the conversation is told when the breakdown ends (#563 slice 18b)
 
     assert "na coluna Backlog" not in said, (
         f"a card this turn never filed and never placed was announced as being in Backlog: {said}")
@@ -1042,7 +1062,7 @@ def test_a_card_that_ALREADY_EXISTED_is_not_announced_as_being_in_Backlog():
     assert "already exists" not in said, said
 
 
-def test_the_cards_that_DID_land_are_still_claimed_as_such():
+def test_the_cards_that_DID_land_are_still_claimed_as_such(monkeypatch):
     """The other side of both doors. A guard that only proves the retreat is indistinguishable from
     a reply that stopped saying anything — the happy path must keep its sentence, and a mixed batch
     must tell the three outcomes apart instead of collapsing them into the safest one."""
@@ -1053,8 +1073,10 @@ def test_the_cards_that_DID_land_are_still_claimed_as_such():
         _Result(ok=True, ref="#102", detail="criado, mas o quadro recusou a colocação."),
     ])
 
-    said = chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
-                     channel="C1", module=module)
+    ran = run_here(monkeypatch, module)
+    chat_turn(project, text="quebra o requisito 7 em tarefas", user="UADM", thread="C1",
+              channel="C1", module=module)
+    said = ran.told[-1]   # what the conversation is told when the breakdown ends (#563 slice 18b)
 
     assert "#101 está na coluna Backlog" in said, f"the card that landed lost its sentence: {said}"
     assert "#404 já existia" in said, said
@@ -1213,7 +1235,7 @@ def test_a_CARD_named_in_passing_still_reads_as_a_plain_closure():
     assert staged is not None and staged.get("in_favour_of") is None, staged
 
 
-def test_A_PLANNING_SENTENCE_REACHES_NO_WRITE_THROUGH_THE_HANDLER():
+def test_A_PLANNING_SENTENCE_REACHES_NO_WRITE_THROUGH_THE_HANDLER(monkeypatch):
     """Through the production path, because the harm is not a wrong label: `breakdown` is one of
     the two gestures with nothing between the match and the act. The sentence is somebody saying
     what the team will do tomorrow, and it called `break_down` — a model pass and eight tickets on
@@ -1223,6 +1245,7 @@ def test_A_PLANNING_SENTENCE_REACHES_NO_WRITE_THROUGH_THE_HANDLER():
     only proves the first is indistinguishable from a pattern somebody broke.
     """
     project, module = _Project(), _Module()
+    run_here(monkeypatch, module)   # a breakdown runs on the worker (#563 slice 18b)
 
     chat_turn(project, text="amanhã a gente quebra o requisito 8 em tarefas", user="UADM",
               thread="C1", channel="C1", module=module)

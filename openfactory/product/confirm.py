@@ -465,7 +465,7 @@ def _confirm_accept(project, entry, *, module, user, lang) -> str:
     #
     # No receipt call here: `confirm` already fired it for every confirmed write, which is the
     # whole reason it lives there instead of in each branch.
-    return _also_broke_it_down(module, entry["number"], user, head, lang, project, entry=entry)
+    return _also_broke_it_down(entry["number"], user, head, lang, project, entry=entry)
 
 
 def _confirm_drop(project, entry, *, module, user, lang) -> str:
@@ -882,62 +882,78 @@ def _stamped_on_the_cards(module, entry, cards, user: str, head: str, lang, proj
 
 # ── the acceptance's second act ──────────────────────────────────────────────────────────────────
 
-def _also_broke_it_down(module, number: int, user: str, head: str, lang, project, *,
+def _also_broke_it_down(number: int, user: str, head: str, lang, project, *,
                         entry: dict | None = None) -> str:
-    """The acceptance sentence, plus what the automatic breakdown produced — its delivery owed to
-    the conversation the accepted entry says it was asked in (`_whose`).
+    """The acceptance sentence, plus the breakdown it starts (#563 slice 18b, ADR-0051 D18).
+
+    STARTED, NEVER RUN HERE. The breakdown ran in this process — the worker's activity, or the
+    panel's for a click — while the panel's own acceptance started `ProductBreakdownWorkflow` under
+    one id per requirement, and nothing shared told the two apart: accepting from the panel while
+    the conversation said yes broke the requirement down twice. Both start the same workflow now,
+    and the engine runs one of it at a time. The conversation the staged entry was asked in, and
+    who asked (as `_whose` reads them), go with it: that conversation is told what was filed when
+    it ends (`breakdown_told`), and the delivery loop is announced there.
 
     THE BREAKDOWN MUST NEVER BE ABLE TO COST THE AGREEMENT. The promise is already written and
-    pushed when this runs; everything here is a second act on top of a finished one, so every way
-    it can go wrong ends in the client still being told, plainly, that the requirement is agreed.
-    That is why the whole thing sits under a catch-all and why the failure line says what still
-    holds before it says what did not happen — the opposite order reads as "your acceptance
-    failed", about the one thing that certainly did not.
+    pushed when this runs, so an engine that does not answer ends with the client still told,
+    plainly, that the requirement is agreed — what still holds before what did not happen."""
+    from openfactory.product import breaking
+    from openfactory.product.staging import requester_of
+    from openfactory.product.voice import breakdown_begun
 
-    Two shapes, and they are not the same news:
-      - work was filed → the ordinary breakdown sentence, which already ends by saying that
-        starting is a person's decision. Nothing about this act spends anything.
-      - nothing was filed → say so, say the agreement holds anyway, and offer the retry. Silence
-        here would leave a client believing cards exist that do not, which is the exact shape
-        `_breakdown_reply` was rebuilt to stop.
-    """
+    entry = entry or {}
+    conversation = str(entry.get("conversation") or "")
     try:
         # `asked_for=False`: this is the acceptance's own second act and nobody typed a request for
-        # it — the one fact that lets the module refuse a reading of the code (#182).
-        results = module.break_down(number, actor=user, asked_for=False,
-                                    **_whose(module.break_down, entry or {}))
+        # it — the one fact that lets the module refuse a reading of the code (#182)
+        how = breaking.start_now(project, number, actor=user, asked_for=False,
+                                 conversation=conversation, room=str(entry.get("channel") or ""),
+                                 requester=requester_of(entry), language=lang or "")
     except Exception:  # noqa: BLE001 — the promise is written; this is a courtesy on top of it
-        # ERROR, AND UNDER ITS OWN CODE. This catch-all is wide enough to swallow a refactor —
-        # rename `break_down` and every acceptance would go on answering politely that it could not
-        # break anything down, for ever, with the client believing the platform is merely busy.
-        # A test pins the call so a signature drift fails a build; this line is what makes the
-        # runtime version of the same failure findable in one grep instead of inferred.
+        # ERROR, AND UNDER ITS OWN CODE: wide enough to swallow a renamed workflow, and the grep
+        # that finds it at runtime
         log.error("OPENFACTORY_PRODUCT_AUTOBREAK_FAILED project=%s req=%s — the acceptance stands "
-                  "and no "
-                  "work was filed", getattr(project, "name", "?"), number, exc_info=True)
-        results = []
+                  "and no work was filed", getattr(project, "name", "?"), number, exc_info=True)
+        said = _said(lang)
+        return (f"{head}\n\n{said['no_breakdown']}{said['no_breakdown_now']}"
+                f"{said['agreement_holds']}")
+    return head + "\n\n" + breakdown_begun(number=number, running=how == breaking.RUNNING,
+                                           language=lang)
 
-    if any(getattr(r, "nothing_to_build", False) for r in results):
-        # THE MODULE'S OWN REFUSAL, NEVER COUNTED AS A CARD. It comes back `ok` with no ref —
-        # nothing failed and nothing exists — so `_breakdown_reply` would have announced "virou 1
-        # tarefa" over it. Reached only when the acceptance above did not already say so: a module
-        # that flags nothing on `accept`, which is every double and any older build (#182).
+
+def breakdown_told(project, number: int, results, *, asked_for: bool, module=None,
+                   language: str | None = None) -> str:
+    """What a breakdown filed, as the conversation that started it is told when it ends (#563 slice
+    18b, ADR-0051 D18 item 3) — the sentences the turn and the acceptance answered with while each
+    ran the breakdown in its own process, unchanged. `results` is `break_down`'s list, None for a
+    breakdown that raised; `module` names the board's columns, built here when not handed one;
+    `language` is the conversation's, the project's when not given.
+
+    Two shapes, and they are not the same news:
+      - a person asked (`asked_for`): the breakdown sentence, which says what landed, what was
+        already there, what failed and why — the module's refusal of an unagreed requirement too;
+      - an acceptance's second act: the same sentence when something landed; the module's own
+        refusal of a reading of the code (#182); and otherwise that nothing was filed, that the
+        agreement holds, and that asking again retries."""
+    lang = language or getattr(project, "language", None)
+    if results is not None and any(getattr(r, "nothing_to_build", False) for r in results):
+        # THE MODULE'S OWN REFUSAL, NEVER COUNTED AS A CARD: `ok` with no ref, so the breakdown
+        # sentence would have announced "virou 1 tarefa" over it
         from openfactory.product.voice import nothing_to_build
 
-        return head + "\n\n" + nothing_to_build(number=number, language=lang)
+        return nothing_to_build(number=number, language=lang)
+    if results is not None and (asked_for or any(getattr(r, "ok", False) for r in results)):
+        if module is None:
+            from openfactory.product.module import ProductModule
 
-    if results and any(r.ok for r in results):
-        return head + "\n\n" + _breakdown_reply(results, number, "", lang, project=project,
-                                                  backlog=_board_word(module, "backlog"))
-
-    detail = ""
-    if results:
-        failed = [r for r in results if not r.ok]
-        detail = _client_detail(failed[0].detail, lang, project=project) if failed else ""
+            module = ProductModule(project, via="api")
+        return _breakdown_reply(results, number, "", lang, project=project,
+                                backlog=_board_word(module, "backlog"))
+    failed = [r for r in (results or []) if not getattr(r, "ok", False)]
+    detail = _client_detail(failed[0].detail, lang, project=project) if failed else ""
     said = _said(lang)
-    tail = (said["no_breakdown"] + (f": {detail}" if detail else said["no_breakdown_now"])
+    return (said["no_breakdown"] + (f": {detail}" if detail else said["no_breakdown_now"])
             + said["agreement_holds"])
-    return f"{head}\n\n{tail}"
 
 
 def _breakdown_reply(results, number: int, name: str, lang=None, project=None, *,

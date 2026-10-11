@@ -354,8 +354,9 @@ class ProductAnswerWorkflow:
     write to a client's board (`accept` chains into the breakdown, `align` rewrites criteria) are
     exactly the ones a second run would duplicate.
 
-    TWELVE MINUTES, the breakdown's number, because that is the longest thing a yes can turn into:
-    a confirmed acceptance files a card per unit of work through an agent pass."""
+    TWELVE MINUTES, the breakdown's number, kept for what a yes still runs through an agent pass
+    (`align` rewrites a card's criteria). A confirmed acceptance no longer files its cards here: it
+    starts `ProductBreakdownWorkflow` and returns (#563 slice 18b)."""
 
     @workflow.run
     async def run(self, inp: ProductAnswerInput) -> dict:

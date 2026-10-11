@@ -76,8 +76,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from openfactory.contracts.refs import canonical_ref, ref_label
 from openfactory.product import progress as _progress
 from openfactory.product.confirm import (
-    _board_word,
-    _breakdown_reply,
     _client_detail,
     _is_requester,
     _still_to_say,
@@ -1844,16 +1842,31 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         # and an authorisation that lives one layer down is one nobody writing the next branch sees.
         if not may_act(project, user):
             return unauthorized_message(project)
-        if on_it:
-            on_it()
+        # STARTED, NEVER RUN IN THE TURN (#563 slice 18b, ADR-0051 D18). It ran here while the
+        # panel started `ProductBreakdownWorkflow` under one id per requirement, and nothing shared
+        # told the two apart: one requirement was broken down twice at once. Every door starts that
+        # workflow now; the turn does not wait minutes on it, and this conversation is told what
+        # was filed when it ends (`activities._tell_the_breakdown`).
         # `asked_for=True` — A PERSON TYPED THIS, which is the one thing that tells it apart from
         # an acceptance's automatic second act. It is what keeps the breakdown available for a
         # requirement that was read off the code and then edited into more than the code does:
         # the file cannot show that, and a person saying so can (#182).
-        _progress.stage("breaking_down")
-        results = module.break_down(number, actor=user, asked_for=True)
-        return _breakdown_reply(results, number, name, lang, project,
-                                backlog=_board_word(module, "backlog"))
+        from openfactory.product import breaking
+        from openfactory.product.voice import breakdown_begun, breakdown_not_begun
+
+        try:
+            how = breaking.start_now(project, number, actor=user, asked_for=True,
+                                     conversation=conversation, room=channel, requester=user,
+                                     language=lang or "")
+        except Exception:  # noqa: BLE001 — an engine that does not answer is a sentence
+            log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_NOT_STARTED project=%s req=%s — a person "
+                          "asked for it and nothing was filed", getattr(project, "name", "?"),
+                          number)
+            sentence = breakdown_not_begun(number=number, language=lang)
+        else:
+            sentence = breakdown_begun(number=number, running=how == breaking.RUNNING,
+                                       language=lang)
+        return f"{name}: {sentence}" if name else sentence
 
     if intent == "accept":
         number = int(captures.get("number") or 0)
@@ -2463,9 +2476,9 @@ def _name_of(user: str) -> str:
 # ── `_where_it_came_from`, `_also_broke_it_down` and `_breakdown_reply` moved with the executor ──
 #
 # They are the confirmation's own prose: the provenance cell of a decision row, the acceptance's
-# automatic breakdown, and what the client reads afterwards. `_breakdown_reply` is imported back
-# because `_run_intent` composes the same sentence for a typed "quebra o requisito 7" — one voice,
-# whether the breakdown was asked for or followed an acceptance.
+# automatic breakdown, and what the client reads afterwards. A typed "quebra o requisito 7" starts
+# the same breakdown the acceptance does (#563 slice 18b), and the sentence about what it filed is
+# `confirm.breakdown_told`'s — one voice, whether it was asked for or followed an acceptance.
 
 
 def _refine_reply(result, number: str, name: str, lang=None, project=None) -> str:
