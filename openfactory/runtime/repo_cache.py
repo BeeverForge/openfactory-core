@@ -266,8 +266,11 @@ class RepoCache:
                             *(["--branch", base_branch] if base_branch else []),
                             clone_url, str(master)])
             if rc != 0:
+                # GIT'S WHOLE SENTENCE (#592): the last 160 characters cut inside the object's path,
+                # and the words before it, what git was doing when the file was not there, were
+                # the only clue to which race it was
                 log.warning("OPENFACTORY_CACHE: clone failed for %s (%s)",
-                            project, _scrub(out)[-160:])
+                            project, _scrub(out).strip()[-2000:])
                 return None
             _scrub_remote(master, clone_url)
         if self._needs_publish(served, master):
