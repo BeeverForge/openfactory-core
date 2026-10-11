@@ -3600,6 +3600,8 @@ async def _broken_down_on_the_worker(*, project: str, number: int, by: Actor,
     workflow id is shared on purpose: an acceptance still breaking a requirement down and a person
     asking for the same breakdown are one piece of work, and the engine refuses the second start
     rather than filing every card twice."""
+    import asyncio
+
     from temporalio.exceptions import WorkflowAlreadyStartedError
 
     from openfactory.runtime.temporal import TASK_QUEUE
@@ -3609,11 +3611,15 @@ async def _broken_down_on_the_worker(*, project: str, number: int, by: Actor,
     if bad:
         raise RuntimeError(bad.message)
     breaking = breakdown_workflow_id(project, number)
+    # TOLD WHERE THE REQUIREMENT WAS WRITTEN (#563 slice 18e, ADR-0051 D18 item 3): this door has no
+    # conversation, so the one the requirement was asked in hears what it filed, when its record
+    # names one; otherwise this door's own answer is all that is said, as before
+    conversation, room = await asyncio.to_thread(_where_it_was_written, project, number)
     try:
         return await client.execute_workflow(
             "ProductBreakdownWorkflow",
             ProductBreakdownInput(project=project, number=number, actor=by.id,
-                                  asked_for=asked_for),
+                                  asked_for=asked_for, conversation=conversation, room=room),
             id=breaking,
             task_queue=TASK_QUEUE,
         ) or []
@@ -3632,6 +3638,24 @@ async def _broken_down_on_the_worker(*, project: str, number: int, by: Actor,
                         number, str(exc)[:200])
             raise _AlreadyBreakingDown(None) from exc
         raise _AlreadyBreakingDown(list(filed)) from None
+
+
+def _where_it_was_written(project: str, number: int) -> tuple[str, str]:
+    """`(conversation, room)` the requirement was asked in, from its delivery loop
+    (`breaking.written_from`) — `("", "")` when nothing names one, or the ledger cannot be read
+    (logged): the breakdown is filed either way, and only the telling is lost."""
+    from openfactory.product import breaking
+    from openfactory.product.events import room_of
+    from openfactory.registry import ProjectRegistry
+
+    try:
+        proj = ProjectRegistry().get(project)
+        where = breaking.written_from(proj, number)
+    except Exception:  # noqa: BLE001 — the breakdown runs anyway; only the telling is lost
+        log.warning("where requirement %s of %s was written could not be read", number, project,
+                    exc_info=True)
+        return "", ""
+    return where, (where if where and where == room_of(proj) else "")
 
 
 class _AlreadyBreakingDown(Exception):

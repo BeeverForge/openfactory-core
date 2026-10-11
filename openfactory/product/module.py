@@ -1398,6 +1398,23 @@ class ProductModule:
                                       language=getattr(self.project, "language", None)),
                           act="read the requirements", cause=reason)
 
+    def _breakdowns(self):
+        """Which requirements' breakdowns run now, for the role to read (#563 slice 18e,
+        ADR-0051 D18 item 5) — one listing of the engine; `running=None` when it cannot be asked,
+        which the role reads as unknown, never as "not running"."""
+        from openfactory.product import breaking
+        from openfactory.product.role import Breakdowns
+
+        try:
+            return Breakdowns(running=frozenset(breaking.running_numbers_now(self.project)))
+        except Exception as exc:  # noqa: BLE001 — unknown is an answer the index says
+            import logging
+
+            logging.getLogger("openfactory.product").info(
+                "the running breakdowns of %s could not be listed (%s); the role reads them as "
+                "unknown", getattr(self.project, "name", "?"), str(exc)[:160])
+            return Breakdowns(running=None)
+
     def _role(self, *, pending: str = "", intake: str = "") -> ProductRole:
         agent = self._agent
         if agent is None:
@@ -1431,6 +1448,9 @@ class ProductModule:
                            # no QUALIFIER: neither dict carries `state` or `state_reason`, so the
                            # rule that closed-is-not-delivered had nothing to read on this surface.
                            cards=self._board_cards(),
+                           # each agreed requirement's breakdown, as the engine lists the running
+                           # ones (#563 slice 18e) — the cards are read off the board above
+                           breakdowns=self._breakdowns(),
                            # what is REALLY readable — the prompt describes it instead of
                            # asserting access the runtime may not have provided
                            mounted=self.mounted(),

@@ -158,9 +158,11 @@ MUTATIONS = [
     # the engine's refusal of a second start, one indent deeper
     ("the dispatch drops the flag on its way into the workflow input",
      CATALOG,
+     # RE-PINNED 2026-10-11 (#563 slice 18e): where the requirement was written rides along
      "            ProductBreakdownInput(project=project, number=number, actor=by.id,\n"
-     "                                  asked_for=asked_for),",
-     "            ProductBreakdownInput(project=project, number=number, actor=by.id),"),
+     "                                  asked_for=asked_for, conversation=conversation, room=room),",
+     "            ProductBreakdownInput(project=project, number=number, actor=by.id,\n"
+     "                                  conversation=conversation, room=room),"),
 
     ("the explicit door spends an agent without a yes",
      CATALOG,
