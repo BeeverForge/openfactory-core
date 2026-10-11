@@ -19,7 +19,10 @@ matched sentence alone. The claims, each a row:
   4. one way in: no sentence reaches these acts again;
   5. what the patterns guarded is written into the markers' instructions: a negation does not
      close a card (#161's claim, which this plan carries — `161b` is superseded by it), and the
-     breakdown's instruction says the platform asks after the reply.
+     breakdown's instruction says the platform asks after the reply;
+  6. no question nobody can answer: off the admin list, where no admin's yes counts for the
+     requester, a breakdown and a refine are refused at once; where the admins' yes counts, they
+     are staged for them (review of #634).
 """
 
 TEST = "tests/test_closing_correcting_and_aligning_are_acts_the_role_proposes.py"
@@ -111,4 +114,20 @@ MUTATIONS = [
     ("the breakdown's instruction stops saying the platform asks after the reply", ROLE,
      'f"its own line. {STAGED_AFTER_YOUR_REPLY} It files the requirement\'s cards where new "',
      'f"its own line. It files the requirement\'s cards where new "', FRAME),
+    # 6. no question nobody can answer (review of #634)
+    ("REVIEW OF #634: a breakdown nobody can say yes to waits for that yes", ENGINE,
+     "        # yes nobody can give: refused at once, naming who can, as before it was staged.\n"
+     "        if not may_act(project, user) and not _admin_mentions(project):\n"
+     "            return said(unauthorized_message(project))\n",
+     "        # yes nobody can give: refused at once, naming who can, as before it was staged.\n"),
+    ("a refine nobody can say yes to waits for that yes", ENGINE,
+     "        # No question nobody can answer — see `breakdown` above.\n"
+     "        if not may_act(project, user) and not _admin_mentions(project):\n"
+     "            return said(unauthorized_message(project))\n",
+     "        # No question nobody can answer — see `breakdown` above.\n"),
+    ("a breakdown the admins could confirm is refused at once", ENGINE,
+     "        # yes nobody can give: refused at once, naming who can, as before it was staged.\n"
+     "        if not may_act(project, user) and not _admin_mentions(project):",
+     "        # yes nobody can give: refused at once, naming who can, as before it was staged.\n"
+     "        if not may_act(project, user):"),
 ]

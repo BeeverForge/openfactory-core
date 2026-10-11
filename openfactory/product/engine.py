@@ -1772,7 +1772,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
     # UnboundLocalError on its authorisation check and the client got "algo quebrou do meu lado".
     # A landmine that arms itself for whoever writes the next intent is worth removing, not
     # documenting. (Its refusal left with the two writes that ran on the match alone, #565.)
-    from openfactory.product.module import may_act
+    from openfactory.product.module import may_act, unauthorized_message
     from openfactory.product.voice import triage_report
 
     name = getattr(getattr(project, "product", None), "agent_name", "") or ""
@@ -1872,6 +1872,12 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         # free-standing card beside the breakdown already running (#563). The role proposes it
         # now (`[[QUEBRAR: REQ-N]]`), what is checked before the question is checked here, and the
         # yes starts it on the worker (`confirm._confirm_breakdown`, #563 slice 18b).
+        # NO QUESTION NOBODY CAN ANSWER (review of #634). The requester's own yes counts only from
+        # somebody who may act, and an admin's counts for them only where the product lets admins
+        # accept on their behalf (`_admin_mentions`). Anywhere else a staged question waits for a
+        # yes nobody can give: refused at once, naming who can, as before it was staged.
+        if not may_act(project, user) and not _admin_mentions(project):
+            return said(unauthorized_message(project))
         req, _corpus, instead = _named_requirement(project, module, number,
                                                    "" if preamble else name, lang)
         if instead:
@@ -2068,6 +2074,9 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         # STAGED FOR A YES LIKE EVERY OTHER WRITE (#565 slice c), and `breakdown` beside it: it
         # edited a client's card on the match alone. The yes writes the criteria
         # (`confirm._confirm_refine`), which it still writes only where there are none.
+        # No question nobody can answer — see `breakdown` above.
+        if not may_act(project, user) and not _admin_mentions(project):
+            return said(unauthorized_message(project))
         from openfactory.product.voice import refine_confirmation
 
         body = remember(thread, {"kind": "refine", "number": number, "channel": channel,

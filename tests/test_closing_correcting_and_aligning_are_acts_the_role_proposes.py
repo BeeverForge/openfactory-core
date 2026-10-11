@@ -274,6 +274,33 @@ def test_somebody_off_the_admin_list_stages_it_for_the_admins():
                           "confirmação.)"), asked
 
 
+
+@pytest.mark.parametrize(("marker", "text"), [
+    ("[[QUEBRAR: REQ-0066]]", "quebra o 66"),
+    ("[[REFINAR: #412]]", "escreve os critérios do 412"),
+], ids=["breakdown", "refine"])
+def test_REVIEW_OF_634_a_yes_nobody_can_give_is_never_asked_for(marker, text, started):
+    """Off the admin list, where no admin's yes counts for the requester (no `accept_on_behalf`),
+    a staged question would wait for a yes nobody can give, and their own is refused: refused at
+    once instead, naming who can, as before it was staged."""
+    from openfactory.product.module import unauthorized_message
+
+    project = _Project()
+    role = _Role("Certo.\n" + marker)
+
+    asked = _say(role, text, user=CLIENT, project=project)
+
+    assert asked == "Certo.\n\n" + unauthorized_message(project), asked
+    assert _staged() is None and started.calls == [] and role.wrote == []
+
+
+def test_a_breakdown_off_the_admin_list_is_staged_for_the_admins_where_their_yes_counts(started):
+    asked = _say(_Role("Certo.\n[[QUEBRAR: REQ-0066]]"), "quebra o 66", user=CLIENT,
+                 project=_Project(accept_on_behalf=True))
+
+    assert _staged()["kind"] == "breakdown" and started.calls == [], asked
+    assert f"({ADMIN}: " in asked and "confirmação" in asked, asked
+
 # ── one act per reply, one way in ───────────────────────────────────────────────────────────────
 
 def test_one_act_per_reply_the_first_is_staged():
