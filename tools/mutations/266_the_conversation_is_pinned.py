@@ -449,8 +449,9 @@ MUTATIONS = [
      "        if False:"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-10 (#565): the refusal carries the role's reply in front of it
     ("a decision on a requirement the base does not have breaks the turn", ENGINE,
-     "        if instead:\n            return instead\n        if not req.is_live:\n"
+     "        if instead:\n            return preamble + instead\n        if not req.is_live:\n"
      "            # writing into a document",
      "        if not req.is_live:\n            # writing into a document"),
 
@@ -479,9 +480,10 @@ MUTATIONS = [
      '    if intent == "accept":', '    if intent == "accept-cut":'),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-10 (#565): the refusal is said through `said`, after the role's reply
     ("what is already agreed is staged for agreement again", ENGINE,
-     "        if req.is_promise:\n            agreed = engine_said(\"already_agreed\"",
-     "        if False:\n            agreed = engine_said(\"already_agreed\""),
+     "        if req.is_promise:\n            return said(engine_said(\"already_agreed\"",
+     "        if False:\n            return said(engine_said(\"already_agreed\""),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a retired requirement is staged to be agreed back into force", ENGINE,
@@ -489,8 +491,9 @@ MUTATIONS = [
      "        if False:\n            # THE MODULE'S OWN QUESTION"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-10 (#565): the refusal carries the role's reply in front of it
     ("an acceptance of a requirement the base does not have breaks the turn", ENGINE,
-     "        if instead:\n            return instead\n        if req.is_promise:",
+     "        if instead:\n            return preamble + instead\n        if req.is_promise:",
      "        if req.is_promise:"),
 
     ("a confirmed acceptance has no executor of its own", CONFIRM,
@@ -512,8 +515,9 @@ MUTATIONS = [
      "        if False:\n            # already off the table"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-10 (#565): the refusal carries the role's reply in front of it
     ("a drop of a requirement the base does not have breaks the turn", ENGINE,
-     "        if instead:\n            return instead\n        if not req.is_live:\n"
+     "        if instead:\n            return preamble + instead\n        if not req.is_live:\n"
      "            # already off the table",
      "        if not req.is_live:\n            # already off the table"),
 

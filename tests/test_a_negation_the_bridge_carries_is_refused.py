@@ -32,18 +32,19 @@ NEGATORS = ("não", "nao", "nunca", "jamais", "nem", "never", "don't", "dont", "
 
 @pytest.mark.parametrize("word", NEGATORS)
 def test_a_negated_gesture_is_REFUSED(word):
-    """`accept` writes on a client's board with no confirmation behind it. A negation read as an
-    instruction is the one shape whose meaning inverts while every other signal stays identical."""
-    assert match_intent(f"{word} aceita o requisito 1") is None, (
+    """`close` stages an act on a client's board. A negation read as an instruction is the one
+    shape whose meaning inverts while every other signal stays identical. (It read `accept` until
+    agreeing to a requirement became an act the role proposes, #565.)"""
+    assert match_intent(f"{word} fecha o #511") is None, (
         f"{word!r} did not stop the gesture — the negation was obeyed as an order")
 
 
 def test_and_the_gesture_itself_still_WORKS():
     """The positive twin. A lookbehind that refused everything would be a surface nobody can use,
     and it would look exactly like a careful one."""
-    got = match_intent("aceita o requisito 1")
+    got = match_intent("fecha o #511")
 
-    assert got and got[0] == "accept"
+    assert got and got[0] == "close"
 
 
 # ── 2. the two lists are one mechanism ──────────────────────────────────────────────────────────
@@ -83,6 +84,6 @@ def test_bare_NO_is_not_a_negator_here():
 
 def test_and_an_instruction_that_CONTAINS_it_is_still_obeyed():
     """The sentence the exclusion protects: `no` immediately before the verb, meaning *in the*."""
-    got = match_intent("aceita o requisito 1 no board")
+    got = match_intent("fecha o #511 no board")
 
-    assert got and got[0] == "accept"
+    assert got and got[0] == "close"

@@ -96,8 +96,8 @@ def test_a_PREAMBLE_no_longer_kills_the_gesture():
 
 @pytest.mark.parametrize(("phrase", "intent", "number"), [
     ("Nina, boa observação — e sim, refina o #523", "refine", "523"),
-    ("Nina, boa observação — e sim, aceita o requisito 1", "accept", "1"),
-    ("então, cancela o requisito 2", "drop", "2"),
+    # `accept` and `drop` left these rows (#565): the role proposes them, wherever in the message
+    # the person says it
     ("Nina, boa observação — e sim, quebra o requisito 8 em tarefas", "breakdown", "8"),
     ("boa, e alinha o #288 ao requisito 6", "align", "288"),
     ("Nina, boa observação — e sim, fecha o #511", "close", "511"),
@@ -130,9 +130,9 @@ def test_no_gesture_can_be_scanned_without_saying_so():
     ("amanhã a gente quebra o requisito 8 em tarefas", "quebra o requisito 8 em tarefas"),
     ("hoje a gente define os critérios do 288", "define os critérios do 288"),
     ("a gente fecha o #511 amanhã", "fecha o #511"),
-    ("o time aceita o requisito 1 na quinta", "aceita o requisito 1"),
     ("amanhã a gente alinha o #288 ao requisito 6", "alinha o #288 ao requisito 6"),
-    ("a gente cancela o requisito 2 se não der", "cancela o requisito 2"),
+    # `accept` and `drop` left this table (#565): telling a plan from an order is the role's
+    # judgement now, written into the instruction of the marker that proposes each
     # the same verb as a NOUN, which the mood guard cannot see either: "a quebra do requisito 8"
     ("a quebra do requisito 8 em tarefas foi ontem", "quebra o requisito 8 em tarefas"),
 ])
@@ -450,7 +450,7 @@ class _Module:
     the implementation, so it fails loudly if a signature moves."""
 
     def __init__(self, req=None, *, closes=None, aligns=None, refines=None, breaks=None,
-                 corpus=(), available=True):
+                 corpus=(), available=True, said=""):
         # `corpus` holds the WHOLE chain when a test needs one: a supersession is a sequence, and a
         # double that can only answer for one requirement can only ever prove a single hop.
         self.reqs = list(corpus) or ([req] if req is not None else [])
@@ -467,6 +467,8 @@ class _Module:
         # it hands back a context whose corpus holds nothing, which is why "I could not read it"
         # and "there is no such requirement" were told apart by nothing.
         self._available = available
+        # WHAT THE ROLE WRITES, when a test needs its reading (#565): read by the role's own parser
+        self._said = said
 
     def context(self):
         from types import SimpleNamespace
@@ -509,6 +511,10 @@ class _Module:
     def answer(self, question, *, conversation="", pending="", **_):
         from types import SimpleNamespace
 
+        if self._said:
+            from openfactory.product.role import read_answer
+
+            return read_answer(self._said)
         return SimpleNamespace(ok=True, is_defect=False, is_request=False, decisions=[],
                                text="não sei dizer.", violates=None)
 
@@ -1510,8 +1516,11 @@ def test_a_replacement_NOBODY_HAS_AGREED_TO_YET_is_not_reported_as_a_BROKEN_BASE
     assert "requisito 6" in reply, reply
     assert _waiting() is None, "it staged a write the module would refuse"
 
+    # THE FIRST STEP IS SAID, THE SECOND QUOTED (#565): agreeing is an act the role proposes from
+    # any words, so only the alignment is a sentence to copy
+    assert "está acordado" in reply.split("«")[0], reply
     steps = re.findall(r"«([^»]+)»", reply)
-    assert [match_intent(s) and match_intent(s)[0] for s in steps] == ["accept", "align"], steps
+    assert [match_intent(s) and match_intent(s)[0] for s in steps] == ["align"], steps
 
 
 def test_a_replacement_THE_CLIENT_KILLED_is_never_offered_as_one_confirmation_away(caplog):
@@ -1550,7 +1559,8 @@ def test_a_RETIRED_requirement_is_never_staged_for_acceptance():
     project = _Project()
 
     for status in ("superseded", "dropped"):
-        module = _Module(_Req(6, status, superseded_by=8 if status == "superseded" else None))
+        module = _Module(_Req(6, status, superseded_by=8 if status == "superseded" else None),
+                         said="Entendi.\n[[ACORDO: REQ-0006]]")
 
         said = chat_turn(project, text="aceita o requisito 6", user="UADM", thread="C1",
                          channel="C1", module=module)
@@ -1717,12 +1727,15 @@ def test_every_sentence_a_message_TELLS_THE_CLIENT_TO_TYPE_is_matched_AS_SHOWN()
 def test_a_QUOTED_gesture_never_carries_its_QUOTATION_into_a_record():
     """The other half of admitting «…» where a clause begins. A capture is free text that travels
     onward: `drop`'s reason is written into the record in the client's name and read back to them,
-    so a stray » must not end up as the grounds on which somebody decided to retire a promise."""
-    assert match_intent("«cancela o requisito 2»") == ("drop", {"number": "2"})
+    so a stray » must not end up as the grounds on which somebody decided to retire a promise.
 
-    matched = match_intent("«cancela o requisito 2 porque mudou a lei»")
+    The drop is the role's marker now (#565), and the quotation comes off what it carries the way
+    it came off the pattern's capture."""
+    from openfactory.product.role import read_answer
 
-    assert matched[1]["reason"] == "porque mudou a lei", matched
+    quoted = read_answer("Certo.\n[[DESCARTE: REQ-2; «porque mudou a lei»]]")
+
+    assert quoted.gesture_args == {"number": "2", "reason": "porque mudou a lei"}, quoted
 
 
 @pytest.mark.parametrize("text", _every_new_sentence(), ids=range(len(_every_new_sentence())))

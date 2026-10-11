@@ -67,17 +67,10 @@ PRODUCT: dict[str, dict[str, str]] = {
     "triage":       {"pt-BR": "faz a triagem do quadro", "en": "run the board triage"},
     "needs_action": {"pt-BR": "olha os impedimentos", "en": "check needs-action"},
     "breakdown":    {"pt-BR": "quebra o requisito 4", "en": "break down requirement 4"},
-    "accept":       {"pt-BR": "aceita o requisito 4", "en": "accept requirement 4"},
-    "accept/as":    {"pt-BR": "da o requisito 4 como acordado",
-                     "en": "accept the requirement 4"},
-    "decision":     {"pt-BR": "registra no requisito 4 que vamos usar postgres",
-                     "en": "record on requirement 4 that we will use postgres"},
-    "drop":         {"pt-BR": "cancela o requisito 4, mudou o escopo",
-                     "en": "drop requirement 4, the scope changed"},
-    "drop/withdrawn": {"pt-BR": "nao vamos mais fazer o requisito 4",
-                       "en": "we are not building requirement 4 any more"},
-    "drop/state":   {"pt-BR": "o requisito 4 nao vale mais",
-                     "en": "requirement 4 is out of scope"},
+    # RETIRED 2026-10-10 (#565): `accept`, `decision`, `drop` and `fact`, with their
+    # shapes. They are acts the role proposes with a marker (`role.REQUIREMENT_ACTS`), read by the
+    # model in whatever language the person writes, so no row of this table reaches them; the
+    # marker's instruction carries its examples in both languages.
     "close":        {"pt-BR": "fecha o card 511 como duplicado do 288",
                      "en": "close card 511 as a duplicate of 288"},
     "close/state":  {"pt-BR": "o card 511 e uma duplicata do 288",
@@ -98,8 +91,6 @@ PRODUCT: dict[str, dict[str, str]] = {
                      "en": "rewrite the criteria of 511"},
     "baseline":     {"pt-BR": "faz o levantamento do produto",
                      "en": "start a survey of the code"},
-    "fact":         {"pt-BR": "anota que o fechamento e no dia 5",
-                     "en": "note down that closing is on the 5th"},
     "queue":        {"pt-BR": "o que entra agora", "en": "what's next in the queue"},
     "queue/go":     {"pt-BR": "podemos comecar entao", "en": "can we start then"},
     "status":       {"pt-BR": "situacao", "en": "status"},

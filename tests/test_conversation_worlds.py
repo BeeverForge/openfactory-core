@@ -19,6 +19,7 @@ happy path but the INVARIANTS no message may ever break:
 from __future__ import annotations
 
 import random
+import re
 
 import add_ons
 import pytest
@@ -31,7 +32,7 @@ from openfactory.product.authoring import WriteResult
 from openfactory.product.config import ProductLink
 from openfactory.product.corpus import Corpus, Requirement
 from openfactory.product.loader import ProductContext
-from openfactory.product.role import ProductAnswer, RequirementDraft
+from openfactory.product.role import ProductAnswer, RequirementDraft, read_answer
 from openfactory.product.voice import jargon_in
 from tests.the_chat_turn import chat_turn
 
@@ -84,6 +85,12 @@ class _World:
         for needle, answer in self.script.items():
             if needle in question:
                 return answer
+        # A DICTATION IS THE ROLE'S TO PROPOSE (#565): noting a fact is an act the model proposes
+        # with its marker, so this role does what the model does with "anota que …" — it carries
+        # the person's words in `[[FATO`, read by the role's own parser
+        dictated = re.match(r"(?:anota|registra) que (.{10,})", question)
+        if dictated:
+            return read_answer(f"Vou anotar.\n[[FATO: {dictated.group(1)}]]")
         return ProductAnswer(ok=True, text="entendi — está coberto pelo requisito 7.")
 
     def draft(self, request, **kw):

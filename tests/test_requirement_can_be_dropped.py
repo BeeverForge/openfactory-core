@@ -41,7 +41,7 @@ from openfactory.product.authoring import (
 )
 from openfactory.product.corpus import DROPPED, load_corpus, parse_requirement
 from openfactory.product.intents import match_intent
-from openfactory.product.role import RequirementDraft
+from openfactory.product.role import RequirementDraft, read_answer
 from openfactory.product.voice import drop_confirmation, dropped, jargon_in
 from tests.the_chat_turn import chat_turn
 
@@ -54,25 +54,25 @@ def _rendered(number: int = 2, *, title: str = "Pacote de fecho", status: str = 
 
 
 # ── 1. the gesture: how a person actually says it ───────────────────────────────────────────────
+# THE ROLE PROPOSES IT (#565). However the person says it — "cancela o requisito 2", "não vamos
+# mais fazer o requisito 2", "o 2 saiu de escopo", "pode jogar fora o 2" — the model that read the
+# message writes `[[DESCARTE: REQ-N; <why, in their words>]]`, and the stage reads that. Three
+# patterns used to stand here, and "pode jogar fora o 2" was in none of them.
 
-@pytest.mark.parametrize("phrase", [
-    "Nina, cancela o requisito 2",
-    "abandona o requisito 2",
-    "descarta o requisito 2",
-    "esquece o requisito 2",
-    "arquiva o requisito 2",
-    "não vamos mais fazer o requisito 2",
-    "não vamos fazer o requisito 2",
-    "Nina, não precisamos mais implementar o requisito 2",
-    "o requisito 2 não vale mais",
-    "o requisito 2 saiu de escopo",
-    "o requisito 2 foi cancelado",
+@pytest.mark.parametrize(("marker", "reason"), [
+    ("[[DESCARTE: REQ-0002]]", None),
+    ("[[DESCARTE: REQ-2;]]", None),
+    ("[[DESCARTE: 2; mudou o escopo]]", "mudou o escopo"),
+    ("[[DESCARTE: REQ-0002; o cliente desistiu do módulo de férias]]",
+     "o cliente desistiu do módulo de férias"),
 ])
-def test_a_person_can_drop_a_requirement_in_their_own_words(phrase):
-    matched = match_intent(phrase)
-    assert matched, phrase
-    assert matched[0] == "drop", f"{phrase!r} matched {matched[0]!r}"
-    assert matched[1]["number"] == "2", matched
+def test_a_person_can_drop_a_requirement_in_their_own_words(marker, reason):
+    answer = read_answer(f"Certo, o 2 sai da mesa.\n{marker}")
+
+    assert answer.gesture == "drop", (marker, answer.gesture)
+    assert int(answer.gesture_args["number"]) == 2, answer.gesture_args
+    assert answer.gesture_args.get("reason") == reason, answer.gesture_args
+    assert answer.text == "Certo, o 2 sai da mesa.", answer.text
 
 
 @pytest.mark.parametrize("phrase", [
@@ -93,8 +93,8 @@ def test_what_must_NEVER_read_as_an_abandonment(phrase):
 def test_the_reason_is_captured_when_the_person_gives_one():
     """What makes the record answer "why aren't we doing this?" in six months, instead of showing
     a status field and a date."""
-    _, captures = match_intent("cancela o requisito 2, o cliente desistiu do módulo de férias")
-    assert "cliente desistiu" in captures.get("reason", "")
+    answer = read_answer("Certo.\n[[DESCARTE: REQ-2; o cliente desistiu do módulo de férias]]")
+    assert "cliente desistiu" in answer.gesture_args.get("reason", "")
 
 
 # ── 2. the write: any live state can be dropped, and the dead ones say so ────────────────────────
@@ -278,9 +278,23 @@ class _Req:
         return self.status == "accepted"
 
 
+#: What the role writes when the person drops requirement 2 below (#565): its understanding, then
+#: the marker that proposes the act, with the reason they gave.
+PROPOSED = "Certo, o 2 sai da mesa.\n[[DESCARTE: REQ-0002; o cliente desistiu]]"
+
+
 class _Module:
-    def __init__(self, req=None):
-        self.req, self.dropped_with = req, None
+    def __init__(self, req=None, said=PROPOSED):
+        self.req, self.dropped_with, self.said = req, None, said
+
+    def answer(self, question, **_):
+        return read_answer(self.said)
+
+    def confirmed(self, *_a, **_k):
+        return "neither"
+
+    def close_decisions_answered(self, **_):
+        return 0
 
     def context(self):
         req = self.req

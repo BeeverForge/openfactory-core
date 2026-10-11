@@ -3928,15 +3928,17 @@ _ALIGN_TO_DROPPED = {
 #: every alignment onto the old number lands here. It is not a broken chain (the text is there and
 #: reads fine) and it is not an abandonment (somebody decided the opposite), and being told either
 #: sends a client to look for a problem that does not exist. What it is, is one confirmation away —
-#: so the sentence names both steps, in the order they have to happen.
+#: so the sentence names both steps, in the order they have to happen. The first is said in plain
+#: words, not quoted (#565): agreeing is an act the role proposes from whatever words the person
+#: uses, so there is no sentence to copy for it.
 _ALIGN_TO_UNAGREED = {
     "pt-BR": ("o *requisito {requirement}* foi substituído pelo *requisito {successor}*, e o "
               "{successor} ainda não foi acordado — escrever o *{number}* a partir de uma "
-              "proposta seria decidir por vocês. Se ele já vale, me diga «aceita o requisito "
-              "{successor}» e depois «alinha o {number} ao requisito {successor}»."),
+              "proposta seria decidir por vocês. Se ele já vale, me diga que o {successor} "
+              "está acordado, e depois «alinha o {number} ao requisito {successor}»."),
     "en": ("*Requirement {requirement}* was replaced by *requirement {successor}*, and "
            "{successor} has not been agreed yet — writing *{number}* from a proposal would be "
-           "deciding for you. If it holds, say \"accept requirement {successor}\" and then "
+           "deciding for you. If it holds, tell me {successor} is agreed, and then say "
            "\"align {number} to requirement {successor}\"."),
 }
 #: Replaced by a text that was ITSELF taken off the table — REQ-0004 `superseded-by 0006` with 0006

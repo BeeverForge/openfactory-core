@@ -30,20 +30,11 @@ MUTATIONS = [
     # said. Filed on #161 with the measurement instead of being bolted onto this pass.
 
     # ── the five English halves the sweep found by RUNNING sentences ─────────────────────────────
-    ("a decision may only be connected with `que`", PI,
-     'r"(?:\\s*(?:que|that|:|—|-|,)\\s*)(?P<decision>[^\\n]{5,400})",',
-     'r"(?:\\s*(?:que|:|—|-|,)\\s*)(?P<decision>[^\\n]{5,400})",'),
-
-    ("the English withdrawal idiom goes back to Portuguese only", PI,
-     '        r"|\\b(?:we|i)\\s*(?:\'re|\'m|\\s+are|\\s+am)?\\s+not\\s+(?:going\\s+to\\s+)?"\n'
-     '        r"(?:build|do|deliver|ship|implement)(?:ing)?"',
-     '        r"|\\bnobody\\s+will\\s+ever\\s+possibly\\s+build"'),
-
-    ("a requirement can only be out of scope in Portuguese", PI,
-     '        r"|is\\s+(?:out\\s+of\\s+scope|cancell?ed|dropped"\n'
-     '        r"|no\\s+longer\\s+(?:needed|wanted|valid|in\\s+scope))"\n'
-     '        r"|(?:was|has\\s+been)\\s+(?:cancell?ed|dropped))\\b"',
-     '        )\\b"'),
+    # RETIRED 2026-10-10 (#565): "a decision may only be connected with `que`", "the English
+    # withdrawal idiom goes back to Portuguese only" and "a requirement can only be out of scope in
+    # Portuguese". The `decision` and `drop` patterns they cut are gone: recording a decision and
+    # dropping a requirement are acts the role proposes with a marker, read by the model in
+    # whatever language the person writes (`role.REQUIREMENT_ACTS`).
 
     ("the duplicate copula is Portuguese again", PI,
      '_NOT_NEGATED + _card("number") + r"\\s+(?:[ée]|eh|s[ãa]o|is|are)\\s+(?:an?\\s+|uma?\\s+)?"',
