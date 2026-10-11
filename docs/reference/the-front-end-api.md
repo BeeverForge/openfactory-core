@@ -117,7 +117,7 @@ while it stays open: a credential that stops opening its path ends the stream.
 | stream | transport | frames | how it ends |
 |---|---|---|---|
 | `/api/stream` | WebSocket; `?project=<name>` to follow one project, or send `{"project": "<name>"}` to follow another without dropping it | JSON with a `kind`: `hello` (the tick), `update` (what changed for the project), `bye` (why it stopped) | closed with 1008 when the credential is refused, 1011 when nobody could be judged |
-| `/api/product/stream` | WebSocket; the default front end opens it on the cookie alone, with no credential in its address | JSON with a `kind`: `hello`, `subscribed`, `history`, `said`, `reply`, `staged`, `presence`, `ack`, `refused`, `resync`, `bye` | the same codes |
+| `/api/product/stream` | WebSocket; the default front end opens it on the cookie alone, with no credential in its address | JSON with a `kind`: `hello`, `subscribed`, `history`, `earlier` (the page before the one shown, answering `{"kind": "earlier", "before": <cursor>}`), `said`, `reply`, `staged`, `presence`, `ack`, `refused`, `resync`, `bye` | the same codes |
 | `/api/temporal/stream` | Server-sent events | a JSON frame of the jobs' state — the jobs, whether the poller runs, the build — on connect and whenever it changes; `"jobs": null` when the engine cannot be read | a named event, `ended`, with why: `signed_out`, `not_allowed` or `unavailable` |
 | `/api/jobs/{project}/{issue}/stream` | Server-sent events | the run's log events as they are written; a reconnect resumes from its `Last-Event-ID` (`v2-<n>`) | the same `ended` event |
 
