@@ -117,6 +117,29 @@ def test_two_cards_that_could_not_be_compared_are_said_before_the_question(langu
     assert not jargon_in(said), jargon_in(said)
 
 
+@pytest.mark.parametrize("language", ["pt-BR", "en"])
+def test_a_closed_card_that_states_nothing_to_compare_is_said_not_compared(language):
+    """REVIEW OF #602. A card of prose alone — no criteria, no `## Source` — carries nothing the
+    comparison can see, which is not the same as carrying nothing: the question still claims the
+    two ask for the same thing, so it says they were not compared."""
+    carried = only_in("Só um parágrafo explicando o pedido.", f"## Acceptance criteria\n- [ ] {KEEP}")
+    said = close_confirmation(number="1000009", in_favour_of="1000010", carried=carried,
+                              language=language)
+
+    assert not carried and carried.stated is False, carried
+    assert ("não deu para comparar" in said or "could not be compared" in said), said
+    assert said.rstrip().endswith(("Confirma?", "Confirm?")), said
+    assert not jargon_in(said), jargon_in(said)
+
+
+def test_a_closed_card_whose_criteria_the_survivor_states_too_was_compared():
+    carried = only_in(f"## Acceptance criteria\n- [ ] {KEEP}", f"## Acceptance criteria\n- [ ] {KEEP}")
+
+    assert not carried and carried.stated is True, carried
+    said = close_confirmation(number="511", in_favour_of="288", carried=carried, language="pt-BR")
+    assert "não deu para comparar" not in said, said
+
+
 def test_two_cards_that_carry_the_same_things_keep_the_duplicate_question():
     said = close_confirmation(number="511", in_favour_of="288", carried=Carried(),
                               language="pt-BR")

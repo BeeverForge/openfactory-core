@@ -3356,6 +3356,17 @@ _CLOSE_UNREAD_LINE = {
 }
 
 
+#: THE CLOSED CARD STATES NOTHING TO COMPARE (review of #602): no criteria, and no requirement it
+#: executes. The comparison found nothing it carries because it could see nothing, and the
+#: sentence above it claims they ask for the same thing — so this says it was not compared.
+_CLOSE_UNSTATED_LINE = {
+    "pt-BR": ("\n\n(O *{number}* não tem critérios nem diz que requisito executa, então não deu "
+              "para comparar o que cada um pede — vale abrir os dois antes de confirmar.)"),
+    "en": ("\n\n(*{number}* has no criteria and names no requirement it executes, so what each "
+           "asks for could not be compared — worth opening both before you confirm.)"),
+}
+
+
 def close_confirmation(*, number: str, in_favour_of: str | None = None, reason: str = "",
                        carried=None, unread: bool = False,
                        language: str | None = None) -> str:
@@ -3376,6 +3387,10 @@ def close_confirmation(*, number: str, in_favour_of: str | None = None, reason: 
         if in_favour_of and unread:
             text = text.removesuffix(_pick(_CONFIRM_TAIL, language)) \
                 + _pick(_CLOSE_UNREAD_LINE, language) + _pick(_CONFIRM_TAIL, language)
+        elif in_favour_of and carried is not None and not getattr(carried, "stated", True):
+            text = text.removesuffix(_pick(_CONFIRM_TAIL, language)) \
+                + _pick(_CLOSE_UNSTATED_LINE, language).format(number=ref_label(number)) \
+                + _pick(_CONFIRM_TAIL, language)
     if reason.strip():
         text += _pick(_CLOSE_REASON_LINE, language).format(reason=reason.strip())
     return text
