@@ -158,10 +158,13 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
 
     **The product owner reads the board too** (#562): a product credential may open
     `/p/<project>/board` for a project with a product role and read it (`GET /api/board/<project>`),
-    with no second credential. Moving a card stays an action of the board; what the product owner
-    could already do to a card the role filed — close it, correct it — is still theirs.
-  - **`OPENFACTORY_BOARD_TOKENS` / `OPENFACTORY_BOARD_TOKEN` — a credential for the board and nothing
-    else** (#562). Same two shapes, for whoever runs the board and is not the product owner: the
+    with no second credential, and a card on it (`?card=`) as their own page does. Not a pull
+    request's diff (`?pr=`): code stays on the floor. Moving a card stays an action of the board;
+    what the product owner could already do to a card the role filed — close it, correct it — is
+    still theirs.
+  - **`OPENFACTORY_BOARD_TOKENS` / `OPENFACTORY_BOARD_TOKEN` — a credential for the floor and
+    nothing of the product owner's** (#562). Same two shapes, for whoever runs the board and is not
+    the product owner: the
     holder reaches the floor — the board, the jobs, the actions — and is refused the product
     owner's area **by name**: its page, its chat, its documents and attachments, the `product_*`
     rows. The panel token stays what it was, the administrator's, and reaches both.

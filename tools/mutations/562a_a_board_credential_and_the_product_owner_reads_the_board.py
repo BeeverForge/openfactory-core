@@ -7,7 +7,8 @@ Run:  .venv/bin/python tools/mutate.py \
 The claims, each a row:
 
   1. a board row and the shared board token are scoped to the floor, and close the door;
-  2. the product owner reads the board of a project with a product role, and no other;
+  2. the product owner reads the board of a project with a product role, and no other, and never a
+     pull request's diff through it;
   3. `people invite --board` invites to the board, and an invitation to both areas is refused;
   4. the readiness report counts a board credential as a closed door;
   5. a worktree workload never holds a board credential.
@@ -50,13 +51,22 @@ MUTATIONS = [
 
     # 2. the product owner's read
     ("TODAY'S RULE: the product owner is refused the board", APP,
-     "        if _the_product_owners_board(path, scopes):\n            return None",
+     "        if _the_product_owners_board(path, scopes, query):\n            return None",
      "        if False:\n            return None"),
     ("the product owner reads the board of a project with no product role", APP,
      "    return _has_product_role(project)\n", "    return True\n"),
     ("the product owner reaches a name nobody registered", APP,
      "    except KeyError:\n        return False   # a project nobody registered",
      "    except KeyError:\n        return True   # a project nobody registered"),
+    ("TODAY'S REVIEW: the product owner reads a pull request's diff through the board", APP,
+     '    if not found or any(key == "pr" and value for key, value in parse_qsl(query)):',
+     "    if not found:"),
+    ("the middleware does not hand the gate the query", APP,
+     "_ask_the_gate(request.url.path, _credential_of(request), request.url.query)",
+     "_ask_the_gate(request.url.path, _credential_of(request))"),
+    ("the gate's thread is not handed the query", APP,
+     "    return await asyncio.to_thread(_gate_verdict, path, credential, query)",
+     "    return await asyncio.to_thread(_gate_verdict, path, credential)"),
     ("the product owner reads every route under the board's prefix", APP,
      '_PRODUCT_BOARD_READ = re.compile(r"^/api/board/([^/]+)$")',
      '_PRODUCT_BOARD_READ = re.compile(r"^/api/board/([^/]+)(?:/.*)?$")'),

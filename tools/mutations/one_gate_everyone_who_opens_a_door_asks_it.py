@@ -67,18 +67,20 @@ MUTATIONS = [
 
     # ── 3. the ask, and the loop it must not run on ─────────────────────────────────────────────
     ("the middleware goes back to asking on the event loop", APP,
-     "    refused = await _ask_the_gate(request.url.path, _credential_of(request))\n",
-     "    refused = _gate_verdict(request.url.path, _credential_of(request))\n"),
+     # RE-PINNED 2026-10-11 (#562): the gate is handed the query string too.
+     "    refused = await _ask_the_gate(request.url.path, _credential_of(request), "
+     "request.url.query)\n",
+     "    refused = _gate_verdict(request.url.path, _credential_of(request), request.url.query)\n"),
 
     ("…or the seam itself stops leaving it, which is everybody at once", APP,
-     "    return await asyncio.to_thread(_gate_verdict, path, credential)\n",
-     "    return _gate_verdict(path, credential)\n"),
+     "    return await asyncio.to_thread(_gate_verdict, path, credential, query)\n",
+     "    return _gate_verdict(path, credential, query)\n"),
 
     ("every path takes a thread, so the shell and the login page queue behind the identity "
      "provider", APP,
      "    if not _gated(path):\n        return None\n"
-     "    return await asyncio.to_thread(_gate_verdict, path, credential)\n",
-     "    return await asyncio.to_thread(_gate_verdict, path, credential)\n"),
+     "    return await asyncio.to_thread(_gate_verdict, path, credential, query)\n",
+     "    return await asyncio.to_thread(_gate_verdict, path, credential, query)\n"),
 
     ("…and the other way: nothing is gated any more", APP,
      '    return path.startswith("/api/")\n',

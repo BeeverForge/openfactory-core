@@ -1,10 +1,11 @@
-"""A credential for the board and nothing else, and the product owner reads the board (#562, the
-API's half).
+"""A credential for the floor and nothing of the product owner's, and the product owner reads the
+board (#562, the API's half).
 
 Decided on 2026-10-08 and refined on 2026-10-11:
 
   - the product owner reaches the board of their projects, READ ONLY, with the credential they
-    hold — a product credential was refused `GET /api/board/<project>` like the rest of the floor;
+    hold — a product credential was refused `GET /api/board/<project>` like the rest of the floor —
+    and its cards, never a pull request's diff (`?pr=`), which stays on the floor;
   - whoever runs the board does not reach the product owner — and the only credential limited to
     the floor came from an identity provider's group, so the token variables and `people invite`
     could issue "everything" or "the product area" and nothing in between;
@@ -144,6 +145,27 @@ def test_the_board_read_is_narrowed_however_the_credential_is_presented(deployme
     assert read("solo").status_code == 403
 
 
+def test_a_card_on_the_board_but_never_a_pull_requests_diff(deployment, monkeypatch):
+    """`?pr=` answers a pull request's body, diff and review events for any ref the forge knows.
+    Code stays on the floor: refused with the floor's sentence, however the credential arrives,
+    and the forge is never asked. `?card=` is the card view the product owner's page already
+    reads, and the administrator still reads both."""
+    from openfactory.api import app as api
+
+    asked = []
+    monkeypatch.setattr(api, "_pr_detail",
+                        lambda _project, ref: asked.append(ref) or {"ref": ref, "diff": "DIFF"})
+
+    for refused in (_get(deployment, "/api/board/acme?pr=7", ANALYST),
+                    deployment.get("/api/board/acme?token=ba-secret&pr=7")):
+        assert refused.status_code == 403, (refused.status_code, refused.text)
+        assert refused.json()["detail"] == REFUSED_THE_FLOOR, refused.json()
+    assert asked == [], "the forge was asked for a diff the product owner is refused"
+    assert _get(deployment, "/api/board/acme?card=1", ANALYST).status_code == 200
+    assert _get(deployment, "/api/board/acme?pr=7", OPERATOR).status_code == 200
+    assert asked == ["7"], asked
+
+
 def test_the_rest_of_the_floor_is_still_refused_to_the_product_owner(deployment):
     assert _get(deployment, "/api/projects", ANALYST).status_code == 403
 
@@ -245,6 +267,8 @@ def test_only_the_one_board_read_is_the_product_owners(deployment):
     from openfactory.api.app import _the_product_owners_board
 
     assert _the_product_owners_board("/api/board/acme", frozenset({"product"}))
+    assert _the_product_owners_board("/api/board/acme", frozenset({"product"}), "card=1&pr=")
+    assert not _the_product_owners_board("/api/board/acme", frozenset({"product"}), "pr=7")
     for path in ("/api/board/acme/move", "/api/board/acme/card/7"):
         assert not _the_product_owners_board(path, frozenset({"product"})), path
     assert not _the_product_owners_board("/api/board/acme", frozenset({"floor"}))
