@@ -30,9 +30,10 @@ MUTATIONS = [
      "    except KeyError:\n        raise HTTPException(\n            status_code=404,"),
 
     # ── the four routes that spelled it by hand: each one forgets ────────────────────────────────
+    # RE-PINNED 2026-10-11 (#562): the product owner's narrowing now sits between the two lines
     ("the board looks the project up by hand again, and forgets the refusal", APP,
-     "    proj = _project_or_404(project)\n    token = tracker_token_for(proj)",
-     "    proj = ProjectRegistry().get(project)\n    token = tracker_token_for(proj)"),
+     "    proj = _project_or_404(project)\n    # A PRODUCT CREDENTIAL READS THE BOARD",
+     "    proj = ProjectRegistry().get(project)\n    # A PRODUCT CREDENTIAL READS THE BOARD"),
 
     # RE-PINNED 2026-09-24 (#298): the read now sits in a `try` that answers a remote box it could
     # not read as a 503. The cut is the same one — the refusal leaves the route.

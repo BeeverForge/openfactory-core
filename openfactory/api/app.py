@@ -829,7 +829,12 @@ _PRODUCT_ROUTES = ("/api/product/", "/api/act/product_")
 #: Routes BOTH areas read. A card's preview is exactly what a product-scoped person — the business
 #: analyst who asked for the change — wants to click through before it merges (ADR-0050); keeping
 #: it on the floor side would hand the link to everybody except the person it is for.
-_EVERY_AREA_PREFIXES = ("/api/preview/",)
+#:
+#: AND THE BOARD (#562): the product owner reaches the board of their projects, read only, with the
+#: credential they already hold. `/api/board/` is one read and nothing else; moving a card is an
+#: action, and the action layer refuses a product credential every row outside its area.
+#: `board_view` narrows it to a project with a product role.
+_EVERY_AREA_PREFIXES = ("/api/preview/", "/api/board/")
 
 
 def _scope_of_path(path: str) -> str | None:
@@ -1886,7 +1891,8 @@ def _updated_before(stamp: str, since) -> bool:
 
 
 @app.get("/api/board/{project}")
-def board_view(project: str, card: str = "", pr: str = "") -> dict:
+def board_view(project: str, card: str = "", pr: str = "",
+               request: Request = None) -> dict:  # type: ignore[assignment]
     """This project's board, through the ports — one read, for every kind (ADR-0049 D6).
 
     ONE ROUTE, AND THE REASON IS THE THREE-SECOND TICK. The panel already polls the floor; a board
@@ -1914,6 +1920,14 @@ def board_view(project: str, card: str = "", pr: str = "") -> dict:
     from openfactory.credentials import deployment_tracker_token, tracker_token_for
 
     proj = _project_or_404(project)
+    # A PRODUCT CREDENTIAL READS THE BOARD OF ITS OWN PROJECTS (#562) — the ones with a product
+    # role, the same rule `/api/product/projects` lists them by — and no other client's board
+    # (an internal call carries no request, and no credential to narrow)
+    scopes = _scopes_of(_subject(request)) if request is not None else None
+    if scopes is not None and actions.FLOOR not in scopes and not _has_product_role(proj):
+        raise HTTPException(status_code=403, detail=(
+            f"this credential reads the board of a project with a product role, and "
+            f"{project} has none"))
     token = tracker_token_for(proj) or deployment_tracker_token(proj)
     board = build_board(proj, token=token)
     tracker = build_tracker(proj, token=token)
@@ -3172,11 +3186,14 @@ def product_projects() -> list[dict]:
     `enabled` as TRUE — a project that declares `product:` at all has the role on — and a list
     that defaulted the other way would hide projects the actions then happily served, which is
     the "fix one, forget the neighbour" shape this codebase keeps paying for."""
-    def _has_product(p) -> bool:
-        cfg = getattr(p, "product", None)
-        return cfg is not None and bool(getattr(cfg, "enabled", True))
+    return [{"name": p.name} for p in ProjectRegistry().list() if _has_product_role(p)]
 
-    return [{"name": p.name} for p in ProjectRegistry().list() if _has_product(p)]
+
+def _has_product_role(project) -> bool:
+    """Whether a project has a product role: it declares `product:`, and does not turn it off. The
+    one rule both the product owner's list and their read of a board ask (#562)."""
+    cfg = getattr(project, "product", None)
+    return cfg is not None and bool(getattr(cfg, "enabled", True))
 
 
 # ── FILES A PERSON HANDS THE PRODUCT ROLE (#336) ─────────────────────────────────────────────────

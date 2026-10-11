@@ -68,6 +68,17 @@ PRODUCT_SHARED_ENV = "OPENFACTORY_PRODUCT_TOKEN"
 #: an area that does not exist.
 PRODUCT_GROUP = "product"
 
+#: THE SAME TWO SHAPES, FOR A CREDENTIAL TO THE BOARD AND NOTHING ELSE (#562). The panel token is
+#: everything, the product owner's area included — its documents, its attachments, the chat — and
+#: the only credential limited to the floor came from an identity provider's group. Whoever runs
+#: the board is not the product owner, and a credential that says so is issued here and by
+#: `openfactory people invite --board`. It asserts the floor's group, so the gate refuses it the
+#: product area by name, exactly as a product credential is refused the floor. The panel token is
+#: unchanged: it stays the administrator's.
+BOARD_PEOPLE_ENV = "OPENFACTORY_BOARD_TOKENS"
+BOARD_SHARED_ENV = "OPENFACTORY_BOARD_TOKEN"
+BOARD_GROUP = "floor"
+
 
 class LocalIdentity:
     """Credentials this deployment configured for itself, with no provider anywhere."""
@@ -143,6 +154,10 @@ class LocalIdentity:
                 if hmac.compare_digest(token, person.token):
                     return Subject(id=person.id, display=person.display or person.id,
                                    via="local", groups=(PRODUCT_GROUP,))
+            for person in _people(self._env.get(BOARD_PEOPLE_ENV, "")):
+                if hmac.compare_digest(token, person.token):
+                    return Subject(id=person.id, display=person.display or person.id,
+                                   via="local", groups=(BOARD_GROUP,))
             for person in _people(self._env.get(PEOPLE_ENV, "")):
                 # CONSTANT TIME, because this compares a secret. `==` on a token leaks its prefix
                 # to anyone who can measure, and the panel is reachable from a browser.
@@ -164,6 +179,13 @@ class LocalIdentity:
                 # product credential the floor.
                 return Subject(id="", display="somebody with the product token",
                                via=UNKNOWN.via, groups=(PRODUCT_GROUP,))
+            board_shared = str(self._env.get(BOARD_SHARED_ENV, "") or "")
+            if board_shared and hmac.compare_digest(token, board_shared):
+                log.info("OPENFACTORY_IDENTITY_ANONYMOUS a caller presented the shared BOARD "
+                         "token; set %s to record who is acting", BOARD_PEOPLE_ENV)
+                # anonymous in the audit line and still SCOPED, as the product token above
+                return Subject(id="", display="somebody with the board token",
+                               via=UNKNOWN.via, groups=(BOARD_GROUP,))
             shared = str(self._env.get(SHARED_ENV, "") or "")
             if shared and hmac.compare_digest(token, shared):
                 # THE AUDIT GAP, SAID OUT LOUD ONCE PER USE. This is the state the card calls "a
@@ -208,7 +230,8 @@ class LocalIdentity:
         endpoint to the internet unauthenticated, which is the one direction this gate must never
         fail in and the direction it already failed in once (C-26)."""
         if any(self._env.get(name, "").strip() for name in
-               (PEOPLE_ENV, SHARED_ENV, PRODUCT_PEOPLE_ENV, PRODUCT_SHARED_ENV)):
+               (PEOPLE_ENV, SHARED_ENV, PRODUCT_PEOPLE_ENV, PRODUCT_SHARED_ENV,
+                BOARD_PEOPLE_ENV, BOARD_SHARED_ENV)):
             return False
         # A REGISTERED PERSON CLOSES THE DOOR TOO (#33) — and only a registered one: an invitation
         # nobody has redeemed yet must not lock the operator out of an open panel before the first

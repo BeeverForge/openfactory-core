@@ -6549,24 +6549,36 @@ async def _env_apply_impl(*, project: str, by: Actor, yes: object = False,
 # ── people: an invitation from the panel (#33) ──────────────────────────────────────────────────
 
 async def _people_invite(*, person: str, by: Actor, display: str = "",
-                         product: object = "") -> Outcome:
+                         product: object = "", board: object = "") -> Outcome:
     """Issue a one-time registration link for `person`, vouched for by whoever asked.
 
     THE VOUCHER IS THE ACTOR, and an anonymous actor cannot vouch: a shared-token caller has no
     id, and the store refuses an invitation nobody stands behind — the audit line would otherwise
-    record a registration vouched for by "somebody with the panel token"."""
-    from openfactory.identity import people as _people
-    from openfactory.identity.local import PRODUCT_GROUP
+    record a registration vouched for by "somebody with the panel token".
 
+    ONE AREA, OR BOTH (#562): `product` invites the product owner, `board` whoever runs the board
+    and nothing else, and neither an administrator of both. Asked for both at once, it refuses:
+    that is the administrator's invitation, and saying so beats guessing which was meant."""
+    from openfactory.identity import people as _people
+    from openfactory.identity.local import BOARD_GROUP, PRODUCT_GROUP
+
+    def _yes(value: object, word: str) -> bool:
+        return str(value or "").strip().lower() in ("1", "true", "yes", "y", word)
+
+    scoped, boarded = _yes(product, "product"), _yes(board, "board")
+    if scoped and boarded:
+        return refused(INVALID, "an invitation is to the product owner's area or to the board; "
+                                "to both is the administrator's, which is an invitation with "
+                                "neither")
     why = _people.sink_is_durable()
     if why:
         return refused(UNAVAILABLE, why)
-    scoped = str(product or "").strip().lower() in ("1", "true", "yes", "y", "product")
     from openfactory.observability.query import StoreUnreadable
 
     try:
         got = _people.PeopleStore().invite(str(person or ""), display=str(display or ""),
-                                           groups=(PRODUCT_GROUP,) if scoped else (),
+                                           groups=((PRODUCT_GROUP,) if scoped else
+                                                   (BOARD_GROUP,) if boarded else ()),
                                            by=(by.id or "").strip())
     except StoreUnreadable as exc:
         # AN INVITATION IS CHECKED AGAINST WHO IS ALREADY REGISTERED, and a store that cannot be
@@ -6582,7 +6594,7 @@ async def _people_invite(*, person: str, by: Actor, display: str = "",
     return done(f"invitation for {invitation.id} issued, vouched for by {invitation.by}; send them "
                 f"the link appended to the panel's address — it registers them once and expires "
                 f"in {days} days", link=link, person=invitation.id, by=invitation.by,
-                expires_at=invitation.expires_at, product=scoped)
+                expires_at=invitation.expires_at, product=scoped, board=boarded)
 
 
 CATALOG: dict[str, ActionSpec] = {
@@ -7286,13 +7298,15 @@ CATALOG: dict[str, ActionSpec] = {
                     "for by you",
             run=_people_invite,
             required=("person",),
-            optional=("display", "product"),
+            optional=("display", "product", "board"),
             params={
                 "person": "the person's id — an email or a handle, spelled the way a project's "
                           "`admins` will spell it, e.g. `ana@acme.example`",
                 "display": "how the team will see them; they may change it when they register",
                 "product": "`yes` to scope them to the product surface — a requirement-writer, "
                            "refused the floor by name",
+                "board": "`yes` to scope them to the board — whoever runs it, refused the "
+                         "product owner's area by name",
             },
         ),
     )
