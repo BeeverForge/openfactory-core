@@ -761,6 +761,25 @@ def _say_lost_acts(markers: list[str]) -> None:
                   "dropped, so nothing was staged: %s", "; ".join(x[:200] for x in lost[:3]))
 
 
+def _carrying_section(requirement, carrying) -> str:
+    """The cards that already execute `requirement`, each in its own words, for the breakdown's
+    prompt (#563 slice 18d, #567) — "" when there are none to show, or the board was not read."""
+    from openfactory.contracts.refs import ref_label
+    from openfactory.product.queue import what_it_asks
+
+    if not carrying:
+        return ""
+    lines = [f"## Cards that already execute REQ-{requirement.number:04d}",
+             "Read from each card's `## Source`. A closed one delivered its part."]
+    for card in carrying:
+        state = "closed" if str(getattr(card, "state", "") or "") == "closed" else "open"
+        column = str(getattr(card, "column", "") or "")
+        lines.append(f"- {ref_label(card.number)} «{str(card.title or '').strip()[:120]}» "
+                     f"({state}{', ' + column if column and state == 'open' else ''})")
+        lines += what_it_asks(card)
+    return "\n".join(lines) + "\n\n"
+
+
 class ProductRole:
     """The PO/BA/delivery role, over whichever harness a project configured for it.
 
@@ -1258,12 +1277,20 @@ class ProductRole:
         return ProductAnswer(ok=True, draft=draft, raw=raw)
 
     def issues_for(self, *, sandbox, workspace, requirement: Requirement,
-                   sources: list[str]) -> ProductAnswer:
+                   sources: list[str], carrying=None) -> ProductAnswer:
         """Break one requirement into units of work, each citing it — REUSING what already exists.
 
         The board is in this prompt (`_board_section`) and always was. What made `#511` a duplicate
         of `#288` was not blindness: it was that the task said "break this into issues" and every
-        answer shape available said "create". See `IssueDraft.already_on_board`."""
+        answer shape available said "create". See `IssueDraft.already_on_board`.
+
+        `carrying` IS A FACT, NOT A SNAPSHOT TO JUDGE (#563 slice 18d, ADR-0051 D18 item 4; #567):
+        the cards that already execute this requirement, read from their `## Source`, open and
+        closed, each in its own words, bounded (`queue.what_it_asks`). A title carries neither
+        what a card delivers nor what it builds on, and on a live run the breakdown filed a front
+        an open card of the same requirement already delivered. None when the board could not be
+        read; empty when nothing executes it yet."""
+        carried = _carrying_section(requirement, carrying)
         prompt = self._prompt(
             "Break the requirement below into issues. Each must be ONE cohesive, independent, "
             "testable outcome, and must name which source repository it lands in.\n\n"
@@ -1275,10 +1302,16 @@ class ProductRole:
             "its number instead. Compare OUTCOMES, not titles: the two cards that collided last "
             "time said the same thing in two languages. If the board section above says it could "
             "not be read, then you do not know what exists — file what the requirement needs and "
-            "claim nothing about novelty.",
+            "claim nothing about novelty."
+            + (" THE CARDS UNDER «Cards that already execute» BELOW CARRY THIS REQUIREMENT ALREADY "
+               "— read from their sources, a fact, not a guess. Draft only the fronts they do not "
+               "carry; for a front one of them carries, set `already_on_board` to its number, "
+               "open or closed: a closed one delivered its part, and filing it again would build "
+               "delivered work twice." if carried else ""),
             f"## Requirement REQ-{requirement.number:04d} — {requirement.title}\n"
             f"(file: {requirement.path})\n\n{requirement.body}\n\n"
-            "## Source repositories for this product\n"
+            + carried
+            + "## Source repositories for this product\n"
             + "\n".join(f"- {s}" for s in sources or ["(none declared)"]),
             _ISSUES_SCHEMA,
         )
