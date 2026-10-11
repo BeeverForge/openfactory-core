@@ -52,15 +52,17 @@ this platform's to guard against.
 TEST = "tests/test_knowledge_pipeline.py"
 
 MUTATIONS = [
+    # RE-PINNED 2026-10-10 (#594): every clone passes `--no-local`
     ("the fetch guesses a branch name again, so a context repo whose default branch isn't the "
      "guess reads as 'nothing published' — and the next publish tries to push disconnected "
      "history onto the real branch, rejected forever",
      "openfactory/knowledge/pipeline.py",
-     '    rc, out = _git("clone", "--depth", "1", remote_url, str(pub))\n'
+     '    rc, out = _git("clone", "--no-local", "--depth", "1", remote_url, str(pub))\n'
      "    if rc != 0:\n"
      '        _log.info("knowledge: could not clone the context repository (%s)", '
      "out.strip()[:200])",
-     '    rc, out = _git("clone", "--depth", "1", "--branch", "main", remote_url, str(pub))\n'
+     '    rc, out = _git("clone", "--no-local", "--depth", "1", "--branch", "main", remote_url, '
+     'str(pub))\n'
      "    if rc != 0:\n"
      '        _log.info("knowledge: could not clone the context repository (%s)", '
      "out.strip()[:200])"),

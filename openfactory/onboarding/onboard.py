@@ -448,7 +448,7 @@ def onboard_product_context(project, *, sources: list[str],
 
     root = Path(tempfile.mkdtemp(prefix="openfactory-context-"))
     try:
-        rc, log_out = _git(["clone", url, str(root / "docs")])
+        rc, log_out = _git(["clone", "--no-local", url, str(root / "docs")])
         if rc != 0:
             out.detail = f"could not clone {docs_repo}: {scrub(log_out)[-200:]}"
             return out

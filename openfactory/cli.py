@@ -2267,6 +2267,12 @@ def autonomy_cmd(
     except StoreUnreadable as exc:
         typer.echo(f"✗ {unread(project, exc, language=language)['said']['headline']}", err=True)
         raise typer.Exit(2) from None
+    except Exception as exc:  # noqa: BLE001 — a store added from outside raises its own errors
+        # EVERY STORE, NOT ONLY THIS CORE'S (review of #545): the SQLite sink raises
+        # `StoreUnreadable`, and a sink an add-on brings raised its vendor's error past this line
+        # as a traceback, where the help promises exit 2 with what failed
+        typer.echo(f"✗ {unread(project, exc, language=language)['said']['headline']}", err=True)
+        raise typer.Exit(2) from None
     since = datetime.now(UTC) - timedelta(days=days) if days else None
     block = autonomy(records, project, since=since, language=language)
     if as_json:
@@ -3681,8 +3687,8 @@ def _seed_the_context_repository(name: str) -> None:
                 subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
                                check=True, timeout=60)
 
-            subprocess.run(["git", "clone", "-q", where, tmp], capture_output=True, text=True,
-                           check=True, timeout=60)
+            subprocess.run(["git", "clone", "--no-local", "-q", where, tmp], capture_output=True,
+                           text=True, check=True, timeout=60)
             seed = Path(tmp) / namespace.DIR / "product.yaml"
             seed.parent.mkdir(parents=True, exist_ok=True)
             seed.write_text(f"product: {name}\nsources:\n  - {name}\n"
@@ -4760,7 +4766,7 @@ def product_init(
         root = _Path(tmp) / "docs"
         if docs_repo:
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--depth", "1", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", "--depth", "1", url, str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
@@ -4784,7 +4790,7 @@ def product_init(
             docs_repo, made = _create_context_repo(project, name)
             typer.echo(f"{'✓ created' if made else '· found'} {docs_repo}")
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", url, str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")

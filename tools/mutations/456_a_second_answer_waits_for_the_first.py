@@ -4,9 +4,11 @@ TEST = "tests/test_a_second_answer_waits_for_the_first.py"
 ROW = "openfactory/actions/catalog.py"
 
 MUTATIONS = [
+    # RE-PINNED 2026-10-10 (#563 slice 18a): the breakdown's dispatch catches the same refusal
+    # now, so the anchor names the answer's own comment beneath it
     ("a second start falls into the generic failure again", ROW,
-     "    except WorkflowAlreadyStartedError:\n",
-     "    except ImportError:\n"),
+     "    except WorkflowAlreadyStartedError:\n        # THE COLLISION ABOVE WAS PROMISED",
+     "    except ImportError:\n        # THE COLLISION ABOVE WAS PROMISED"),
     ("the second answer waits on some other execution than the one that runs", ROW,
      "            raw = await client.get_workflow_handle(answering).result()\n",
      "            raw = await client.get_workflow_handle(answering + \"-again\").result()\n"),

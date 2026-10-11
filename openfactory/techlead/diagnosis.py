@@ -224,7 +224,7 @@ def _checkout(project, ref: str) -> tuple[Path, bool]:
         # function's contract is `(tmp, False)` on anything going wrong — never an exception into a
         # diagnosis whose only job is to explain one.
         url = clone_url_for(project, repo, token=token)
-        subprocess.run(["git", "clone", "--depth", "1", url, str(tmp)],
+        subprocess.run(["git", "clone", "--no-local", "--depth", "1", url, str(tmp)],
                        check=True, capture_output=True, timeout=120)
         # Scrub the tokened URL from .git/config — the read-only agent CAN read that file, and
         # nothing fetches or pushes this throwaway checkout again. Derived from the URL actually

@@ -31,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from openfactory.certify import controls as c
-from openfactory.certify.redact import CATEGORIES, Redactor, holds_a_credential
+from openfactory.certify.redact import CATEGORIES, Redactor, holds_a_credential, what_a_name_carries
 from openfactory.certify.schema import PACK_SCHEMA, validate
 
 log = logging.getLogger("openfactory.certify")
@@ -495,6 +495,14 @@ def assemble(reading: c.Reading, *, profile: str, partner: str, practitioner: st
              when: datetime | None = None, salt: bytes | None = None) -> Pack:
     """The pack's files, anonymised, validated, and checked for survivors before anything else
     sees them. Raises `Unsafe` rather than return a pack that carries what it must not."""
+    # THE PACK'S PROMISE IS KEPT WHERE THE PACK IS BUILT (review of #588). The practitioner is the
+    # one string carried past every rule, so the rules are asked of it here, on every door that
+    # builds a pack. `certify deployment` refuses the flag before this, with its remedy; a door
+    # that reaches this line with an address skipped that refusal, and is a defect.
+    carries = what_a_name_carries(practitioner)
+    if carries:
+        raise Unsafe(f"the practitioner carries {' and '.join(carries)}, and a pack keeps a "
+                     f"person's name, never an address")
     when = when or datetime.now(UTC)
     consented = parse_consent(consent) if consent else None
     identifiers = {k: {i: set(a) for i, a in v.items()}
