@@ -69,14 +69,49 @@ def test_every_page_names_the_images_published_under_its_tag(tag):
     assert "sha256sum -c SHA256SUMS --ignore-missing" in page
 
 
+def _paragraphs(block: str) -> list[list[str]]:
+    """The paragraphs of some prose, each as its lines. A blank line ends one, and so does a line
+    that opens an item (`- `): Markdown starts a new item there, and the release page with it."""
+    found: list[list[str]] = []
+    for chunk in block.split("\n\n"):
+        lines = [line.strip() for line in chunk.strip().splitlines() if line.strip()]
+        while lines:
+            if lines[0].startswith(("#", "- ")):
+                lines = lines[1:]
+                continue
+            run = [lines[0]]
+            for line in lines[1:]:
+                if line.startswith(("#", "- ")):
+                    break
+                run.append(line)
+            found.append(run)
+            lines = lines[len(run):]
+    return found
+
+
 def test_a_paragraph_on_the_page_is_one_line():
-    """A release page renders a newline inside a paragraph as a line break."""
+    """A release page renders a newline inside a paragraph as a line break.
+
+    THE NEXT ITEM IS NOT THE PARAGRAPH ABOVE IT. A note of two paragraphs (`changes/589.fix.md`)
+    renders as an item with its second paragraph indented beneath it, and the next note's item
+    follows on the next line — where Markdown starts a new item. Read up to the blank line, the
+    second paragraph and the next item were one paragraph "wrapped over lines", so every pull
+    request carrying a note that sorts after #589 failed here, and `main` passed only because no
+    note did."""
     for tag in ("v0.5.0-rc.1", "v0.5.0"):
         for block in _page(tag).split("```")[::2]:          # the prose, between the fences
-            for paragraph in block.split("\n\n"):
-                lines = [line for line in paragraph.strip().splitlines() if line]
-                if lines and not lines[0].startswith(("#", "- ")):
-                    assert len(lines) == 1, f"{tag}: a paragraph wrapped over lines: {lines}"
+            for lines in _paragraphs(block):
+                assert len(lines) == 1, f"{tag}: a paragraph wrapped over lines: {lines}"
+
+
+def test_a_paragraph_is_read_up_to_the_item_that_follows_it_and_no_further():
+    """Both halves, so the reading cannot pass by reading nothing: the item after a note's second
+    paragraph starts its own, and a sentence wrapped over two lines is still one paragraph."""
+    page = ("- **A** first (#589).\n\n  The second paragraph of the same note.\n"
+            "- **B** the next note (#602).\n\nA sentence wrapped\nover two lines.\n")
+
+    assert _paragraphs(page) == [["The second paragraph of the same note."],
+                                 ["A sentence wrapped", "over two lines."]]
 
 
 def test_something_that_is_not_a_version_tag_is_refused():
