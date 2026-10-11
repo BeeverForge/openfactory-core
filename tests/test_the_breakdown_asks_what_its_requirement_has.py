@@ -169,6 +169,10 @@ def test_one_that_appears_after_the_first_card_holds_the_fronts_not_yet_filed(br
     assert got.tracker.created == [STORAGE]
     assert [r.ok for r in got.results] == [True, False, False]
     assert "#1000077" in got.results[1].detail and "#1000077" in got.results[2].detail
+    # ONCE STOPPED, A FRONT NOT REACHED COSTS NOTHING: no vet (a model call) and no re-read for the
+    # third — only the first two were vetted, and the board read before drafting plus twice
+    assert len(breakdown.seen.vet_under_lock) == 2 and got.board.reads == 3, (
+        breakdown.seen.vet_under_lock, got.board.reads)
 
 
 def test_its_own_cards_are_never_strangers_three_fronts_file_all_three(breakdown):
