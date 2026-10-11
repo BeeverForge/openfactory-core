@@ -71,12 +71,29 @@ def test_off_the_api_the_sign_in_and_the_api_s_description_answer_as_they_do_on(
 
 
 def test_a_value_that_is_neither_keeps_the_page_and_says_so(client, monkeypatch, caplog):
+    from openfactory.api import app as api
+
+    monkeypatch.setattr(api, "_SAID_NEITHER", set())
     monkeypatch.setenv(SETTING, "of")
 
     answer = client.get("/")
 
     assert answer.status_code == 200 and answer.text.startswith("<!doctype html>")
     assert f"{SETTING}='of' is neither on nor off" in caplog.text, caplog.text
+
+
+def test_the_same_unreadable_value_is_said_once_not_on_every_page(client, monkeypatch, caplog):
+    """Review of #611: asked on every page request, the warning buried the log it was in."""
+    from openfactory.api import app as api
+
+    monkeypatch.setattr(api, "_SAID_NEITHER", set())
+    monkeypatch.setenv(SETTING, "of")
+    for _ in range(3):
+        assert client.get("/").status_code == 200
+    monkeypatch.setenv(SETTING, "onn")
+    client.get("/")
+
+    assert caplog.text.count("is neither on nor off") == 2, caplog.text
 
 
 def test_every_page_route_asks_the_setting(client, monkeypatch):
