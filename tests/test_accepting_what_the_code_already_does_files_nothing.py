@@ -829,6 +829,12 @@ def _accepted_in_the_conversation(mod, monkeypatch, number: int) -> str:
 
     monkeypatch.setattr(transcript, "record", lambda *a, **k: "")
     monkeypatch.setattr(transcript, "recent", lambda *a, **k: [])
+    # THE ROLE'S READING OF THE GESTURE (#565): agreeing is an act the role proposes with its
+    # marker, so that is the turn's answer here — what this pins is what the yes does after it
+    from openfactory.product.role import read_answer
+
+    monkeypatch.setattr(mod, "answer", lambda *_a, **_k: read_answer(
+        f"Entendi.\n[[ACORDO: REQ-{number}]]"))
 
     def say(text: str) -> str:
         replies = engine.turn(mod.project,

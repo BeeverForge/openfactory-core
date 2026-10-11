@@ -24,11 +24,17 @@ THE READING ONES NEVER WRITE. Triage reports, the sweep reports, the announcemen
 the first-pass rule from ADR-0019, and it holds for the same reason: on request or on a schedule,
 this role has the least context exactly when it is asked to look at everything at once.
 
-MOST OF THE WRITING ONES ONLY PROPOSE. `accept`, `drop`, `close` and `align` each change what the
-factory defends or what it builds, so matching one stages a confirmation and nothing else; an
-authorised person's yes is what reaches the pen. For those four a pattern is never the last thing
-standing between a sentence and an irreversible act in a client's name — which is what makes it
-possible to match a gesture in the middle of a paragraph at all.
+MOST OF THE WRITING ONES ONLY PROPOSE. `close` and `align` each change what the factory builds, so
+matching one stages a confirmation and nothing else; an authorised person's yes is what reaches the
+pen. For those a pattern is never the last thing standing between a sentence and an irreversible
+act in a client's name — which is what makes it possible to match a gesture in the middle of a
+paragraph at all.
+
+AND THE PREMISE ABOVE IS BEING RETIRED, ACT BY ACT (#565). "A missed intent means somebody
+rephrases" is false in a conversation with a model: the person does not know there is a sentence to
+find, and the model that understood them had no act to hand it to. `accept`, `drop`, `decision`
+and `fact` left this file first — the role proposes each with a marker (`role.REQUIREMENT_ACTS`),
+staged by the same branch of `engine._run_intent` these rows reached. The rest follow.
 
 TWO OF THEM ARE THE LAST THING STANDING. `refine` edits a client's ticket and `breakdown` files
 work, both on the match alone, with no confirmation in between. They are matched in the middle of a
@@ -311,101 +317,13 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         _NOT_NEGATED + r"\b(?:quebr[ae]|divid[ae]|transform[ae]|break|split)\b"
                        r"[^\d]{0,40}" + _requirement("number"),
         re.IGNORECASE)),
-    # "aceita o requisito 1" / "dá o requisito 1 como acordado" — the act that turns written text
-    # into a promise the factory DEFENDS (ADR-0032). Imperative only and the number required, like
-    # every other writing intent: this is the most consequential write on the surface.
-    ("accept", re.compile(
-        _NOT_NEGATED + r"\b(?:aceit[ae]|acord[ae]|aprov[ae])\b"
-                       r"[^\d]{0,40}" + _requirement("number"),
-        re.IGNORECASE)),
-    # "dá o requisito 1 como acordado" — the same act with the object in the middle. A second
-    # pattern rather than one clever regex: "dá" alone must never be a write ("dá uma olhada no
-    # requisito 1" is a request to READ), so the qualifier is required and has to follow the number.
-    # The one place the infinitive is admitted, and it is the qualifier that pays for it: "dar o
-    # requisito 12 como aceito" is a decision stated, not a possibility raised, because no modal
-    # reaches that far without a question mark behind it.
-    ("accept", re.compile(
-        _NOT_NEGATED + r"\bd[áa](?:r)?\s+(?:o\s+)?(?:requisito|req)\s*#?(?P<number>\d{1,4})\s+"
-                       r"como\s+(?:acordad|aceit)\w*",
-        re.IGNORECASE)),
-    # "accept requirement 6" — the ENGLISH sentence the voice itself teaches ("say \"accept
-    # requirement {successor}\"", voice.py) and the parser did not know (#24 item 5). TIGHT
-    # adjacency where the Portuguese demands imperative morphology: English "accept" is also an
-    # everyday verb ("I accept that requirement 3 is unclear"), and only the exact taught shape —
-    # verb, optional article, the word requirement, the number — is a write order.
-    ("accept", re.compile(
-        _NOT_NEGATED + r"\baccept\s+(?:the\s+)?(?:requirement|req)\s*#?(?P<number>\d{1,4})\b",
-        re.IGNORECASE)),
-    # "registra no requisito 6 que o pró-labore entra como despesa fixa" — a decision taken AFTER
-    # the text was written, into the document's own register.
-    #
-    # THE DECISION IS CAPTURED OFF A CONNECTIVE ("que", ":", "—"), never off the tail. `drop` takes
-    # everything after the number and can afford to — one requirement, and the rest of the message
-    # is the argument for retiring it. This one writes a SENTENCE into a client's document under
-    # their name, so what gets written has to be something they said, in a clause they opened, and
-    # the confirmation shows it back verbatim before anything is written.
-    #
-    # Staged like every act that changes the document. It is deliberately NOT in the unconfirmed
-    # set: the two exceptions there file work into an inert column, while this puts words in a
-    # person's mouth in a record whose entire value is that nobody edits it afterwards.
-    ("decision", re.compile(
-        _NOT_NEGATED + r"\b(?:registr[ae]|anot[ae]|grav[ae]|guard[ae]|record|note)\b"
-                       r"(?:\s+(?:isso|isto|essa|esta|a)\s*)?"
-                       r"(?:\s+(?:como|a)\s+decis[ãa]o)?"
-                       r"[^\d]{0,30}" + _requirement("number") +
-                       # `that` BESIDE `que` (#161). Every verb in this row already spoke both
-                       # languages — `record`, `note` — and the CONNECTOR did not, so "record on
-                       # requirement 4 that we will use postgres" matched nothing while its
-                       # Portuguese twin matched. A row is bilingual at its narrowest point, not
-                       # at its widest.
-                       r"(?:\s*(?:que|that|:|—|-|,)\s*)(?P<decision>[^\n]{5,400})",
-        re.IGNORECASE)),
-    # "não vamos mais fazer o requisito 2" / "cancela o requisito 2" / "esquece o requisito 2" —
-    # the act with no replacement, and the one the lifecycle had no word for. Until this existed the
-    # only way to retire anything was to WRITE SOMETHING ELSE, so "we decided against it" had to be
-    # dressed up as a new requirement nobody wanted.
-    #
-    # THREE SHAPES BECAUSE PEOPLE SAY ALL THREE, and the negated one ("não vamos mais fazer") cannot
-    # share a pattern with the imperatives: it is the only one whose verb is ordinary — "fazer" —
-    # and matching that verb loosely would turn "vamos fazer o requisito 2" into an abandonment.
-    # The negation is therefore required and anchored, never inferred.
-    #
-    # An optional REASON is captured off the tail. It is what makes the record answer "why aren't we
-    # doing this?" in six months instead of pointing at a status field and a date.
-    ("drop", re.compile(
-        _NOT_NEGATED + r"\b(?:cancel[ae]|abandon[ae]|descart[ae]|esque[çc][ae]|arquiv[ae]|drop)\b"
-                       r"[^\d]{0,40}" + _requirement("number")
-        + r"[\s,.:—-]*(?P<reason>.{0,300})$",
-        re.IGNORECASE | re.DOTALL)),
-    # NO `_NOT_NEGATED` ON THESE TWO: the negation is INSIDE them and is what they mean. A guard
-    # against a preceding "não" would be a second negation reading the first one's meaning.
-    ("drop", re.compile(
-        r"(?:\bn[ãa]o\s+(?:vamos|vou|iremos|precisamos|pretendo|pretendemos)\s+"
-        r"(?:mais\s+)?(?:fazer|construir|entregar|seguir\s+com|implementar)"
-        # THE ENGLISH IDIOM, which this row did not have (#161). Same shape, same meaning, and
-        # the same reason it must be anchored: the verb is ordinary — "build", "do" — so only the
-        # negated form may match, or "we are building requirement 4" would retire it.
-        r"|\b(?:we|i)\s*(?:'re|'m|\s+are|\s+am)?\s+not\s+(?:going\s+to\s+)?"
-        r"(?:build|do|deliver|ship|implement)(?:ing)?"
-        r"|\b(?:we|i)\s+(?:won'?t|will\s+not)\s+(?:be\s+)?"
-        r"(?:build|do|deliver|ship|implement)(?:ing)?"
-        r")\b"
-        r"[^\d]{0,40}" + _requirement("number")
-        + r"[\s,.:—-]*(?P<reason>.{0,300})$",
-        re.IGNORECASE | re.DOTALL)),
-    # "o requisito 2 não vale mais" / "o requisito 2 saiu de escopo" — the object first, which is
-    # how somebody says it when the requirement is what they were already talking about.
-    ("drop", re.compile(
-        # `requirement` BESIDE `requisito` here too: this row spelled the noun itself in one
-        # language, so no English sentence could reach it whatever it said (#161).
-        r"\b(?:the\s+|o\s+)?(?:requisito|req|requirement)\s*#?(?P<number>\d{1,4})\s+"
-        r"(?:n[ãa]o\s+(?:vale|serve|entra)\s+mais|saiu\s+de\s+escopo|"
-        r"est[áa]\s+cancelad\w*|foi\s+cancelad\w*"
-        r"|is\s+(?:out\s+of\s+scope|cancell?ed|dropped"
-        r"|no\s+longer\s+(?:needed|wanted|valid|in\s+scope))"
-        r"|(?:was|has\s+been)\s+(?:cancell?ed|dropped))\b"
-        r"[\s,.:—-]*(?P<reason>.{0,300})$",
-        re.IGNORECASE | re.DOTALL)),
+    # RETIRED 2026-10-10 (#565): `accept`, `decision` and `drop` are acts the role proposes —
+    # `[[ACORDO: REQ-N]]`, `[[REGISTRO: REQ-N; …]]`, `[[DESCARTE: REQ-N; …]]`
+    # (`role.REQUIREMENT_ACTS`). On a live run "pode aceitar o 66" and "sim, concordo com o
+    # requisito 66" matched none of these rows, and the model that understood both had no act
+    # to hand them to. What the rows guarded — said, not asked, planned or refused; the
+    # decision and the reason in the person's own words — is in each marker's instruction,
+    # and the branches that stage them are unchanged.
     # "fecha o #511 como duplicado do #288" / "encerra o #511 em favor do #288" — the everyday PO
     # act the board had no operation behind. On 2026-07-31 the decision to close #511 in favour of
     # #288 was taken and confirmed by the client, the agent answered "registrado o pedido junto ao
@@ -518,15 +436,10 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
                  r"(document\w*|levant\w*|mapei\w*|mapeamento|engenharia reversa|survey)\b"
                  r".{0,40}\b(produto|c[óo]digo|codigo|que (j[áa] )?existe|sistema|code|product)\b",
         re.IGNORECASE)),
-    # "anota que a firma usa Primavera" — dictating a fact to the person who keeps the record.
-    # EXPLICIT on purpose: extracting facts from every message would be noisy, expensive, and
-    # wrong exactly when it matters (a hypothetical discussed is not a fact learned). "Anota que"
-    # is the natural gesture of telling your PO to write something down; what follows the verb IS
-    # the fact, captured whole.
-    ("fact", re.compile(
-        _START + r"(?:(anot[ae]|registr[ae]|lembr[ae](?:-se)?|para constar|note down|remember)"
-                 r"\s+(?:a[íi]\s+)?(?:que|:|that)?)\s*(?P<fact>.{10,400})$",
-        re.IGNORECASE | re.DOTALL)),
+    # RETIRED 2026-10-10 (#565): `fact` is an act the role proposes, `[[FATO: …]]`
+    # (`role.REQUIREMENT_ACTS`). What this row guarded — only what the person told the role to
+    # note down, never a hypothesis discussed or a rhetorical question — is in that marker's
+    # instruction; the branch it reached (`engine._run_intent`) still refuses a question.
     # "o que entra agora?" — the product owner's own question, and the one that keeps a factory
     # from sitting idle beside a full backlog.
     # The queue-word group is REQUIRED. Optional, it made bare "o que fazemos" a trigger — so

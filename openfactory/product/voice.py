@@ -2989,10 +2989,38 @@ _DROPPED_PROMISE = {
 }
 
 
+#: THE REASON A DROP IS WRITTEN WITH, SHOWN BEFORE THE YES (#565). It goes on the record in the
+#: person's name and is read back months later, and the role carries it from their words into the
+#: marker — so what they confirm is the sentence that will be written, as a decision's
+#: confirmation shows its own.
+_DROP_REASON = {
+    "pt-BR": "O motivo fica registrado assim, em seu nome:\n\n> {reason}",
+    "en": "The reason is recorded as this, in your name:\n\n> {reason}",
+}
+
+
 def drop_confirmation(*, number: int, title: str, was_a_promise: bool = False,
-                      language: str | None = None) -> str:
+                      reason: str = "", language: str | None = None) -> str:
     catalogue = _DROP_CONFIRM_PROMISE if was_a_promise else _DROP_CONFIRM
-    return _pick(catalogue, language).format(number=number, title=title)
+    text = _pick(catalogue, language).format(number=number, title=title)
+    if not reason.strip():
+        return text
+    body, question = text.rsplit("\n\n", 1)
+    return f"{body}\n\n{_pick(_DROP_REASON, language).format(reason=reason.strip())}\n\n{question}"
+
+
+#: TWO ACTS IN ONE REPLY, ONE STAGED (#565): the conversation holds one entry for a yes, and a
+#: person who asked for both would otherwise believe the second was on its way.
+_ONE_ACT_AT_A_TIME = {
+    "pt-BR": ("Um de cada vez: só o primeiro está preparado para a sua resposta abaixo — me peça o "
+              "outro depois de responder."),
+    "en": ("One at a time: only the first is prepared for your answer below — ask me for the "
+           "other once you have answered."),
+}
+
+
+def one_act_at_a_time(*, language: str | None = None) -> str:
+    return _pick(_ONE_ACT_AT_A_TIME, language)
 
 
 def dropped(*, number: int, was_a_promise: bool = False, language: str | None = None,
@@ -3120,6 +3148,40 @@ def breakdown_begun(*, number: int, running: bool = False, language: str | None 
 
 def breakdown_not_begun(*, number: int, language: str | None = None) -> str:
     return _pick(_BREAKDOWN_NOT_BEGUN, language).format(number=number)
+
+
+#: A REQUESTED CARD FOR AN ACCEPTED REQUIREMENT, HELD (#563 slice 18c, ADR-0051 D18 item 4). The
+#: work of an accepted requirement is filed by its breakdown alone, so the card is not opened, and
+#: the sentence says what the requirement already has — and offers the breakdown when it has
+#: nothing, in the words that start it.
+_TICKET_HELD = {
+    "pt-BR": {
+        "head": "Não abri esse card: ele é do *requisito {number}*, que está acordado",
+        "running": ", e o requisito já está sendo quebrado em tarefas agora. Os cards dele "
+                   "aparecem no quadro quando a quebra terminar.",
+        "cards": ", e o trabalho dele já está nos cards {cards}. Se falta alguma coisa neles, me "
+                 "diga o que é.",
+        "offer": ". O trabalho de um requisito acordado entra pela quebra dele em tarefas: diga "
+                 "«quebra o requisito {number} em tarefas» e eu registro as frentes dele.",
+    },
+    "en": {
+        "head": "I did not open that card: it belongs to *requirement {number}*, which is agreed",
+        "running": ", and the requirement is being broken into tasks right now. Its cards will be "
+                   "on the board when that ends.",
+        "cards": ", and its work is already in cards {cards}. If something is missing from them, "
+                 "tell me what.",
+        "offer": ". The work of an agreed requirement comes in through its breakdown: say \"break "
+                 "requirement {number} into tasks\" and I will file its fronts.",
+    },
+}
+
+
+def ticket_held_for_its_requirement(*, number: int, running: bool = False,
+                                    cards: list[str] | None = None,
+                                    language: str | None = None) -> str:
+    said = _pick(_TICKET_HELD, language)
+    tail = said["running"] if running else said["cards"] if cards else said["offer"]
+    return (said["head"] + tail).format(number=number, cards=", ".join(cards or []))
 
 
 def accepted_nothing_to_build(*, number: int, language: str | None = None,
@@ -4021,16 +4083,20 @@ _ALIGN_TO_DROPPED = {
 #: every alignment onto the old number lands here. It is not a broken chain (the text is there and
 #: reads fine) and it is not an abandonment (somebody decided the opposite), and being told either
 #: sends a client to look for a problem that does not exist. What it is, is one confirmation away —
-#: so the sentence names both steps, in the order they have to happen.
+#: so the sentence names both steps, in the order they have to happen. The first is said in plain
+#: words, not quoted (#565): agreeing is an act the role proposes from whatever words the person
+#: uses, so there is no sentence to copy for it — and it is itself staged for a yes, which the
+#: sentence says, or the person would type the second step to a question still open.
 _ALIGN_TO_UNAGREED = {
     "pt-BR": ("o *requisito {requirement}* foi substituído pelo *requisito {successor}*, e o "
               "{successor} ainda não foi acordado — escrever o *{number}* a partir de uma "
-              "proposta seria decidir por vocês. Se ele já vale, me diga «aceita o requisito "
-              "{successor}» e depois «alinha o {number} ao requisito {successor}»."),
+              "proposta seria decidir por vocês. Se ele já vale, me diga que o {successor} "
+              "está acordado e confirme quando eu perguntar; depois, «alinha o {number} ao "
+              "requisito {successor}»."),
     "en": ("*Requirement {requirement}* was replaced by *requirement {successor}*, and "
            "{successor} has not been agreed yet — writing *{number}* from a proposal would be "
-           "deciding for you. If it holds, say \"accept requirement {successor}\" and then "
-           "\"align {number} to requirement {successor}\"."),
+           "deciding for you. If it holds, tell me {successor} is agreed and confirm when I "
+           "ask; then say \"align {number} to requirement {successor}\"."),
 }
 #: Replaced by a text that was ITSELF taken off the table — REQ-0004 `superseded-by 0006` with 0006
 #: `dropped`. None of the sentences around it can say that: the chain is not broken (both texts read

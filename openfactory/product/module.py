@@ -2990,6 +2990,60 @@ class ProductModule:
             project_name=getattr(self.project, "name", "") or "", answered=answered, kind=kind,
             language=lang)
 
+    def _held_for_its_requirement(self, text: str, ctx) -> WriteResult | None:
+        """The requested card held, when it names an accepted requirement — or None to file it.
+
+        ONE REQUIREMENT, TWO DOORS, THREE CARDS (#563). On a live run the conversation's requested
+        card carried `(REQ-0066)` in its title and "the first two bullets of REQ-0066" in its body;
+        it was checked by title alone, written as having no requirement behind it, and filed beside
+        the breakdown's two cards for the same scope. THE WORK OF AN ACCEPTED REQUIREMENT IS FILED
+        BY ITS BREAKDOWN ALONE, so this door never files it, and says what the requirement already
+        has: a breakdown running, the open cards that execute it (their `## Source`), or neither —
+        and then the breakdown is what is offered, never a free-standing card.
+
+        A card naming no requirement, or only one that is not a promise, is free-standing by what
+        it says, and is filed as before. Read from the card's own text, with no model."""
+        from openfactory.product.voice import ticket_held_for_its_requirement
+
+        corpus = getattr(ctx, "corpus", None) if getattr(ctx, "available", False) else None
+        if corpus is None:
+            return None
+        lang = getattr(getattr(self, "project", None), "language", None)
+        for number in _requirements_named(text):
+            requirement = corpus.by_number(number)
+            if requirement is None or not requirement.is_promise:
+                continue
+            running = self._breakdown_running(number)
+            cards = [] if running else self._cards_executing(number)
+            log.info("OPENFACTORY_PRODUCT_TICKET_HELD project=%s req=%s running=%s cards=%s — "
+                     "a requested card names an accepted requirement; nothing was filed",
+                     getattr(self.project, "name", "?"), number, running, ",".join(cards))
+            return WriteResult(ok=False, detail=ticket_held_for_its_requirement(
+                number=number, running=running, cards=cards, language=lang))
+        return None
+
+    def _breakdown_running(self, number: int) -> bool:
+        """Whether the requirement's breakdown runs now — False when the engine cannot be asked,
+        which the log says: the card is held all the same, and the sentence names what is known."""
+        from openfactory.product import breaking
+
+        try:
+            return breaking.running_now(self.project, number)
+        except Exception:  # noqa: BLE001 — the card is held either way; only the sentence differs
+            log.warning("could not ask the engine whether REQ-%s of %s is being broken down",
+                        number, getattr(self.project, "name", "?"), exc_info=True)
+            return False
+
+    def _cards_executing(self, number: int) -> list[str]:
+        """The open cards whose `## Source` says they execute requirement `number`, as the board
+        reads them — none when the board cannot be read, which `_read_board` reports."""
+        tickets, error = self._read_board()
+        if error:
+            return []
+        return [ref_label(str(t.number)) for t in tickets or []
+                if str(getattr(t, "state", "") or "open") != "closed"
+                and _cited_requirement(getattr(t, "body", "") or "") == number]
+
     def file_ticket(self, *, title: str, described: str, reported_by: str, source: str = "",
                     tracker=None, board=_UNSET, seen: int | None = None,
                     card: str = "", conversation: str = "",
@@ -3033,6 +3087,11 @@ class ProductModule:
             # wrote a title by hand — and says so, rather than filing the first 80 characters.
             return _could_not(said["title_too_long_ticket"].format(limit=TITLE_LIMIT),
                               act="file a ticket")
+        # A CARD FOR AN ACCEPTED REQUIREMENT IS ITS BREAKDOWN'S (#563 slice 18c, ADR-0051 D18 item
+        # 4): asked before anything is written, and never filed here
+        held = self._held_for_its_requirement(f"{name}\n{described}", ctx)
+        if held is not None:
+            return held
         tracker = tracker or self._tracker()
         # WHERE THE CARD WOULD BE BORN IS ASKED BEFORE IT IS WRITTEN (#536)
         board = self._board_or_default(board)
@@ -5779,6 +5838,16 @@ def _rewritten(body: str, canonical: str, headings: tuple[str, ...]) -> str:
 #: nowhere else, and it is as much a card of that requirement as one filed from it (#265 §6.1).
 _DEFECT_CITES_RE = re.compile(r"^## (?:A promessa violada|The broken promise) — REQ-(\d{4})\s*$",
                               re.MULTILINE)
+
+
+#: A requirement as a card names it in its own words: `REQ-0066`, `REQ-66`, `req 66` (#563 slice
+#: 18c). The `REQ` prefix is required: "the 66 tests" is prose.
+_REQUIREMENT_NAMED_RE = re.compile(r"\bREQ[- ]?#?(\d{1,6})\b", re.IGNORECASE)
+
+
+def _requirements_named(text: str) -> list[int]:
+    """Every requirement `text` names, in the order named, each once."""
+    return list(dict.fromkeys(int(m.group(1)) for m in _REQUIREMENT_NAMED_RE.finditer(text or "")))
 
 
 @dataclass(frozen=True)

@@ -1019,6 +1019,9 @@ def _filing(registry, **overrides) -> SimpleNamespace:
         # where a card filed now is born (#536) — out of the queue here; a board where it is the
         # queue files nothing (`test_a_filed_card_never_lands_in_the_pickup_column.py`)
         _born_in_the_queue=lambda tracker, board, **_k: None,
+        # whether the card asked for names an agreed requirement, and is held for its breakdown
+        # (#563 slice 18c) — this one names none, and is not this case's subject
+        _held_for_its_requirement=lambda text, ctx: None,
         # where it was asked — what this case is about; who confirmed it and the tracker travel
         # beside it to the card's door (#414)
         _open_delivery=lambda req, results, *, conversation="", requester="", **_kw:

@@ -9,17 +9,11 @@ from openfactory.product.intents import match_intent
 # only knew Portuguese: an English deployment's own taught sentence parsed as conversation. Half
 # the surface was dead for exactly the client (Deskline) that speaks English.
 
-def test_the_taught_english_accept_parses():
-    assert match_intent("accept requirement 6") == ("accept", {"number": "6"})
-    assert match_intent("accept the requirement 6")[0] == "accept"
-
-
-def test_english_accept_is_the_taught_shape_and_nothing_looser():
-    """English "accept" is an everyday verb, unlike the Portuguese imperative morphology the PT
-    pattern leans on — so only the exact taught adjacency is a write order."""
-    assert match_intent("I accept that requirement 3 is unclear") is None
-    assert match_intent("did you accept requirement 6?") is None
-    assert match_intent("we might accept requirement 6 later, não?") is None
+# RETIRED 2026-10-10 (#565): the two tests of the English `accept` pattern. Agreeing to a
+# requirement is an act the role proposes (`[[ACORDO: REQ-N]]`), so "accept requirement 6" — and
+# "I accept that requirement 3 is unclear", which is not an agreement — are read by the model; what
+# the pattern's adjacency guarded is in that marker's instruction
+# (`tests/test_the_role_proposes_what_a_requirement_needs.py`).
 
 
 def test_the_taught_english_align_parses_with_both_numbers():
@@ -49,5 +43,4 @@ def test_the_portuguese_grammar_did_not_move():
     """The bridge gained English connectors; the Portuguese sentences must parse exactly as
     before — this file's own earlier cases re-asserted beside the new ones."""
     assert match_intent("fecha o #511 como duplicado do #288")[1]["in_favour_of"] == "288"
-    assert match_intent("aceita o requisito 6")[0] == "accept"
     assert match_intent("alinha o #288 ao requisito 6")[1]["requirement"] == "6"

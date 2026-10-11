@@ -13,13 +13,15 @@ MUTATIONS = [
      "openfactory/product/role.py",
      # re-pinned 2026-09-07: the expression wrapped when the "never sorted" comment went in
      # re-pinned 2026-10-05: the marker reads each card as its tracker spells it (#515)
-     '        order = refs_written(ordered.group("numbers")) if ordered else []',
-     '        order = sorted(set(refs_written(ordered.group("numbers")))) if ordered else []'),
+     # re-pinned 2026-10-10: the parser moved into `read_answer`, four spaces shallower (#565)
+     '    order = refs_written(ordered.group("numbers")) if ordered else []',
+     '    order = sorted(set(refs_written(ordered.group("numbers")))) if ordered else []'),
 
     ("the marker is read and never declared",
      "openfactory/product/role.py",
-     "                             is_reorder=bool(order), order=order,",
-     "                             is_reorder=False, order=order,"),
+     # RE-PINNED 2026-10-10 (#565): the parser moved into `read_answer`, four spaces shallower
+     "                         is_reorder=bool(order), order=order,",
+     "                         is_reorder=False, order=order,"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("the channel stages a QUEUE, so the yes starts the cards instead of ordering them",

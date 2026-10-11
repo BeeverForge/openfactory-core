@@ -3712,14 +3712,10 @@ async def product_role_break_down(inp: ProductBreakdownInput) -> list[dict]:
         return _product_break_down(project, inp.number, inp.actor, inp.asked_for,
                                    conversation=inp.conversation, requester=inp.requester)
 
-    try:
-        results = (await _turning(_break, f"breaking REQ-{inp.number} of {inp.project} into cards")
-                   if activity.in_activity() else await asyncio.to_thread(_break))
-    except Exception:
-        # A CONVERSATION THAT STARTED IT IS TOLD IT FAILED, and the failure still fails the
-        # workflow: a door waiting on the result reads it as before
-        await _tell_the_breakdown(project, inp, None)
-        raise
+    # A BREAKDOWN THAT FAILS IS TOLD BY THE WORKFLOW (`product_breakdown_did_not_finish`), for
+    # whatever ended it — this line is never reached by a worker that died
+    results = (await _turning(_break, f"breaking REQ-{inp.number} of {inp.project} into cards")
+               if activity.in_activity() else await asyncio.to_thread(_break))
     await _tell_the_breakdown(project, inp, results)
     await _keep_what_was_not_filed(project, inp, results)
     return [{"ok": bool(getattr(r, "ok", False)), "detail": str(getattr(r, "detail", "") or ""),
@@ -3740,6 +3736,18 @@ async def _keep_what_was_not_filed(project, inp: ProductBreakdownInput, results)
     except Exception:  # noqa: BLE001 — the cards stand; only the record of what is missing failed
         activity.logger.exception("OPENFACTORY_PRODUCT_UNFILED_NOT_KEPT project=%s req=%s",
                                   inp.project, inp.number)
+
+
+@activity.defn
+async def product_breakdown_did_not_finish(inp: ProductBreakdownInput) -> bool:
+    """The conversation that started a breakdown, told that it did not finish (#563, review of
+    #616). The breakdown's own activity tells it what it filed; but one that raised, a worker that
+    died, or a breakdown past its ceiling or its heartbeat never reaches that line, and on one
+    attempt the workflow just failed — the conversation heard "started" and then nothing. The
+    workflow runs this whenever the breakdown's activity failed, for whatever reason."""
+    project = ProjectRegistry().get(inp.project)
+    await _tell_the_breakdown(project, inp, None)
+    return True
 
 
 async def _tell_the_breakdown(project, inp: ProductBreakdownInput, results) -> None:

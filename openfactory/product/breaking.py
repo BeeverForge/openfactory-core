@@ -69,3 +69,37 @@ def start_now(project, number: int, **kwargs) -> str:
     from openfactory.product.door import _run
 
     return _run(start(project, number, **kwargs))
+
+
+async def running(project, number: int, *, client=None) -> bool:
+    """Whether the requirement's breakdown is running on the engine now (#563 slice 18c) — the
+    shared id's execution, asked of the engine itself. RAISES when the engine cannot be asked; a
+    breakdown that ended, or never ran, is not running."""
+    from openfactory.product.door import _engine
+
+    try:
+        from temporalio.client import WorkflowExecutionStatus
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from openfactory.runtime.temporal.io import breakdown_workflow_id
+    except ImportError as exc:
+        from openfactory.runtime.host import why_the_engine_cannot_be_read
+
+        raise RuntimeError(why_the_engine_cannot_be_read(exc)) from exc
+
+    name = getattr(project, "name", "") or str(project)
+    client = client or await _engine()
+    try:
+        described = await client.get_workflow_handle(breakdown_workflow_id(name, number)).describe()
+    except RPCError as exc:
+        if exc.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return described.status == WorkflowExecutionStatus.RUNNING
+
+
+def running_now(project, number: int) -> bool:
+    """`running`, for the module's code, which is not async."""
+    from openfactory.product.door import _run
+
+    return bool(_run(running(project, number)))
