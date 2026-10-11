@@ -127,7 +127,8 @@ def as_the_repository_reads(text: str, *, home: str, placed: dict[str, str],
 
     - `home`'s own `src/<name>/` is that repository's root, and goes.
     - Another source's becomes `<owner/name>:`, so a path of another repository is never read as
-      one of this one.
+      one of this one; that directory alone, its `<owner/name>`.
+    - The repository's own directory alone, `src/<name>/` or `src/<name>`, is its root, `./`.
     - A path that is ALREADY the repository's own is left alone. A repository laid out as
       `src/<name>/` itself (a Python package named like its repository) reads `src/<name>/x.py` as
       its own file. When the `view` holds that file under the repository and not at the view's
@@ -142,16 +143,22 @@ def as_the_repository_reads(text: str, *, home: str, placed: dict[str, str],
     from openfactory.product.config import repo_match
 
     by_name = {name: repo for repo, name in names.items()}
+    # the directory itself counts too, with or without its slash: `src/<name>` and `src/<name>/`
     pattern = re.compile(r"(?<![\w./-])(?:\./)?src/(" + "|".join(
-        re.escape(n) for n in sorted(by_name, key=len, reverse=True)) + r")/([\w./-]*)")
+        re.escape(n) for n in sorted(by_name, key=len, reverse=True))
+        + r")(?:/([\w./-]*)|(?![\w.-]))")
     root = Path(view) if view else None
 
     def _one(found: re.Match) -> str:
-        name, rest = found.group(1), found.group(2)
+        name, rest = found.group(1), found.group(2) or ""
         repo = by_name[name]
         if not repo_match(repo, home):
-            return f"{repo}:{rest}"
-        if root is not None and rest:
+            return f"{repo}:{rest}" if rest else repo
+        if not rest:
+            # THE REPOSITORY ITSELF, named as its root — never as nothing, which left a criterion
+            # about the whole repository naming no place at all (review of #654)
+            return "./"
+        if root is not None:
             as_the_view = root / "src" / name / rest
             as_the_repository = root / "src" / name / "src" / name / rest
             if as_the_repository.exists() and not as_the_view.exists():

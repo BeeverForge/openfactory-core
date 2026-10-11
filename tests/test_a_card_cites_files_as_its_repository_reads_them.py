@@ -7,12 +7,15 @@ and asked for "tests in src/jornada/tests/test_store.py". The repository has `ta
 review could not check the criterion that named the path, and parked the job for a person.
 
 THE RULE THIS FILE HOLDS:
-  1. the repository's own `src/<name>/` goes, and another source's becomes `<owner/name>:`;
+  1. the repository's own `src/<name>/` goes, and another source's becomes `<owner/name>:`; the
+     directory alone, with or without its slash, is the repository's root `./`, or the other
+     source's name — never nothing;
   2. a path that is already the repository's own (a package laid out as `src/<name>/` inside a
      repository of that name) is left alone when the view shows it;
   3. every writer of the role's words onto a card rewrites them: a breakdown's fronts, a card a
      person asked for, a defect, and the criteria refine, correct and align write;
-  4. a rewrite that cannot be made files the card as the role wrote it, and says so in the log.
+  4. a rewrite that cannot be made files the card as the role wrote it, and says so in the log; one
+     made without a view, where a repository's own `src/<name>/` cannot be told apart, says so.
 """
 
 from __future__ import annotations
@@ -54,6 +57,20 @@ def test_another_sources_path_names_its_repository():
         home="acme/reservas-web", placed=THREE)
 
     assert got == ("the endpoint in acme/reservas-api:app/export.py, the button in ui/x.ts"), got
+
+
+def test_the_repository_itself_is_named_as_its_root_never_as_nothing():
+    """REVIEW OF #654. A criterion about the whole repository, `src/jornada/`, became the empty
+    string: it named no place at all, and a reviewer had less to check than before the fix."""
+    assert (as_the_repository_reads("everything under `src/jornada/` is touched", home="jornada",
+                                    placed=ONE) == "everything under `./` is touched")
+    assert (as_the_repository_reads("in src/jornada and nowhere else", home="jornada",
+                                    placed=ONE) == "in ./ and nowhere else")
+    assert (as_the_repository_reads("src/reservas-api and src/reservas-api/ are the api",
+                                    home="acme/reservas-web", placed=THREE)
+            == "acme/reservas-api and acme/reservas-api are the api")
+    assert as_the_repository_reads("src/jornadas/x", home="jornada", placed=ONE) == (
+        "src/jornadas/x"), "another directory sharing the name's first letters was read as it"
 
 
 def test_only_a_path_that_starts_at_the_view_is_rewritten():
@@ -180,6 +197,23 @@ def test_the_helper_takes_a_list_an_answer_and_a_draft(tmp_path):
     rewritten = mod._in_repository_terms(draft)
     assert rewritten.title == "t a.py" and rewritten.other == "kept" and draft.title.endswith(
         "src/openfactory/a.py"), "the draft handed in was changed in place"
+
+
+def test_a_rewrite_made_without_a_view_says_so(tmp_path, caplog):
+    """REVIEW OF #654. With no view, a repository laid out as `src/<name>/` itself cannot be told
+    apart from the view's reading, so a rewrite made without one is said in the log."""
+    mod = _module(tmp_path, _Tracker())
+
+    with caplog.at_level(logging.INFO):
+        assert mod._in_repository_terms("see src/openfactory/a.py") == "see a.py"
+    assert "OPENFACTORY_PRODUCT_PATHS_REWRITTEN_WITHOUT_VIEW" in caplog.text
+
+    caplog.clear()
+    mod._mounted_sources = {"AcmeCorp/openfactory": str(tmp_path / "src" / "openfactory")}
+    mod._combined = str(tmp_path)
+    with caplog.at_level(logging.INFO):
+        assert mod._in_repository_terms("see src/openfactory/a.py") == "see a.py"
+    assert "WITHOUT_VIEW" not in caplog.text, "a rewrite the view settled was said as unsettled"
 
 
 def test_a_rewrite_that_cannot_be_made_files_the_card_as_written(tmp_path, monkeypatch, caplog):

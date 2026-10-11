@@ -6275,8 +6275,17 @@ def _in_repository_terms(module, value, home: str = ""):
         return value
 
     def _one(text):
-        return (as_the_repository_reads(text, home=home, placed=placed, view=view)
-                if isinstance(text, str) else text)
+        if not isinstance(text, str):
+            return text
+        rewritten = as_the_repository_reads(text, home=home, placed=placed, view=view)
+        if view is None and rewritten != text:
+            # WITHOUT A VIEW, ONE CASE CANNOT BE TOLD APART: a repository laid out as `src/<name>/`
+            # itself reads `src/<name>/x` as its own file, and here it was read as the view's. Said
+            # here so the ambiguous rewrite stays visible (review of #654).
+            log.info("OPENFACTORY_PRODUCT_PATHS_REWRITTEN_WITHOUT_VIEW project=%s — read as the "
+                     "role's view; a repository laid out as src/<name>/ itself cannot be told "
+                     "apart here", getattr(getattr(module, "project", None), "name", "?"))
+        return rewritten
 
     if isinstance(value, str):
         return _one(value)

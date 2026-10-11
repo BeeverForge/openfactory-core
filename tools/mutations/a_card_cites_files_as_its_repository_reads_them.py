@@ -25,6 +25,14 @@ MUTATIONS = [
      '            return f"{repo}:{rest}"', "            return rest"),
     ("a path that does not start at the view is rewritten", WS,
      'pattern = re.compile(r"(?<![\\w./-])(?:\\./)?src/("', 'pattern = re.compile(r"(?:\\./)?src/("'),
+    ("REVIEW OF #654: the repository itself is named as nothing", WS,
+     '            return "./"\n', "            return rest\n"),
+    ("another source's directory alone loses its name", WS,
+     '            return f"{repo}:{rest}" if rest else repo', '            return f"{repo}:{rest}"'),
+    ("the directory without its slash is left as the view wrote it", WS,
+     '+ r")(?:/([\w./-]*)|(?![\w.-]))")', '+ r")(?:/([\w./-]*))")'),
+    ("a directory sharing the name's first letters is read as it", WS,
+     '+ r")(?:/([\w./-]*)|(?![\w.-]))")', '+ r")(?:/([\w./-]*)|)")'),
     ("a path already the repository's own is cut short", WS,
      "            if as_the_repository.exists() and not as_the_view.exists():",
      "            if False:"),
@@ -51,6 +59,9 @@ MUTATIONS = [
     ("the view this turn composed is not what places the paths", MOD,
      "        placed = {repo: Path(path).name for repo, path in mounted.items()}",
      "        placed = {}"),
+
+    ("a rewrite made without a view is not said", MOD,
+     "        if view is None and rewritten != text:", "        if False:"),
 
     # 3. a rewrite that cannot be made
     ("a rewrite that cannot be made loses the card's words", MOD,
