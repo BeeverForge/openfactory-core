@@ -31,28 +31,29 @@ MUTATIONS = [
 
     # 2. every writer
     ("TODAY'S RUN: a breakdown's front is filed as the view reads it", MOD,
-     "        draft = self._in_repository_terms(draft, where)\n", ""),
+     "        draft = _in_repository_terms(self, draft, where)\n", ""),
     ("a requested card is filed as the view reads it", MOD,
-     "        described = self._in_repository_terms(described)\n", ""),
+     "        described = _in_repository_terms(self, described)\n", ""),
     ("a defect is filed as the view reads it", MOD,
-     "        title, restated = self._in_repository_terms([title, restated])\n", ""),
+     "        title, restated = _in_repository_terms(self, [title, restated])\n", ""),
     ("refine writes its criteria as the view reads them", MOD,
-     "        answer = self._in_repository_terms(\n            answer, split_repo_ref(number, "
-     "self._source_repo())[0])\n        body = _with_criteria(",
+     "        answer = _in_repository_terms(self, answer,\n                                      "
+     "split_repo_ref(number, self._source_repo())[0])\n        body = _with_criteria(",
      "        body = _with_criteria("),
     ("an alignment writes its criteria as the view reads them", MOD,
-     "        answer = self._in_repository_terms(\n            answer, split_repo_ref(number, "
-     "self._source_repo())[0])\n        criteria = answer.get(\"criteria\") or criteria\n", ""),
+     "        answer = _in_repository_terms(self, answer,\n                                      "
+     "split_repo_ref(number, self._source_repo())[0])\n"
+     "        criteria = answer.get(\"criteria\") or criteria\n", ""),
     ("a correction writes its text as the view reads it", MOD,
-     "        text, title = self._in_repository_terms([(text or \"\").strip(), (title or \"\").strip()],"
+     "        text, title = _in_repository_terms(self, [(text or \"\").strip(), (title or \"\").strip()],"
      "\n                                                home)",
      "        text, title = (text or \"\").strip(), (title or \"\").strip()"),
     ("the view this turn composed is not what places the paths", MOD,
-     "            placed = {repo: Path(path).name for repo, path in mounted.items()}",
-     "            placed = {}"),
+     "        placed = {repo: Path(path).name for repo, path in mounted.items()}",
+     "        placed = {}"),
 
     # 3. a rewrite that cannot be made
     ("a rewrite that cannot be made loses the card's words", MOD,
-     "                        exc_info=True)\n            return value\n",
-     "                        exc_info=True)\n            return \"\"\n"),
+     "getattr(getattr(module, \"project\", None), \"name\", \"?\"), exc_info=True)\n        return value\n",
+     "getattr(getattr(module, \"project\", None), \"name\", \"?\"), exc_info=True)\n        return \"\"\n"),
 ]

@@ -3100,8 +3100,8 @@ class ProductModule:
         said = _pick(_FILING, lang)
         ctx = self.context()
         # the role's words, with its paths as the repository reads them (journey 0, #640)
-        name = self._in_repository_terms(title.strip().rstrip("."))
-        described = self._in_repository_terms(described)
+        name = _in_repository_terms(self, title.strip().rstrip("."))
+        described = _in_repository_terms(self, described)
         if not name:
             return _could_not(said["no_title"], act="file a ticket")
         if len(name) > TITLE_LIMIT:
@@ -3208,7 +3208,7 @@ class ProductModule:
         else:
             title = restated.strip().rstrip(".")[:80]
         # the role's words, with its paths as the repository reads them (journey 0, #640)
-        title, restated = self._in_repository_terms([title, restated])
+        title, restated = _in_repository_terms(self, [title, restated])
         tracker = tracker or self._tracker()
         # WHERE THE DEFECT WOULD BE BORN IS ASKED BEFORE IT IS WRITTEN (#536)
         board = self._board_or_default(board)
@@ -3765,7 +3765,7 @@ class ProductModule:
         where, elsewhere = self._filing_repo(draft, tracker)
         # IN THE TERMS OF THE REPOSITORY IT IS FILED IN (journey 0, #640): the role wrote its
         # paths as its view reads them, `src/<name>/…`, and the repository reads them from its root
-        draft = self._in_repository_terms(draft, where)
+        draft = _in_repository_terms(self, draft, where)
         title = draft.title.strip()
         body = self._issue_body(draft, requirement, tracker)
 
@@ -3907,53 +3907,8 @@ class ProductModule:
         return board is None or moved.outcome("place").startswith("placed"), column
 
     def _in_repository_terms(self, value, home: str = ""):
-        """What the role wrote, with each path as the repository the card lands in reads it
-        (`workspace.as_the_repository_reads`): a string, a list of them, or a draft's own words.
-
-        THE VIEW'S OWN PLACEMENTS when this module composed one this turn. Otherwise each declared
-        source is placed as `compose` would place it: a yes is often a later turn than the
-        proposal, and composing a view to file a card would bring every source up for one
-        rewrite. A card that cannot be rewritten is filed as the role wrote it, and logged."""
-        from openfactory.product.workspace import _placements, as_the_repository_reads
-
-        try:
-            mounted = getattr(self, "_mounted_sources", None) or {}
-            placed = {repo: Path(path).name for repo, path in mounted.items()}
-            if not placed:
-                from openfactory.product.sources import declared
-
-                placed = _placements(declared(self.context().docs_path).repos
-                                     or [self._source_repo()])
-            home = home or self._source_repo()
-            view = getattr(self, "_combined", None) if mounted else None
-        except Exception:  # noqa: BLE001 — a card filed as the role wrote it beats one not filed
-            log.warning("OPENFACTORY_PRODUCT_PATHS_NOT_REWRITTEN project=%s — the role's paths "
-                        "are left as its view reads them", getattr(self.project, "name", "?"),
-                        exc_info=True)
-            return value
-
-        def _one(text):
-            return (as_the_repository_reads(text, home=home, placed=placed, view=view)
-                    if isinstance(text, str) else text)
-
-        if isinstance(value, str):
-            return _one(value)
-        if isinstance(value, list | tuple):
-            return type(value)(_one(v) for v in value)
-        if isinstance(value, dict):
-            return {k: (self._in_repository_terms(v, home) if isinstance(v, str | list | tuple)
-                        else v) for k, v in value.items()}
-        changes = {field: self._in_repository_terms(getattr(value, field), home)
-                   for field in ("title", "objective", "acceptance_criteria", "out_of_scope")
-                   if hasattr(value, field)}
-        if hasattr(value, "model_copy"):
-            return value.model_copy(update=changes)
-        import copy
-
-        rewritten = copy.copy(value)
-        for field, text in changes.items():
-            setattr(rewritten, field, text)
-        return rewritten
+        """`_in_repository_terms(self, …)`, for a caller holding the module."""
+        return _in_repository_terms(self, value, home)
 
     def _filing_repo(self, draft, tracker) -> tuple[str, str]:
         """`(repository, said)` — where a card of this draft is filed: the repository the role
@@ -4700,8 +4655,8 @@ class ProductModule:
                                detail=card_said("no_criteria", language=lang))
 
         # the role's words, with its paths as the card's repository reads them (journey 0, #640)
-        answer = self._in_repository_terms(
-            answer, split_repo_ref(number, self._source_repo())[0])
+        answer = _in_repository_terms(self, answer,
+                                      split_repo_ref(number, self._source_repo())[0])
         body = _with_criteria(ticket.body, answer, agent=self._name(), language=lang)
         tracker = tracker or self._tracker()
         # TWO WRITES, TWO OUTCOMES — the rule `close_card` states, and the third card writer to
@@ -5028,10 +4983,10 @@ class ProductModule:
         number = canonical_ref(number)
         # the role's words, with its paths as the card's repository reads them (journey 0, #640)
         home = split_repo_ref(number, self._source_repo())[0]
-        text, title = self._in_repository_terms([(text or "").strip(), (title or "").strip()],
+        text, title = _in_repository_terms(self, [(text or "").strip(), (title or "").strip()],
                                                 home)
         bar = list(dict.fromkeys(" ".join(str(c).split())
-                                 for c in self._in_repository_terms(list(criteria or ()), home)
+                                 for c in _in_repository_terms(self, list(criteria or ()), home)
                                  if str(c).strip()))
         lang = getattr(self.project, "language", None)
         # THE GATE THE ENGINE ANSWERED, FOR THIS CARD, OPEN — and a correction of the bar alone
@@ -5596,8 +5551,8 @@ class ProductModule:
                                detail=card_said("no_criteria_from", requirement=requirement,
                                                 language=lang))
         # the role's words, with its paths as the card's repository reads them (journey 0, #640)
-        answer = self._in_repository_terms(
-            answer, split_repo_ref(number, self._source_repo())[0])
+        answer = _in_repository_terms(self, answer,
+                                      split_repo_ref(number, self._source_repo())[0])
         criteria = answer.get("criteria") or criteria
 
         # `issue_body` renders it, as it rendered the card in the first place. The draft carries
@@ -6288,3 +6243,56 @@ def _req_number(ref: str) -> int:
     """`REQ-0041` → 41; 0 when the ref carries no number."""
     digits = re.sub(r"[^0-9]", "", str(ref or ""))
     return int(digits) if digits else 0
+
+
+def _in_repository_terms(module, value, home: str = ""):
+    """What the role wrote, with each path as the repository the card lands in reads it
+    (`workspace.as_the_repository_reads`): a string, a list of them, or a draft's own words.
+
+    A MODULE MISSING WHAT THIS READS (a test's stand-in) GETS THE WORDS AS WRITTEN, like any other
+    rewrite that cannot be made.
+
+    THE VIEW'S OWN PLACEMENTS when this module composed one this turn. Otherwise each declared
+    source is placed as `compose` would place it: a yes is often a later turn than the
+    proposal, and composing a view to file a card would bring every source up for one
+    rewrite. A card that cannot be rewritten is filed as the role wrote it, and logged."""
+    from openfactory.product.workspace import _placements, as_the_repository_reads
+
+    try:
+        mounted = getattr(module, "_mounted_sources", None) or {}
+        placed = {repo: Path(path).name for repo, path in mounted.items()}
+        if not placed:
+            from openfactory.product.sources import declared
+
+            placed = _placements(declared(module.context().docs_path).repos
+                                 or [module._source_repo()])
+        home = home or module._source_repo()
+        view = getattr(module, "_combined", None) if mounted else None
+    except Exception:  # noqa: BLE001 — a card filed as the role wrote it beats one not filed
+        log.warning("OPENFACTORY_PRODUCT_PATHS_NOT_REWRITTEN project=%s — the role's paths "
+                    "are left as its view reads them",
+                    getattr(getattr(module, "project", None), "name", "?"), exc_info=True)
+        return value
+
+    def _one(text):
+        return (as_the_repository_reads(text, home=home, placed=placed, view=view)
+                if isinstance(text, str) else text)
+
+    if isinstance(value, str):
+        return _one(value)
+    if isinstance(value, list | tuple):
+        return type(value)(_one(v) for v in value)
+    if isinstance(value, dict):
+        return {k: (_in_repository_terms(module, v, home) if isinstance(v, str | list | tuple)
+                    else v) for k, v in value.items()}
+    changes = {field: _in_repository_terms(module, getattr(value, field), home)
+               for field in ("title", "objective", "acceptance_criteria", "out_of_scope")
+               if hasattr(value, field)}
+    if hasattr(value, "model_copy"):
+        return value.model_copy(update=changes)
+    import copy
+
+    rewritten = copy.copy(value)
+    for field, text in changes.items():
+        setattr(rewritten, field, text)
+    return rewritten
