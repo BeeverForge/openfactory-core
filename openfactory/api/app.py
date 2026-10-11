@@ -3459,10 +3459,44 @@ async def _preview_act(name: str, project: str, unit: str, request: Request) -> 
 _NO_CACHE = {"Cache-Control": "no-store"}  # the panel HTML changes on every deploy —
 # a browser must never serve a stale copy (else "I don't see the change" confusion).
 
+#: THE DEFAULT FRONT END, ON OR OFF (#561). The panel's page is OpenFactory's default front end,
+#: and a deployment with screens of its own turns it off: then this process serves the API, its
+#: two streams, the sign-in and the previews, and no page. ON BY DEFAULT, so an upgrade keeps the
+#: panel it had. The page is served by the routes below and nothing else, and every one of them
+#: asks `_page` — a test walks the app's routes so a page added later cannot skip the question.
+DEFAULT_FRONT_END_ENV = "OPENFACTORY_DEFAULT_FRONT_END"
+_ON, _OFF = ("on", "true", "yes", "1", ""), ("off", "false", "no", "0")
+
+
+def default_front_end_on() -> bool:
+    """Whether this deployment serves the default front end. A value that is neither on nor off
+    keeps it on and says so in the log: a typo must not take the panel away from the people who
+    use it, and must not pass in silence either."""
+    value = os.environ.get(DEFAULT_FRONT_END_ENV, "").strip().lower()
+    if value in _OFF:
+        return False
+    if value not in _ON:
+        log.warning("%s=%r is neither on nor off — the default front end stays on",
+                    DEFAULT_FRONT_END_ENV, value)
+    return True
+
+
+#: What a page address answers when the default front end is off.
+_NO_FRONT_END = (f"This deployment serves no page: its default front end is off "
+                 f"({DEFAULT_FRONT_END_ENV}=off). The API under /api, its streams, the sign-in and "
+                 f"the previews are served as always.")
+
+
+def _page() -> Response:
+    """The panel's page, or — with the default front end off — a 404 that says why."""
+    if not default_front_end_on():
+        return JSONResponse({"detail": _NO_FRONT_END}, status_code=404, headers=_NO_CACHE)
+    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+
 
 @app.get("/")
-def index() -> HTMLResponse:
-    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+def index() -> Response:
+    return _page()
 
 
 @app.get("/p/{project}")
@@ -3470,7 +3504,7 @@ def index() -> HTMLResponse:
 @app.get("/p/{project}/card/{ref}")
 @app.get("/p/{project}/pr/{ref}")
 @app.get("/p/{project}/preview/{ref}")
-def project_page(project: str, ref: str = "") -> HTMLResponse:
+def project_page(project: str, ref: str = "") -> Response:
     """The same single-page app; the client reads the path to focus one project's floor.
 
     THE DEEPER ADDRESSES ARE DECLARED HERE OR THEY 404 BEFORE THE PAGE CAN READ THEM (ADR-0049
@@ -3481,7 +3515,7 @@ def project_page(project: str, ref: str = "") -> HTMLResponse:
     `/p/x/preview/7` IS THE LINK A CARD'S COMMENT CARRIES (#405): the page opens card 7 and, its
     preview being up, walks into it with a key minted now, for whoever the panel lets in — the
     link itself carries no credential, so it may sit in a tracker for ever."""
-    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+    return _page()
 
 
 # ── the login, for a provider that has one (#33) ────────────────────────────────────────────────
@@ -3829,17 +3863,17 @@ def auth_logout(request: Request):
 @app.get("/logs")
 @app.get("/logs/{project}")
 @app.get("/logs/{project}/{issue}")
-def logs_page(project: str = "", issue: str = "") -> HTMLResponse:
+def logs_page(project: str = "", issue: str = "") -> Response:
     """The Logs page, and a single run's log at its own address.
 
     SERVED HERE TOO, not only reachable by clicking. A client-side route that the server does not
     answer works until somebody refreshes the page or pastes the link they were sent — and then it
     is a 404 on a URL the product handed them."""
-    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+    return _page()
 
 
 @app.get("/product/{project}")
-def product_page(project: str) -> HTMLResponse:
+def product_page(project: str) -> Response:
     """The product role's own surface (#98).
 
     A SEPARATE ADDRESS, not a tab on the floor, because it is a separate JOB: the person who
@@ -3851,7 +3885,7 @@ def product_page(project: str) -> HTMLResponse:
     browser and every byte of content behind this arrives through `/api/*`, which is gated and
     scoped. Serving different HTML per scope would put an authorization decision in a file that is
     handed out unauthenticated."""
-    return HTMLResponse(_read_panel(), headers=_NO_CACHE)
+    return _page()
 
 
 def _token_pool_from_env() -> dict:
