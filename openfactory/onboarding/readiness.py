@@ -497,12 +497,9 @@ def _product_role(p: Probes, on: str) -> tuple[Finding, str]:
     # the variable the gate actually reads.
     from openfactory.identity import oidc
     from openfactory.identity.local import (
-        BOARD_PEOPLE_ENV,
-        BOARD_SHARED_ENV,
-        PEOPLE_ENV,
+        CLOSING_ENVS,
         PRODUCT_PEOPLE_ENV,
         PRODUCT_SHARED_ENV,
-        SHARED_ENV,
     )
     from openfactory.identity.registry import identity_kind
 
@@ -516,8 +513,7 @@ def _product_role(p: Probes, on: str) -> tuple[Finding, str]:
     # configured the deployment is in its local-development default and every request is permitted
     # — there is no credential to issue, so demanding one would be a failure about a world where
     # the client already has access.
-    door_is_closed = sso or has_product or _set(PEOPLE_ENV, SHARED_ENV, BOARD_PEOPLE_ENV,
-                                                BOARD_SHARED_ENV)
+    door_is_closed = sso or has_product or _set(*CLOSING_ENVS)
     if door_is_closed and not has_product:
         remedy = (
             f"map the identity provider's group for the client to `{oidc.PRODUCT_GROUP}` in "

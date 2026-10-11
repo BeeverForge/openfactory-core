@@ -79,6 +79,11 @@ BOARD_PEOPLE_ENV = "OPENFACTORY_BOARD_TOKENS"
 BOARD_SHARED_ENV = "OPENFACTORY_BOARD_TOKEN"
 BOARD_GROUP = "floor"
 
+#: EVERY VARIABLE THAT CLOSES THE DOOR — the credentials this provider issues. One tuple, read by
+#: `open_to_everyone` and by the readiness report, so a variable added here closes both.
+CLOSING_ENVS = (PEOPLE_ENV, SHARED_ENV, PRODUCT_PEOPLE_ENV, PRODUCT_SHARED_ENV, BOARD_PEOPLE_ENV,
+                BOARD_SHARED_ENV)
+
 
 class LocalIdentity:
     """Credentials this deployment configured for itself, with no provider anywhere."""
@@ -140,12 +145,15 @@ class LocalIdentity:
     def identify(self, *, credential: str, via: str = "") -> Subject | None:
         """Who holds this token, and what they are scoped to. None when nobody does.
 
-        NARROW BEFORE BROAD, WITHIN EACH TIER. The per-person maps are still consulted before the
-        shared ones, for the reason the module docstring gives. What is new is the order inside a
-        tier: the product map is read first, so a token that a mistake put in BOTH resolves to the
-        SMALLER authority. Getting this backwards would mean a copy-paste could silently widen a
-        business analyst's credential into an operator's, and the direction a configuration error
-        fails in is the only thing that makes it survivable."""
+        NARROW BEFORE BROAD. The product map is read first, so a token that a mistake put in BOTH
+        resolves to the SMALLER authority. Getting this backwards would mean a copy-paste could
+        silently widen a business analyst's credential into an operator's, and the direction a
+        configuration error fails in is the only thing that makes it survivable.
+
+        AND EVERY SCOPED CREDENTIAL BEFORE ANY UNSCOPED ONE (#562): the product's rows and shared
+        token, then the board's, then the panel's. A secret in a panel row and a scoped shared
+        token was the administrator's while the shared tokens came after the panel's rows; now it
+        is the scoped one, as a secret in a product and a board variable is the product's."""
         try:
             token = str(credential or "").strip()
             if not token:
@@ -154,10 +162,27 @@ class LocalIdentity:
                 if hmac.compare_digest(token, person.token):
                     return Subject(id=person.id, display=person.display or person.id,
                                    via="local", groups=(PRODUCT_GROUP,))
+            product_shared = str(self._env.get(PRODUCT_SHARED_ENV, "") or "")
+            if product_shared and hmac.compare_digest(token, product_shared):
+                log.info("OPENFACTORY_IDENTITY_ANONYMOUS a caller presented the shared PRODUCT "
+                         "token; "
+                         "set %s to record who is acting", PRODUCT_PEOPLE_ENV)
+                # Anonymous in the audit line, like its floor equivalent — but still SCOPED, which
+                # is a different question from being named. Returning `UNKNOWN` here would hand a
+                # product credential the floor.
+                return Subject(id="", display="somebody with the product token",
+                               via=UNKNOWN.via, groups=(PRODUCT_GROUP,))
             for person in _people(self._env.get(BOARD_PEOPLE_ENV, "")):
                 if hmac.compare_digest(token, person.token):
                     return Subject(id=person.id, display=person.display or person.id,
                                    via="local", groups=(BOARD_GROUP,))
+            board_shared = str(self._env.get(BOARD_SHARED_ENV, "") or "")
+            if board_shared and hmac.compare_digest(token, board_shared):
+                log.info("OPENFACTORY_IDENTITY_ANONYMOUS a caller presented the shared BOARD "
+                         "token; set %s to record who is acting", BOARD_PEOPLE_ENV)
+                # anonymous in the audit line and still SCOPED, as the product token above
+                return Subject(id="", display="somebody with the board token",
+                               via=UNKNOWN.via, groups=(BOARD_GROUP,))
             for person in _people(self._env.get(PEOPLE_ENV, "")):
                 # CONSTANT TIME, because this compares a secret. `==` on a token leaks its prefix
                 # to anyone who can measure, and the panel is reachable from a browser.
@@ -169,23 +194,6 @@ class LocalIdentity:
                 # groups the invitation carried — a product invitation is a product credential.
                 return Subject(id=registered.id, display=registered.display or registered.id,
                                via="local", groups=tuple(registered.groups))
-            product_shared = str(self._env.get(PRODUCT_SHARED_ENV, "") or "")
-            if product_shared and hmac.compare_digest(token, product_shared):
-                log.info("OPENFACTORY_IDENTITY_ANONYMOUS a caller presented the shared PRODUCT "
-                         "token; "
-                         "set %s to record who is acting", PRODUCT_PEOPLE_ENV)
-                # Anonymous in the audit line, like its floor equivalent — but still SCOPED, which
-                # is a different question from being named. Returning `UNKNOWN` here would hand a
-                # product credential the floor.
-                return Subject(id="", display="somebody with the product token",
-                               via=UNKNOWN.via, groups=(PRODUCT_GROUP,))
-            board_shared = str(self._env.get(BOARD_SHARED_ENV, "") or "")
-            if board_shared and hmac.compare_digest(token, board_shared):
-                log.info("OPENFACTORY_IDENTITY_ANONYMOUS a caller presented the shared BOARD "
-                         "token; set %s to record who is acting", BOARD_PEOPLE_ENV)
-                # anonymous in the audit line and still SCOPED, as the product token above
-                return Subject(id="", display="somebody with the board token",
-                               via=UNKNOWN.via, groups=(BOARD_GROUP,))
             shared = str(self._env.get(SHARED_ENV, "") or "")
             if shared and hmac.compare_digest(token, shared):
                 # THE AUDIT GAP, SAID OUT LOUD ONCE PER USE. This is the state the card calls "a
@@ -229,9 +237,7 @@ class LocalIdentity:
         needs the panel yet" — would otherwise answer "nothing is configured" and serve every read
         endpoint to the internet unauthenticated, which is the one direction this gate must never
         fail in and the direction it already failed in once (C-26)."""
-        if any(self._env.get(name, "").strip() for name in
-               (PEOPLE_ENV, SHARED_ENV, PRODUCT_PEOPLE_ENV, PRODUCT_SHARED_ENV,
-                BOARD_PEOPLE_ENV, BOARD_SHARED_ENV)):
+        if any(self._env.get(name, "").strip() for name in CLOSING_ENVS):
             return False
         # A REGISTERED PERSON CLOSES THE DOOR TOO (#33) — and only a registered one: an invitation
         # nobody has redeemed yet must not lock the operator out of an open panel before the first

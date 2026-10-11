@@ -34,19 +34,37 @@ MUTATIONS = [
      "                               via=UNKNOWN.via, groups=(BOARD_GROUP,))",
      "                return UNKNOWN"),
     ("the board variables leave the door open", LOCAL,
-     "               (PEOPLE_ENV, SHARED_ENV, PRODUCT_PEOPLE_ENV, PRODUCT_SHARED_ENV,\n"
-     "                BOARD_PEOPLE_ENV, BOARD_SHARED_ENV)):",
-     "               (PEOPLE_ENV, SHARED_ENV, PRODUCT_PEOPLE_ENV, PRODUCT_SHARED_ENV)):"),
+     "CLOSING_ENVS = (PEOPLE_ENV, SHARED_ENV, PRODUCT_PEOPLE_ENV, PRODUCT_SHARED_ENV, "
+     "BOARD_PEOPLE_ENV,\n                BOARD_SHARED_ENV)",
+     "CLOSING_ENVS = (PEOPLE_ENV, SHARED_ENV, PRODUCT_PEOPLE_ENV, PRODUCT_SHARED_ENV)"),
+    ("a panel row outranks the board's shared token, as it did", LOCAL,
+     "            if board_shared and hmac.compare_digest(token, board_shared):",
+     "            if board_shared and hmac.compare_digest(token, board_shared) and not any(\n"
+     "                    hmac.compare_digest(token, x.token)\n"
+     '                    for x in _people(self._env.get(PEOPLE_ENV, ""))):'),
+    ("a board row outranks the product's shared token", LOCAL,
+     "            if product_shared and hmac.compare_digest(token, product_shared):",
+     "            if product_shared and hmac.compare_digest(token, product_shared) and not any(\n"
+     "                    hmac.compare_digest(token, x.token)\n"
+     '                    for x in _people(self._env.get(BOARD_PEOPLE_ENV, ""))):'),
 
     # 2. the product owner's read
     ("TODAY'S RULE: the product owner is refused the board", APP,
-     '_EVERY_AREA_PREFIXES = ("/api/preview/", "/api/board/")',
-     '_EVERY_AREA_PREFIXES = ("/api/preview/",)'),
-    ("the product owner reads every client's board", APP,
-     "    if scopes is not None and actions.FLOOR not in scopes and not _has_product_role(proj):",
-     "    if False:"),
+     "        if _the_product_owners_board(path, scopes):\n            return None",
+     "        if False:\n            return None"),
+    ("the product owner reads the board of a project with no product role", APP,
+     "    return _has_product_role(project)\n", "    return True\n"),
+    ("the product owner reaches a name nobody registered", APP,
+     "    except KeyError:\n        return False   # a project nobody registered",
+     "    except KeyError:\n        return True   # a project nobody registered"),
+    ("the product owner reads every route under the board's prefix", APP,
+     '_PRODUCT_BOARD_READ = re.compile(r"^/api/board/([^/]+)$")',
+     '_PRODUCT_BOARD_READ = re.compile(r"^/api/board/([^/]+)(?:/.*)?$")'),
 
     # 3. the invitation
+    ("a scoped credential invites an administrator", CATALOG,
+     "    if by.scopes is not None:\n        return refused(DENIED, f\"inviting somebody",
+     "    if False:\n        return refused(DENIED, f\"inviting somebody"),
     ("an invitation to the board is an administrator's", CATALOG,
      "                                                   (BOARD_GROUP,) if boarded else ()),",
      "                                                   ()),"),
@@ -59,9 +77,8 @@ MUTATIONS = [
 
     # 4. the readiness report
     ("a deployment with only board credentials is reported open", READINESS,
-     "    door_is_closed = sso or has_product or _set(PEOPLE_ENV, SHARED_ENV, BOARD_PEOPLE_ENV,\n"
-     "                                                BOARD_SHARED_ENV)",
-     "    door_is_closed = sso or has_product or _set(PEOPLE_ENV, SHARED_ENV)"),
+     "    door_is_closed = sso or has_product or _set(*CLOSING_ENVS)",
+     "    door_is_closed = sso or has_product or _set(*CLOSING_ENVS[:4])"),
 
     # 5. the workload
     ("a worktree workload holds the board's credentials", WORKTREE,

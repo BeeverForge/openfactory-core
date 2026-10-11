@@ -58,6 +58,17 @@ def test_a_token_in_both_a_product_and_a_board_row_is_the_product_credential():
     assert LocalIdentity(env=env).identify(credential="same").groups == (PRODUCT_GROUP,)
 
 
+@pytest.mark.parametrize(("env", "group"), [
+    ({BOARD_PEOPLE_ENV: "same:leo:Leo", PRODUCT_SHARED_ENV: "same"}, PRODUCT_GROUP),
+    ({PEOPLE_ENV: "same:rob:Rob", BOARD_SHARED_ENV: "same"}, BOARD_GROUP),
+    ({PEOPLE_ENV: "same:rob:Rob", PRODUCT_SHARED_ENV: "same"}, PRODUCT_GROUP),
+])
+def test_every_scoped_credential_is_read_before_any_unscoped_one(env, group):
+    """NARROW BEFORE BROAD, across the tiers: a secret a mistake put in two variables resolves to
+    the smaller authority, whichever of them is a shared token."""
+    assert LocalIdentity(env=env).identify(credential="same").groups == (group,)
+
+
 @pytest.mark.parametrize("var", [BOARD_PEOPLE_ENV, BOARD_SHARED_ENV])
 def test_the_board_variables_close_the_door(var):
     value = "bd:leo:Leo" if var == BOARD_PEOPLE_ENV else "bd"
@@ -104,11 +115,33 @@ def test_TODAYS_RULE_the_product_owner_reads_the_board_of_a_project_with_a_produ
     assert board.json()["columns"], board.json()
 
 
-def test_and_not_the_board_of_a_project_without_one(deployment):
-    other = _get(deployment, "/api/board/solo", ANALYST)
+REFUSED_THE_FLOOR = "this credential is scoped to product and that is part of the floor."
 
-    assert other.status_code == 403
-    assert "solo has none" in other.json()["detail"], other.json()
+
+def test_and_not_the_board_of_a_project_without_one_nor_of_one_nobody_registered(deployment):
+    """Refused alike, so the refusal names nothing: a product credential cannot tell a client's
+    project that has no product role from a name that is nobody's."""
+    for path in ("/api/board/solo", "/api/board/nobody"):
+        other = _get(deployment, path, ANALYST)
+        assert other.status_code == 403 and other.json()["detail"] == REFUSED_THE_FLOOR, (
+            path, other.status_code, other.text)
+
+
+@pytest.mark.parametrize("carrier", ["cookie", "query"])
+def test_the_board_read_is_narrowed_however_the_credential_is_presented(deployment, carrier):
+    """THE GATE DECIDES, and the gate reads the credential from the header, the cookie and the
+    query alike: a route that asked only the header let a cookie or `?token=` past the narrowing."""
+    def read(project: str):
+        if carrier == "query":
+            return deployment.get(f"/api/board/{project}?token=ba-secret")
+        deployment.cookies.set("openfactory_token", "ba-secret")
+        try:
+            return deployment.get(f"/api/board/{project}")
+        finally:
+            deployment.cookies.clear()
+
+    assert read("acme").status_code == 200
+    assert read("solo").status_code == 403
 
 
 def test_the_rest_of_the_floor_is_still_refused_to_the_product_owner(deployment):
@@ -184,12 +217,37 @@ def test_a_worktree_workload_never_holds_a_board_credential(monkeypatch):
 
 # ── the invitation ──────────────────────────────────────────────────────────────────────────────
 
-def _invite(**kw):
+def _invite(scopes=None, **kw):
     from openfactory import actions
 
     return asyncio.run(actions.perform(
-        "people_invite", by=actions.Actor(id="rob", display="Rob", via="panel", admin=True),
+        "people_invite", by=actions.Actor(id="rob", display="Rob", via="panel", admin=True,
+                                          scopes=scopes),
         person="leo@acme.example", **kw))
+
+
+@pytest.mark.parametrize("area", ["floor", "product"])
+def test_only_the_administrator_invites(local, area):  # noqa: F811
+    """A board credential is the floor's, and the row is the floor's: without this, whoever holds
+    one could invite an administrator and reach the product owner's area through them."""
+    from openfactory import actions
+
+    out = _invite(scopes=frozenset({area}))
+
+    assert not out.ok and out.code == actions.DENIED and local.rows == [], out
+    # the product's was already refused the row's area; the board's is refused by this rule
+    assert area == "product" or "administrator" in out.message, out.message
+
+
+def test_only_the_one_board_read_is_the_product_owners(deployment):
+    """One segment under the prefix, of a project with a product role: a route added below it
+    later is the floor's until somebody decides otherwise."""
+    from openfactory.api.app import _the_product_owners_board
+
+    assert _the_product_owners_board("/api/board/acme", frozenset({"product"}))
+    for path in ("/api/board/acme/move", "/api/board/acme/card/7"):
+        assert not _the_product_owners_board(path, frozenset({"product"})), path
+    assert not _the_product_owners_board("/api/board/acme", frozenset({"floor"}))
 
 
 def test_an_invitation_to_the_board_is_scoped_to_the_floor(local):  # noqa: F811

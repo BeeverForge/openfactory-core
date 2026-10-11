@@ -674,6 +674,8 @@ def _gate_verdict(path: str, credential: str) -> _Refusal | None:
     scopes = _scopes_of(subject)
     wanted = _scope_of_path(path)
     if scopes is not None and wanted is not None and wanted not in scopes:
+        if _the_product_owners_board(path, scopes):
+            return None
         log.warning("DENIED_SCOPE_READ %s (%s) for a credential scoped to %s",
                     path, wanted, ", ".join(sorted(scopes)) or "nothing")
         return _Refusal(403, {
@@ -829,12 +831,32 @@ _PRODUCT_ROUTES = ("/api/product/", "/api/act/product_")
 #: Routes BOTH areas read. A card's preview is exactly what a product-scoped person — the business
 #: analyst who asked for the change — wants to click through before it merges (ADR-0050); keeping
 #: it on the floor side would hand the link to everybody except the person it is for.
-#:
-#: AND THE BOARD (#562): the product owner reaches the board of their projects, read only, with the
-#: credential they already hold. `/api/board/` is one read and nothing else; moving a card is an
-#: action, and the action layer refuses a product credential every row outside its area.
-#: `board_view` narrows it to a project with a product role.
-_EVERY_AREA_PREFIXES = ("/api/preview/", "/api/board/")
+_EVERY_AREA_PREFIXES = ("/api/preview/",)
+
+#: THE PRODUCT OWNER'S READ OF A BOARD (#562): `/api/board/<project>` — one segment, the one read
+#: under that prefix — for a project with a product role, the projects the product area reaches.
+#: DECIDED HERE, AT THE GATE, and not in the route: the gate holds the credential however it was
+#: presented (header, cookie, `?token=`), a route under the prefix added later is the floor's until
+#: somebody decides otherwise, and an unknown project and one with no product role are refused
+#: alike, so the refusal names nothing. Moving a card is an action, and the action layer refuses a
+#: product credential every row outside its area.
+_PRODUCT_BOARD_READ = re.compile(r"^/api/board/([^/]+)$")
+
+
+def _the_product_owners_board(path: str, scopes) -> bool:
+    """Whether `path` is the board a product credential may read (#562)."""
+    found = _PRODUCT_BOARD_READ.match(path) if actions.PRODUCT in scopes else None
+    if not found:
+        return False
+    try:
+        project = ProjectRegistry().get(found.group(1))
+    except KeyError:
+        return False   # a project nobody registered is refused like the rest
+    except Exception:  # noqa: BLE001 — a registry that cannot be read refuses, and says why
+        log.warning("the board of %r could not be looked up for a product credential; refused",
+                    found.group(1), exc_info=True)
+        return False
+    return _has_product_role(project)
 
 
 def _scope_of_path(path: str) -> str | None:
@@ -1891,8 +1913,7 @@ def _updated_before(stamp: str, since) -> bool:
 
 
 @app.get("/api/board/{project}")
-def board_view(project: str, card: str = "", pr: str = "",
-               request: Request = None) -> dict:  # type: ignore[assignment]
+def board_view(project: str, card: str = "", pr: str = "") -> dict:
     """This project's board, through the ports — one read, for every kind (ADR-0049 D6).
 
     ONE ROUTE, AND THE REASON IS THE THREE-SECOND TICK. The panel already polls the floor; a board
@@ -1920,14 +1941,6 @@ def board_view(project: str, card: str = "", pr: str = "",
     from openfactory.credentials import deployment_tracker_token, tracker_token_for
 
     proj = _project_or_404(project)
-    # A PRODUCT CREDENTIAL READS THE BOARD OF ITS OWN PROJECTS (#562) — the ones with a product
-    # role, the same rule `/api/product/projects` lists them by — and no other client's board
-    # (an internal call carries no request, and no credential to narrow)
-    scopes = _scopes_of(_subject(request)) if request is not None else None
-    if scopes is not None and actions.FLOOR not in scopes and not _has_product_role(proj):
-        raise HTTPException(status_code=403, detail=(
-            f"this credential reads the board of a project with a product role, and "
-            f"{project} has none"))
     token = tracker_token_for(proj) or deployment_tracker_token(proj)
     board = build_board(proj, token=token)
     tracker = build_tracker(proj, token=token)
@@ -3191,7 +3204,8 @@ def product_projects() -> list[dict]:
 
 def _has_product_role(project) -> bool:
     """Whether a project has a product role: it declares `product:`, and does not turn it off. The
-    one rule both the product owner's list and their read of a board ask (#562)."""
+    one rule both the product owner's list and their read of a board ask (#562) — the gate's
+    `_the_product_owners_board`."""
     cfg = getattr(project, "product", None)
     return cfg is not None and bool(getattr(cfg, "enabled", True))
 
