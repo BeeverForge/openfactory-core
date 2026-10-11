@@ -115,6 +115,52 @@ def _placements(repos) -> dict[str, str]:
             for r, b in zip(repos, bare, strict=True)}
 
 
+def as_the_repository_reads(text: str, *, home: str, placed: dict[str, str],
+                            view: str | Path | None = None) -> str:
+    """`text` the role wrote reading its view, each path as the repository it lands in reads it.
+
+    THE ROLE READS THE CODE AT `src/<name>/`, and wrote its paths that way: a card filed in
+    `jornada` cited `src/jornada/tasks/store.py` and asked for "tests in
+    `src/jornada/tests/test_store.py`". The repository has `tasks/store.py`. Measured on
+    0.6.0-rc.1: the review could not check the criterion that named the path, and parked the job
+    for a person (journey 0, #640).
+
+    - `home`'s own `src/<name>/` is that repository's root, and goes.
+    - Another source's becomes `<owner/name>:`, so a path of another repository is never read as
+      one of this one.
+    - A path that is ALREADY the repository's own is left alone. A repository laid out as
+      `src/<name>/` itself (a Python package named like its repository) reads `src/<name>/x.py` as
+      its own file. When the `view` holds that file under the repository and not at the view's
+      reading, the path is the repository's, not the view's.
+
+    `placed` maps each source repository to the directory `compose` placed it in under `src/`."""
+    import re
+
+    names = {repo: name for repo, name in (placed or {}).items() if name}
+    if not names or "src/" not in (text or ""):
+        return text
+    from openfactory.product.config import repo_match
+
+    by_name = {name: repo for repo, name in names.items()}
+    pattern = re.compile(r"(?<![\w./-])(?:\./)?src/(" + "|".join(
+        re.escape(n) for n in sorted(by_name, key=len, reverse=True)) + r")/([\w./-]*)")
+    root = Path(view) if view else None
+
+    def _one(found: re.Match) -> str:
+        name, rest = found.group(1), found.group(2)
+        repo = by_name[name]
+        if not repo_match(repo, home):
+            return f"{repo}:{rest}"
+        if root is not None and rest:
+            as_the_view = root / "src" / name / rest
+            as_the_repository = root / "src" / name / "src" / name / rest
+            if as_the_repository.exists() and not as_the_view.exists():
+                return found.group(0)
+        return rest
+
+    return pattern.sub(_one, text)
+
+
 def escaping_links(root: str | Path) -> Callable[[str, list[str]], set[str]]:
     """A `copytree` `ignore` that leaves out every symbolic link a reader could follow OUT of
     `root`: an absolute one, wherever it points, and a relative one that climbs above it.
