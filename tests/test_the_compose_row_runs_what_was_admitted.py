@@ -629,9 +629,10 @@ def test_materialise_checks_out_base_by_name_and_the_change_at_the_reported_head
     assert tree.change_commit == head and tree.base_commit == _git(path, "rev-parse", "main")
     assert tree.diff_paths == ("api/orders.py",), "the diff is the change's own, merge base to head"
     assert tree.merge_base != tree.base_commit
-    loose = [p for p in (base / ".git" / "objects").rglob("*")
-             if p.is_file() and len(p.parent.name) == 2]
-    assert loose and all(p.stat().st_nlink == 1 for p in loose), (
+    # EVERY OBJECT FILE, LOOSE OR PACKED: a clone through the pack protocol (#594) receives a
+    # pack, and a pack hardlinked to the source's would be the same shared inode
+    objects = [p for p in (base / ".git" / "objects").rglob("*") if p.is_file()]
+    assert objects and all(p.stat().st_nlink == 1 for p in objects), (
         "the checkout shares object files with the source: a container writing through one would "
         "write into every later checkout")
 

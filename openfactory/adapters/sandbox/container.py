@@ -227,11 +227,11 @@ def _materialize_workspace(*, repo_path: Path, host_clone: Path, base_branch: st
         if rc != 0:
             raise RuntimeError(f"{what} failed ({rc}): {_redact(out).strip()[:300]}")
 
-    _must(["git", "clone", "--local", "--no-hardlinks", str(repo_path), str(host_clone)],
+    _must(["git", "clone", "--no-local", str(repo_path), str(host_clone)],
           f"cloning {repo_path} into the box's workspace")
     if checkout_existing:
         # FETCH THE PR BRANCH FROM THE FORGE, NOT FROM THE CACHE. This clone's `origin` is the
-        # worker's cache DIRECTORY (`--local` above), which only ever holds the base branch its
+        # worker's cache DIRECTORY (cloned by path above), which only ever holds the base branch its
         # syncs check out — the PR branch lives one hop upstream. And the cache's own origin
         # deliberately carries no credential (agents read that checkout), so reaching through it
         # cannot work on a private repository either.
@@ -322,6 +322,12 @@ def _read_the_forges_base(host_clone: Path, base_branch: str, remote_url: str) -
             raise RuntimeError(no_such_base(base_branch, "the forge"))
         raise RuntimeError(f"could not read {base_branch!r} from the forge, the base this job "
                            f"starts from and is measured against: {_redact(out).strip()[:300]}")
+
+
+#: Said after a refused `docker run` whose daemon had no init to give the box (#532): Docker ships
+#: one, and podman's docker-compatible socket needs `catatonit` and refuses the run without it.
+_NO_INIT_BINARY = (" — the box is started with `--init` (#532), and this daemon has no init binary "
+                   "to give it: on podman, install `catatonit`")
 
 
 class ContainerSandbox(SandboxAdapter):
@@ -523,6 +529,12 @@ class ContainerSandbox(SandboxAdapter):
             "docker", "run", "-d", "--name", cname,
             "--cpus", self.cpus, "--memory", self.memory,
             "--network", self.network,
+            # AN INIT AS PID 1, BECAUSE `sleep` IS NOT ONE (#532). Every command the agent and the
+            # gates run arrives through `docker exec`, and what one of them orphans — git's
+            # detached auto-maintenance after a commit or a fetch, measured — is adopted by PID 1,
+            # which only an init reaps. The image is the client's (ADR-0037 D1), so the init comes
+            # from the daemon, not from anything the image might carry.
+            "--init",
             # override any image ENTRYPOINT so the keep-alive command runs as-is
             "--entrypoint", "sleep",
             "-v", f"{host_clone}:{_WORKDIR}", "-w", _WORKDIR,
@@ -552,7 +564,7 @@ class ContainerSandbox(SandboxAdapter):
             # SOMEBODY ELSE'S container: another client's checkout, cache and network.
             raise RuntimeError(
                 f"could not start the box {cname!r} (docker run exited {rc}): {out.strip()[:300]}"
-            )
+                + _NO_INIT_BINARY * any(w in out for w in ("init binary", "catatonit")))
         _host(["docker", "exec", cname, "git", "config", "--global",
                "--add", "safe.directory", _WORKDIR])
 
