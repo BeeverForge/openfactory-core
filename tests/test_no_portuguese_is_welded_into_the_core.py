@@ -96,6 +96,8 @@ RECOGNISERS = {
     ("openfactory/language/assent.py", "CORE"): "yes",
     ("openfactory/language/assent.py", "CORE_PHRASES"): "go ahead",
     ("openfactory/language/assent.py", "FILLER"): "please",
+    # DECLARED 2026-10-11 (#535): the names a board gives its finished column, read off the board
+    ("openfactory/product/role.py", "_DONE_COLUMNS"): "done",
 }
 
 
