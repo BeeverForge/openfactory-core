@@ -538,7 +538,8 @@ def propose_requirement(
 
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-req-"))
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return WriteResult(ok=False,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
@@ -1545,7 +1546,8 @@ def record_fact(*, docs_repo: str, clone_url: str, term: str, body: str, said_by
 
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-fact-"))
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return WriteResult(ok=False,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
@@ -1638,7 +1640,8 @@ def record_distillate(*, docs_repo: str, clone_url: str, path: str, text: str, a
     says what the file is, never whose conversation it was."""
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-distillate-"))
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return WriteResult(ok=False,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
@@ -1734,7 +1737,7 @@ def forget_distillates(*, docs_repo: str, clone_url: str, base: str = "main") ->
 
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-forget-"))
     try:
-        rc, out = _git(["clone", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--branch", base, clone_url, str(tmp)])
         if rc != 0:
             return ContextForgotten(ok=False,
                                     detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
@@ -1793,7 +1796,8 @@ def file_document(*, docs_repo: str, clone_url: str, name: str, data: bytes, mes
     stem, suffix = (stem, f".{suffix}") if dot and stem else (name, "")
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-filed-"))
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return WriteResult(ok=False,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
@@ -1889,7 +1893,8 @@ a conversation that scrolls. The role said it better than anybody: *"if this onl
         return WriteResult(ok=False, detail="não entendi qual foi a decisão para registrar")
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-decision-"))
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return WriteResult(ok=False,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
@@ -1961,7 +1966,8 @@ def accept_requirement(*, docs_repo: str, clone_url: str, path: str, number: int
     day = today or datetime.datetime.now(datetime.UTC).date().isoformat()
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-accept-"))
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return WriteResult(ok=False,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
@@ -2031,7 +2037,8 @@ def drop_requirement(*, docs_repo: str, clone_url: str, path: str, number: int,
     day = today or datetime.datetime.now(datetime.UTC).date().isoformat()
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-drop-"))
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return WriteResult(ok=False,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
@@ -2297,7 +2304,8 @@ def propose_baseline(*, docs_repo: str, clone_url: str, files: dict[str, str],
 
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-baseline-"))
     try:
-        rc, out = _git(["clone", "--depth", "1", "--branch", base, clone_url, str(tmp)])
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+                        str(tmp)])
         if rc != 0:
             return WriteResult(ok=False,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
