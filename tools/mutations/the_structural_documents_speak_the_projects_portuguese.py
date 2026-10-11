@@ -20,16 +20,18 @@ MUTATIONS = [
      '    lang = str(_lang(language)).lower().replace("_", "-")\n',
      '    lang = str(_lang(language))\n'),
 
+    # RE-PINNED 2026-10-11 (#535): the overrides live inside `_HEADINGS` now, under `"pt-PT"`,
+    # four columns further in — the guard reads a catalogue by its keys
     ("the shared word `t_file` loses its override",
      "openfactory/onboarding/context.py",
-     '    "t_file": "ficheiro",\n',
+     '        "t_file": "ficheiro",\n',
      ''),
 
     ("the sentence `s_files_read` loses its override",
      "openfactory/onboarding/context.py",
-     '    "s_files_read": ("ficheiros-fonte lidos pelo mapa estrutural: {read}; ficheiros que '
-     'ele "\n'
-     '                     "não lê: {unread}"),\n',
+     '        "s_files_read": ("ficheiros-fonte lidos pelo mapa estrutural: {read}; ficheiros '
+     'que ele "\n'
+     '                         "não lê: {unread}"),\n',
      ''),
 
     ("the override table stands alone, without the base it inherits from",

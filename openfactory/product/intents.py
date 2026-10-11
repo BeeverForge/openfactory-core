@@ -197,14 +197,18 @@ _ATTACHED = (r"(?:\s+(?:d[oae]s?|pel[oa]s?|por|para|pra|pro|com|ao|[aoà]|os|as|
              r"|of|to|with|by|for|the|an?)\b)*\s*")
 
 
+#: The words a card and a requirement are named by, in both languages the clients write in.
+_CARD_WORDS = r"(?:cards?|cart[õo]es|cart[ãa]o|chamados?|itens|item|tarefas?)"
+_REQUIREMENT_WORDS = r"(?:requisito|req|requirement)"
+
+
 def _card(group: str) -> str:
     """A CARD reference — `#511`, `# 511`, "cartão 511" — captured under `group`.
 
     Written once and used for both numbers a close can carry: the card that goes and the card that
     stays. A second hand-written copy is how one of them ends up accepting a bare number.
     """
-    return (r"(?:#\s?|\b(?:cards?|cart[õo]es|cart[ãa]o|chamados?|itens|item|tarefas?)\s+#?)"
-            rf"(?P<{group}>\d{{1,4}})\b")
+    return rf"(?:#\s?|\b{_CARD_WORDS}\s+#?)(?P<{group}>\d{{1,4}})\b"
 
 
 def _requirement(group: str) -> str:
@@ -213,7 +217,7 @@ def _requirement(group: str) -> str:
     The counterpart of `_card`, and written once for the same reason: four gestures name a
     requirement by number, and the fourth hand-written copy is where the word list drifts.
     """
-    return rf"\b(?:requisito|req|requirement)\s*#?(?P<{group}>\d{{1,4}})\b"
+    return rf"\b{_REQUIREMENT_WORDS}\s*#?(?P<{group}>\d{{1,4}})\b"
 
 
 #: The PHRASE that says a closure has a survivor. Never a bare word: `favor` was one, and "por
@@ -290,9 +294,10 @@ def _other_card_named(text: str, number: str) -> str:
 #: the message is the argument for retiring it. A closure is matched anywhere in a message, so a
 #: tail capture would write the next unrelated clause onto a client's card as the reason somebody
 #: decided. Without it the success line promised "quem decidiu e por quê" over a note that only ever
-#: held the who.
+#: held the who. English reads `because` and `reason:` (#535): only the connectives that are
+#: never temporal — "since Monday" is not why anybody closed a card.
 _BECAUSE = (r"(?:[\s,;:—–-]*\b(?:porque|porqu[êe]|por que|pois|j[áa] que|uma vez que|visto que|"
-            r"motivo:|raz[ãa]o:)\s+(?P<reason>[^.!?\n]{3,200}))?")
+            r"motivo:|raz[ãa]o:|because|reason:)\s+(?P<reason>[^.!?\n]{3,200}))?")
 
 #: THE GESTURES AS THEY READ. What is matched is `_INTENTS` below, which is this table with the
 #: clause anchor applied — kept apart so each pattern says only what makes it that gesture, and the

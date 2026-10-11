@@ -85,7 +85,7 @@ def test_pending_attempts_never_count_as_failures():
 def test_history_WITHDRAWS_a_remedy_that_has_never_worked():
     """The behaviour that saves money: stop paying for a retry the record says does nothing."""
     out = temper(Remedy(action="retry", wait_seconds=900, attempts_left=2),
-                 History(sig="s", attempts=2, failed=2))
+                 History(sig="s", attempts=2, failed=2), language="pt-BR")
     assert out.action == "escalate"
     assert out.wait_seconds == 0
     assert "nunca resolveu" in out.reason
@@ -108,8 +108,25 @@ def test_the_escalation_says_what_it_LEARNED_not_just_that_it_failed():
     """"não consegui" is a shrug. "já vi isso 4 vezes e retomar nunca resolveu" tells somebody
     where to look — which is the entire value of having a memory."""
     out = temper(Remedy(action="retry"),
-                 History(sig="s", tickets={1, 2, 3, 4}, attempts=4, failed=4))
+                 History(sig="s", tickets={1, 2, 3, 4}, attempts=4, failed=4), language="pt-BR")
     assert "4 ticket" in out.say and "nunca" in out.say.lower() or "não resolveu" in out.say
+
+
+def test_an_en_project_is_told_what_was_learned_in_english():
+    """The escalation reaches the operator's channel in the project's language (#535): "já vi
+    isso em 4 tickets" reached an `en` project as it was written."""
+    from tests.test_no_portuguese_is_welded_into_the_core import fragments, is_portuguese
+
+    history = History(sig="s", tickets={1, 2, 3, 4}, attempts=4, failed=4)
+    out = temper(Remedy(action="retry"), history, language="en")
+
+    assert out.say.startswith("I will not try again: I have seen this in 4 tickets"), out.say
+    assert "never fixed it" in out.reason, out.reason
+    for text in (out.say, out.reason, *out.notes,
+                 History(sig="s", tickets={1}, attempts=2, worked=2).phrase("en"),
+                 History(sig="s", tickets={1}, attempts=3, worked=1, failed=2).phrase("en"),
+                 History(sig="s", tickets={1}, attempts=1, pending=1).phrase("en")):
+        assert not [f for f in fragments(text) if is_portuguese(f)], text
 
 
 # ── outcomes are observed, never self-reported ──────────────────────────────────────────────────

@@ -90,6 +90,10 @@ def says(answer: str, spelling: str) -> bool:
     return re.search(rf"(?<![0-9a-z]){re.escape(want)}(?![0-9a-z])", plain(answer)) is not None
 
 
+#: A requirement named by its number, in either language an answer is written in.
+_REQUIREMENT_WORD = r"(?:req|requirement|requisito)"
+
+
 def cites(answer: str, source: Source) -> bool:
     """Whether the answer cites `source` in a form a person would recognise (see the module)."""
     inside = source.path.split("/", 1)[1]
@@ -99,7 +103,7 @@ def cites(answer: str, source: Source) -> bool:
     if not (source.path.startswith("context/") and named):
         return False
     number = int(named.group("num"))
-    return re.search(rf"(?<![0-9a-z])(?:req|requirement|requisito)s?[ #:.-]*0*{number}(?![0-9])",
+    return re.search(rf"(?<![0-9a-z]){_REQUIREMENT_WORD}s?[ #:.-]*0*{number}(?![0-9])",
                      plain(answer)) is not None
 
 

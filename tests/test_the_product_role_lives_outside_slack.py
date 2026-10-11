@@ -2284,7 +2284,7 @@ def test_a_pushed_branch_with_no_pull_request_does_not_WEDGE_the_first_pass():
     from openfactory.product import authoring
 
     forge = _Forge(branches=["main", "product/baseline"])
-    result = authoring.propose_baseline(
+    result = authoring.propose_baseline(language="pt-BR", 
         forge=forge, docs_repo="acme/ctx", clone_url="https://x/acme/ctx.git", base="main",
         product="acme", observations=7, covered=["billing"], files={"a.md": "x"})
 
@@ -2301,7 +2301,7 @@ def test_the_wedge_arm_reports_honestly_when_the_pull_request_STILL_will_not_ope
     from openfactory.product import authoring
 
     forge = _Forge(branches=["product/baseline"], pr_opens=False)
-    result = authoring.propose_baseline(
+    result = authoring.propose_baseline(language="pt-BR", 
         forge=forge, docs_repo="acme/ctx", clone_url="https://x/acme/ctx.git", base="main",
         product="acme", observations=7, covered=[], files={"a.md": "x"})
 

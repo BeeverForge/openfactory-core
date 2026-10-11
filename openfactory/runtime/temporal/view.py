@@ -1463,7 +1463,7 @@ async def act_job(client: Client, project: str, issue: str, *, action: str,
             raise RuntimeError(
                 "this park asks a question — resuming without an answer would re-park on the "
                 f"same question after a full agent pass. Answer with one of: {', '.join(options)} "
-                f"(num chat: `decisão: <opção>`; no painel: o botão da opção)")
+                f"(in chat: `decision: <option>`; on the panel: the option's button)")
         if choice not in options:
             raise RuntimeError(
                 f"{choice!r} is not one of this park's options ({', '.join(options)}) — "
