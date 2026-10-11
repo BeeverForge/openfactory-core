@@ -227,6 +227,10 @@ _ANY_MARKER_RE = re.compile(r"\[\[(?:(?!\]\])(?:[^\n]|\n(?!\s*\n)))*\]\]")
 #: narrower than the net above, because this one deletes text nobody balanced.
 _UNCLOSED_MARKER_RE = re.compile(r"\[\[[A-Z]{3,}[^\n]*")
 
+#: THE COLUMNS A BOARD NAMES FOR WHAT IS FINISHED, as boards spell them — read, never said: the
+#: board section keeps only their numbers (`_board_section`).
+_DONE_COLUMNS = ("done", "concluído", "concluido")
+
 def _cards_from_dicts(board: dict[str, str] | None, titles: dict[str, str]) -> list | None:
     """The two legacy dicts, folded into the one shape every renderer reads.
 
@@ -483,8 +487,8 @@ requirement that already exists — a corrected version, a broader version, the 
 better — name that requirement's number there. The field existed and this instruction did not, so a
 corrected requirement was written as a SECOND live requirement about the same promise: two texts,
 both `proposed`, and a factory that would eventually defend whichever it read first. The product
-role warned about exactly this before it happened ("você fica com duas versões do mesmo requisito
-para conciliar") and was right.
+role warned about exactly this before it happened ("you end up with two versions of the same
+requirement to reconcile") and was right.
 
 A revision supersedes. A genuinely new promise does not. If you are unsure which one you are
 writing, you are writing a revision."""
@@ -681,8 +685,9 @@ class ProductRole:
             "cannot tell from what you have.\n\n"
             "TIME IS READ, NEVER ASSUMED. The `## When` section says what day and time it is and "
             "how long ago this conversation's previous message was; every line of the conversation "
-            "carries when it was said. Words like \"hoje\", \"ontem\", \"semana passada\" or "
-            "\"há pouco\" are true only when those dates make them true — a conversation picked up "
+            "carries when it was said. Words like \"today\", \"yesterday\", \"last week\" or "
+            "\"a moment ago\", in whatever language, are true only when those dates make them "
+            "true — a conversation picked up "
             "after five days was left five days ago, not yesterday. When the dates do not settle "
             "it, name the date instead of a relative word.\n\n"
             "THEN decide what the person was doing. If they ASKED FOR SOMETHING the product does "
@@ -736,13 +741,13 @@ class ProductRole:
             "order spends nothing and starts "
             "nothing: the next start follows it. Do NOT use it when they merely mentioned cards, "
             "and NOT to start work — that is the gesture below.\n\n"
-            "IF THEY ASKED TO START THE WORK that is already agreed — \"podemos avançar?\", "
-            "\"pode começar?\", \"vamos seguir\", \"manda ver\", any way of asking for the work to "
-            f"BEGIN rather than to be discussed — end with {QUEUE_MARKER} on its own line. "
+            "IF THEY ASKED TO START THE WORK that is already agreed — \"can we go ahead?\", "
+            "\"you can start\", \"let's carry on\", \"go for it\", any way of asking for the "
+            f"work to BEGIN rather than to be discussed — end with {QUEUE_MARKER} on its own line. "
             f"{STAGED_AFTER_YOUR_REPLY} "
             "The marker is what puts a proposed queue in front of them, and "
-            "an approver's yes on that queue is what SPENDS MONEY. So: a plan (\"vamos começar a "
-            "discutir o relatório\"), a question about status, or a request for something new is "
+            "an approver's yes on that queue is what SPENDS MONEY. So: a plan (\"let's start "
+            "discussing the report\"), a question about status, or a request for something new is "
             "NOT this gesture — those are the other markers or no marker at all.\n\n"
             "IF WHAT THEY REPORT IS THE SYSTEM WORKING AS DESIGNED — the knowledge bundle holds a "
             "concept whose rule produces exactly the behaviour they describe, and a requirement "
@@ -1673,22 +1678,21 @@ class ProductRole:
             return ["", "# The board", "The board is empty."]
         by_column: dict[str, list] = {}
         for card in sorted(self.cards, key=lambda c: c.number):
-            by_column.setdefault(card.column or "(sem coluna)", []).append(card)
+            by_column.setdefault(card.column or "(no column)", []).append(card)
         lines = ["", "# The board (already read for you — do NOT run any command to fetch it)",
                  f"This is the board AS READ FOR THIS MESSAGE — {len(self.cards)} cards. A card "
                  f"absent from it is absent from this reading, which is not the same as absent "
                  f"from the product: say the first, never the second."]
         for column, cards in sorted(by_column.items(), key=lambda kv: -len(kv[1])):
             lines.append(f"\n## {column} ({len(cards)})")
-            done_col = (column.lower().startswith("done")
-                        or column.lower() in ("concluído", "concluido"))
+            done_col = column.lower().startswith("done") or column.lower() in _DONE_COLUMNS
             # `Done` keeps the economy that motivated the original cut — its titles would cost more
             # than every other column together and answer no question anybody asks — but it keeps
             # the NUMBERS, because "what happened to #511?" is a question a product owner is asked
             # constantly and could not answer at all.
             if done_col:
-                lines.append("(títulos omitidos por economia; os números ficam. Sem marca = "
-                             "concluído e entregue — só o que contradiz isso é anotado.)")
+                lines.append("(titles left out to save space; the numbers stay. Unmarked means "
+                             "finished and delivered — only what contradicts that is marked.)")
                 lines.append("- " + " · ".join(
                     f"#{c.number}{self._outcome(c, in_done=True)}" for c in cards))
                 continue
@@ -1704,9 +1708,9 @@ class ProductRole:
                 # description and never existence.
                 rest = cards[self._TITLES_PER_COLUMN:]
                 lines.append(
-                    f"- (+{len(rest)} nesta coluna com o título omitido por orçamento deste "
-                    f"prompt, NÃO por falta de acesso — os números seguem abaixo e você pode "
-                    f"falar deles: "
+                    f"- (+{len(rest)} more in this column with the title left out for this "
+                    f"prompt's budget, NOT for lack of access — their numbers follow and you can "
+                    f"talk about them: "
                     + " · ".join(f"#{c.number}{self._outcome(c)}" for c in rest) + ")")
         return lines
 
@@ -1736,10 +1740,10 @@ class ProductRole:
             return ""                      # unknown: a caller that passed columns and titles only
         if in_done:
             if state != "closed":
-                return " (ainda aberto)"           # triage's `done-but-open`
-            return "" if getattr(card, "delivered", False) else " (cancelado)"
+                return " (still open)"             # triage's `done-but-open`
+            return "" if getattr(card, "delivered", False) else " (cancelled)"
         if state == "closed":
-            return " (entregue)" if getattr(card, "delivered", False) else " (cancelado)"
+            return " (delivered)" if getattr(card, "delivered", False) else " (cancelled)"
         return ""
 
     def _prompt(self, instruction: str, body: str, schema: str = "", *,
