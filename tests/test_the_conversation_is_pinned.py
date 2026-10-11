@@ -1240,8 +1240,9 @@ def test_drop_is_staged_with_its_reason_and_taken_off_the_table_on_a_yes(table, 
     reply = talk.say("cancela o requisito 5 porque o cliente desistiu", user=CLIENT)
 
     assert reply == f"{UNDERSTOOD}\n\n" + voice.drop_confirmation(
-        number=5, title="Extrato conciliado", was_a_promise=True, language=LANG) + (
-        _admins_note("a decisão"))
+        number=5, title="Extrato conciliado", was_a_promise=True,
+        reason="porque o cliente desistiu", language=LANG) + (_admins_note("a decisão"))
+    assert "> porque o cliente desistiu\n\nConfirma?" in reply, reply
     staged = _staged()
     assert {k: staged[k] for k in ("kind", "number", "reason", "was_a_promise", "channel",
                                    "asked_by")} == {

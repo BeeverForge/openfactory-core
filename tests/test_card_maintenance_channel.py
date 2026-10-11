@@ -1519,6 +1519,8 @@ def test_a_replacement_NOBODY_HAS_AGREED_TO_YET_is_not_reported_as_a_BROKEN_BASE
     # THE FIRST STEP IS SAID, THE SECOND QUOTED (#565): agreeing is an act the role proposes from
     # any words, so only the alignment is a sentence to copy
     assert "está acordado" in reply.split("«")[0], reply
+    # …AND AGREEING IS ITSELF STAGED FOR A YES, so the alignment comes after that answer
+    assert "confirme quando eu perguntar" in reply.split("«")[0], reply
     steps = re.findall(r"«([^»]+)»", reply)
     assert [match_intent(s) and match_intent(s)[0] for s in steps] == ["align"], steps
 

@@ -192,14 +192,20 @@ _DROP_RE = re.compile(r"\[\[DESCARTE:\s*" + _REQUIREMENT_WRITTEN
 _RECORD_RE = re.compile(r"\[\[REGISTRO:\s*" + _REQUIREMENT_WRITTEN
                         + rf"\s*;\s*(?P<decision>{_THEIR_WORDS}{{5,}})\]\]", re.IGNORECASE)
 _FACT_RE = re.compile(rf"\[\[FATO:\s*(?P<fact>{_THEIR_WORDS}{{10,}})\]\]", re.IGNORECASE)
-#: The quotation a person's words arrive in — «…», "…" — taken off what an act carries, as the
-#: pattern took it off its captures: a reason or a decision is written on the record in the
-#: person's name, and a stray » must not become the grounds somebody decided on.
-_QUOTES_AROUND = "«»\"“”'‘’"
+#: The quotation a person's words arrive in — «…», "…" — taken off what an act carries: a reason
+#: or a decision is written on the record in the person's name, and a stray » must not become the
+#: grounds somebody decided on. ONLY A PAIR AROUND THE WHOLE VALUE, and only when neither of its
+#: marks is inside it: a reason that ends on a quoted word — `porque ele disse "não"` — or holds
+#: two quotations keeps every mark it was written with.
+_QUOTE_PAIRS = {"«": "»", '"': '"', "“": "”", "'": "'", "‘": "’"}
 
 
 def _unquoted(value: str) -> str:
-    return value.strip().strip(_QUOTES_AROUND).strip()
+    value = value.strip()
+    while (len(value) >= 2 and _QUOTE_PAIRS.get(value[0]) == value[-1]
+           and value[0] not in value[1:-1] and value[-1] not in value[1:-1]):
+        value = value[1:-1].strip()
+    return value
 
 
 #: Each act's marker, the `gesture` it is read as, and the intent `engine._run_intent` stages it
@@ -212,6 +218,12 @@ REQUIREMENT_ACTS: tuple[tuple[str, re.Pattern[str], str, str], ...] = (
     (RECORD_MARKER, _RECORD_RE, "record", "decision"),
     (FACT_MARKER, _FACT_RE, "fact", "fact"),
 )
+#: The intent each act's gesture is staged through, read off the table above.
+GESTURE_INTENT = {gesture: intent for _marker, _pattern, gesture, intent in REQUIREMENT_ACTS}
+#: An act's opener, which the safety net reads as an act that did not parse: `[[ACORDO: o 66]]`.
+_ACT_SHAPED_RE = re.compile(
+    r"\[\[(?:" + "|".join(re.escape(marker[2:]) for marker, *_rest in REQUIREMENT_ACTS) + r")\b",
+    re.IGNORECASE)
 
 #: WHAT EVERY STAGING MARKER'S INSTRUCTION TELLS THE MODEL ABOUT THE NEXT STEP (#430). A marker that
 #: stages something is described twice in one message: by the model, before the marker, and by the
@@ -475,6 +487,9 @@ class ProductAnswer(BaseModel):
     #: `reason`, `decision` or `fact` in the person's words — the captures `engine._run_intent`
     #: stages it with. Empty for every other gesture.
     gesture_args: dict[str, str] = Field(default_factory=dict)
+    #: HOW MANY MORE ACTS the reply carried, which were not staged (#565): one entry is staged per
+    #: conversation, and the person who asked for two is told the rest waits for this one.
+    acts_not_staged: int = 0
     #: the brownfield reading, when this answer came from `survey`
     baseline: object | None = None
     #: the requirement the role believes is violated — None when it could not name one
@@ -658,6 +673,7 @@ def read_answer(text: str, *, raw: str = "", harness: str = "") -> ProductAnswer
             log.error("OPENFACTORY_PRODUCT_LOST_MARKER a decision-shaped marker did not parse "
                       "and was "
                       "dropped: %s", "; ".join(x[:200] for x in lost[:3]))
+        _say_lost_acts(leftover)
         log.warning("unparsed marker(s) stripped before reaching the client: %s",
                     "; ".join(x[:120] for x in leftover[:4]))
         text = _ANY_MARKER_RE.sub("", text)
@@ -672,11 +688,14 @@ def read_answer(text: str, *, raw: str = "", harness: str = "") -> ProductAnswer
                       ""
                       "%s",
                       "; ".join(x[:200] for x in unclosed[:3]))
+        _say_lost_acts(unclosed)
         log.warning("unclosed marker(s) stripped before reaching the client: %s",
                     "; ".join(x[:120] for x in unclosed[:4]))
         text = _UNCLOSED_MARKER_RE.sub("", text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    return ProductAnswer(ok=bool(text), text=text, raw=raw,
+    # AN ACT IS AN ANSWER ON ITS OWN (#565): the question it is staged with is the platform's, so
+    # a reply that carried the marker and nothing else still has something to say
+    return ProductAnswer(ok=bool(text) or act is not None, text=text, raw=raw,
                          harness=harness,
                          is_request=asked_for_something, decisions=decisions,
                          gesture=gesture,
@@ -685,13 +704,24 @@ def read_answer(text: str, *, raw: str = "", harness: str = "") -> ProductAnswer
                          gesture_args={key: _unquoted(value)
                                        for key, value in act[1].groupdict().items()
                                        if value and _unquoted(value)} if act else {},
+                         acts_not_staged=len(acts) - 1 if act else 0,
                          is_defect=defect is not None, violates=violates,
                          is_ticket=ticket is not None,
                          ticket_title=((ticket.group("title") or "").strip()
                                        if ticket else ""),
                          is_reorder=bool(order), order=order,
                          is_misuse=teach is not None, reading=reading,
-                         error="" if text else "the harness returned nothing")
+                         error="" if text or act else "the harness returned nothing")
+
+
+def _say_lost_acts(markers: list[str]) -> None:
+    """An ACT the role proposed that the parser could not read (#565): the person read what it
+    understood, and no question follows it — nothing was staged for their yes. As loud as a lost
+    decision, and for the same reason."""
+    lost = [x for x in markers if _ACT_SHAPED_RE.match(x)]
+    if lost:
+        log.error("OPENFACTORY_PRODUCT_LOST_MARKER an act-shaped marker did not parse and was "
+                  "dropped, so nothing was staged: %s", "; ".join(x[:200] for x in lost[:3]))
 
 
 class ProductRole:
@@ -836,7 +866,9 @@ class ProductRole:
             "different (that is [[AJUSTE: #N]]), nor for a card no change of which waits on them, "
             "nor for agreeing to a requirement.\n\n"
             "THE ACTS ON A REQUIREMENT below are read from what they mean, in whatever language "
-            "and words they use — never from a fixed sentence.\n\n"
+            "and words they use — never from a fixed sentence. ONE ACT PER REPLY: when they ask "
+            "for two at once, end with the first and say in your reply that the other comes after "
+            "they answer this one.\n\n"
             "IF THEY SAY A REQUIREMENT IS AGREED — \"you can accept 66\", \"yes, I agree with "
             "requirement 66\", \"done, 66 is agreed\" — end with [[ACORDO: REQ-NNNN]] on its own "
             f"line, NNNN the requirement's number. {STAGED_AFTER_YOUR_REPLY} Agreeing turns the "

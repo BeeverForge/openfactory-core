@@ -139,6 +139,25 @@ def test_TODAYS_RUN_dropping_in_any_words_stages_the_drop_with_their_reason():
     assert staged and staged["kind"] == "drop" and staged["number"] == 66, (staged, asked)
     assert staged["reason"] == "o cliente vai manter a planilha por enquanto", staged
     assert asked.startswith("Certo, o 66 sai da mesa."), asked
+    # THE SENTENCE THAT WILL BE WRITTEN, SHOWN BEFORE THE YES: it goes on the record in their name
+    assert "> o cliente vai manter a planilha por enquanto" in asked, asked
+
+
+def test_a_drop_with_no_reason_asks_without_one():
+    asked, staged = _turn("pode jogar fora o 66", "Certo, o 66 sai da mesa.\n[[DESCARTE: REQ-66]]")
+
+    assert staged and staged["kind"] == "drop" and staged["reason"] == "", staged
+    assert "motivo" not in asked and "\n> " not in asked, asked
+
+
+def test_a_reply_that_is_only_the_act_still_stages_it():
+    """The question is the platform's: a reply that carried the marker and nothing else is an
+    answer, not a harness that returned nothing."""
+    answer = read_answer("[[ACORDO: REQ-0066]]")
+    asked, staged = _turn("pode aceitar o 66", "[[ACORDO: REQ-0066]]")
+
+    assert answer.ok and answer.error == "" and answer.gesture == "agree", answer
+    assert staged and staged["kind"] == "accept" and staged["number"] == 66, (staged, asked)
 
 
 def test_a_decision_is_staged_in_the_words_the_marker_carries():
@@ -213,13 +232,49 @@ def test_each_act_reads_the_requirement_as_the_role_writes_it(written):
 @pytest.mark.parametrize("said", ["[[ACORDO: o requisito 66]]", "[[ACORDO]]",
                                   "[[REGISTRO: REQ-66]]", "[[REGISTRO: REQ-66; ok]]",
                                   "[[FATO: curto]]", "[[DESCARTE: o 66]]"])
-def test_prose_in_the_marker_is_not_an_act(said):
+def test_prose_in_the_marker_is_not_an_act(said, caplog):
     """A requirement where the marker names one, and words where it carries them: what does not
-    fit is not read as an act — the net strips it, and nothing is staged on a guess."""
-    answer = read_answer(f"Certo.\n{said}")
+    fit is not read as an act — the net strips it, and nothing is staged on a guess. LOUDLY: the
+    person read what the role understood, and no question follows it."""
+    with caplog.at_level(logging.ERROR, logger="openfactory.product.role"):
+        answer = read_answer(f"Certo.\n{said}")
 
     assert answer.gesture == "" and answer.gesture_args == {}, (said, answer)
     assert answer.text == "Certo.", answer.text
+    assert "OPENFACTORY_PRODUCT_LOST_MARKER an act-shaped marker" in caplog.text, caplog.text
+
+
+def test_an_act_left_open_is_lost_loudly(caplog):
+    with caplog.at_level(logging.ERROR, logger="openfactory.product.role"):
+        answer = read_answer("Certo.\n[[ACORDO: REQ-66")
+
+    assert answer.gesture == "" and answer.text == "Certo.", answer
+    assert "OPENFACTORY_PRODUCT_LOST_MARKER an act-shaped marker" in caplog.text, caplog.text
+
+
+def test_a_marker_that_is_not_an_act_is_not_called_a_lost_one(caplog):
+    with caplog.at_level(logging.ERROR, logger="openfactory.product.role"):
+        read_answer("Certo.\n[[SUGESTAO: mais tarde]]")
+
+    assert "act-shaped" not in caplog.text, caplog.text
+
+
+@pytest.mark.parametrize(("carried", "kept"), [
+    ("«fora de escopo»", "fora de escopo"),
+    ('"fora de escopo"', "fora de escopo"),
+    ("“fora de escopo”", "fora de escopo"),
+    ('porque ele disse "não"', 'porque ele disse "não"'),
+    ('"não" e "sim"', '"não" e "sim"'),
+    ("«fora» de escopo»", "«fora» de escopo»"),
+    ('"fora de escopo»', '"fora de escopo»'),
+])
+def test_only_a_quotation_around_the_whole_reason_comes_off(carried, kept):
+    """The reason is written on the record in the person's name: a stray » must not become the
+    grounds somebody decided on, and neither may a reason that ends on a quoted word lose its
+    closing mark."""
+    answer = read_answer(f"Certo.\n[[DESCARTE: REQ-66; {carried}]]")
+
+    assert answer.gesture_args.get("reason") == kept, answer.gesture_args
 
 
 def test_two_acts_in_one_reply_stage_the_first_and_say_the_second(caplog):
@@ -229,7 +284,34 @@ def test_two_acts_in_one_reply_stage_the_first_and_say_the_second(caplog):
 
     assert answer.gesture == "agree" and answer.gesture_args == {"number": "66"}, answer
     assert answer.text == "Certo.", answer.text
+    assert answer.acts_not_staged == 1, answer
     assert "OPENFACTORY_PRODUCT_ONE_ACT_PER_REPLY" in caplog.text, caplog.text
+
+
+_TWO = "Certo.\n[[ACORDO: REQ-66]]\n[[FATO: a firma usa o Primavera desde 2019]]"
+
+
+def test_the_person_who_asked_for_two_is_told_the_second_waits():
+    """One entry is staged per conversation: a person who asked for both would believe the
+    second was on its way. Said before the one question they get."""
+    asked, staged = _turn("aceita o 66 e anota que usamos Primavera", _TWO)
+
+    assert staged and staged["kind"] == "accept", (staged, asked)
+    note = asked.index("Um de cada vez")
+    assert asked.startswith("Certo.\n\n") and note < asked.index("Confirma"), asked
+
+
+def test_where_nothing_was_staged_there_is_no_first_act_to_wait_for():
+    asked, staged = _turn("aceita o 66 e anota que usamos Primavera", _TWO,
+                          _Req(status="accepted"))
+
+    assert staged is None and "Um de cada vez" not in asked, (staged, asked)
+
+
+def test_one_reply_with_one_act_says_nothing_about_a_second():
+    asked, _staged = _turn("pode aceitar o 66", "Certo.\n[[ACORDO: REQ-66]]")
+
+    assert "Um de cada vez" not in asked, asked
 
 
 def test_a_change_waiting_on_the_person_outranks_an_act_on_a_requirement():
@@ -243,6 +325,16 @@ def test_every_act_is_taught_with_the_sentence_that_says_what_comes_next():
     guard of #430 holds them to the phrase that tells the model the platform asks the question."""
     for marker, _pattern, _gesture, _intent in REQUIREMENT_ACTS:
         assert marker in STAGING_MARKERS, marker
+
+
+def test_the_prompt_asks_for_one_act_per_reply():
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "openfactory" / "product" /
+           "role.py").read_text(encoding="utf-8")
+
+    assert "never from a fixed sentence. ONE ACT PER REPLY: when they ask" in src
+    assert "end with the first and say in your reply that the other comes after" in src
 
 
 # ── the guard ───────────────────────────────────────────────────────────────────────────────────

@@ -523,13 +523,15 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a drop forgets why", ENGINE,
-     '"reason": (captures.get("reason") or "").strip()[:300],', '"reason": "",'),
+     '        was_a_promise = req.is_promise\n'
+     '        reason = (captures.get("reason") or "").strip()[:300]\n',
+     '        was_a_promise = req.is_promise\n        reason = ""\n'),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a drop does not name who can confirm it", ENGINE,
-     "                                was_a_promise=was_a_promise, language=lang)\n"
+     "                                was_a_promise=was_a_promise, reason=reason, language=lang)\n"
      "        if not may_act(project, user):",
-     "                                was_a_promise=was_a_promise, language=lang)\n"
+     "                                was_a_promise=was_a_promise, reason=reason, language=lang)\n"
      "        if False:"),
 
     ("a confirmed drop has no executor of its own", CONFIRM,

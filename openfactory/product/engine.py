@@ -1224,14 +1224,19 @@ def gestures(ex: Exchange, answer) -> Reply | str | None:
     # branch the sentence reached, so what is checked before the question and what the yes
     # executes are the same; the role's reply goes in front of the question or of why nothing was
     # staged.
-    from openfactory.product.role import REQUIREMENT_ACTS
+    from openfactory.product.role import GESTURE_INTENT
+    from openfactory.product.voice import one_act_at_a_time
 
-    intent = {gesture: intent for _marker, _pattern, gesture, intent
-              in REQUIREMENT_ACTS}.get(getattr(answer, "gesture", ""))
+    intent = GESTURE_INTENT.get(getattr(answer, "gesture", ""))
     if intent:
+        # A SECOND ACT IN THE SAME REPLY IS NOT STAGED (one entry per conversation), and the
+        # person who asked for both is told so before the one question they get
+        later = (one_act_at_a_time(language=lang) + "\n\n"
+                 if getattr(answer, "acts_not_staged", 0) else "")
         proposed = _run_intent(project, intent,
                                {**(getattr(answer, "gesture_args", None) or {}),
-                                "preamble": f"{answer.text}\n\n" if answer.text else ""},
+                                "preamble": f"{answer.text}\n\n" if answer.text else "",
+                                "later": later},
                                module=module, lang=lang, user=user,
                                on_it=ex.on_it, thread=ex.thread, channel=channel, key=thread)
         if proposed:
@@ -1787,6 +1792,9 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
     # nothing was staged — with no name before the sentence, because the reply is already the
     # role's own. A proposal it displaced is said first, as `_offer_card` says it.
     preamble = captures.get("preamble", "")
+    # …AND, IN FRONT OF A QUESTION ONLY, that a second act in the same reply waits for it: where
+    # nothing is staged there is no first act to have prepared
+    asking = preamble + captures.get("later", "")
 
     def said(sentence: str) -> str:
         if preamble:
@@ -1815,7 +1823,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "note", language=lang)
-        return offer(project, thread, replaced + preamble + ask)
+        return offer(project, thread, replaced + asking + ask)
 
     if intent == "status":
         # COMPOSED HERE, NEVER `status_line()`. That one is `ProductContext.health()` — an operator
@@ -1904,7 +1912,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         body = remember(thread, {"kind": "accept", "number": number, "channel": channel,
                                  "asked_by": user or ""},
                         lang=lang, project=project, person=user)
-        return offer(project, thread, body + preamble + accept_confirmation(
+        return offer(project, thread, body + asking + accept_confirmation(
             number=number, title=req.title or req.slug, language=lang))
 
     if intent == "drop":
@@ -1920,18 +1928,19 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         from openfactory.product.voice import drop_confirmation
 
         was_a_promise = req.is_promise
+        reason = (captures.get("reason") or "").strip()[:300]
         body = remember(thread, {"kind": "drop", "number": number, "channel": channel,
-                                 "reason": (captures.get("reason") or "").strip()[:300],
+                                 "reason": reason,
                                  "was_a_promise": was_a_promise,
                                  "asked_by": user or ""},
                         lang=lang, project=project, person=user)
         ask = drop_confirmation(number=number, title=req.title or req.slug,
-                                was_a_promise=was_a_promise, language=lang)
+                                was_a_promise=was_a_promise, reason=reason, language=lang)
         if not may_act(project, user):
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "decision", language=lang)
-        return offer(project, thread, body + preamble + ask)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "decision":
         number = int(captures.get("number") or 0)
@@ -1958,7 +1967,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
             admins = _admin_mentions(project)
             if admins:
                 ask += admins_must_confirm(admins, "decision", language=lang)
-        return offer(project, thread, body + preamble + ask)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "close":
         # A CARD, NOT A REQUIREMENT (C-05) — the tracker's own ref, whatever shape it takes.
