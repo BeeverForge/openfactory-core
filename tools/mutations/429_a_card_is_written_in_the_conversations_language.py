@@ -94,8 +94,8 @@ MUTATIONS = [
      '    return _pick(_SAID, "pt-BR")'),
 
     ("the pen's replies are Portuguese in every language", MODULE,
-     "        said = _pick(_FILING, lang)\n        ctx = self.context()\n        name = ",
-     '        said = _pick(_FILING, "pt-BR")\n        ctx = self.context()\n        name = '),
+     "        said = _pick(_FILING, lang)\n        ctx = self.context()\n        # the role's words",
+     '        said = _pick(_FILING, "pt-BR")\n        ctx = self.context()\n        # the role\'s words'),
 
     ("the engine's own sentences are Portuguese in every language", VOICE,
      "    text = _pick(_ENGINE_SAID, language)[key]",
