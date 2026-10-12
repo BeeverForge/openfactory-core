@@ -103,8 +103,8 @@ MUTATIONS = [
      '        lead = "nothing is running"'),
 
     ("the floor is called Armed beneath its own 'could not read'", LADDER,
-     "    if (not out or all(c.rung >= 8 for c in out)) and not jobs_unread:",
-     "    if not out or all(c.rung >= 8 for c in out):"),
+     "    elif (not out or all(c.rung >= 8 for c in out)) and not jobs_unread:",
+     "    elif not out or all(c.rung >= 8 for c in out):"),
 
     ("with the inbox in hand, an unread job list leaves nothing unread at all", LADDER,
      '    elif jobs_unread:\n        unread.append("the job list")\n',

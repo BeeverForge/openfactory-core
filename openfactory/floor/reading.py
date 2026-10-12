@@ -86,6 +86,12 @@ async def gather(client=None, *, want: tuple[str, ...] = FAST + SLOW,
 
     if "jobs" in want and got.connected:
         got.jobs = await _jobs(client)
+        # THE NUMBER THE POLLER SUBTRACTS THE RUNNING JOBS FROM (#660), with the job list it is
+        # read against: a floor that says "the next card will be picked up" has to know whether
+        # a slot is free, and the jobs alone cannot say.
+        from openfactory.runtime.temporal import max_concurrent_jobs
+
+        got.slots = max_concurrent_jobs()
     if "intake" in want and got.connected:
         got.intake = await _intake(client, now=got.now)
     if "projects" in want:
