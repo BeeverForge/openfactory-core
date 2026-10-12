@@ -154,7 +154,6 @@ def test_the_declared_exemptions_still_exist():
 #: Every module-level dict that gets written by key, and what bounds it. A cache with no bound in
 #: a process that never restarts is a slow leak; a cache bounded "by nature" must say by what.
 _CACHES = {
-    ("openfactory/runtime/repo_cache.py", "_locks"): "one lock per project — bounded by the registry",
     # review of #611 — the unreadable values of OPENFACTORY_DEFAULT_FRONT_END this process has said,
     # so a typo is one warning, not one per page request
     ("openfactory/api/app.py", "_SAID_NEITHER"):
@@ -181,7 +180,8 @@ _CACHES = {
     # the guard of a lock some thread holds would let a second thread take the same file lock.
     ("openfactory/util/filelock.py", "_GUARDS"):
         "one per lock file this process has taken — each product's semaphore and write log, each "
-        "registry project's cases and recall index — bounded by the registry, never by traffic",
+        "registry project's cases and recall index, each key of a repository cache (#656) — "
+        "bounded by the registry, never by traffic",
     # GitHub issue #134 — the read side's one client, full stop. The key is
     # `connection.fingerprint()`: the address, the namespace and a digest of the auth material this
     # PROCESS is configured with (including the CONTENTS of the TLS files it names), so it is a
