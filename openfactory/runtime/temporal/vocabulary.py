@@ -47,6 +47,18 @@ ATTENTION_STATES = {
 #: "nothing is waiting", which is a sentence every one of those surfaces is willing to say.
 MERGE_WAIT = "merge_wait"
 
+class EngineUnreachable(RuntimeError):
+    """The engine did not answer inside the deadline, or did not a moment ago.
+
+    A DISTINCT TYPE so a caller can tell "it is not there" from "it said no": every read-side caller
+    already degrades on an exception, and the ones that report a reason now have one to report.
+
+    DEFINED HERE, NOT IN `view.py`, so a surface that must serve without `temporalio` can still
+    name it (#674): the panel answers it with a 503 for every route, and the action layer with
+    `UNAVAILABLE`, where it used to reach the client as a 500 and a traceback. `view.py` raises it
+    and keeps it as `tv.EngineUnreachable`."""
+
+
 #: What the worker half of the deployment calls itself when it announces its build (#135). The
 #: panel reads it back off the shared state volume, and `openfactory doctor` reads it to say which
 #: half runs a different build — by importing `worker.py`, until the static sweep of #178 found it:
