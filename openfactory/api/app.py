@@ -33,6 +33,7 @@ from fastapi.responses import (
 from pydantic import BaseModel
 
 from openfactory import actions, doors
+from openfactory.api import read_models
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.floor import reading as _floor_reading
 from openfactory.floor.reading import INTAKE_TTL_S as _INTAKE_TTL_S
@@ -1042,6 +1043,12 @@ def require_auth(authorization: str = Header(default="")) -> None:
 _AUTH = [Depends(require_auth)]
 
 
+def _reads(model: type[BaseModel]) -> dict:
+    """What a read route declares about its body (#678): the model it answers in, and that a key it
+    left out stays out — `read_models` says why the bodies are unchanged by it."""
+    return {"response_model": model, "response_model_exclude_unset": True}
+
+
 # ── the panel as a transport over the action layer (C-23) ────────────────────────────────────────
 
 #: `Outcome.code` → HTTP status. A test asserts every code in `actions.CODES` has a row here: a
@@ -1247,8 +1254,8 @@ def _box_health(project) -> dict:
     return health(project)
 
 
-@app.get("/api/floor")
-@app.get("/api/floor/{project}")
+@app.get("/api/floor", **_reads(read_models.FloorRead))
+@app.get("/api/floor/{project}", **_reads(read_models.FloorRead))
 async def floor_state(project: str = "") -> dict:
     """Is the factory working? — the platform's answer, for anybody who asks (#144).
 
@@ -1402,7 +1409,7 @@ def add_project(body: NewProject) -> dict:
     return {"ok": True}
 
 
-@app.get("/api/jobs")
+@app.get("/api/jobs", **_reads(read_models.JournalJobs))
 def list_jobs() -> list[dict]:
     jobs: list[dict] = []
     for p in ProjectRegistry().list():
@@ -1574,7 +1581,7 @@ class JournalUnreadable(RuntimeError):
 # which it already holds — so there is no second name to edit, not even an alias.
 
 
-@app.get("/api/attention")
+@app.get("/api/attention", **_reads(read_models.JournalJobs))
 def attention() -> list[dict]:
     """Jobs that need a human — the operator's inbox (A5). One place to see every
     on-hold / needs-refinement / paused / awaiting-approval job across projects."""
@@ -1627,7 +1634,7 @@ async def _stamp_the_acceptances(jobs: list[dict]) -> None:
             job["accepted"] = accepted
 
 
-@app.get("/api/inbox")
+@app.get("/api/inbox", **_reads(read_models.InboxRead))
 async def inbox() -> list[dict]:
     """THE single 'what needs a human right now' feed — one shape for every channel (panel,
     Slack, Telegram, curl). Each item is self-describing: `kind` says what to present, `options`
@@ -1798,7 +1805,7 @@ async def inbox() -> list[dict]:
     return out
 
 
-@app.get("/api/budget")
+@app.get("/api/budget", **_reads(read_models.BudgetRead))
 def api_budget() -> dict:
     """The API budget of the trackers this deployment reads — one row per credential, plus the
     ONE row a single sentence renders (`summary`), so the panel can SHOW when the engine is
@@ -1920,7 +1927,7 @@ def _updated_before(stamp: str, since) -> bool:
     return (then if then.tzinfo else then.replace(tzinfo=UTC)) < since
 
 
-@app.get("/api/board/{project}")
+@app.get("/api/board/{project}", **_reads(read_models.BoardRead))
 def board_view(project: str, card: str = "", pr: str = "") -> dict:
     """This project's board, through the ports — one read, for every kind (ADR-0049 D6).
 
@@ -2108,7 +2115,7 @@ def _card_detail(tracker, ref: str, *, project=None, board=None,
     }
 
 
-@app.get("/api/loops/{project}")
+@app.get("/api/loops/{project}", **_reads(read_models.LoopsRead))
 def open_loops(project: str, request: Request) -> dict:
     """Everything the agents are still waiting on (ADR-0021) — the VISIBLE list.
 
@@ -2173,7 +2180,7 @@ def _readable_store(what: str):
                    f"nothing was decided; try again in a moment.") from exc
 
 
-@app.get("/api/messages/{project}")
+@app.get("/api/messages/{project}", **_reads(read_models.MessagesRead))
 def channel_messages(project: str) -> dict:
     """What the factory has said to this project, and what it is waiting to hear back (C-25).
 
@@ -2675,7 +2682,7 @@ async def product_stream(ws: WebSocket) -> None:
     await product_chat.serve(ws, actor=actor, watch=gate, close_code=_close_code)
 
 
-@app.get("/api/metrics")
+@app.get("/api/metrics", **_reads(read_models.MetricsRead))
 def cost_metrics(project: str | None = None) -> dict:
     """The PER-PROJECT cost dashboard payload — spend by period / model / harness / role + a
     per-task table, from the metrics table (observability.metrics). `project` scopes it (defaults
@@ -2893,7 +2900,7 @@ def _temporal_or_503():
         raise HTTPException(status_code=503, detail=str(exc)[:300]) from exc
 
 
-@app.get("/api/temporal/jobs")
+@app.get("/api/temporal/jobs", **_reads(read_models.EngineJobsRead))
 async def temporal_jobs() -> dict:
     """Live job state from the durable engine. Degrades gracefully: if the runtime
     extra is missing or the engine is down, the panel still renders (connected=False).
@@ -2953,7 +2960,7 @@ async def temporal_jobs() -> dict:
                 "build": build}
 
 
-@app.get("/api/jobs/{project}/{issue}/detail")
+@app.get("/api/jobs/{project}/{issue}/detail", **_reads(read_models.JobDetailRead))
 async def job_detail(project: str, issue: str) -> dict:
     """The card-click briefing: runtime, cost, PR, WHY the job is in its state, the review
     verdict + findings, the added suppressions (with location), the platform gates, and the
@@ -3131,7 +3138,7 @@ class ActBody(BaseModel):
     choice: str = ""  # a DecisionRequest option key, when the park carried options
 
 
-@app.get("/api/decisions")
+@app.get("/api/decisions", **_reads(read_models.DecisionsRead))
 async def decisions() -> list[dict]:
     """Every job currently PARKED on a human decision, with its question + options — the
     headless feed a panel, a Slack bot, a Telegram bot, or `curl` all read to present the choice
@@ -3195,7 +3202,7 @@ class ActRequest(BaseModel):
     params: dict[str, object] = {}
 
 
-@app.get("/api/product/projects")
+@app.get("/api/product/projects", **_reads(read_models.ProductProjectsRead))
 def product_projects() -> list[dict]:
     """The projects that have a product role, for a credential that may not list the rest.
 
@@ -3240,7 +3247,7 @@ def _attachment_conversation(request: Request, proj) -> tuple[str, str]:
     return product_chat.conversation_for(_actor(request), proj, asked)
 
 
-@app.get("/api/product/{project}/attachments")
+@app.get("/api/product/{project}/attachments", **_reads(read_models.AttachmentLimitsRead))
 def product_attachment_limits(project: str, request: Request) -> dict:
     """What a message may carry, said BEFORE a file is sent — the types the rows read, the largest
     file and how many at once — and, for a conversation the page names (`room`, `session`), the
@@ -3349,7 +3356,7 @@ def product_document_file(project: str, path: str) -> Response:
                              "Cache-Control": "private, no-store"})
 
 
-@app.get("/api/product/{project}/documents")
+@app.get("/api/product/{project}/documents", **_reads(read_models.DocumentsRead))
 def product_documents(project: str, request: Request) -> dict:
     """The product's context repository as its ingestion found it (#269 slice 1): how many
     documents were read, and EVERY ONE THAT COULD NOT BE, with its type, its audience and why.
@@ -3382,7 +3389,7 @@ def product_documents(project: str, request: Request) -> dict:
                                                     "not none. Try again in a moment.") from exc
 
 
-@app.get("/api/whoami")
+@app.get("/api/whoami", **_reads(read_models.WhoamiRead))
 def whoami(request: Request) -> dict:
     """Who this credential is, and which areas it may act in.
 
@@ -3418,7 +3425,7 @@ def _has_form_login() -> bool:
         return False
 
 
-@app.get("/api/actions")
+@app.get("/api/actions", **_reads(read_models.ActionsRead))
 def list_actions() -> list[dict]:
     """What this deployment can be asked to do — the catalogue a front end renders and a script
     reads. Open (no auth): knowing an action exists is not authority to run it, and a panel that
