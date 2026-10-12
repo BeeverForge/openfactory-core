@@ -1466,7 +1466,10 @@ def _offer_card(ex: Exchange, composed, *, request: str, preamble: str = "",
                             project=project, conversation=ex.thread)
         return preamble + card_needs(ask=composed.ask, language=lang)
     title = composed.draft.title
-    disputed = composed.ruling.findings if composed.disputed and composed.ruling else ()
+    # WHAT THE PERSON IS TOLD THE REVIEW STILL SAYS, in their language (#677) — the findings stay
+    # on the record (`_judged`) for the redraft and the team
+    disputed = (tuple(cards.review_said([], composed.ruling, lang))
+                if composed.disputed and composed.ruling else ())
     if kind == "defect":
         return _offer_defect(ex, composed, request=request, preamble=preamble,
                              violates=(extra or {}).get("violates"), disputed=disputed)
