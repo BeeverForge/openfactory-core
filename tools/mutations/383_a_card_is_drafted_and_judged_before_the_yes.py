@@ -44,9 +44,10 @@ MUTATIONS = [
      "    refused = spec_verdict(parse_ticket_body(id=\"draft\", title=draft.title, body=body, repo=\"\"))\n"
      "    if False:"),
 
+    # RE-PINNED 2026-10-12 (#677): a problem carries its kind, for the person's sentence
     ("a draft with no description clears the floor", CARDS,
-     "    elif not description:\n        problems.append(\"the card has no description of the work\")",
-     "    elif False:\n        problems.append(\"the card has no description of the work\")"),
+     "    elif not description:\n        problems.append(_problem(\"undescribed\",",
+     "    elif False:\n        problems.append(_problem(\"undescribed\","),
 
     ("a critical failure the judge named does not fail the card", CARDS,
      "    if critical:\n        because.append",
@@ -175,21 +176,22 @@ MUTATIONS = [
      "                filed[index] = self._file_one(draft, requirement, tracker, board, vet=vet,",
      "                filed[index] = self._file_one(draft, requirement, tracker, board, vet=None,"),
 
+    # RE-PINNED 2026-10-12 (#677): what a person is told is the review's words for them
     ("a requirement's card the judge blocks is filed anyway", CARDS,
-     '    return None, "; ".join(feedback[:3]) or "it did not pass the review"',
+     '    return None, "; ".join(review_said(feedback, said, language))',
      '    return fields, ""'),
 
     ("the judge is not told its source is a requirement", CARDS,
-     "                                             source_note=REQUIREMENT_NOTE)), rubric)",
-     "                                             source_note=\"\")), rubric)"),
+     "                                             source_note=REQUIREMENT_NOTE, language=language)),",
+     "                                             source_note=\"\", language=language)),"),
 
     ("a module handed a harness judges with a live one it was not handed", MODULE,
      "            return self._handed_card_judge\n",
      "            return cards.build_judge(self.project)\n"),
 
     ("the judge is not shown what the author saw, so it calls the role's findings invented", CARDS,
-     "            reply=reply, answer=answered.answer if answered is not None else \"\")), rubric)",
-     "            reply=\"\", answer=\"\")), rubric)"),
+     "            reply=reply, answer=answered.answer if answered is not None else \"\",\n",
+     "            reply=\"\", answer=\"\",\n"),
 
     # RE-PINNED 2026-10-11 (#535): the sentence is picked from a catalogue by the project's language
     ("REVIEW OF #390: an unread judge files a requirement's card nobody will see", CARDS,
