@@ -1639,10 +1639,10 @@ def the_draft_it_replaces(entry: dict | None) -> str:
 
 def _replacing(ex: Exchange, compose) -> dict:
     """`replacing=` for a card drafter that takes it, when this turn replaces a draft (#661)."""
-    return _written_from(compose, replacing=the_draft_it_replaces(ex.replacing))
+    return _drafted_from(compose, replacing=the_draft_it_replaces(ex.replacing))
 
 
-def _written_from(drafter, **values: str) -> dict:
+def _drafted_from(drafter, **values: str) -> dict:
     """What a draft is written from, as keywords `drafter` takes — each only when it holds text, so
     a drafter written before it took them is called exactly as before (#661)."""
     return {name: value for name, value in values.items() if value and _accepts(drafter, name)}
@@ -1698,7 +1698,7 @@ def offer_draft(project, *, request: str, user: str, thread: str, module,
     if on_it:
         on_it()
     _progress.stage("drafting")    # a model call of its own, after the answer's (#395)
-    answer = module.draft(request, asked_by=asked_by or user, **_written_from(
+    answer = module.draft(request, asked_by=asked_by or user, **_drafted_from(
         module.draft, conversation=conversation, reply=reply, replacing=replacing))
     if not answer.ok or answer.draft is None:
         return None  # nothing to confirm; the conversation continues

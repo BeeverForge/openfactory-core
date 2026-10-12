@@ -48,7 +48,7 @@ MUTATIONS = [
      '        kept = {k: v for k, v in fields.items() if k not in ("conflicts", "supersedes") and v}',
      '        kept = {"title": fields.get("title")}'),
     ("the module drops what the draft is written from", MODULE,
-     '                          **({"asked": section} if section else {}), **written_from)',
+     '                          **({"asked": section} if section else {}), **drafted_from)',
      '                          **({"asked": section} if section else {}))'),
     ("the module drops the draft it replaces from the card", MODULE,
      "            language=lang, replacing=replacing)", "            language=lang)"),

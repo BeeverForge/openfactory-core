@@ -2435,12 +2435,12 @@ class ProductModule:
         # shown — a request dropped years ago is a `duplicates` conflict the person reads before
         # the yes. Handed only to a role whose `draft` takes it, like every keyword grown here.
         section = self.already_asked(request) if _takes(role.draft, "asked") else ""
-        written_from = {name: value for name, value in (("conversation", conversation),
+        drafted_from = {name: value for name, value in (("conversation", conversation),
                                                          ("reply", reply),
                                                          ("replacing", replacing))
                         if value and _takes(role.draft, name)}
         drafted = role.draft(sandbox=sandbox, workspace=ws, request=request, asked_by=asked_by,
-                             **({"asked": section} if section else {}), **written_from)
+                             **({"asked": section} if section else {}), **drafted_from)
         # A REQUIREMENT BELONGS TO THE WHOLE PRODUCT: each path in it from its repository's root,
         # naming the repository where the product has several (#672)
         if getattr(drafted, "draft", None) is None:
