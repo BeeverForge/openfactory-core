@@ -68,14 +68,18 @@ test: ## run the test suite
 INTEGRATION_TESTS := owns_its_engine or slow
 TEST_IDS_DIR ?= test-ids
 .PHONY: test-collect test-unit test-integration test-ran-once
+# The listing goes to a file, not the terminal: printed, 17,000 lines took five of the job's six
+# minutes on GitHub's runner while the collection itself took forty seconds.
 test-collect: ## write the node id of every test the suite collects to TEST_IDS
-	python -m pytest -q --collect-only -p no:randomly $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
+	@mkdir -p $(TEST_IDS_DIR)
+	python -m pytest -q --collect-only -p no:randomly $(if $(TEST_IDS),--record-ids=$(TEST_IDS)) > $(TEST_IDS_DIR)/collect.log 2>&1 || { tail -50 $(TEST_IDS_DIR)/collect.log; exit 1; }
+	@tail -1 $(TEST_IDS_DIR)/collect.log
 
 test-unit: ## the tests that start no engine and need no Docker, in parallel (TEST_SHARD/TEST_SHARDS: one slice)
-	python -m pytest -q -n auto -m "not ($(INTEGRATION_TESTS))" $(if $(TEST_SHARDS),--shard=$(TEST_SHARD)/$(TEST_SHARDS)) $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
+	python -m pytest -q -n auto -m "not ($(INTEGRATION_TESTS))" --durations=15 $(if $(TEST_SHARDS),--shard=$(TEST_SHARD)/$(TEST_SHARDS)) $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
 
 test-integration: ## the tests that start their own durable engine, and the slow ones that need Docker
-	python -m pytest -q -n auto -m "$(INTEGRATION_TESTS)" $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
+	python -m pytest -q -n auto -m "$(INTEGRATION_TESTS)" --durations=15 $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
 
 test-ran-once: ## fail unless every collected test was started exactly once across CI's jobs
 	python scripts/every_test_ran_once.py $(TEST_IDS_DIR)/collected.txt $(wildcard $(TEST_IDS_DIR)/ran-*.txt)

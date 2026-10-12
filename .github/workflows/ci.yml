@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,7 +56,7 @@ jobs:
       - run: make test-unit
         env:
           TEST_SHARD: ${{ matrix.shard }}
-          TEST_SHARDS: 3
+          TEST_SHARDS: 4
           TEST_IDS: test-ids/ran-unit-${{ matrix.shard }}.txt
       - uses: actions/upload-artifact@v4
         if: always()
