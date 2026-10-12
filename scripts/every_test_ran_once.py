@@ -54,7 +54,7 @@ def main(argv: list[str]) -> int:
     found = compare(collected, ran)
     if not any(found.values()):
         print(f"every one of the {len(collected)} collected tests ran exactly once, "
-              f"across {len(argv) - 1} job(s)")
+              f"across {len(argv) - 1} recorded run(s)")
         return 0
     for kind, ids in found.items():
         if ids:
