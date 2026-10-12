@@ -174,7 +174,7 @@ DEFAULT_LANGUAGE = "en"
 #: problem.
 LANGUAGE_RULES = {
     "pt-BR": ("# Language\n\nWrite in BRAZILIAN Portuguese (pt-BR), not European. This is not a "
-              "nicety: the reader is Brazilian, and pt-PT reads as a message meant for somebody "
+              "nicety: a Brazilian reader reads pt-PT as a message meant for somebody "
               "else. Use \"usuário\" (never \"utilizador\"), \"fechamento\" (never \"fecho\"), "
               "\"criptografado\" (never \"cifrado\"), \"time\" (never \"equipa\"), \"tela\" (never "
               "\"ecrã\"), \"arquivo\" (never \"ficheiro\"), and gerunds as in \"estou fazendo\" "
@@ -186,13 +186,30 @@ LANGUAGE_RULES = {
 }
 
 
-def language_rules(language: str | None) -> str:
+def language_rules(language: str | None, *, replying: bool = False) -> str:
     """The dialect instruction for the prompt, or "" when we have nothing specific to say.
 
     Empty rather than a guess: an unknown language code with an invented instruction would be
-    worse than letting the model read the room, which is what it does well when uninstructed."""
+    worse than letting the model read the room, which is what it does well when uninstructed.
+
+    `replying`: the prompt answers a person (#655). The reply clause comes first, the one sentence
+    every harness also prepends (`roles.REPLY_CLAUSE`), and the dialect rule then governs what the
+    role says first and its replies to whoever writes in the project's language. Without it the
+    dialect rule was the whole rule, and an English question on a pt-BR project was answered in
+    Portuguese. A document written in a NAMED language (a card, #429) is not a reply, and keeps
+    the dialect rule alone."""
     lang = (language or DEFAULT_LANGUAGE).strip()
-    return LANGUAGE_RULES.get(lang, "")
+    rule = LANGUAGE_RULES.get(lang, "")
+    if not replying:
+        return rule
+    from openfactory.adapters.agent.roles import REPLY_CLAUSE
+
+    said = ["# Language", "", REPLY_CLAUSE]
+    dialect = rule.removeprefix("# Language\n\n")
+    if dialect:
+        said += ["", "What you say first, and your replies to anyone who writes in this project's "
+                     "language, follow this rule:", "", dialect]
+    return "\n".join(said)
 
 
 
