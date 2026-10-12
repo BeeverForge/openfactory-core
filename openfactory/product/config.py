@@ -277,13 +277,21 @@ def resolve_product_link(
         return _off("config", f"could not read `.openfactory/product.yaml` in {authorized}"
                               + (f": {docs_error}" if docs_error else ""))
 
-    # 3. …and must describe THIS product
-    if (docs.product or "").strip().lower() != str(project.name).strip().lower():
+    # 3. …and must describe THIS product. A product of one project names it: `product:` is the
+    #    project's name. A product of several (`product/key.py`, ADR-0051 D2) has one name and
+    #    several projects, so the name admitted one of them and refused the rest (#663). Each
+    #    member is admitted by the context LISTING its code repository in `sources:`, exactly,
+    #    which is the second declaration the isolation rests on; a listing on the repository's
+    #    name alone does not stand in for it, and the name decides alone only where nothing is
+    #    listed to check.
+    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and not _listed(
+            project, docs):
         return _off(
             "conflict",
             f"{authorized} holds requirements for product {docs.product!r}, but this project is "
-            f"{project.name!r}. Refusing: writing one client's requirements into another's "
-            f"repository is an isolation breach, not a typo to work around.",
+            f"{project.name!r} and its code repository is not in that product's `sources:`. "
+            f"Refusing: writing one client's requirements into another's repository is an "
+            f"isolation breach, not a typo to work around.",
         )
 
     # 4. …and must count this source repo as a member. The DETECTABLE inconsistency the two-way
@@ -351,6 +359,15 @@ def resolve_product_link(
     return ProductLink(active=True, docs_repo=authorized, kind="ok",
                        reason="registry, source repo and documentation repo agree",
                        warnings=warnings)
+
+
+def _listed(project, docs: ProductDocs) -> bool:
+    """Does the context list this project's code repository in `sources:`, as the same repository
+    written the same way? A match on the NAME alone is not a listing here: it is the evidence that
+    would admit another client's project of the same name."""
+    source = normalize_repo(_source_repo(project))
+    return bool(source) and any(
+        repo_match(source, normalize_repo(s)) == MATCH_EXACT for s in docs.sources)
 
 
 def _source_repo(project) -> str:
