@@ -689,8 +689,12 @@ def test_the_card_view_offers_the_pass_to_the_requester_with_its_bar_to_edit(
     assert view["criteria"] == ["There is a way to export the list"]
     assert view["words"]["adjust"] == "Send back for another pass"
     assert "2 of the 3 this project allows are left" in view["words"]["note"]
-    assert _act("product_board", who=STRANGER, project="acme",
-                card=ref).data["card"]["adjust"] == {"offered": False}
+    from openfactory.product.voice import adjust_said
+
+    refused = _act("product_board", who=STRANGER, project="acme", card=ref).data["card"]["adjust"]
+    # SAID, NOT HIDDEN (#668): whoever may not send it back is told so, never shown nothing
+    assert refused == {"offered": False,
+                       "note": adjust_said("not_yours", ref=ref, language="en")}, refused
 
 
 def test_a_card_the_factory_has_not_taken_up_asks_the_engine_nothing(

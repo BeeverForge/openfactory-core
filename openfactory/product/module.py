@@ -5295,11 +5295,13 @@ class ProductModule:
     def adjust_view(self, number: str, *, actor: str, vouched: bool = False) -> dict:
         """What the card's "send back for another pass" control needs on the product view (#448):
         whether it is offered to THIS person, the card's criteria to edit, the words, and — when no
-        pass can be sent — what happens instead. `{"offered": False}` and nothing else when nobody
-        is asked anything: a card no change waits on carries no sentence about passes.
+        pass can be sent — what happens instead.
 
         ASKED ONLY OF A CARD THE FACTORY HAS TAKEN UP AND NOT FINISHED (the caller's column), so
-        the engine is not asked about every card a person opens."""
+        the engine is not asked about every card a person opens — and so every refusal SAYS WHY
+        (#668). A bare `{"offered": False}` drew nothing on the owner's page: journey 0's owner, an
+        admin, opened a card waiting at the human merge gate and saw no Send back and no sentence.
+        Whoever may not send it back is told so; every reason the gate gives has its sentence."""
         from openfactory.adapters.tracker.parse import parse_ticket_body
         from openfactory.product import adjust
         from openfactory.product.voice import adjust_controls, adjust_said
@@ -5307,13 +5309,11 @@ class ProductModule:
         number = canonical_ref(number)
         lang = getattr(self.project, "language", None)
         if not self.may_send_back(number, actor, vouched=vouched):
-            return {"offered": False}
+            return {"offered": False, "note": adjust_said("not_yours", ref=number, language=lang)}
         gate = adjust.pass_gate_of(self.project, number)       # the last gate too (#448 slice 4)
-        if gate.why in (adjust.SPENT, adjust.WORKING, adjust.DEAF):
+        if not gate.open:
             return {"offered": False, "note": adjust_said(gate.why, ref=number,
                                                           passes=gate.passes, language=lang)}
-        if not gate.open:
-            return {"offered": False}
         try:
             body = getattr(self._tracker().get_ticket(f"#{number}"), "raw", "") or ""
         except Exception as exc:  # noqa: BLE001 — the control is a courtesy; the row asks again
