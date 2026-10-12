@@ -151,7 +151,7 @@ def test_an_unauthorised_user_cannot_record_a_requirement(tmp_path):
     draft = mod.draft("let admins edit")
     res = mod.propose(draft, actor=OUTSIDER)
     assert res.ok is False
-    assert "permissão de aprovação" in res.detail  # refused, in terms the asker can act on
+    assert "permissão para aprovar" in res.detail  # refused, in terms the asker can act on
 
 
 def test_a_refused_write_says_so_out_loud_rather_than_doing_nothing(tmp_path):
