@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -241,9 +242,13 @@ def test_a_forge_that_cannot_name_a_source_costs_that_source_and_no_credential(p
 
 
 def test_a_project_the_product_link_does_not_hold_for_publishes_nothing(product):
+    """Another name AND another repository: a project whose code the context lists is one of the
+    product's projects whatever it is called (#663), so the stranger's code is not listed."""
     project, remotes, root, _ = product
     before = _commits(remotes["quayside-context"])
-    stranger = project.model_copy(update={"name": "someone-else"})
+    elsewhere = ProviderRef(kind="local", repo="someone-else", options={})
+    stranger = project.model_copy(update={"name": "someone-else", "tracker": elsewhere,
+                                          "forge": elsewhere})
     assert refresh.refresh_system(stranger, root=root) == refresh.NO_PRODUCT
     assert _commits(remotes["quayside-context"]) == before
 
@@ -291,8 +296,9 @@ def test_a_link_in_the_context_repository_is_never_written_through(tmp_path, lin
     src = tmp_path / "src"
     src.mkdir()
     (src / "system.yaml").write_text("version: '1'\n")
-    done = pipeline.publish_dir(src, str(remote), subpath=Path(".okf") / "system",
-                                message="m", what="system layer")
+    done = pipeline.publish_dir(src, str(remote), project=SimpleNamespace(name="p", product=None),
+                                subpath=Path(".okf") / "system", message="m",
+                                what="system layer")
     assert done == pipeline.FAILED
     assert sorted(p.name for p in (elsewhere / "system").iterdir()) == ["canary"]
     assert _commits(remote) == before

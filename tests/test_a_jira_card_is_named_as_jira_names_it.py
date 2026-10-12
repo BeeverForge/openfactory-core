@@ -93,7 +93,7 @@ def _proposal(a, b):
 #: `name → (a, b, language) → what it says`. Each names the card `a` (and `b` where two are named).
 COMPOSERS = {
     "card_withdrawn_result": lambda a, b, lang: [
-        voice.card_withdrawn_result(ref=a, how=how, language=lang)
+        voice.card_withdrawn_result(ref=a, how=how, language=lang, approvers=["po"])
         for how in ("closed", "removed", "only_closed", "not_yours")],
     "defect_filed": lambda a, b, lang: voice.defect_filed(ref=a, violates=3, language=lang,
                                                           just_asked=True),
@@ -129,7 +129,8 @@ COMPOSERS = {
         voice.correction_refused(reason, number=a, column="Doing", language=lang)
         for reason in voice._CORRECTION_REFUSED],
     "adjust_said": lambda a, b, lang: [
-        voice.adjust_said(reason, ref=a, passes=2, length=9, limit=8, language=lang)
+        voice.adjust_said(reason, ref=a, passes=2, length=9, limit=8, language=lang,
+                          approvers=["po"])
         for reason in voice._ADJUST_SAID],
     "adjust_sent": lambda a, b, lang: voice.adjust_sent(ref=a, instruction="i", number=1,
                                                         passes=2, language=lang),

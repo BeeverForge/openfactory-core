@@ -35,10 +35,11 @@ import os
 import re
 import shutil
 import subprocess
-import threading
 import time
 import uuid
 from pathlib import Path
+
+from openfactory.util.filelock import FileLock
 
 #: WARNINGS, NOT `print`. These two lines are the cache degrading, and they used to go to
 #: stdout — so they landed ABOVE `openfactory doctor`'s table, in the middle of a command
@@ -99,16 +100,27 @@ _LEFT_OUT_FILE = "openfactory-left-out"
 _MASTERS_DIRNAME = ".masters"
 _STAGING_DIRNAME = ".staging"
 _TRASH_DIRNAME = ".trash"
+_LOCKS_DIRNAME = ".locks"
 
-# One lock per project: the poller may overlap ticks; two concurrent fetch/reset runs on the
-# same checkout corrupt it. Process-local is enough — one worker process owns the cache dir.
-_locks: dict[str, threading.Lock] = {}
-_locks_guard = threading.Lock()
+#: How long a sync waits for a key another thread or process is changing. A holder's git commands
+#: are each bounded by `_GIT_TIMEOUT`, and a holder that dies lets go with it (the kernel releases
+#: a `flock`), so this is reached only behind a holder that hung outside git. The caller then
+#: degrades, as for any sync that returns None, instead of waiting for ever.
+_LOCK_WAIT_SECONDS = 30 * 60
 
 
-def _lock_for(name: str) -> threading.Lock:
-    with _locks_guard:
-        return _locks.setdefault(name, threading.Lock())
+def _key_lock(root: Path, key: str) -> FileLock:
+    """The lock on one key of one cache root, held by every thread and every PROCESS changing it.
+
+    IT WAS A `threading.Lock`, written for "one worker process owns the cache dir" (#656). On one
+    machine the panel and the worker are two processes that fall back to the same root, and
+    journey 0 measured them syncing one key at once: one `rmtree`-ed and re-cloned the master the
+    other was resetting, git said "already exists and is not an empty directory", and every fresh
+    project got an impediment card. A `flock` on a file beside the checkouts is held across
+    processes, and across the containers that share the volume; the thread lock in front of it
+    still queues one process's threads (`util/filelock.py`). Per key, so a product's sources still
+    sync at once."""
+    return FileLock(Path(root) / _LOCKS_DIRNAME / f"{key}.lock")
 
 
 def _scrub(text: str) -> str:
@@ -226,7 +238,7 @@ class RepoCache:
         `project` is only a cache key, so one project may keep several checkouts under distinct
         keys (its code, its documentation repo) without them colliding."""
         try:
-            with _lock_for(project):
+            with _key_lock(self.root, project).held(timeout=_LOCK_WAIT_SECONDS):
                 try:
                     return self._sync(project, clone_url, base_branch)
                 finally:
@@ -579,7 +591,7 @@ class SparseRepoCache(RepoCache):
         self.failure, self.left_out, self.partial = "", [], False
         public, env = _credential_env(clone_url)
         try:
-            with _lock_for(project):
+            with _key_lock(self.root, project).held(timeout=_LOCK_WAIT_SECONDS):
                 try:
                     return self._sync_sparse(project, public, base_branch, env)
                 finally:

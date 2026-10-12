@@ -14,6 +14,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -32,6 +33,9 @@ _ENV = {
 }
 
 #: the source identity every test in this file uses unless it cares about a second one
+#: the product whose semaphore a publish takes (#673): a registry project of its own
+_PRODUCT = SimpleNamespace(name="shop", product=None)
+
 _SUBPATH = okf_subpath("owner/repo")
 
 
@@ -108,7 +112,8 @@ def _refresh(work: Path, context: Path, *, subpath: Path = _SUBPATH) -> str:
         bundle = build_bundle(work, commit=commit, generated_at="t")
         if write_bundle(bundle, work) is None:
             return "unchanged"
-        return "published" if publish_bundle(dest, str(context), subpath=subpath,
+        return "published" if publish_bundle(dest, str(context), project=_PRODUCT,
+                                             subpath=subpath,
                                              source_commit=commit) else "failed"
     finally:
         if published is not None:
@@ -195,8 +200,10 @@ def test_publishing_the_map_the_branch_already_holds_answers_false_and_commits_n
     bundle = build_bundle(work, commit="c1", generated_at="t")
     write_bundle(bundle, work, force=True)
     dest = work / BUNDLE_DIRNAME
-    assert publish_bundle(dest, str(context), subpath=_SUBPATH, source_commit="c1") is True
-    assert publish_bundle(dest, str(context), subpath=_SUBPATH, source_commit="c1") is False
+    assert publish_bundle(dest, str(context), project=_PRODUCT, subpath=_SUBPATH,
+                          source_commit="c1") is True
+    assert publish_bundle(dest, str(context), project=_PRODUCT, subpath=_SUBPATH,
+                          source_commit="c1") is False
     assert len(_branch_commits(context, "main")) == 1
 
 
@@ -549,8 +556,8 @@ def test_a_rejected_push_is_retried_on_the_new_tip(tmp_path: Path, monkeypatch):
         return real_git(*args, **kwargs)
 
     monkeypatch.setattr(pipeline, "_git", flaky)
-    assert pipeline.publish_bundle(work / BUNDLE_DIRNAME, str(context), subpath=_SUBPATH,
-                                   source_commit="c") is True
+    assert pipeline.publish_bundle(work / BUNDLE_DIRNAME, str(context), project=_PRODUCT,
+                                   subpath=_SUBPATH, source_commit="c") is True
     assert len(pushes) == 2  # rejected once, then landed
     assert len(_branch_commits(context, "main")) == 1
 

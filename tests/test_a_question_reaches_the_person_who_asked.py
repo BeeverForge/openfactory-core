@@ -395,7 +395,7 @@ def test_the_answer_retires_the_open_questions_the_comment_carried_and_re_render
     published: list = []
     monkeypatch.setattr(pipeline, "fetch_bundle", lambda url, *, subpath: Fetched(bundle))
     monkeypatch.setattr(pipeline, "publish_bundle",
-                        lambda b, url, *, subpath, source_commit="", author=None:
+                        lambda b, url, *, project, subpath, source_commit="", author=None:
                         published.append(subpath) or True)
     monkeypatch.setattr(pipeline, "discard_fetched_bundle", lambda p: None)
     monkeypatch.setattr(forge, "clone_url_for", lambda project, repo="", *, token=None: "u")

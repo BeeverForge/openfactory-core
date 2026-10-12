@@ -41,7 +41,7 @@ from openfactory.runtime.temporal.io import JobParams
 
 # `tv.ATTENTION_STATES` and `tv.MERGE_WAIT` are the names every caller uses, so they are named
 # here — and DEFINED in `vocabulary.py`, which the panel's page can import without `temporalio`.
-from openfactory.runtime.temporal.vocabulary import ATTENTION_STATES, MERGE_WAIT
+from openfactory.runtime.temporal.vocabulary import ATTENTION_STATES, MERGE_WAIT, EngineUnreachable
 from openfactory.runtime.temporal.workflow import JobWorkflow
 from openfactory.util.bounded import BoundedDict
 
@@ -92,13 +92,6 @@ def _seconds(name: str, fallback: float) -> float:
         log.warning("%s is not a number (%r) — using %ss", name, os.environ.get(name), fallback)
         return fallback
     return wanted if wanted > 0 else fallback
-
-
-class EngineUnreachable(RuntimeError):
-    """The engine did not answer inside the deadline, or did not a moment ago.
-
-    A DISTINCT TYPE so a caller can tell "it is not there" from "it said no": every read-side caller
-    already degrades on an exception, and the ones that report a reason now have one to report."""
 
 
 #: When the engine is worth asking again — a loop clock, never a wall clock.

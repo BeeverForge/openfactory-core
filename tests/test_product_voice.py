@@ -34,8 +34,8 @@ CLIENT_TEXTS = {
         conflicts=["requirement 7: a reconciled statement can't be changed"]),
     "confirmation-clean": confirmation_request(title="t", must_be_true=["x"]),
     "written-up": written_up(title="Editable statements", url="https://example/x", number=12),
-    "cannot-write-none": cannot_write(has_approvers=False),
-    "cannot-write-some": cannot_write(has_approvers=True),
+    "cannot-write-none": cannot_write(approvers=[]),
+    "cannot-write-some": cannot_write(approvers=["U0ADMIN"]),
     "unavailable": unavailable(reason_for_team="`.openfactory/product.yaml` is missing"),
 }
 
@@ -158,8 +158,8 @@ def test_no_message_leaks_jargon_in_EITHER_language(lang):
     for text in (announcement(product="p", areas=["conciliação"], language=lang),
                  confirmation_request(title="t", must_be_true=["x"], language=lang),
                  written_up(title="t", url="u", number=1, language=lang),
-                 cannot_write(has_approvers=False, language=lang),
-                 cannot_write(has_approvers=True, language=lang),
+                 cannot_write(approvers=[], language=lang),
+                 cannot_write(approvers=["U0ADMIN"], language=lang),
                  unavailable(language=lang)):
         assert jargon_in(text) == [], text
 

@@ -43,10 +43,12 @@ def _its_own_cache(tmp_path, monkeypatch):
     """A cache root PER TEST, because the default one is a real shared directory.
 
     Nothing here patched it, so every test in this file fetched into the deployment's own cache —
-    the same path, from several xdist worker PROCESSES at once. `RepoCache._lock_for` serialises
-    within a process and cannot across them, so two workers could `rmtree` and re-clone one
+    the same path, from several xdist worker PROCESSES at once. The cache's lock then serialised
+    within a process and could not across them, so two workers could `rmtree` and re-clone one
     master while a third was resetting it: an intermittent "could not be fetched" that reproduced
-    roughly one run in five and never once in isolation.
+    roughly one run in five and never once in isolation. The lock holds across processes since
+    #656 (`test_two_processes_never_change_one_checkout_at_once.py`); a root per test still keeps a
+    test from writing into the deployment's own cache.
     """
 
     monkeypatch.setenv("OPENFACTORY_REPO_CACHE", str(tmp_path / "shared-cache"))

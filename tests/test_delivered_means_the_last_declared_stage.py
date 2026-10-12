@@ -820,7 +820,7 @@ def test_in_the_room_anybody_s_report_is_staged_like_any_other_and_their_yes_fil
 
     refused = _say(deployment, pen, "yes", who=STRANGER, where=ROOM)
 
-    assert refused == voice.cannot_write(has_approvers=True, language=LANG), refused
+    assert refused == voice.cannot_write(approvers=[ADMIN], language=LANG), refused
     assert list(_cards(tracker)) == [ref], "a defect was filed on a yes nobody may give"
 
 
