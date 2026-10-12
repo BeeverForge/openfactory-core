@@ -73,7 +73,7 @@ RECOGNISERS = {
     ("openfactory/product/module.py", "_ALSO_CALLED"): "what was asked",
     ("openfactory/language/written.py", "FUNCTION_WORDS"): "the",
     ("openfactory/product/engine.py", "_STOPWORDS"): "the of in",
-    ("openfactory/product/staging.py", "_NO"): "not right",
+    ("openfactory/product/staging.py", "NO_OPENERS"): "not right",
     ("openfactory/product/voice.py", "CLIENT_JARGON"): "pull request",
     ("openfactory/product/voice.py", "_CLAIMED_DONE"): "recorded",
     ("openfactory/product/voice.py", "_RETRACTS_WRITE"): "nothing was",
