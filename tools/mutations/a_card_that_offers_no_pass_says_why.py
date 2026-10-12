@@ -36,7 +36,8 @@ MUTATIONS = [
     # 2. who may not send it back
     ("a person who may not send it back is shown nothing", MODULE,
      '            return {"offered": False, "note": adjust_said("not_yours", ref=number, '
-     'language=lang)}',
+     'language=lang,\n'
+     '                                                          approvers=approvers_of(self.project))}',
      '            return {"offered": False}'),
 
     # 3. the log

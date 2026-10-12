@@ -5336,7 +5336,8 @@ class ProductModule:
         number = canonical_ref(number)
         lang = getattr(self.project, "language", None)
         if not self.may_send_back(number, actor, vouched=vouched):
-            return {"offered": False, "note": adjust_said("not_yours", ref=number, language=lang)}
+            return {"offered": False, "note": adjust_said("not_yours", ref=number, language=lang,
+                                                          approvers=approvers_of(self.project))}
         gate = adjust.pass_gate_of(self.project, number)       # the last gate too (#448 slice 4)
         if not gate.open:
             return {"offered": False, "note": adjust_said(gate.why, ref=number,

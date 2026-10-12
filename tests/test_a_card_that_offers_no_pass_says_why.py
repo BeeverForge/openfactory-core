@@ -62,7 +62,8 @@ def test_a_person_who_may_not_send_it_back_is_told_so(lang, deployment, tracker,
     view = _module(_in(deployment, lang)).adjust_view(card, actor=STRANGER)
 
     assert view == {"offered": False,
-                    "note": voice.adjust_said("not_yours", ref=card, language=lang)}, view
+                    "note": voice.adjust_said("not_yours", ref=card, language=lang,
+                                              approvers=deployment.product.admins)}, view
 
 
 def test_an_engine_error_read_as_no_job_is_said_in_the_log(deployment, monkeypatch, caplog):

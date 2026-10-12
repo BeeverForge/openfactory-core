@@ -694,7 +694,8 @@ def test_the_card_view_offers_the_pass_to_the_requester_with_its_bar_to_edit(
     refused = _act("product_board", who=STRANGER, project="acme", card=ref).data["card"]["adjust"]
     # SAID, NOT HIDDEN (#668): whoever may not send it back is told so, never shown nothing
     assert refused == {"offered": False,
-                       "note": adjust_said("not_yours", ref=ref, language="en")}, refused
+                       "note": adjust_said("not_yours", ref=ref, language="en",
+                                           approvers=[ADMIN])}, refused
 
 
 def test_a_card_the_factory_has_not_taken_up_asks_the_engine_nothing(
