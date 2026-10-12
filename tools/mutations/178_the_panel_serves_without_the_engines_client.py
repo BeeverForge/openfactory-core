@@ -55,8 +55,9 @@ MUTATIONS = [
      "", "\nimport temporalio  # noqa: F401, E402\n"),
 
     ("the view defines its own list of attention states again", VIEW,
-     "from openfactory.runtime.temporal.vocabulary import ATTENTION_STATES, MERGE_WAIT\n",
-     "from openfactory.runtime.temporal.vocabulary import MERGE_WAIT\n\n"
+     "from openfactory.runtime.temporal.vocabulary import ATTENTION_STATES, MERGE_WAIT, "
+     "EngineUnreachable\n",
+     "from openfactory.runtime.temporal.vocabulary import MERGE_WAIT, EngineUnreachable\n\n"
      'ATTENTION_STATES = {"failed", "needs_refinement", "on_hold", "blocked", "paused",\n'
      '                    "awaiting_prod_approval", "awaiting_your_merge"}\n'),
 
