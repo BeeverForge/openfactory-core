@@ -2472,7 +2472,10 @@ def _the_requesters_yes(project, loop, issue: str, user: str, *, head: str, lang
                               facts={"who": _name_of(user), "note": ""})
     told = any(name == "tell:tried" and outcome in ("told", "told already")
                for name, outcome in moved.effects)
-    return head + requester_said_right(ref=issue, told=told, language=lang)
+    from openfactory.product.module import approvers_of
+
+    return head + requester_said_right(ref=issue, told=told, language=lang,
+                                       approvers=approvers_of(project))
 
 
 def _the_requester_said_right(project, loop) -> bool:

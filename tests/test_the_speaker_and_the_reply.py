@@ -269,7 +269,7 @@ def test_accept_on_behalf_never_lets_somebody_off_the_admin_list_confirm(table, 
 
     refused = talk.say("sim", user=CAIO)
 
-    assert refused == voice.cannot_write(has_approvers=True, language=LANG)
+    assert refused == voice.cannot_write(approvers=project.product.admins, language=LANG)
     assert not module.asked("propose") and _staged(ANA) is not None
 
 
