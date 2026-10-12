@@ -32,8 +32,8 @@ MUTATIONS = [
 
     ("the request marker's instruction loses the phrase",
      ROLE,
-     '            f"marker {REQUEST_MARKER} on its own line. {STAGED_AFTER_YOUR_REPLY} If they "\n',
-     '            f"marker {REQUEST_MARKER} on its own line. If they "\n'),
+     '            f"that is a card they asked for, below. {STAGED_AFTER_YOUR_REPLY} If they "\n',
+     '            f"that is a card they asked for, below. If they "\n'),
 
     ("the ticket marker's instruction loses the phrase",
      ROLE,

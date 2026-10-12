@@ -147,7 +147,9 @@ def test_an_unreadable_docs_manifest_turns_the_module_off_rather_than_assuming()
 
 
 def test_a_docs_repo_for_a_DIFFERENT_product_is_refused_as_an_isolation_breach():
-    link = _link(docs=_docs(product="fink"))
+    """Another product's context, which does not list this project's code. A context that LISTS it
+    is this project's product under another name, a product of several projects (#663)."""
+    link = _link(docs=_docs(product="fink", sources=["AcmeCorp/fink"]))
     assert link.active is False and link.kind == "conflict"
     assert "fink" in link.reason and "isolation" in link.reason
 
@@ -182,7 +184,7 @@ def test_the_product_name_comparison_ignores_case_and_padding():
     {"project": _project(product=None)},
     {"project": _project(product={"docs_repo": ""})},
     {"docs": None},
-    {"docs": _docs(product="fink")},
+    {"docs": _docs(product="fink", sources=["AcmeCorp/fink"])},
     {"docs": _docs(sources=[])},
     {"manifest_docs_repo": "someone/else"},
 ])

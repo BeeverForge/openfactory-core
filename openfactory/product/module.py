@@ -1318,6 +1318,12 @@ class ProductModule:
                         "files will name the repository without linking to it",
                         getattr(self.project, "name", "?"), exc)
             return ""
+        if not _re.match(r"https?://", url):
+            # NOT AN ADDRESS A PERSON CAN OPEN (#662). The local row's clone URL is a path on this
+            # machine, and as a link it wrote the operator's home directory onto every card; a
+            # `file://` or an ssh address opens nothing from a board either. The card names the
+            # repository as plain text instead.
+            return ""
         authority = url.split("://", 1)[-1].split("/", 1)[0]
         if "@" in authority:
             log.error("OPENFACTORY_PRODUCT_DOCS_URL_HAS_A_CREDENTIAL project=%s — the forge "
@@ -2071,7 +2077,12 @@ class ProductModule:
             asked=self.already_asked(question))
         answer = _bound_answer(self, answer)
         _signal_gaps(self, answer)
-        return answer
+        # WHAT THE PERSON READS cites each file as its repository reads it (#672) — after the gap
+        # signal, which maps the reply's evidence back through the view it was read in
+        return answer.model_copy(update=_in_repository_terms(self, {
+            "text": answer.text, "ticket_title": answer.ticket_title,
+            "decisions": answer.decisions, "gesture_args": answer.gesture_args},
+            product_wide=True)) if hasattr(answer, "model_copy") else answer
 
     def _okf_dir(self) -> Path | None:
         """The bundle this role's reading is BOUND against, as an absolute path — the one folder
@@ -2428,8 +2439,14 @@ class ProductModule:
                                                          ("reply", reply),
                                                          ("replacing", replacing))
                         if value and _takes(role.draft, name)}
-        return role.draft(sandbox=sandbox, workspace=ws, request=request, asked_by=asked_by,
-                          **({"asked": section} if section else {}), **written_from)
+        drafted = role.draft(sandbox=sandbox, workspace=ws, request=request, asked_by=asked_by,
+                             **({"asked": section} if section else {}), **written_from)
+        # A REQUIREMENT BELONGS TO THE WHOLE PRODUCT: each path in it from its repository's root,
+        # naming the repository where the product has several (#672)
+        if getattr(drafted, "draft", None) is None:
+            return drafted
+        return drafted.model_copy(update={
+            "draft": _in_repository_terms(self, drafted.draft, product_wide=True)})
 
     # ---- the semaphore on what becomes work ---------------------------------------------------
 
@@ -3915,9 +3932,9 @@ class ProductModule:
             return False, column
         return board is None or moved.outcome("place").startswith("placed"), column
 
-    def _in_repository_terms(self, value, home: str = ""):
+    def _in_repository_terms(self, value, home: str = "", *, product_wide: bool = False):
         """`_in_repository_terms(self, …)`, for a caller holding the module."""
-        return _in_repository_terms(self, value, home)
+        return _in_repository_terms(self, value, home, product_wide=product_wide)
 
     def _filing_repo(self, draft, tracker) -> tuple[str, str]:
         """`(repository, said)` — where a card of this draft is filed: the repository the role
@@ -4134,6 +4151,7 @@ class ProductModule:
                 prompt=classify_prompt(ticket_number=item.number, title=item.title,
                                        body=item.body, diagnosis=item.diagnosis),
                 phase="product_triage")
+            answer = _in_repository_terms(self, answer)
             # an unreadable classification is `unclear`, never a cause that would make it ACT
             verdicts.append(
                 Verdict(ticket=item.number, **answer) if isinstance(answer, dict)
@@ -4320,7 +4338,7 @@ class ProductModule:
         if not isinstance(answer, dict):
             return state, None, queue_said("unproposed", language=lang)
 
-        proposal = QueueProposal(**answer)
+        proposal = QueueProposal(**_in_repository_terms(self, answer))
         # never propose something that is not a candidate: a model naming a ticket that is parked,
         # unrefined or imaginary would have a person approving work that cannot start
         allowed = {t.number for t in candidates}
@@ -6254,9 +6272,14 @@ def _req_number(ref: str) -> int:
     return int(digits) if digits else 0
 
 
-def _in_repository_terms(module, value, home: str = ""):
+def _in_repository_terms(module, value, home: str = "", *, product_wide: bool = False):
     """What the role wrote, with each path as the repository the card lands in reads it
-    (`workspace.as_the_repository_reads`): a string, a list of them, or a draft's own words.
+    (`workspace.as_the_repository_reads`): a string, a list or a mapping of them, or a draft's own
+    words, every field of it.
+
+    `product_wide`: words that belong to the whole product rather than to one card's repository —
+    a reply, a requirement (#672). A product of one repository reads its own paths from its root;
+    in a product of several, every path names its repository, because no one of them is home.
 
     A MODULE MISSING WHAT THIS READS (a test's stand-in) GETS THE WORDS AS WRITTEN, like any other
     rewrite that cannot be made.
@@ -6275,7 +6298,8 @@ def _in_repository_terms(module, value, home: str = ""):
 
             placed = _placements(declared(module.context().docs_path).repos
                                  or [module._source_repo()])
-        home = home or module._source_repo()
+        home = ((next(iter(placed)) if len(placed) == 1 else "") if product_wide
+                else home or module._source_repo())
         view = getattr(module, "_combined", None) if mounted else None
     except Exception:  # noqa: BLE001 — a card filed as the role wrote it beats one not filed
         log.warning("OPENFACTORY_PRODUCT_PATHS_NOT_REWRITTEN project=%s — the role's paths "
@@ -6296,21 +6320,26 @@ def _in_repository_terms(module, value, home: str = ""):
                      "apart here", getattr(getattr(module, "project", None), "name", "?"))
         return rewritten
 
-    if isinstance(value, str):
-        return _one(value)
-    if isinstance(value, list | tuple):
-        return type(value)(_one(v) for v in value)
-    if isinstance(value, dict):
-        return {k: (_in_repository_terms(module, v, home) if isinstance(v, str | list | tuple)
-                    else v) for k, v in value.items()}
-    changes = {field: _in_repository_terms(module, getattr(value, field), home)
-               for field in ("title", "objective", "acceptance_criteria", "out_of_scope")
-               if hasattr(value, field)}
-    if hasattr(value, "model_copy"):
-        return value.model_copy(update=changes)
-    import copy
+    import dataclasses
+    from types import SimpleNamespace
 
-    rewritten = copy.copy(value)
-    for field, text in changes.items():
-        setattr(rewritten, field, text)
-    return rewritten
+    def _walk(value):
+        if isinstance(value, str):
+            return _one(value)
+        if isinstance(value, list | tuple):
+            return type(value)(_walk(v) for v in value)
+        if isinstance(value, dict):
+            return {k: _walk(v) for k, v in value.items()}
+        # EVERY FIELD OF A DRAFT, its nested ones too: a requirement's `why` and its conflicts'
+        # explanations cited the view's paths as well as its criteria (#672)
+        if hasattr(value, "model_copy") and hasattr(type(value), "model_fields"):
+            return value.model_copy(update={f: _walk(getattr(value, f))
+                                            for f in type(value).model_fields})
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            return dataclasses.replace(value, **{f.name: _walk(getattr(value, f.name))
+                                                 for f in dataclasses.fields(value) if f.init})
+        if isinstance(value, SimpleNamespace):
+            return SimpleNamespace(**{k: _walk(v) for k, v in vars(value).items()})
+        return value
+
+    return _walk(value)

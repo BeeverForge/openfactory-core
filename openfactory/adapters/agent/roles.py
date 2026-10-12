@@ -277,6 +277,15 @@ def needs_language_directive(phase: str) -> bool:
 #: the registry), which is a decision anybody can read.
 DEFAULT_LANGUAGE = "en"
 
+#: THE REPLY CLAUSE, one sentence for every prompt a person's message reaches: the harnesses'
+#: directive below and the product role's own language rule (`voice.language_rules`, #655). It
+#: lived here alone, and the product role's rule said "Write in BRAZILIAN Portuguese … the reader
+#: is Brazilian" after it — the more specific rule won, and an English question on a pt-BR
+#: project was answered in Portuguese.
+REPLY_CLAUSE = ("When you are REPLYING to somebody, answer in the language THEY wrote in, even if "
+                "it differs from the default. The person's own words are a better signal than a "
+                "setting.")
+
 
 def language_directive(language: str | None) -> str:
     """How the agent chooses a language, as one instruction.
@@ -295,8 +304,7 @@ def language_directive(language: str | None) -> str:
         f"# Language\n\n"
         f"Write in **{lang}** by default — that is this project's language, and it applies to "
         f"anything you say first: announcements, diagnoses, questions, summaries.\n\n"
-        f"When you are REPLYING to somebody, answer in the language THEY wrote in, even if it "
-        f"differs from the default. The person's own words are a better signal than a setting.\n\n"
+        f"{REPLY_CLAUSE}\n\n"
         f"Keep identifiers exactly as they are in either case — file names, requirement numbers, "
         f"code, commands and error messages are not translated."
     )
