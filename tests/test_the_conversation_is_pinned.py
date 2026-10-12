@@ -1202,8 +1202,8 @@ def test_a_dictation_that_ends_in_a_question_mark_is_a_question_and_reaches_the_
 def test_accept_is_staged_with_the_title_and_agreed_on_a_yes_then_broken_down(table, ledger,
                                                                               monkeypatch):
     """"aceita o requisito 4" — the act that turns a written text into a promise — is proposed by
-    the role (`[[ACORDO`, #565) and staged with the requirement's title shown, and it is the one
-    staged gesture that names no admins under it. The admin's yes accepts it; with no card waiting
+    the role (`[[ACORDO`, #565) and staged with the requirement's title shown, and the admins named
+    under it as under every act (#667). The admin's yes accepts it; with no card waiting
     on it, the acceptance's own second act starts its breakdown on the worker (`asked_for=False`:
     nobody typed that request), and the conversation is told the cards when it ends (#563 slice
     18b)."""
@@ -1215,8 +1215,9 @@ def test_accept_is_staged_with_the_title_and_agreed_on_a_yes_then_broken_down(ta
 
     reply = talk.say("aceita o requisito 4", user=CLIENT)
 
-    assert reply == f"{UNDERSTOOD}\n\n" + voice.accept_confirmation(number=4, title="Pró-labore",
-                                                                     language=LANG)
+    assert reply == f"{UNDERSTOOD}\n\n" + voice.accept_confirmation(
+        number=4, title="Pró-labore", language=LANG) + voice.admins_must_confirm(
+        ADMIN, "agreement", language=LANG)
     staged = _staged()
     assert {k: staged[k] for k in ("kind", "number", "channel", "asked_by")} == {
         "kind": "accept", "number": 4, "channel": ROOM, "asked_by": CLIENT}

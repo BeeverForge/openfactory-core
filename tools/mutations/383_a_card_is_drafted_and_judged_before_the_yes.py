@@ -132,8 +132,9 @@ MUTATIONS = [
      "    if (answered is not None and last.draft is not None and last.ruling is not None",
      "    if (False and answered is not None and last.draft is not None and last.ruling is not None"),
 
+    # RE-PINNED 2026-10-12 (#667): the no is read without the role's address
     ("a declined question is still taken as its answer", ENGINE,
-     "    if held is None or is_no(ex.text):",
+     "    if held is None or is_no(ex.text, project=ex.project):",
      "    if held is None:"),
 
     ("a question older than a proposal is still an answer", CARDS,

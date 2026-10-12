@@ -115,19 +115,15 @@ MUTATIONS = [
      'f"its own line. {STAGED_AFTER_YOUR_REPLY} It files the requirement\'s cards where new "',
      'f"its own line. It files the requirement\'s cards where new "', FRAME),
     # 6. no question nobody can answer (review of #634)
+    # RE-PINNED 2026-10-12 (#667): one guard for every act, read off `role.ACTS`, at the top of
+    # `_run_intent`; the breakdown and the refine are cut out of the acts it reads
     ("REVIEW OF #634: a breakdown nobody can say yes to waits for that yes", ENGINE,
-     "        # yes nobody can give: refused at once, naming who can, as before it was staged.\n"
-     "        if not may_act(project, user) and not _admin_mentions(project):\n"
-     "            return said(unauthorized_message(project))\n",
-     "        # yes nobody can give: refused at once, naming who can, as before it was staged.\n"),
+     "    return frozenset(GESTURE_INTENT.values())\n",
+     "    return frozenset(GESTURE_INTENT.values()) - {\"breakdown\"}\n"),
     ("a refine nobody can say yes to waits for that yes", ENGINE,
-     "        # No question nobody can answer — see `breakdown` above.\n"
-     "        if not may_act(project, user) and not _admin_mentions(project):\n"
-     "            return said(unauthorized_message(project))\n",
-     "        # No question nobody can answer — see `breakdown` above.\n"),
+     "    return frozenset(GESTURE_INTENT.values())\n",
+     "    return frozenset(GESTURE_INTENT.values()) - {\"refine\"}\n"),
     ("a breakdown the admins could confirm is refused at once", ENGINE,
-     "        # yes nobody can give: refused at once, naming who can, as before it was staged.\n"
-     "        if not may_act(project, user) and not _admin_mentions(project):",
-     "        # yes nobody can give: refused at once, naming who can, as before it was staged.\n"
-     "        if not may_act(project, user):"),
+     "            and not _admin_mentions(project)):\n        return said(unauthorized_message(",
+     "            ):\n        return said(unauthorized_message("),
 ]
