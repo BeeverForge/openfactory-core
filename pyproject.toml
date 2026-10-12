@@ -277,4 +277,9 @@ markers = [
     "owns_its_engine: starts and disposes of its own ephemeral Temporal server",
     # Long-running; excluded by `-m 'not slow'`. Declared so the run stops warning about it.
     "slow: minutes rather than seconds",
+    # A test whose assertion is its own CPU time. CI runs the suite with xdist, and neighbours on
+    # the same cores inflate a process's CPU time: the map test below measured 7.6–8.0 s alone and
+    # 13.1 s beside three workers on a four-core runner (2026-10-12). `make test-alone` runs these
+    # in a process of their own, after the rest.
+    "alone: asserts its own CPU time, so it runs with no neighbours on its cores",
 ]

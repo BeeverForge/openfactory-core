@@ -11,7 +11,10 @@ THE RULES THIS FILE HOLDS:
   2. the proof (`scripts/every_test_ran_once.py`) fails on a test missing, doubled or unknown, and
      names it;
   3. CI wires it: the `test` job needs every other job and runs the proof; the unit job's slices
-     are the matrix's; the integration and unit jobs select complementary markers.
+     are the matrix's; the unit, integration and alone runs select markers that split the suite
+     without overlap;
+  4. a test that asserts its own CPU time is marked `alone`, so CI runs it with no neighbours on
+     its cores.
 
 Driven as real pytest runs over a probe outside the tree, with this suite's conftest copied beside
 it, as `test_the_suite_cannot_reach_a_live_engine.py` does: only pytest applies the hooks.
@@ -19,6 +22,7 @@ it, as `test_the_suite_cannot_reach_a_live_engine.py` does: only pytest applies 
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import re
 import subprocess
@@ -190,18 +194,68 @@ def test_the_unit_slices_are_the_matrixs_and_each_job_records_what_it_ran():
 
     assert jobs["unit"]["strategy"]["matrix"]["shard"] == list(range(1, int(unit["TEST_SHARDS"]) + 1))
     assert jobs["unit"]["strategy"]["fail-fast"] is False
-    for name, command in (("unit", "make test-unit"), ("integration", "make test-integration")):
+    for name, command in (("unit", "make test-unit"), ("integration", "make test-integration"),
+                          ("integration", "make test-alone")):
         assert re.fullmatch(r"test-ids/ran-[\w${}. -]+\.txt", _env_of(jobs[name], command)["TEST_IDS"])
 
 
-def test_the_unit_and_integration_jobs_select_complementary_markers():
-    """One marker list, read by both: a marker added to one side only would drop its tests from
-    both jobs, or run them twice."""
+def _make_n(target: str) -> str:
+    return subprocess.run(["make", "-n", target], cwd=ROOT, capture_output=True, text=True,
+                          timeout=60).stdout
+
+
+def test_the_unit_integration_and_alone_runs_split_the_suite_without_overlap():
+    """One marker list per run, read by the others: a marker added to one side only would drop
+    its tests from every job, or run them twice."""
     def expression(target: str) -> str:
-        shown = subprocess.run(["make", "-n", target], cwd=ROOT, capture_output=True, text=True,
-                               timeout=60).stdout
-        return re.search(r'-m "([^"]+)"', shown).group(1)
+        return re.search(r'-m "([^"]+)"', _make_n(target)).group(1)
 
     integration, unit = expression("test-integration"), expression("test-unit")
+    alone = re.fullmatch(r"(\w+) and not \((.+)\)", expression("test-alone"))
 
-    assert unit == f"not ({integration})", (unit, integration)
+    assert alone and alone.group(2) == integration, expression("test-alone")
+    assert unit == f"not ({integration} or {alone.group(1)})", (unit, integration)
+    assert "-p no:xdist" in _make_n("test-alone"), "the alone run has neighbours on its cores"
+
+
+# ── 4. a test that asserts its own CPU time runs alone ─────────────────────────────────────────
+
+#: The calls that read a process's own CPU time. Neighbours on the same cores inflate all of them.
+CPU_CLOCKS = {("os", "times"), ("time", "process_time"), ("time", "thread_time"),
+              ("resource", "getrusage")}
+
+
+def _reads_cpu_time(node: ast.AST) -> bool:
+    return any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+               and isinstance(n.func.value, ast.Name)
+               and (n.func.value.id, n.func.attr) in CPU_CLOCKS for n in ast.walk(node))
+
+
+def _marked_alone(decorators: list[ast.expr]) -> bool:
+    return any("alone" in ast.unparse(d) for d in decorators)
+
+
+def test_every_test_that_asserts_its_own_cpu_time_is_marked_alone():
+    unmarked = []
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        module_alone = any(isinstance(n, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "pytestmark" for t in n.targets)
+            and "alone" in ast.unparse(n.value) for n in tree.body)
+        for node in tree.body:
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name.startswith("test_") and _reads_cpu_time(node)
+                    and not (module_alone or _marked_alone(node.decorator_list))):
+                unmarked.append(f"{path.relative_to(ROOT)}::{node.name}")
+
+    assert not unmarked, (f"{unmarked} read their own CPU time beside xdist neighbours, where it "
+                          f"is inflated: mark them `alone`")
+
+
+def test_the_reader_sees_a_cpu_clock_and_a_mark():
+    """Verify the verifier on the one test that carries both today."""
+    tree = ast.parse((ROOT / "tests" / "test_knowledge_derived_not_cached.py").read_text())
+    [timed] = [n for n in tree.body if isinstance(n, ast.FunctionDef)
+               and n.name == "test_generating_is_fast_enough_to_do_every_time"]
+
+    assert _reads_cpu_time(timed) and _marked_alone(timed.decorator_list)

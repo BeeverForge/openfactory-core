@@ -8,7 +8,9 @@ The claims, each a row:
      and an xdist run writes each test it started once, a skipped one included;
   2. the proof fails on a test missing, doubled or unknown, and on an empty collection;
   3. CI wires it: the `test` job needs every job and runs the proof, the slices are the matrix's,
-     the two jobs' markers are complementary, and the guard on CI's pytest follows the Makefile.
+     the three runs' markers split the suite without overlap, and the guard on CI's pytest follows
+     the Makefile;
+  4. a test that asserts its own CPU time is marked `alone` and runs with no xdist neighbours.
 """
 
 TEST = "tests/test_ci_runs_every_test_exactly_once.py"
@@ -53,8 +55,23 @@ MUTATIONS = [
     ("the unit job cuts fewer slices than its matrix runs", CI,
      "          TEST_SHARDS: 4", "          TEST_SHARDS: 3"),
     ("the unit job forgets one of the integration markers", "Makefile",
-     '	python -m pytest -q -n auto -m "not ($(INTEGRATION_TESTS))" --durations=15',
-     '	python -m pytest -q -n auto -m "not owns_its_engine" --durations=15'),
+     '	python -m pytest -q -n auto -m "not ($(INTEGRATION_TESTS) or $(ALONE_TESTS))" --durations=15',
+     '	python -m pytest -q -n auto -m "not (owns_its_engine or $(ALONE_TESTS))" --durations=15'),
+    ("the unit job runs the alone tests too", "Makefile",
+     '	python -m pytest -q -n auto -m "not ($(INTEGRATION_TESTS) or $(ALONE_TESTS))" --durations=15',
+     '	python -m pytest -q -n auto -m "not ($(INTEGRATION_TESTS))" --durations=15'),
+    ("the alone run has xdist neighbours", "Makefile",
+     '	python -m pytest -q -p no:xdist -m "$(ALONE_TESTS) and not ($(INTEGRATION_TESTS))"',
+     '	python -m pytest -q -n auto -m "$(ALONE_TESTS) and not ($(INTEGRATION_TESTS))"'),
+    ("CI never runs the alone tests", CI,
+     "      - run: make test-alone\n        env:\n          TEST_IDS: test-ids/ran-alone.txt\n", ""),
+    # 4. a test that asserts its own CPU time runs alone
+    ("the map's timing test loses its mark", "tests/test_knowledge_derived_not_cached.py",
+     "@pytest.mark.alone\ndef test_generating_is_fast_enough_to_do_every_time():",
+     "def test_generating_is_fast_enough_to_do_every_time():"),
+    ("the sweep does not see os.times()", TEST,
+     'CPU_CLOCKS = {("os", "times"), ', "CPU_CLOCKS = {"),
+
     ("the guard on CI's pytest stops following the Makefile", GUARD,
      "            lines += shown.stdout.splitlines()", "            pass",
      f"{GUARD}::test_ci_still_runs_the_command_this_guard_protects"),

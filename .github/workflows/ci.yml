@@ -76,6 +76,10 @@ jobs:
       - run: make test-integration
         env:
           TEST_IDS: test-ids/ran-integration.txt
+      # after the parallel run, in a process of its own: these assert their own CPU time
+      - run: make test-alone
+        env:
+          TEST_IDS: test-ids/ran-alone.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
