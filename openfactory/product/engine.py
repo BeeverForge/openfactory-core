@@ -1664,7 +1664,7 @@ def offer_draft(project, *, request: str, user: str, thread: str, module,
     # sentinel — which is why the preamble is an argument here and never glued on outside.
     return offer(project, thread, preamble + replaced + confirmation_request(
         title=draft.title, must_be_true=draft.must_be_true,
-        conflicts=[_conflict_line(c, lang) for c in draft.conflicts], language=lang))
+        conflicts=[(c.kind, _conflict_line(c, lang)) for c in draft.conflicts], language=lang))
 
 
 def _conflict_line(conflict, lang=None) -> str:
@@ -2472,7 +2472,10 @@ def _the_requesters_yes(project, loop, issue: str, user: str, *, head: str, lang
                               facts={"who": _name_of(user), "note": ""})
     told = any(name == "tell:tried" and outcome in ("told", "told already")
                for name, outcome in moved.effects)
-    return head + requester_said_right(ref=issue, told=told, language=lang)
+    from openfactory.product.module import approvers_of
+
+    return head + requester_said_right(ref=issue, told=told, language=lang,
+                                       approvers=approvers_of(project))
 
 
 def _the_requester_said_right(project, loop) -> bool:

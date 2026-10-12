@@ -671,9 +671,15 @@ def unauthorized_message(project) -> str:
     slightly insulting to someone who was never meant to edit one."""
     from openfactory.product.voice import cannot_write
 
-    cfg = getattr(project, "product", None)
-    return cannot_write(has_approvers=bool(cfg is not None and (cfg.admins or [])),
+    return cannot_write(approvers=approvers_of(project),
                         language=getattr(project, "language", None))
+
+
+def approvers_of(project) -> list[str]:
+    """The people whose yes approves, as the platform knows them (`product.admins`) — the names a
+    sentence that sends a person to them carries (#666)."""
+    cfg = getattr(project, "product", None)
+    return [str(a) for a in (getattr(cfg, "admins", None) or []) if str(a).strip()]
 
 
 #: A ticket ref as a person types it back: `412`, `#412`, or a Jira-style `CONT-412`. Bounded so
@@ -1317,6 +1323,12 @@ class ProductModule:
             log.warning("product: cannot build a documentation URL for %s (%s) — the cards it "
                         "files will name the repository without linking to it",
                         getattr(self.project, "name", "?"), exc)
+            return ""
+        if not _re.match(r"https?://", url):
+            # NOT AN ADDRESS A PERSON CAN OPEN (#662). The local row's clone URL is a path on this
+            # machine, and as a link it wrote the operator's home directory onto every card; a
+            # `file://` or an ssh address opens nothing from a board either. The card names the
+            # repository as plain text instead.
             return ""
         authority = url.split("://", 1)[-1].split("/", 1)[0]
         if "@" in authority:
@@ -2071,7 +2083,12 @@ class ProductModule:
             asked=self.already_asked(question))
         answer = _bound_answer(self, answer)
         _signal_gaps(self, answer)
-        return answer
+        # WHAT THE PERSON READS cites each file as its repository reads it (#672) — after the gap
+        # signal, which maps the reply's evidence back through the view it was read in
+        return answer.model_copy(update=_in_repository_terms(self, {
+            "text": answer.text, "ticket_title": answer.ticket_title,
+            "decisions": answer.decisions, "gesture_args": answer.gesture_args},
+            product_wide=True)) if hasattr(answer, "model_copy") else answer
 
     def _okf_dir(self) -> Path | None:
         """The bundle this role's reading is BOUND against, as an absolute path — the one folder
@@ -2419,8 +2436,14 @@ class ProductModule:
         # shown — a request dropped years ago is a `duplicates` conflict the person reads before
         # the yes. Handed only to a role whose `draft` takes it, like every keyword grown here.
         section = self.already_asked(request) if _takes(role.draft, "asked") else ""
-        return role.draft(sandbox=sandbox, workspace=ws, request=request, asked_by=asked_by,
-                          **({"asked": section} if section else {}))
+        drafted = role.draft(sandbox=sandbox, workspace=ws, request=request, asked_by=asked_by,
+                             **({"asked": section} if section else {}))
+        # A REQUIREMENT BELONGS TO THE WHOLE PRODUCT: each path in it from its repository's root,
+        # naming the repository where the product has several (#672)
+        if getattr(drafted, "draft", None) is None:
+            return drafted
+        return drafted.model_copy(update={
+            "draft": _in_repository_terms(self, drafted.draft, product_wide=True)})
 
     # ---- the semaphore on what becomes work ---------------------------------------------------
 
@@ -3906,9 +3929,9 @@ class ProductModule:
             return False, column
         return board is None or moved.outcome("place").startswith("placed"), column
 
-    def _in_repository_terms(self, value, home: str = ""):
+    def _in_repository_terms(self, value, home: str = "", *, product_wide: bool = False):
         """`_in_repository_terms(self, …)`, for a caller holding the module."""
-        return _in_repository_terms(self, value, home)
+        return _in_repository_terms(self, value, home, product_wide=product_wide)
 
     def _filing_repo(self, draft, tracker) -> tuple[str, str]:
         """`(repository, said)` — where a card of this draft is filed: the repository the role
@@ -4125,6 +4148,7 @@ class ProductModule:
                 prompt=classify_prompt(ticket_number=item.number, title=item.title,
                                        body=item.body, diagnosis=item.diagnosis),
                 phase="product_triage")
+            answer = _in_repository_terms(self, answer)
             # an unreadable classification is `unclear`, never a cause that would make it ACT
             verdicts.append(
                 Verdict(ticket=item.number, **answer) if isinstance(answer, dict)
@@ -4311,7 +4335,7 @@ class ProductModule:
         if not isinstance(answer, dict):
             return state, None, queue_said("unproposed", language=lang)
 
-        proposal = QueueProposal(**answer)
+        proposal = QueueProposal(**_in_repository_terms(self, answer))
         # never propose something that is not a candidate: a model naming a ticket that is parked,
         # unrefined or imaginary would have a person approving work that cannot start
         allowed = {t.number for t in candidates}
@@ -4462,7 +4486,8 @@ class ProductModule:
         queue = stage_column(board, self.QUEUE_KEY) if board is not None else ""
         if not may_act(self.project, actor, via=self._via):
             return {"offered": False,
-                    "note": card_queue_not_yours(ref=number, column=queue, language=lang)}
+                    "note": card_queue_not_yours(ref=number, column=queue, language=lang,
+                                                 approvers=approvers_of(self.project))}
         return {"offered": True,
                 "words": card_queue_controls(ref=number, column=queue, language=lang)}
 
@@ -4869,8 +4894,8 @@ class ProductModule:
                 or (actor and not is_guest(actor) and self._asked_by(number) == actor)):
             # ITS OWN SENTENCE, NOT `unauthorized_message`: that one is about writing a REQUIREMENT
             # down, and this person asked to drop a card — the sentence names who can.
-            return WriteResult(ok=False, detail=card_withdrawn_result(ref=number, how="not_yours",
-                                                                      language=lang))
+            return WriteResult(ok=False, detail=card_withdrawn_result(
+                ref=number, how="not_yours", language=lang, approvers=approvers_of(self.project)))
 
         # THE CONVERSATION IS TOLD BY THE CARD'S DOOR (ADR-0055), once per transition, for every
         # way a card leaves the table — not only this one, which was the only path that told it
@@ -5175,7 +5200,8 @@ class ProductModule:
         number = canonical_ref(number)
         lang = language or getattr(self.project, "language", None)
         if not self.may_send_back(number, actor):
-            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang))
+            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang,
+                                                    approvers=approvers_of(self.project)))
         # THE MERGE GATE, OR THE LAST ONE (#448 slice 4): a change already in, waiting before the
         # product's users, is sent back too — as a new change (`Gate.merged`)
         gate = adjust.pass_gate_of(self.project, number)
@@ -5246,7 +5272,8 @@ class ProductModule:
                 language=lang))
         if not self.may_send_back(number, actor, vouched=vouched):
             return WriteResult(ok=False, ref=f"#{number}",
-                               detail=adjust_said("not_yours", ref=number, language=lang))
+                               detail=adjust_said("not_yours", ref=number, language=lang,
+                                                  approvers=approvers_of(self.project)))
         gate = adjust.pass_gate_of(self.project, number)
         if not gate.open:
             return WriteResult(ok=False, ref=f"#{number}", detail=adjust_said(
@@ -5344,7 +5371,8 @@ class ProductModule:
         lang = language or getattr(self.project, "language", None)
         if not self.may_send_back(number, actor):
             return accept.Prepared(said=accept_change_said("not_yours", ref=number,
-                                                           language=lang))
+                                                           language=lang,
+                                                           approvers=approvers_of(self.project)))
         gate = adjust.gate_of(self.project, number)
         if gate.why in accept.NOTHING_TO_ACCEPT:
             return accept.Prepared(said=accept_change_said(gate.why, ref=number, language=lang))
@@ -5398,7 +5426,8 @@ class ProductModule:
 
         def refused(why: str) -> WriteResult:
             return WriteResult(ok=False, ref=f"#{number}",
-                               detail=accept_change_said(why, ref=number, language=lang))
+                               detail=accept_change_said(why, ref=number, language=lang,
+                                                         approvers=approvers_of(self.project)))
 
         if not self.may_send_back(number, actor, vouched=vouched):
             return refused("not_yours")
@@ -6245,9 +6274,14 @@ def _req_number(ref: str) -> int:
     return int(digits) if digits else 0
 
 
-def _in_repository_terms(module, value, home: str = ""):
+def _in_repository_terms(module, value, home: str = "", *, product_wide: bool = False):
     """What the role wrote, with each path as the repository the card lands in reads it
-    (`workspace.as_the_repository_reads`): a string, a list of them, or a draft's own words.
+    (`workspace.as_the_repository_reads`): a string, a list or a mapping of them, or a draft's own
+    words, every field of it.
+
+    `product_wide`: words that belong to the whole product rather than to one card's repository —
+    a reply, a requirement (#672). A product of one repository reads its own paths from its root;
+    in a product of several, every path names its repository, because no one of them is home.
 
     A MODULE MISSING WHAT THIS READS (a test's stand-in) GETS THE WORDS AS WRITTEN, like any other
     rewrite that cannot be made.
@@ -6266,7 +6300,8 @@ def _in_repository_terms(module, value, home: str = ""):
 
             placed = _placements(declared(module.context().docs_path).repos
                                  or [module._source_repo()])
-        home = home or module._source_repo()
+        home = ((next(iter(placed)) if len(placed) == 1 else "") if product_wide
+                else home or module._source_repo())
         view = getattr(module, "_combined", None) if mounted else None
     except Exception:  # noqa: BLE001 — a card filed as the role wrote it beats one not filed
         log.warning("OPENFACTORY_PRODUCT_PATHS_NOT_REWRITTEN project=%s — the role's paths "
@@ -6287,21 +6322,26 @@ def _in_repository_terms(module, value, home: str = ""):
                      "apart here", getattr(getattr(module, "project", None), "name", "?"))
         return rewritten
 
-    if isinstance(value, str):
-        return _one(value)
-    if isinstance(value, list | tuple):
-        return type(value)(_one(v) for v in value)
-    if isinstance(value, dict):
-        return {k: (_in_repository_terms(module, v, home) if isinstance(v, str | list | tuple)
-                    else v) for k, v in value.items()}
-    changes = {field: _in_repository_terms(module, getattr(value, field), home)
-               for field in ("title", "objective", "acceptance_criteria", "out_of_scope")
-               if hasattr(value, field)}
-    if hasattr(value, "model_copy"):
-        return value.model_copy(update=changes)
-    import copy
+    import dataclasses
+    from types import SimpleNamespace
 
-    rewritten = copy.copy(value)
-    for field, text in changes.items():
-        setattr(rewritten, field, text)
-    return rewritten
+    def _walk(value):
+        if isinstance(value, str):
+            return _one(value)
+        if isinstance(value, list | tuple):
+            return type(value)(_walk(v) for v in value)
+        if isinstance(value, dict):
+            return {k: _walk(v) for k, v in value.items()}
+        # EVERY FIELD OF A DRAFT, its nested ones too: a requirement's `why` and its conflicts'
+        # explanations cited the view's paths as well as its criteria (#672)
+        if hasattr(value, "model_copy") and hasattr(type(value), "model_fields"):
+            return value.model_copy(update={f: _walk(getattr(value, f))
+                                            for f in type(value).model_fields})
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            return dataclasses.replace(value, **{f.name: _walk(getattr(value, f.name))
+                                                 for f in dataclasses.fields(value) if f.init})
+        if isinstance(value, SimpleNamespace):
+            return SimpleNamespace(**{k: _walk(v) for k, v in vars(value).items()})
+        return value
+
+    return _walk(value)

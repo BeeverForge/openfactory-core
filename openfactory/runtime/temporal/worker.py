@@ -409,7 +409,13 @@ async def born() -> None:
     up` and the compose file start, and `openfactory worker` — so an engine that never started
     listening ends the worker the same way whichever started it: the sentence on stderr, exit 1,
     and no traceback. #135 was filed with the traceback; what `up` prints under it is `✗ worker
-    exited (1) — stopping the rest`, and the line above that one should say why."""
+    exited (1) — stopping the rest`, and the line above that one should say why.
+
+    AND THE LOG IS SET UP HERE, for the same reason (#675): one format with a time, a level and a
+    name, and the platform's INFO kept, whichever way the worker was started."""
+    from openfactory.observability import logs
+
+    logs.configure()
     try:
         await main()
     except EngineNotListening as exc:

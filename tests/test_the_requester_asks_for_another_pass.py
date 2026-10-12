@@ -774,7 +774,8 @@ def test_every_sentence_the_requester_reads_is_free_of_delivery_jargon():
 
     assert adjust.WHY <= set(_ADJUST_SAID), "a reason the gate can give has no sentence"
     for lang in ("en", "pt-BR"):
-        said = [adjust_said(r, ref="7", passes=2, length=9, limit=8, language=lang)
+        said = [adjust_said(r, ref="7", passes=2, length=9, limit=8, language=lang,
+                            approvers=["po"])
                 for r in _ADJUST_SAID]
         said += [adjust_sent(ref="7", instruction="i", number=1, passes=2, corrected=True,
                              language=lang),

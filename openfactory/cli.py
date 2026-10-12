@@ -1859,7 +1859,8 @@ def knowledge_build(
                 typer.echo(f"  · already published — {docs_repo}'s .okf/repos/{subpath.name}/ "
                            "carries this exact map")
                 return
-        if publish_bundle(dest, context_url, subpath=subpath, source_commit=commit,
+        if publish_bundle(dest, context_url, project=project, subpath=subpath,
+                          source_commit=commit,
                           author=(bot.name, bot.email)):
             typer.echo(f"  ✓ published to {docs_repo}'s .okf/repos/{subpath.name}/ — the next "
                        "job reads it from there")
@@ -3340,11 +3341,18 @@ def serve(
     from openfactory import namespace
 
     namespace.announce_build(PANEL_ROLE)
+    # ONE LOG FORMAT, THE WORKER'S (#675): a time, a level and a name on every line, the platform's
+    # INFO kept, and uvicorn's own lines through the same handler (`log_config=None`) rather than a
+    # second format of uvicorn's, so a request and the warning it caused read side by side.
+    from openfactory.observability import logs
+
+    logs.configure()
     # A BOUNDED SHUTDOWN (#136). The engine stream is an open response for as long as a tab is, and
     # uvicorn otherwise waits for every open response before it exits — so a SIGTERM left the panel
     # running with no port and no end. Five seconds is longer than any request this panel serves
     # that is not a stream.
-    uvicorn.run("openfactory.api.app:app", host=host, port=port, timeout_graceful_shutdown=5)
+    uvicorn.run("openfactory.api.app:app", host=host, port=port, timeout_graceful_shutdown=5,
+                log_config=None)
 
 
 @app.command("bot-token")
