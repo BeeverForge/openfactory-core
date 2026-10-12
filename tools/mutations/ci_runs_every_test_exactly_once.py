@@ -33,6 +33,8 @@ MUTATIONS = [
      '    if record and not hasattr(config, "workerinput"):', "    if record:"),
     ("a test is recorded when it is called, so a skipped one is missing", CONF,
      '        if report.when == "setup":', '        if report.when == "call":'),
+    ("the ids may be written inside the tree, where a scan reads them mid-run", CONF,
+     "        if config.rootpath.resolve() in Path(record).resolve().parents:", "        if False:"),
     ("the collection is never written", CONF,
      "        if session.config.option.collectonly:", "        if False:"),
 
@@ -64,7 +66,8 @@ MUTATIONS = [
      '	python -m pytest -q -p no:xdist -m "$(ALONE_TESTS) and not ($(INTEGRATION_TESTS))"',
      '	python -m pytest -q -n auto -m "$(ALONE_TESTS) and not ($(INTEGRATION_TESTS))"'),
     ("CI never runs the alone tests", CI,
-     "      - run: make test-alone\n        env:\n          TEST_IDS: test-ids/ran-alone.txt\n", ""),
+     "      - run: make test-alone\n        env:\n"
+     "          TEST_IDS: ${{ runner.temp }}/openfactory-test-ids/ran-alone.txt\n", ""),
     # 4. a test that asserts its own CPU time runs alone
     ("the map's timing test loses its mark", "tests/test_knowledge_derived_not_cached.py",
      "@pytest.mark.alone\ndef test_generating_is_fast_enough_to_do_every_time():",

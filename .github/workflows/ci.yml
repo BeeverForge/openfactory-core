@@ -34,11 +34,11 @@ jobs:
       # the whole collection, which the `test` job holds the other jobs' runs to
       - run: make test-collect
         env:
-          TEST_IDS: test-ids/collected.txt
+          TEST_IDS: ${{ runner.temp }}/openfactory-test-ids/collected.txt
       - uses: actions/upload-artifact@v4
         with:
           name: test-ids-collected
-          path: test-ids/
+          path: ${{ runner.temp }}/openfactory-test-ids/
 
   unit:
     runs-on: ubuntu-latest
@@ -57,12 +57,12 @@ jobs:
         env:
           TEST_SHARD: ${{ matrix.shard }}
           TEST_SHARDS: 4
-          TEST_IDS: test-ids/ran-unit-${{ matrix.shard }}.txt
+          TEST_IDS: ${{ runner.temp }}/openfactory-test-ids/ran-unit-${{ matrix.shard }}.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-ids-unit-${{ matrix.shard }}
-          path: test-ids/
+          path: ${{ runner.temp }}/openfactory-test-ids/
 
   integration:
     runs-on: ubuntu-latest
@@ -75,16 +75,16 @@ jobs:
       - run: make install
       - run: make test-integration
         env:
-          TEST_IDS: test-ids/ran-integration.txt
+          TEST_IDS: ${{ runner.temp }}/openfactory-test-ids/ran-integration.txt
       # after the parallel run, in a process of its own: these assert their own CPU time
       - run: make test-alone
         env:
-          TEST_IDS: test-ids/ran-alone.txt
+          TEST_IDS: ${{ runner.temp }}/openfactory-test-ids/ran-alone.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-ids-integration
-          path: test-ids/
+          path: ${{ runner.temp }}/openfactory-test-ids/
 
   test:
     needs: [lint, unit, integration]
@@ -104,7 +104,7 @@ jobs:
         if: always()
         with:
           pattern: test-ids-*
-          path: test-ids
+          path: ${{ runner.temp }}/openfactory-test-ids
           merge-multiple: true
       - if: always()
         run: make test-ran-once

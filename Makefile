@@ -68,7 +68,8 @@ test: ## run the test suite
 # or a slice at a time: `make test-unit TEST_SHARD=2 TEST_SHARDS=3`.
 INTEGRATION_TESTS := owns_its_engine or slow
 ALONE_TESTS := alone
-TEST_IDS_DIR ?= test-ids
+# OUTSIDE THE TREE: a test that scans the tree would read the ids while they are written.
+TEST_IDS_DIR ?= $(or $(RUNNER_TEMP),$(TMPDIR),/tmp)/openfactory-test-ids
 .PHONY: test-collect test-unit test-integration test-alone test-ran-once
 # The listing goes to a file, not the terminal: printed, 17,000 lines took five of the job's six
 # minutes on GitHub's runner while the collection itself took forty seconds.

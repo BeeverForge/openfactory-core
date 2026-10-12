@@ -574,6 +574,11 @@ def _the_environment_is_restored_after_every_test():
 #: it STARTED (`--record-ids`), which CI compares with the whole collection
 #: (`scripts/every_test_ran_once.py`): missing, doubled or unknown fails the run.
 #:
+#: OUTSIDE THE TREE, or refused. Written into `test-ids/` at the repository's root, the ids file was
+#: read mid-run by `test_no_live_infrastructure_coordinate_is_published`, which scans the tree's
+#: `.txt` files: a test id naming a maintainer failed it in one CI slice and not the next, as the
+#: random order put the scan before or after that line was written.
+#:
 #: Stdlib and pytest only, like the rest of this file: the live-engine probe copies it.
 def pytest_addoption(parser) -> None:
     group = parser.getgroup("openfactory", "the suite's own options")
@@ -652,6 +657,10 @@ def pytest_configure(config) -> None:
     os.environ[REGISTRY_VARIABLE] = str(home / "registry.yaml")
     record = config.getoption("--record-ids", default="")
     if record and not hasattr(config, "workerinput"):
+        if config.rootpath.resolve() in Path(record).resolve().parents:
+            raise pytest.UsageError(
+                f"--record-ids {record}: write the ids outside the tree — a test that scans the "
+                f"tree reads the file while this run is still writing it")
         config.pluginmanager.register(_RecordIds(record), "openfactory-suite-record-ids")
 
 

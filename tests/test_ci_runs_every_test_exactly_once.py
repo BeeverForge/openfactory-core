@@ -129,6 +129,17 @@ def test_under_xdist_each_started_test_is_written_once(probe):
     assert len(_ids(path)) == len(set(_ids(path))), "a test was written twice under xdist"
 
 
+def test_ids_written_inside_the_tree_are_refused(probe):
+    """A test that scans the tree read the ids file while the run was writing it, and failed on a
+    test id that named a maintainer: in one CI slice and not the next."""
+    inside = ROOT / "test-ids-probe" / "ran.txt"
+    done = probe(f"--record-ids={inside}")
+
+    assert done.returncode != 0
+    assert "outside the tree" in done.stdout + done.stderr
+    assert not inside.parent.exists(), "the refused run still wrote into the tree"
+
+
 def test_a_slice_that_does_not_exist_is_refused(probe):
     done = probe(f"--shard={SLICES + 1}/{SLICES}")
 
@@ -196,7 +207,8 @@ def test_the_unit_slices_are_the_matrixs_and_each_job_records_what_it_ran():
     assert jobs["unit"]["strategy"]["fail-fast"] is False
     for name, command in (("unit", "make test-unit"), ("integration", "make test-integration"),
                           ("integration", "make test-alone")):
-        assert re.fullmatch(r"test-ids/ran-[\w${}. -]+\.txt", _env_of(jobs[name], command)["TEST_IDS"])
+        assert re.fullmatch(r"\$\{\{ runner\.temp \}\}/openfactory-test-ids/ran-[\w${}. -]+\.txt",
+                            _env_of(jobs[name], command)["TEST_IDS"])
 
 
 def _make_n(target: str) -> str:
