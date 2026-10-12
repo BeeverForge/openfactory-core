@@ -562,12 +562,39 @@ _CONFIRM = {
     "en": ("Here's what I understood — *{title}*\n\nThis would mean:\n{items}"
            "{conflicts}\n\nHave I got it right? Reply *yes* and I'll write it up for the team."),
 }
-_CONFLICT_BLOCK = {
-    "pt-BR": ("\n\n⚠️ Antes de confirmar: isso vai contra algo que já foi decidido:\n{items}\n\n"
-              "Ou seja, é uma mudança de ideia, não um acréscimo — o que tudo bem, mas vale dizer "
-              "em voz alta."),
-    "en": ("\n\n⚠️ Before you confirm, this runs against something we already decided:\n{items}\n\n"
-           "So it's a change of mind, not an addition — which is fine, but worth saying out loud."),
+_CONFLICT_HEAD = {"pt-BR": "\n\n⚠️ Antes de confirmar: ", "en": "\n\n⚠️ Before you confirm, "}
+#: Each kind of conflict the drafter records (`role.Conflict.kind`), in its own words: what it
+#: does to what was decided, then what that means. THE FRAME SAID "A CHANGE OF MIND" OF EVERY
+#: KIND (#676): a date format that only narrowed a requirement, contradicting nothing, was told
+#: as one right before the yes. Only a contradiction is; the first kind is the fallback, so a kind
+#: nobody wrote words for is told as the strongest.
+_CONFLICT_KINDS = {
+    "pt-BR": {
+        "contradicts": ("isso vai contra algo que já foi decidido:",
+                        "Ou seja, é uma mudança de ideia, não um acréscimo — o que tudo bem, mas "
+                        "vale dizer em voz alta."),
+        "duplicates": ("isso repete algo que já foi decidido:",
+                       "Ou seja, talvez já esteja prometido — vale conferir antes de registrar de "
+                       "novo."),
+        "narrows": ("isso detalha algo que já foi decidido:",
+                    "Ou seja, acrescenta ao que já existe sem desfazer nada."),
+        "depends_on": ("isso depende de algo que já foi decidido:",
+                       "Ou seja, só funciona junto com o que já existe — se aquilo mudar, isto "
+                       "muda também."),
+    },
+    "en": {
+        "contradicts": ("this runs against something we already decided:",
+                        "So it's a change of mind, not an addition — which is fine, but worth "
+                        "saying out loud."),
+        "duplicates": ("this repeats something we already decided:",
+                       "So it may already be promised — worth checking before writing it down "
+                       "again."),
+        "narrows": ("this adds detail to something we already decided:",
+                    "So it adds to what is already there without undoing any of it."),
+        "depends_on": ("this builds on something we already decided:",
+                       "So it only works together with what is already there — if that changes, "
+                       "this changes too."),
+    },
 }
 #: What a person hears when a requirement lands. NO URL, and that is the point: a link to a code
 #: forge is delivery machinery (ADR-0026), and the person who runs an accounting firm cannot judge a
@@ -785,19 +812,34 @@ _FIRST = {
 
 
 def confirmation_request(*, title: str, must_be_true: list[str],
-                         conflicts: list[str] | None = None,
+                         conflicts: list[str | tuple[str, str]] | None = None,
                          language: str | None = None) -> str:
     """What the client is asked to confirm, before anything is written up for the team.
 
     This confirmation is the PROVENANCE — the record of who wanted it and when — which is why it
     happens in the conversation with the person who wanted it, and not on an artefact they would
-    never open."""
-    block = ""
-    if conflicts:
-        block = _pick(_CONFLICT_BLOCK, language).format(
-            items="\n".join(f"• {c}" for c in conflicts))
+    never open.
+
+    A conflict is `(kind, line)`, told under its kind's words (#676); a bare line is a
+    contradiction, as every conflict was told before the kind reached this far."""
     return _pick(_CONFIRM, language).format(
-        title=title, items="\n".join(f"• {c}" for c in must_be_true), conflicts=block)
+        title=title, items="\n".join(f"• {c}" for c in must_be_true),
+        conflicts=_conflict_block(conflicts or [], language))
+
+
+def _conflict_block(conflicts: list[str | tuple[str, str]], language: str | None) -> str:
+    words = _pick(_CONFLICT_KINDS, language)
+    strongest = next(iter(words))
+    grouped: dict[str, list[str]] = {}
+    for c in conflicts:
+        kind, line = c if isinstance(c, tuple) else (strongest, c)
+        grouped.setdefault(kind if kind in words else strongest, []).append(line)
+    parts = []
+    for kind in (k for k in words if k in grouped):
+        lead, coda = words[kind]
+        items = "\n".join(f"• {line}" for line in grouped[kind])
+        parts.append(f"{lead if not parts else lead[:1].upper() + lead[1:]}\n{items}\n\n{coda}")
+    return _pick(_CONFLICT_HEAD, language) + "\n\n".join(parts) if parts else ""
 
 
 #: THE CARD BEFORE THE PROMISE (ADR-0047 §2): what the requester reads right after the first yes.
