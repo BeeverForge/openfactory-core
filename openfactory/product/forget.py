@@ -475,11 +475,20 @@ def _context(t: Target, *, with_context: bool = False, **_flags) -> Went:
                          f"distillates from it")
     from openfactory.adapters.forge.registry import clone_url_for
     from openfactory.credentials import deployment_forge_token, forge_token_for
+    from openfactory.product import semaphore
     from openfactory.product.authoring import forget_distillates
 
     token = forge_token_for(t.project) or deployment_forge_token(t.project) or None
-    got = forget_distillates(docs_repo=docs, clone_url=clone_url_for(t.project, docs, token=token),
-                             base=str(getattr(link, "docs_branch", "") or "main"))
+    # UNDER THE PRODUCT'S SEMAPHORE, like every other write to the context repository's base
+    # (#673): a person's save pushes once and does not retry, and this push landing between their
+    # clone and their push made it fail
+    try:
+        with semaphore.held(t.project):
+            got = forget_distillates(docs_repo=docs,
+                                     clone_url=clone_url_for(t.project, docs, token=token),
+                                     base=str(getattr(link, "docs_branch", "") or "main"))
+    except semaphore.Busy as exc:
+        return Went(CONTEXT, FAILED, said=f"{exc} — run it again")
     left = ""
     if got.requirements:
         left = (f"kept, written by the role from conversations: {', '.join(got.requirements)} "

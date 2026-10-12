@@ -190,7 +190,7 @@ def covering(monkeypatch):
                   concepts=[_concept("app.py", fp, "The value")])
         return Covered(1, ("app.py",), (), "fake-harness")
 
-    def fake_publish(bundle_dir, remote_url, *, subpath, source_commit="", author=None):
+    def fake_publish(bundle_dir, remote_url, *, project, subpath, source_commit="", author=None):
         calls["publish"].append((remote_url, str(subpath), source_commit))
         return True
 
