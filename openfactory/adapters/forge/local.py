@@ -112,12 +112,40 @@ class LocalForge:
             return self.repo_path
         if "://" in name or name.startswith("git@"):
             return name
-        # A short name that is not this project's is a repository the INSTALLATION owns — the
+        # ANOTHER PROJECT OF THIS ONE'S PRODUCT lives at its own `repo_path` (#664). Answered as a
+        # context repository, a product of several projects could read only the project the turn
+        # ran for: onboarding could not clone the others and the role could not open their code.
+        member = self._member_path(name)
+        if member:
+            return member
+        # A short name that is not this product's is a repository the INSTALLATION owns — the
         # context repository the knowledge pipeline pushes into (slice 7). Answered as a path
         # under the operator's own directory so it exists on the same machine as everything else.
         from openfactory import namespace
 
         return str(namespace.operator_path(f"context/{name}.git"))
+
+    def _member_path(self, name: str) -> str:
+        """`repo_path` of the registered local project `name` when it is of this project's product,
+        else "". Two projects are one product when they point at one context repository
+        (`product/key.py`); a project of another product, or of none, is never read as a member,
+        which is the isolation between products a hosted forge gets from its credentials."""
+        from openfactory.product.key import product_key
+        from openfactory.registry import ProjectRegistry
+
+        try:
+            registry = ProjectRegistry()
+            me, other = registry.get(self.project), registry.get(name)
+        except KeyError:
+            return ""
+        except Exception as exc:  # noqa: BLE001 — answered as before, and said
+            log.warning("OPENFACTORY_LOCAL_FORGE_MEMBERS_UNREAD project=%s repo=%s: the registry "
+                        "could not be read (%s), so %r is looked for among the installation's "
+                        "own repositories", self.project, name, exc, name)
+            return ""
+        if (getattr(other.forge, "kind", "") or "") != "local" or not other.repo_path:
+            return ""
+        return other.repo_path if product_key(other) == product_key(me) else ""
 
     def authenticated_url(self, url: str) -> str:
         """Untouched. There is no credential to add, and adding one belonging to another system is
