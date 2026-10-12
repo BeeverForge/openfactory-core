@@ -199,12 +199,14 @@ def refresh_system(project, *, token: str | None = None, root: Path | None = Non
                 outcomes = []
                 if moved:
                     outcomes.append(publish_dir(
-                        tmp / SYSTEM_DIRNAME, context_url, subpath=system_subpath(),
+                        tmp / SYSTEM_DIRNAME, context_url, project=project,
+                        subpath=system_subpath(),
                         message=f"chore(okf): refresh the system layer @ {key}",
                         what=f"system layer @ {key}", author=author))
                 if flowed:
                     outcomes.append(publish_dir(
-                        tmp / FLOWS_DIRNAME, context_url, subpath=flows_subpath(),
+                        tmp / FLOWS_DIRNAME, context_url, project=project,
+                        subpath=flows_subpath(),
                         message=f"chore(okf): refresh the flows across sources @ "
                                 f"{flows.derived_key}",
                         what=f"flows @ {flows.derived_key}", author=author))

@@ -1541,7 +1541,8 @@ def _do_gather(inp: GatherInput) -> GatherVerdict:  # noqa: C901 — one activit
             from openfactory.credentials import bot_identity
 
             bot = bot_identity()
-            if not publish_bundle(bundle, context_url, subpath=subpath, source_commit=commit,
+            if not publish_bundle(bundle, context_url, project=project, subpath=subpath,
+                                  source_commit=commit,
                                   author=(bot.name or "openfactory-bot",
                                           bot.email or "openfactory-bot@local")):
                 activity.logger.warning("gather #%s: authored %s concept(s) and could not publish "
@@ -1758,7 +1759,8 @@ def _answer_into_bundle(project, *, repo: str, paths: list[str], question: str, 
         (bundle / OKF_INDEX_FILE).write_text(render_index(manifest, existing + fresh),
                                              encoding="utf-8")
         bot = bot_identity()
-        return publish_bundle(bundle, context_url, subpath=subpath, source_commit="",
+        return publish_bundle(bundle, context_url, project=project, subpath=subpath,
+                              source_commit="",
                               author=(bot.name or "openfactory-bot",
                                       bot.email or "openfactory-bot@local"))
     except Exception:  # noqa: BLE001 — the answer is recorded in the context; the bundle is a copy
@@ -4591,7 +4593,8 @@ def _do_refresh_knowledge(inp: KnowledgeRefreshInput) -> str:
         from openfactory.credentials import bot_identity
 
         bot = bot_identity()
-        ok = publish_bundle(dest, context_url, subpath=subpath, source_commit=commit,
+        ok = publish_bundle(dest, context_url, project=project, subpath=subpath,
+                            source_commit=commit,
                             author=(bot.name or "openfactory-bot",
                                     bot.email or "openfactory-bot@local"))
         if not ok:

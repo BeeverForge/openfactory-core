@@ -983,19 +983,24 @@ def _bundle(tmp_path: Path) -> Path:
     return bundle
 
 
+#: the product whose semaphore a publish takes (#673): a registry project of its own
+_PRODUCT = SimpleNamespace(name="shop", product=None)
+
+
 def test_the_module_map_lands_under_okf_and_a_subpath_out_of_it_lands_nothing(tmp_path):
     from openfactory.knowledge.pipeline import okf_subpath, publish_bundle
 
     bare = _bare(tmp_path, {"README.md": "# shop\n"})
     bundle = _bundle(tmp_path)
-    assert publish_bundle(bundle, str(bare), subpath=okf_subpath("acme/api"),
+    assert publish_bundle(bundle, str(bare), project=_PRODUCT, subpath=okf_subpath("acme/api"),
                           source_commit="abc")
     assert any(p.startswith(".okf/repos/acme--api/") for p in _files_on(bare))
 
     before = _git(bare, "rev-parse", "main")
     for subpath in (Path(".openfactory"), Path(".okf/../.openfactory/preview"),
                     Path("docs")):
-        assert not publish_bundle(bundle, str(bare), subpath=subpath, source_commit="abd")
+        assert not publish_bundle(bundle, str(bare), project=_PRODUCT, subpath=subpath,
+                                  source_commit="abd")
     assert _git(bare, "rev-parse", "main") == before, "the map was published outside .okf/"
 
 
@@ -1463,8 +1468,8 @@ def test_the_map_whose_checkout_staged_anything_else_publishes_nothing(tmp_path,
     bundle = _bundle(tmp_path)
     before = _git(bare, "rev-parse", "main")
     with caplog.at_level("ERROR"):
-        assert not pipeline.publish_bundle(bundle, str(bare), subpath=Path(".openfactory"),
-                                           source_commit="abc")
+        assert not pipeline.publish_bundle(bundle, str(bare), project=_PRODUCT,
+                                           subpath=Path(".openfactory"), source_commit="abc")
     assert "the module map lands under .okf/ only" in caplog.text, "it was cloned to find out"
 
     real = pipeline._git
@@ -1479,7 +1484,7 @@ def test_the_map_whose_checkout_staged_anything_else_publishes_nothing(tmp_path,
     monkeypatch.setattr(pipeline, "_git", git)
     caplog.clear()
     with caplog.at_level("ERROR"):
-        assert not pipeline.publish_bundle(bundle, str(bare),
+        assert not pipeline.publish_bundle(bundle, str(bare), project=_PRODUCT,
                                            subpath=pipeline.okf_subpath("acme/api"),
                                            source_commit="abc")
     assert ".openfactory/preview.compose.yml would land outside .okf/" in caplog.text
