@@ -18,7 +18,7 @@ MUTATIONS = [
     # 1. the line
     ("TODAY'S RUN: the card instruction does not take the change", ROLE,
      '            "product and the problem — never cut, never the request itself. The same marker "\n'
-     '            f"when they ask to change {SHOWN_OR_WORDED} (\\"dá pra corrigir?\\"). "\n',
+     '            f"when they ask to change {SHOWN_OR_WORDED} (\\"can you fix it?\\"). "\n',
      '            "product and the problem — never cut, never the request itself. "\n'),
     ("the requirement instruction takes every change again", ROLE,
      '            f"marker {REQUEST_MARKER} on its own line — NOT for a change to {SHOWN_OR_WORDED}: "\n'

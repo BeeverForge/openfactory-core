@@ -1104,7 +1104,7 @@ class ProductRole:
             "it, rather than discussed into a requirement — end with [[TICKET: <title>]] on its "
             "own line, the title in their words, at most 80 characters, naming the part of the "
             "product and the problem — never cut, never the request itself. The same marker "
-            f"when they ask to change {SHOWN_OR_WORDED} (\"dá pra corrigir?\"). "
+            f"when they ask to change {SHOWN_OR_WORDED} (\"can you fix it?\"). "
             f"{STAGED_AFTER_YOUR_REPLY} A card is not a promise: "
             "it carries no requirement and starts nothing by itself. Do NOT use it for a wish "
             "you should argue into a requirement, nor for a broken promise, NOR FOR THE WORK OF "
