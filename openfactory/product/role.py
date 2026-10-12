@@ -2100,7 +2100,7 @@ class ProductRole:
             from openfactory.product.voice import language_rules
 
             parts += ["", AUDIENCE_RULES]
-            rules = language_rules(self.language)
+            rules = language_rules(self.language, replying=True)
             if rules:
                 parts += ["", rules]
         column = self._breakdown_column()
