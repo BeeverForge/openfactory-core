@@ -1005,6 +1005,8 @@ def _render_job(member: str, job: dict, *, live: bool) -> list[str]:
              + (f" ({state})" if state else "")]
     if live and state in WAITS_ON:
         lines.append(f"- waits on: {WAITS_ON[state]}")
+    if live and job.get("status") == "running":
+        lines += _holds_a_slot(job)
     why = str(detail.get("why") or "").strip()
     if why:
         lines.append(f"- why (the engine's own reason): {why}")
@@ -1022,6 +1024,31 @@ def _render_job(member: str, job: dict, *, live: bool) -> list[str]:
         lines += _data(detail, depth=1)
     elif job.get("detail") is None:
         lines.append("- its detail was not read for this message (see the manifest)")
+    return lines
+
+
+def _holds_a_slot(job: dict) -> list[str]:
+    """What a live job costs everybody else, and what its deadline does (#660).
+
+    A PARKED JOB STILL HOLDS ITS SLOT. The deployment runs `max_concurrent_jobs()` jobs at once,
+    and a job parked for a person counts against that number until somebody answers it. In
+    journey 0 the role was told "#4 waits on a person to refine the card" and nothing else, so,
+    asked why the To Do cards were not moving, it said it could not say. And a park's `wakes_at`
+    reached it as a bare date it read as "the card wakes up by itself", when an impediment's
+    deadline SETS THE CARD ASIDE (`skip`) and frees the slot."""
+    from openfactory.runtime.temporal import max_concurrent_jobs
+
+    slots = max_concurrent_jobs()
+    lines = [f"- it holds one of this deployment's {slots} job slot{'s' if slots != 1 else ''}: "
+             "while every slot is held, no card on any project starts — the cards in TO-DO wait "
+             "behind it"]
+    act = job.get("action") or {}
+    if act.get("wakes_at") and act.get("at_deadline") == "skip":
+        lines.append(f"- if nobody answers it by {act['wakes_at']}, the platform sets the card "
+                     "aside then (`skip`) and frees its slot — it does not wake up and carry on "
+                     "by itself")
+    elif act.get("wakes_at") and act.get("at_deadline") == "resume":
+        lines.append(f"- it resumes by itself at {act['wakes_at']} if nobody answers it first")
     return lines
 
 
