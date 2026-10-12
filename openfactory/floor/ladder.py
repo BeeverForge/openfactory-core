@@ -15,7 +15,8 @@ assert WHICH one fired rather than only what it said:
     6  Waiting on a clock         machine-owned, self-clearing, always names the time
     7  Working                    a card is in production
     8  an input is unread         it cannot be established, so nothing is promised
-    9  Armed                      nothing running, and the next card WILL be taken
+    9  Armed                      nothing running, a slot free, and the next card WILL be taken
+       or: every slot is held     by this project's job or another's; the next card waits (#660)
     10 a standing loop is dark    never the headline — see below
 
 `Armed` HAD TO EARN ITS PLACE. Every other word is triggered by bad news, so `Armed` would have
@@ -89,6 +90,11 @@ class FloorInputs:
     engine_error: str = ""                    # raw, for a detail line — never a headline
     engine_address: str = ""
     now: datetime | None = None               # injected so a test states a moment
+    #: HOW MANY JOBS THE DEPLOYMENT RUNS AT ONCE — `max_concurrent_jobs()`, the number the poller
+    #: subtracts the running jobs from (#660). A setting, not an engine read, so `None` is "the
+    #: caller did not say" rather than "unread": the ladder then judges the floor as it did before
+    #: slots were counted.
+    slots: int | None = None
 
 
 @dataclass
@@ -595,7 +601,20 @@ def causes(inputs: FloorInputs, project: str = "") -> list[Cause]:
     # ── 9. Armed ────────────────────────────────────────────────────────────────────────────────
     # "Nothing is running" is read off the job list, so a floor whose list was not read is never
     # Armed (#298) — rung 8 above has already said what it could not see.
-    if (not out or all(c.rung >= 8 for c in out)) and not jobs_unread:
+    #
+    # AND NEVER WHILE EVERY SLOT IS HELD (#660). The poller counts every running job of the
+    # deployment against one number of slots, and a parked job is a running one: it holds its slot
+    # until somebody answers it or its deadline sets it aside. This rung read only THIS project's
+    # jobs, so in journey 0 a park on `reservas-web` held the deployment's only slot for hours
+    # while `reservas-core`'s floor said "Armed — the next card will be picked up", and the product
+    # role, told so, could not say why To Do did not move. The other job is never named: it may be
+    # another product's, and this scope is not where its people read.
+    held = [j for j in (inputs.jobs or []) if j.get("status") == "running"]
+    full = inputs.slots is not None and len(held) >= inputs.slots
+    if (not out or all(c.rung >= 8 for c in out)) and not jobs_unread and full:
+        out.append(Cause(9, "slots_held", _slots_held(held, inputs.slots, project),
+                         kind="clock" if inputs.slots else "stopped"))
+    elif (not out or all(c.rung >= 8 for c in out)) and not jobs_unread:
         if ev["verdict"] == "starting":
             out.append(Cause(9, "armed",
                              "nothing is running — the poller has just been created and its first "
@@ -615,14 +634,28 @@ def causes(inputs: FloorInputs, project: str = "") -> list[Cause]:
     return out
 
 
+def _slots_held(held: list[dict], slots: int, project: str) -> str:
+    """Why the next card waits, when every job slot of the deployment is held (#660)."""
+    where = f" in {project}'s TO-DO" if project else " in TO-DO"
+    if not slots:
+        return (f"this deployment runs no job at once (OPENFACTORY_MAX_CONCURRENT_JOBS=0) — no "
+                f"card{where} will be picked up")
+    said = (f"every job slot of this deployment is held ({len(held)} of {slots}) — the next "
+            f"card{where} starts when one is free")
+    if any(waits_on_a_person(j) for j in held):
+        said += (", and a job parked for a person's answer holds one: it frees it when somebody "
+                 "answers it, or when its deadline sets it aside")
+    return said
+
+
 #: A cause that is a CONSEQUENCE of the winner is not a second problem. Without this a blind engine
 #: reports its own blindness three times, once per fact it could not read — and buries the one an
 #: operator can act on.
 DOWNSTREAM: dict[str, tuple[str, ...]] = {
-    "engine_down": ("unread", "armed", "needs_you", "running", "rate_park", "poller_stalled",
-                    "poller_paused", "poller_late"),
-    "poller_paused": ("poller_stalled", "poller_late", "armed", "unread"),
-    "poller_late": ("armed",),
+    "engine_down": ("unread", "armed", "slots_held", "needs_you", "running", "rate_park",
+                    "poller_stalled", "poller_paused", "poller_late"),
+    "poller_paused": ("poller_stalled", "poller_late", "armed", "slots_held", "unread"),
+    "poller_late": ("armed", "slots_held"),
     "builds_disagree": (),      # it casts doubt on everything; it explains nothing
 }
 

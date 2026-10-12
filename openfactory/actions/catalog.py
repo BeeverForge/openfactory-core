@@ -1039,6 +1039,22 @@ async def _answer_gate(*, project: str, issue: str, by: Actor, answer: str,
 
         return None, refused(CONFLICT, f"#{issue}: {adjusts_spent_note(exc.passes)}.")
     except RuntimeError as exc:  # the engine answered: this job is not at the merge gate
+        # WAITING ON SOMETHING ELSE IS SAID, WITH ITS VERBS (#660). In journey 0 a job parked for a
+        # person held the deployment's only slot; the operator tried `discard` and read that it
+        # "may have merged already, been closed, or never opened a PR" — three guesses, none true,
+        # and not the two verbs that answer it. `stop` and `close` already ask the workflow.
+        waiting = None
+        try:
+            waiting = await _what_it_is_waiting_on(
+                client.get_workflow_handle(tv.job_id(found.name, issue)))
+        except Exception as ask:  # noqa: BLE001 — the refusal stands; only its reason is lost
+            log.info("could not ask #%s what it waits on instead (%s)", issue, ask)
+        if waiting:
+            what, how = waiting
+            return None, refused(
+                CONFLICT,
+                f"#{issue} is not waiting on a merge — it is waiting on {what}. Answer it with "
+                f"`{how}`.")
         return None, refused(
             CONFLICT,
             f"#{issue} is not waiting on a merge — it may have merged already, been closed, or "
