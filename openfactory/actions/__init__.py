@@ -264,8 +264,15 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
             f"{by} is not allowed to {key} — ask somebody listed as an admin for this project.",
         )
 
+    from openfactory.runtime.temporal.vocabulary import EngineUnreachable
+
     try:
         outcome = await found.run(by=by, **params)
+    except EngineUnreachable as exc:
+        # NOT A FAILURE OF THE ACTION, a state of the deployment (#674): the engine did not answer
+        # in time. FAILED is a 500 and a traceback; this is the panel's 503 and one line.
+        log.warning("action %s by %s: the engine did not answer (%s)", key, by, exc)
+        return refused(UNAVAILABLE, f"could not {key}: {exc}")
     except Exception as exc:  # noqa: BLE001 — an action must never take its caller down
         log.exception("action %s raised for %s", key, by)
         return refused(FAILED, f"could not {key}: {_why(exc)}")

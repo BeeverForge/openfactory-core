@@ -75,8 +75,12 @@ _MAX_PENDING = 200
 #: ("No sistema de férias…"), so any pt-BR sentence opening with it read as a rejection — and a
 #: rejection DESTROYS the staged proposal before the judge ever sees the sentence. English "no"
 #: still counts, but only as the whole message, where it cannot be a preposition.
-_NO = re.compile(r"^\s*(n[ãa]o|nao|nope|errado|not quite|not right)\b|^\s*no\s*[.,!…]*\s*$",
-                 re.IGNORECASE)
+#: The words a rejection may OPEN with, read by the pattern below and by the test that sweeps them.
+NO_OPENERS = ("não", "nao", "nope", "errado", "not quite", "not right")
+#: …and the one that only counts as the whole message.
+NO_ALONE = "no"
+_NO = re.compile(r"^\s*(" + "|".join(map(re.escape, NO_OPENERS)) + r")\b|^\s*"
+                 + re.escape(NO_ALONE) + r"\s*[.,!…]*\s*$", re.IGNORECASE)
 
 #: Proposals that aged out, so the NEXT yes can be told what happened instead of being silently
 #: swallowed. A person who steps away and comes back to type "sim" deserves "that expired, ask me
@@ -149,7 +153,7 @@ def _stem(key: str, person: str) -> str:
     return stem if mark and key_for(stem, person) == key else str(key or "")
 
 
-def is_yes(text: str) -> bool:
+def is_yes(text: str, *, project=None) -> bool:
     """The FAST, high-precision path: every word an approval token, at least one a core yes.
 
     Kept deliberately narrow. It accepts "sim", "sim, pode registrar", "aprovado" — and nothing
@@ -166,14 +170,21 @@ def is_yes(text: str) -> bool:
     promote tickets and spend money — while the operator channel allowed it without letting it
     assert, and the floor's table had audited it out in as many words. The lists are one table now,
     in `openfactory/language/assent.py`, and this is the mapping onto it.
+
+    READ WITHOUT THE ROLE'S ADDRESS (#667): "@po sim" is a yes; "@ana sim" is not one to the role.
+    `project` names the role (`addressing.role_names`); without one, its handles alone do.
     """
     from openfactory.language import assent
+    from openfactory.product.addressing import without_the_roles_address
 
-    return assent.asserts_assent(text)
+    return assent.asserts_assent(without_the_roles_address(text, project))
 
 
-def is_no(text: str) -> bool:
-    return bool(_NO.match(text or ""))
+def is_no(text: str, *, project=None) -> bool:
+    """A rejection, read without the role's address — see `is_yes` (#667)."""
+    from openfactory.product.addressing import without_the_roles_address
+
+    return bool(_NO.match(without_the_roles_address(text, project)))
 
 
 def pending_for(thread: str, *, project=None) -> dict | None:

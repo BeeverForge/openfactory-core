@@ -650,7 +650,7 @@ def test_a_not_yet_names_the_card_for_another_pass_and_a_yes_names_none(project,
 
 @pytest.mark.parametrize("language", ["en", "pt-BR"])
 def test_what_they_and_the_room_read_has_no_pipeline_vocabulary(language):
-    said = [voice.requester_said_right(ref=CARD, told=told, language=language)
+    said = [voice.requester_said_right(ref=CARD, told=told, language=language, approvers=["po"])
             for told in (True, False)]
     said += [voice.tried_and_right(ref=CARD, title=TITLE, who=who, where=where,
                                    language=language, agent_name=AGENT)

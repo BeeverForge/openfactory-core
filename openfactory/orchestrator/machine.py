@@ -2826,8 +2826,8 @@ class JobRunner:
         if not covered.authored:
             return report, 0
         home = self._okf_home()
-        if home is None or not publish_bundle(bundle, home[0], subpath=home[1],
-                                              source_commit=commit):
+        if home is None or not publish_bundle(bundle, home[0], project=self.project,
+                                              subpath=home[1], source_commit=commit):
             log.warning("OPENFACTORY_KNOWLEDGE_AUTHORED_NOT_PUBLISHED ticket=%s concepts=%s — "
                         "judged with them anyway; the next refresh republishes", ticket.id,
                         covered.authored)

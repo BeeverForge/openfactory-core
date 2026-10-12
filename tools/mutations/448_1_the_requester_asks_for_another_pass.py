@@ -97,9 +97,9 @@ MUTATIONS = [
      "                or False)\n"),
     ("the conversation drafts a pass for somebody who may not send it", MODULE,
      "        if not self.may_send_back(number, actor):\n"
-     '            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang))\n',
+     '            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang,\n',
      "        if False:\n"
-     '            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang))\n'),
+     '            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang,\n'),
     ("the card's control sends a pass the gate says cannot be sent", MODULE,
      "        if not gate.open:\n"
      '            return WriteResult(ok=False, ref=f"#{number}", detail=adjust_said(\n',

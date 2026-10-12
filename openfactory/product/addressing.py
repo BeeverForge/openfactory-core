@@ -36,7 +36,46 @@ way it was read the first time.
 
 from __future__ import annotations
 
-#: Why a message is addressed to the role — what the conversation records beside it.
+import re
+import unicodedata
+
+#: THE ROLE'S HANDLES in a room, besides its own name: the word on the panel's dock button, and the
+#: role's function — words nobody in a room says to a person. The panel's room reads them as naming
+#: the role (`api/product_chat.py::mentions_the_role`), and writes the first in front of a room
+#: message that names nobody (`api/panel.html::pchatAddressed`).
+HANDLES = ("po", "product")
+
+#: A MENTION: `@` and a name, not joined to a word before it (`a@b.com` is an address), with the
+#: comma or colon a vocative carries on either side — "@po, pode seguir", "pode seguir, @po".
+_MENTION = re.compile(r"[,;:]?\s*(?<![\w@])@([\w.-]+)[,:;]?")
+
+
+def _flat(text: str) -> str:
+    """Lower case, accents off — `@Nína` and `@nina` name the same role."""
+    return unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore") \
+        .decode().lower()
+
+
+def role_names(project=None) -> frozenset[str]:
+    """What names the role in a mention: `HANDLES`, and its name — whole, or its first word."""
+    name = str(getattr(getattr(project, "product", None), "agent_name", "") or "").strip()
+    names = {*HANDLES, *((_flat(name), _flat(name.split()[0])) if name else ())}
+    return frozenset(n for n in names if n)
+
+
+def without_the_roles_address(text: str, project=None) -> str:
+    """The message without the mentions that address THE ROLE: who it is for is not what it says.
+
+    JOURNEY 0 (#640, C-13; #667). The panel writes `@po ` in front of a room message that names
+    nobody, so a late "sim" arrived as "@po sim", and `po` is no catalogued word: the yes was read
+    as neither, and the person was never told the proposal had expired.
+
+    ONLY THE ROLE'S. A mention of anybody else stays where it is: "@ana sim" in the room is somebody
+    answering Ana, and read past it would execute — or, "@ana não", destroy — what that person has
+    waiting (review of #667; a misread yes is #272's failure)."""
+    names = role_names(project)
+    return _MENTION.sub(
+        lambda m: " " if _flat(m.group(1).rstrip(".-")) in names else m.group(0), text or "")
 DIRECT, MENTION, REPLY = "direct", "mention", "reply"
 REASONS = (DIRECT, MENTION, REPLY)
 
@@ -59,4 +98,5 @@ def why_addressed(*, direct: bool, mentioned: bool, in_reply_to: str,
     return ""
 
 
-__all__ = ["DIRECT", "MENTION", "REASONS", "REPLY", "why_addressed"]
+__all__ = ["DIRECT", "HANDLES", "MENTION", "REASONS", "REPLY", "role_names", "why_addressed",
+           "without_the_roles_address"]
