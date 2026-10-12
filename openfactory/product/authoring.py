@@ -773,7 +773,7 @@ def requirement_file(requirement, *, requirements_dir: str = "") -> str:
     return f"{directory}/{name}" if directory and name else name
 
 
-def _requester_front_matter(who: str, forge: str = "") -> list[str]:
+def _requester_front_matter(who: str, forge: str = "", belongs_to: str = "") -> list[str]:
     """`requester:` (and `requester_forge:`) as YAML front matter — the machine-readable half of
     `Pedido por`.
 
@@ -783,13 +783,17 @@ def _requester_front_matter(who: str, forge: str = "") -> list[str]:
     QUOTED, ALWAYS: `requester: @octocat` is not YAML (`@` cannot start a token) and would have
     crashed every read of the card on three vendors (ADR-0048, refutation 10) — a JSON string is a
     YAML string, whatever it starts with. `forge` is the same person in the tracker's namespace,
-    written only when the deployment could resolve one (`Project.people`, read backwards)."""
+    written only when the deployment could resolve one (`Project.people`, read backwards).
+    `belongs_to` is the repository a card filed outside it belongs to (#665), read back by the
+    queue, the pickup and the pre-flight so that it is never run in another one."""
     who = (who or "").strip()
     forge = (forge or "").strip()
-    if not who and not forge:
+    belongs_to = (belongs_to or "").strip()
+    if not who and not forge and not belongs_to:
         return []
     keys = ([f"requester: {json.dumps(who, ensure_ascii=False)}"] if who else []) + (
-        [f"requester_forge: {json.dumps(forge, ensure_ascii=False)}"] if forge else [])
+        [f"requester_forge: {json.dumps(forge, ensure_ascii=False)}"] if forge else []) + (
+        [f"belongs_to: {json.dumps(belongs_to, ensure_ascii=False)}"] if belongs_to else [])
     return ["---\n" + "\n".join(keys) + "\n---"]
 
 
@@ -1165,7 +1169,7 @@ def filed_by_the_product_role(body: str) -> str:
 
 def issue_body(draft: IssueDraft, *, requirement_path: str, docs_repo: str,
                commit: str = "", docs_url: str = "", awaiting: str = "",
-               requester: str = "", requester_forge: str = "") -> str:
+               requester: str = "", requester_forge: str = "", belongs_to: str = "") -> str:
     """An issue that cites the requirement it executes — path, and the commit it was read from.
 
     The citation is what makes the issue a unit of EXECUTION rather than a second, drifting copy of
@@ -1182,7 +1186,7 @@ def issue_body(draft: IssueDraft, *, requirement_path: str, docs_repo: str,
     one thing that makes an authored issue auditable, so a wrong link there is strictly worse than
     none — and only the caller, which can reach the project's forge, knows the right one
     (`ProductModule._docs_url`)."""
-    parts = [*_requester_front_matter(requester, requester_forge),
+    parts = [*_requester_front_matter(requester, requester_forge, belongs_to),
              f"## Objective\n\n{draft.objective.strip()}", ""]
     if draft.acceptance_criteria:
         parts += ["## Acceptance criteria", ""]
@@ -1207,6 +1211,9 @@ def issue_body(draft: IssueDraft, *, requirement_path: str, docs_repo: str,
         "",
         f"Executes **{cite}** in {where} — {ref}.",
         "",
+        *([f"Its change belongs to `{belongs_to.strip()}`. This board keeps every card in one "
+           f"place, and a card of another repository is not run in this project's.", ""]
+          if (belongs_to or "").strip() else []),
         f"{_FROM_A_REQUIREMENT} If the work needs a decision that is not written there, the "
         "decision belongs in the document first.",
     ]
