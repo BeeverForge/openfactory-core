@@ -1704,6 +1704,18 @@ def offer_draft(project, *, request: str, user: str, thread: str, module,
         return None  # nothing to confirm; the conversation continues
 
     draft = answer.draft
+    # NOTHING IS PROPOSED WHILE ITS TEXT WAITS ON AN ANSWER (#670). Read off the drafter's field,
+    # never off the role's prose: a draft that names what it cannot write without
+    # (`RequirementDraft.ask_first`) stages nothing — what was on the table stays there — and the
+    # person is asked, the questions listed unless the role's reply has just asked. Journey 0 had
+    # a proposal under "I need two answers before I close the text" that chose both for them.
+    first = [str(q).strip() for q in (getattr(draft, "ask_first", None) or []) if str(q).strip()]
+    if first:
+        from openfactory.product.voice import asked_first
+
+        log.info("OPENFACTORY_PRODUCT_DRAFT_ASKS_FIRST project=%s questions=%d",
+                 getattr(project, "name", "?"), len(first))
+        return preamble + asked_first(questions=first, listed="?" not in preamble, language=lang)
     replaced = remember(thread, {"answer": answer, "asked_by": asked_by or user, "date": date,
                                  "source": source, "kind": "draft", "channel": channel,
                                  "seq": seen,
@@ -1715,11 +1727,12 @@ def offer_draft(project, *, request: str, user: str, thread: str, module,
     # plain `str`, the boundary could no longer tell it had been posted, and the whole proposal
     # went out TWICE. A sentinel that survives only until somebody interpolates it is not a
     # sentinel — which is why the preamble is an argument here and never glued on outside.
-    from openfactory.product.voice import confirmation_request
+    from openfactory.product.voice import confirmation_request, still_open
 
     return offer(project, thread, preamble + replaced + confirmation_request(
         title=draft.title, must_be_true=draft.must_be_true,
-        conflicts=[(c.kind, _conflict_line(c, lang)) for c in draft.conflicts], language=lang))
+        conflicts=[(c.kind, _conflict_line(c, lang)) for c in draft.conflicts], language=lang)
+        + still_open(questions=list(draft.questions or []), language=lang))
 
 
 def _conflict_line(conflict, lang=None) -> str:

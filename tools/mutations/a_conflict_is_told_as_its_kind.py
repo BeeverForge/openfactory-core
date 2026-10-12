@@ -39,9 +39,10 @@ MUTATIONS = [
      '        parts.append(f"{lead if not parts else lead[:1].upper() + lead[1:]}\\n{items}")'),
 
     # 3. the engine hands the kind on
+    # RE-PINNED 2026-10-13 (#670): what the draft leaves open is said after the confirmation
     ("TODAY'S RUN: the engine drops the drafter's kind", ENGINE,
-     "        conflicts=[(c.kind, _conflict_line(c, lang)) for c in draft.conflicts], language=lang))",
-     "        conflicts=[_conflict_line(c, lang) for c in draft.conflicts], language=lang))"),
+     "        conflicts=[(c.kind, _conflict_line(c, lang)) for c in draft.conflicts], language=lang)",
+     "        conflicts=[_conflict_line(c, lang) for c in draft.conflicts], language=lang)"),
 
     # 4. what is not known is told as the strongest
     ("an unknown kind is told as the mildest", VOICE,
