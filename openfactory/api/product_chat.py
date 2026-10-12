@@ -46,6 +46,8 @@ import time
 import weakref
 from dataclasses import dataclass, field
 
+from openfactory.product.addressing import HANDLES
+
 log = logging.getLogger("openfactory.api.product_chat")
 
 #: How often an open conversation is read while something is happening in it (a message waiting,
@@ -409,9 +411,8 @@ def hub() -> ProductChat:
 
 # ── the panel's own way of detecting a mention (#266 slice 6, ADR-0051 D14) ────────────────────
 
-#: The handles the panel's room reads as naming the product role, besides the role's own name:
-#: the word on the dock's button, and the role's function. Words nobody in a room says to a person.
-HANDLES = ("po", "product")
+#: The handles the panel's room reads as naming the product role, besides the role's own name, are
+#: the core's (`product/addressing.HANDLES`), which reads them out of a yes the same way (#667).
 
 
 def _flat(text: str) -> str:

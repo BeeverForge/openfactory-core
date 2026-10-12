@@ -626,7 +626,7 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # initialised BEFORE the gate: the branches below read them unconditionally, and they are only
     # assigned when the model is consulted at all
     judged_yes = judged_no = False
-    if waiting and not is_yes(text) and not is_no(text):
+    if waiting and not is_yes(text, project=project) and not is_no(text, project=project):
         verdict = "neither"
         try:
             verdict = module.confirmed(text, proposal=_proposal_summary(waiting))
@@ -655,7 +655,7 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # The receipt goes with it. A confirmed write is always the slow path — every branch reaches a
     # checkout, the client's board or an agent — and `confirm` fires `on_it` before the
     # authorisation, so nobody approves something irreversible and then waits in silence.
-    if waiting and (is_yes(text) or judged_yes):
+    if waiting and (is_yes(text, project=project) or judged_yes):
         return Settled(confirm_staged(project, key=waiting_key, entry=waiting,
                                       fingerprint=fingerprint, module=module, user=user,
                                       lang=lang, on_it=on_it, via=via),
@@ -664,7 +664,7 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # THE REJECTION STAYS HERE, and it is not the executor's tenth branch. It performs nothing: it
     # destroys the proposal and FALLS THROUGH, so whatever the person wrote is answered as the
     # correction it usually is. `confirm` returns a sentence; this one has to keep going.
-    if waiting and (is_no(text) or judged_no):
+    if waiting and (is_no(text, project=project) or judged_no):
         # REFUSING IS AN ACT, so it is gated — but NOT by the approval rule, which would be wrong.
         # Two different people can say "não" here and they are not the same case: the person whose
         # request this is, saying "não, não é isso" to CORRECT their own wording, and a third party
@@ -739,8 +739,8 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # it work?", and the ledger read first.
     # THE NOTICE IS READ FROM THE STORE TOO (#452): the expiry may have been found before a restart,
     # or by another worker, and a late yes reaching this process is owed it all the same
-    if not waiting and (is_yes(text) or is_no(text)) and _expired_recently(thread, channel,
-                                                                           project=project):
+    if (not waiting and (is_yes(text, project=project) or is_no(text, project=project))
+            and _expired_recently(thread, channel, project=project)):
         from openfactory.product.voice import proposal_expired
 
         return Settled(proposal_expired(language=lang), waiting)
@@ -1524,7 +1524,7 @@ def resume_card(ex: Exchange, *, arrival_ts: str = "") -> Reply | str | None:
     from openfactory.product import case as _case
 
     held = cards.held_question(ex.key, project=ex.project)
-    if held is None or is_no(ex.text):
+    if held is None or is_no(ex.text, project=ex.project):
         if held is not None:
             # DECLINED ("não", "esquece"): closed as an answer closes it
             cards.close_question(ex.key, project=ex.project)

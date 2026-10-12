@@ -153,7 +153,7 @@ def _stem(key: str, person: str) -> str:
     return stem if mark and key_for(stem, person) == key else str(key or "")
 
 
-def is_yes(text: str) -> bool:
+def is_yes(text: str, *, project=None) -> bool:
     """The FAST, high-precision path: every word an approval token, at least one a core yes.
 
     Kept deliberately narrow. It accepts "sim", "sim, pode registrar", "aprovado" — and nothing
@@ -170,17 +170,21 @@ def is_yes(text: str) -> bool:
     promote tickets and spend money — while the operator channel allowed it without letting it
     assert, and the floor's table had audited it out in as many words. The lists are one table now,
     in `openfactory/language/assent.py`, and this is the mapping onto it.
+
+    READ WITHOUT THE ROLE'S ADDRESS (#667): "@po sim" is a yes; "@ana sim" is not one to the role.
+    `project` names the role (`addressing.role_names`); without one, its handles alone do.
     """
     from openfactory.language import assent
+    from openfactory.product.addressing import without_the_roles_address
 
-    return assent.asserts_assent(text)
+    return assent.asserts_assent(without_the_roles_address(text, project))
 
 
-def is_no(text: str) -> bool:
-    """A rejection, read without the mention that addressed it (`assent.unaddressed`, #667)."""
-    from openfactory.language import assent
+def is_no(text: str, *, project=None) -> bool:
+    """A rejection, read without the role's address — see `is_yes` (#667)."""
+    from openfactory.product.addressing import without_the_roles_address
 
-    return bool(_NO.match(assent.unaddressed(text)))
+    return bool(_NO.match(without_the_roles_address(text, project)))
 
 
 def pending_for(thread: str, *, project=None) -> dict | None:
