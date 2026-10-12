@@ -1528,6 +1528,11 @@ class JobWorkflow:
                         # reported as no deadline at all and the reader says "until answered".
                         "wakes_at": ((parked_at + timeout).isoformat()
                                      if timeout <= _HELD_UNTIL_ANSWERED else None),
+                        # WHAT `wakes_at` DOES (#660): `skip` sets the card aside and frees its
+                        # slot, `resume` carries on. A bare date was read as "it wakes up by
+                        # itself" about an impediment whose deadline skips it. State, no command,
+                        # like the two lines above.
+                        "at_deadline": default if timeout <= _HELD_UNTIL_ANSWERED else None,
                         # Carried so the tech-lead's ROUNDS see the same number the workflow has:
                         # they read this payload and nothing else, so without it the count exists
                         # on one side of the query and only as prose on the other (#124).

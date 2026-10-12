@@ -471,7 +471,7 @@ _CARD_WITHDRAWN_RESULT = {
         "only_closed": "aqui os cartões só podem ser fechados, não apagados, então fechei o {ref} "
                        "como não feito — ele continua no histórico.",
         "not_yours": "só quem pediu o {ref}, ou alguém com permissão para aprovar, pode fechá-lo "
-                     "ou removê-lo. Nada mudou — peça a uma dessas pessoas.",
+                     "ou removê-lo. Nada mudou — peça a {names}.",
     },
     "en": {
         "closed": "closed {ref} — it leaves the list of work and stays in the history as not "
@@ -483,7 +483,7 @@ _CARD_WITHDRAWN_RESULT = {
         "only_closed": "cards here can only be closed, not deleted, so I closed {ref} as not "
                        "done — it stays in the history.",
         "not_yours": "only the person who asked for {ref}, or someone with permission to approve, "
-                     "can close or remove it. Nothing changed — ask one of them.",
+                     "can close or remove it. Nothing changed — ask {names}.",
     },
 }
 
@@ -505,11 +505,13 @@ def card_controls(*, opened_by_product: bool, started: bool, removes: bool,
     return words
 
 
-def card_withdrawn_result(*, ref: str, how: str, language: str | None = None) -> str:
+def card_withdrawn_result(*, ref: str, how: str, language: str | None = None,
+                          approvers: list[str] | None = None) -> str:
     """What the person hears on the card once it is closed (`closed`), removed (`removed`), or
     closed because this tracker cannot remove (`only_closed`) — or why nothing happened, when they
-    are neither the person who asked for it nor an approver (`not_yours`)."""
-    return _pick(_CARD_WITHDRAWN_RESULT, language)[how].format(ref=ref_label(ref))
+    are neither the person who asked for it nor an approver (`not_yours`), naming the approvers."""
+    return _naming(_pick(_CARD_WITHDRAWN_RESULT, language)[how], approvers, language,
+                   ref=ref_label(ref))
 
 
 # ── putting a card in the queue from the card itself (#562) ──────────────────────────────────
@@ -526,14 +528,14 @@ _CARD_QUEUE = {
         "ask": ("Pôr o {ref} em {column} começa o trabalho: a fábrica o pega de lá, e a partir daí "
                 "isso custa dinheiro. Pôr na fila?"),
         "not_yours": ("Pôr o {ref} em {column} começa o trabalho, e isso custa dinheiro — é um sim "
-                      "de quem aprova. Peça a uma dessas pessoas, ou diga na conversa."),
+                      "de quem aprova: peça a {names}, ou diga na conversa."),
     },
     "en": {
         "queue": "Queue it ({column})",
         "ask": ("Putting {ref} in {column} starts the work: the factory picks it up from there, "
                 "and from then on it spends money. Queue it?"),
         "not_yours": ("Putting {ref} in {column} starts the work, and that spends money — it is an "
-                      "approver's yes. Ask one of them, or say it in the conversation."),
+                      "approver's yes: ask {names}, or say it in the conversation."),
     },
 }
 
@@ -545,9 +547,42 @@ def card_queue_controls(*, ref: str, column: str, language: str | None = None) -
     return {key: said[key].format(ref=ref_label(ref), column=column) for key in ("queue", "ask")}
 
 
-def card_queue_not_yours(*, ref: str, column: str, language: str | None = None) -> str:
-    """Said on the card, in place of the control, to a person who may not start work."""
-    return _pick(_CARD_QUEUE, language)["not_yours"].format(ref=ref_label(ref), column=column)
+def card_queue_not_yours(*, ref: str, column: str, language: str | None = None,
+                         approvers: list[str] | None = None) -> str:
+    """Said on the card, in place of the control, to a person who may not start work — naming who
+    may."""
+    return _naming(_pick(_CARD_QUEUE, language)["not_yours"], approvers, language,
+                   ref=ref_label(ref), column=column)
+
+
+#: WHO CAN APPROVE, BY NAME (#666). Every sentence that sent a person to the product's approvers
+#: said "peça a uma dessas pessoas" and named nobody: journey 0 read it to someone off the list
+#: on a product whose admins the registry lists. A sentence that sends a person to the approvers
+#: carries `{names}`, filled here from `product.admins` as the platform knows them — at most
+#: `APPROVERS_NAMED`, as the note under a proposal names them — or, when nobody is set up, the
+#: person who can set one up.
+_APPROVERS = {
+    "pt-BR": {"or": " ou ", "nobody": "quem configurou o produto"},
+    "en": {"or": " or ", "nobody": "whoever set the product up"},
+}
+APPROVERS_NAMED = 3
+
+
+def approvers_named(approvers: list[str] | None, language: str | None = None) -> str:
+    """The approvers as a sentence names them: "po", "po ou ana", "po, ana ou rui"."""
+    said = _pick(_APPROVERS, language)
+    names = [str(a).strip() for a in (approvers or []) if str(a).strip()][:APPROVERS_NAMED]
+    if not names:
+        return said["nobody"]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + said["or"] + names[-1]
+
+
+def _naming(text: str, approvers: list[str] | None, language: str | None, **fields) -> str:
+    """`text` with its fields, and `{names}` filled with the approvers. A sentence that names them
+    and was handed none is the defect itself, so it is refused rather than said."""
+    if "{names}" in text and approvers is None:
+        raise ValueError("this sentence sends the person to the approvers: pass `approvers`")
+    return text.format(names=approvers_named(approvers, language), **fields)
 
 
 def _pick(catalogue: dict[str, str], language: str | None) -> str:
@@ -658,12 +693,15 @@ _CANNOT_WRITE_NONE = {
     "en": ("I can talk this through and draft it, but nobody has been set up yet to approve what "
            "I write down. Ask whoever set me up to give you that permission."),
 }
+#: THE ACT, NOT ONE OF THEM, AND NO PROMISE (#666). This said "registrar como requisito acordado …
+#: peça a confirmação a uma dessas pessoas e eu registro" to every refusal of a person off the
+#: list — a breakdown, a refine, a yes, a release — named nobody, and promised a recording nothing
+#: was waiting for.
 _CANNOT_WRITE_SOME = {
-    "pt-BR": ("Posso conversar sobre isso e preparar uma proposta, mas registrar como requisito "
-              "acordado precisa de alguém com permissão de aprovação. Peça a confirmação a uma "
-              "dessas pessoas e eu registro."),
-    "en": ("I can talk this through and draft it, but writing it down as an agreed requirement "
-           "needs someone with approval rights. Ask one of them to confirm and I'll record it."),
+    "pt-BR": ("Posso conversar sobre isso, mas fazer isso precisa do sim de alguém com permissão "
+              "para aprovar. Nada foi feito — peça a {names}."),
+    "en": ("I can talk this through, but doing it needs the yes of someone with permission to "
+           "approve. Nothing was done — ask {names}."),
 }
 _UNAVAILABLE = {
     "pt-BR": ("Não estou conseguindo enxergar os requisitos do produto agora, então qualquer "
@@ -1017,10 +1055,12 @@ def deploy_invitation(*, what: str = "", url: str, language: str | None = None) 
     return _pick(_DEPLOY_INVITATION, language).format(what=subject, url=url.rstrip("/"))
 
 
-def cannot_write(*, has_approvers: bool, language: str | None = None) -> str:
-    """A refusal, in terms a client can act on. Naming a configuration file would be both useless
-    and slightly insulting to someone who was never meant to edit one."""
-    return _pick(_CANNOT_WRITE_SOME if has_approvers else _CANNOT_WRITE_NONE, language)
+def cannot_write(*, approvers: list[str], language: str | None = None) -> str:
+    """A refusal, in terms a client can act on, naming who can (#666). Naming a configuration file
+    would be both useless and slightly insulting to someone who was never meant to edit one."""
+    if approvers is not None and not [a for a in approvers if str(a).strip()]:
+        return _pick(_CANNOT_WRITE_NONE, language)
+    return _naming(_pick(_CANNOT_WRITE_SOME, language), approvers, language)
 
 
 def unavailable(*, reason_for_team: str = "", language: str | None = None) -> str:
@@ -1366,14 +1406,14 @@ _ADMINS_MUST_CONFIRM = {
         "record": "o registro", "order": "gravar a ordem", "card": "abrir o cartão",
         "note": "a anotação", "decision": "a decisão", "closing": "o encerramento",
         "correction": "a correção", "change": "a mudança", "breakdown": "a quebra",
-        "refine": "escrever o que ele precisa cumprir",
+        "refine": "escrever o que ele precisa cumprir", "agreement": "o acordo",
     },
     "en": {
         "frame": "({admins}: {what} needs your confirmation.)",
         "record": "registering this", "order": "saving the order", "card": "opening the card",
         "note": "the note", "decision": "the decision", "closing": "closing it",
         "correction": "the correction", "change": "the change", "breakdown": "the breakdown",
-        "refine": "writing what it must meet",
+        "refine": "writing what it must meet", "agreement": "the agreement",
     },
 }
 
@@ -3834,9 +3874,9 @@ def correction_note(*, kind: str, actor: str, old_text: str = "", old_title: str
 _ADJUST_SAID = {
     "not_yours": {
         "pt-BR": ("só quem pediu o {ref}, ou alguém com permissão para aprovar, pode mandá-lo de "
-                  "volta para mais uma passada. Nada mudou — peça a uma dessas pessoas."),
+                  "volta para mais uma passada. Nada mudou — peça a {names}."),
         "en": ("only the person who asked for {ref}, or someone with permission to approve, can "
-               "send it back for another pass. Nothing changed — ask one of them.")},
+               "send it back for another pass. Nothing changed — ask {names}.")},
     "not_waiting": {
         "pt-BR": ("nenhuma mudança do {ref} está esperando por você agora — ela pode já ter "
                   "entrado no produto, ter sido fechada, ou ainda não estar pronta para você "
@@ -3997,12 +4037,13 @@ _ADJUST_CONTROLS = {
 
 
 def adjust_said(reason: str, *, ref: str, passes: int | None = None, length: int = 0,
-                limit: int = 0, language: str | None = None) -> str:
+                limit: int = 0, language: str | None = None,
+                approvers: list[str] | None = None) -> str:
     """Why no pass was sent — or, for `corrected_anyway`, what stands although it was not — in the
     person's language. Every reason of `product/adjust.py::WHY` has one, and the module's own."""
-    return _pick(_ADJUST_SAID[reason], language).format(
-        ref=ref_label(ref), passes=passes if passes is not None else "", length=length,
-        limit=limit)
+    return _naming(_pick(_ADJUST_SAID[reason], language), approvers, language,
+                   ref=ref_label(ref), passes=passes if passes is not None else "", length=length,
+                   limit=limit)
 
 
 def adjust_sent(*, ref: str, instruction: str, number: int | None = None,
@@ -4060,9 +4101,9 @@ def adjust_controls(*, left: int | None = None, passes: int | None = None,
 _ACCEPT_CHANGE_SAID = {
     "not_yours": {
         "pt-BR": ("só quem pediu o {ref}, ou alguém com permissão para aprovar, pode aceitar a "
-                  "mudança dele. Nada foi registrado — peça a uma dessas pessoas."),
+                  "mudança dele. Nada foi registrado — peça a {names}."),
         "en": ("only the person who asked for {ref}, or someone with permission to approve, can "
-               "accept its change. Nothing was recorded — ask one of them.")},
+               "accept its change. Nothing was recorded — ask {names}.")},
     "not_waiting": {
         "pt-BR": ("nenhuma mudança do {ref} está esperando por você agora — ela pode já ter "
                   "entrado no produto, ter sido fechada, ou ainda não estar pronta para você "
@@ -4164,12 +4205,14 @@ _CHANGE_ACCEPTED_MERGING = {
 }
 
 
-def accept_change_said(reason: str, *, ref: str, language: str | None = None) -> str:
+def accept_change_said(reason: str, *, ref: str, language: str | None = None,
+                       approvers: list[str] | None = None) -> str:
     """Why nothing was recorded, in the person's language — one sentence per reason the module
     and `product/accept.py` can give."""
     from openfactory.contracts.refs import ref_label
 
-    return _pick(_ACCEPT_CHANGE_SAID[reason], language).format(ref=ref_label(ref))
+    return _naming(_pick(_ACCEPT_CHANGE_SAID[reason], language), approvers, language,
+                   ref=ref_label(ref))
 
 
 def accept_change_confirmation(*, number: str, merges: bool = False,
@@ -5117,10 +5160,10 @@ _SAID_RIGHT = {
 }
 _SAID_RIGHT_ROOM = {
     "pt-BR": {"told": "avisei a sala do produto que você disse que está certo.",
-              "untold": ("não consegui avisar a sala do produto agora, então diga a um deles que "
+              "untold": ("não consegui avisar a sala do produto agora, então diga a {names} que "
                          "você já experimentou.")},
     "en": {"told": "I have told the product's room that you say it is right.",
-           "untold": ("I could not reach the product's room just now, so tell one of them you "
+           "untold": ("I could not reach the product's room just now, so tell {names} you "
                       "have tried it.")},
 }
 _TRIED_AND_RIGHT = {
@@ -5133,10 +5176,13 @@ _TRIED_WHO = {"pt-BR": "quem pediu", "en": "the person who asked for it"}
 _TRIED_AT = {"pt-BR": " em {where}", "en": " at {where}"}
 
 
-def requester_said_right(*, ref: str, told: bool, language: str | None = None) -> str:
+def requester_said_right(*, ref: str, told: bool, language: str | None = None,
+                         approvers: list[str] | None = None) -> str:
     """What the card's requester reads when their "it worked" was recorded and did not release it:
-    that it was recorded, who puts it in front of everyone, and whether the room knows."""
-    room = _pick(_SAID_RIGHT_ROOM, language)["told" if told else "untold"]
+    that it was recorded, who puts it in front of everyone, and whether the room knows — naming,
+    when it does not, whom to tell."""
+    room = _naming(_pick(_SAID_RIGHT_ROOM, language)["told" if told else "untold"], approvers,
+                   language)
     return _pick(_SAID_RIGHT, language).format(ref=ref_label(ref), room=room)
 
 

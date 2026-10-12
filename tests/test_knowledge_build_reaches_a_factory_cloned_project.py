@@ -66,8 +66,8 @@ def test_without_publish_the_disposable_clone_warning_speaks(url_registered):
 def test_publish_pushes_through_the_pipeline_and_reports_the_branch(url_registered, monkeypatch):
     seen = {}
 
-    def _publish(dest, url, *, subpath=None, source_commit="", author=("", "")):
-        seen.update(dest=Path(dest), url=url, subpath=subpath, author=author)
+    def _publish(dest, url, *, project, subpath=None, source_commit="", author=("", "")):
+        seen.update(dest=Path(dest), url=url, subpath=subpath, author=author, project=project)
         return True
 
     monkeypatch.setattr("openfactory.knowledge.pipeline.publish_bundle", _publish)
@@ -78,6 +78,7 @@ def test_publish_pushes_through_the_pipeline_and_reports_the_branch(url_register
     assert result.exit_code == 0, result.output
     assert seen.get("url") == "https://github.com/acme/demo-context.git"
     assert str(seen.get("subpath")) == ".okf/repos/acme--demo"
+    assert seen["project"].name == "demo", "the publish named no product to queue behind (#673)"
     assert ".okf" in result.output
 
 

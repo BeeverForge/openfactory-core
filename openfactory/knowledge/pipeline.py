@@ -327,29 +327,45 @@ def _within_clone(pub: Path, subpath: Path) -> bool:
 PUBLISHED = "published"
 UNCHANGED = "unchanged"
 FAILED = "failed"
+#: The product's semaphore was held by another write for the whole wait: nothing was cloned or
+#: pushed, and the next refresh publishes (#673)
+BUSY = "busy"
 
 
 def publish_bundle(
-    bundle_dir: Path, remote_url: str, *, subpath: Path, source_commit: str = "",
+    bundle_dir: Path, remote_url: str, *, project, subpath: Path, source_commit: str = "",
     author: tuple[str, str] = ("openfactory-bot", "openfactory-bot@local"),
 ) -> bool:
     """Commit `bundle_dir`'s contents at `subpath` inside the context repository's default branch
     and push. True when a new commit landed, False when there was nothing to publish or anything
-    failed (best-effort). The module map's shape of `publish_dir`."""
+    failed (best-effort). The module map's shape of `publish_dir`, under `project`'s product's
+    semaphore like every write there."""
     if not (remote_url and _has_bundle(bundle_dir)):
         return False
     stamp = (source_commit or "unknown")[:12]
-    return publish_dir(bundle_dir, remote_url, subpath=subpath, author=author,
+    return publish_dir(bundle_dir, remote_url, project=project, subpath=subpath, author=author,
                        message=f"chore(okf): refresh module map @ {stamp}",
                        what=f"module map @ {stamp}") == PUBLISHED
 
 
 def publish_dir(
-    src_dir: Path, remote_url: str, *, subpath: Path, message: str, what: str,
+    src_dir: Path, remote_url: str, *, project, subpath: Path, message: str, what: str,
     author: tuple[str, str] = ("openfactory-bot", "openfactory-bot@local"),
+    timeout: float | None = None,
 ) -> str:
     """Commit `src_dir`'s contents at `subpath` inside the context repository's default branch and
-    push — `PUBLISHED`, `UNCHANGED` (the tree already held exactly this) or `FAILED`.
+    push — `PUBLISHED`, `UNCHANGED` (the tree already held exactly this), `BUSY` or `FAILED`.
+
+    UNDER `project`'S PRODUCT'S SEMAPHORE, the clone, the commit and the push (#673). A person's
+    write — a requirement, a decision, a fact — pushes once and does not retry, under the same
+    semaphore; a publish that pushed between their clone and their push made their save fail. And
+    the members of one product refresh on one clock, so their maps were published at the same
+    second: journey 0 measured three within 120 ms, and the third was rejected twice, once by each,
+    and dropped until the next refresh. Holding the semaphore puts every publish of a product in a
+    queue with every other write of it; it is seconds, and never a model call. A semaphore that
+    cannot be had within `timeout` (the semaphore's own default when None) costs this publish
+    (`BUSY`) and never a person's write; the next refresh publishes. Re-entrant: the system layer,
+    which holds it around two publishes, is not held up by itself.
 
     THE ONE WAY DERIVED KNOWLEDGE IS WRITTEN TO THE CONTEXT REPOSITORY: the module map through
     `publish_bundle`, the system layer through `knowledge/system/refresh.py`. `subpath` is replaced
@@ -357,14 +373,29 @@ def publish_dir(
     and the derivation is the whole of it — and nothing outside `subpath` is touched.
 
     NEVER `--force`. A push rejected as non-fast-forward means someone else committed to this
-    branch between our clone and our push — another source's refresh in the same multirepo
-    project, or a human merging the onboarding docs PR onto the same branch `.okf/` now shares
-    with `docs/`. We re-clone the new tip and re-apply ONCE: without that, the loser's map is
+    branch between our clone and our push. Another source's refresh of the same product now waits
+    for the semaphore instead (above); a human merging the onboarding docs PR onto the same branch
+    `.okf/` now shares with `docs/` does not. We re-clone the new tip and re-apply ONCE: without
+    that, the loser's map is
     silently dropped and the project sits on a stale map until the next refresh happens to come
     along — silent staleness is precisely what §12 is built to avoid, and a plain push with retry
     is what keeps this safe to share a branch with content this module does not own."""
     if not remote_url or not Path(src_dir).is_dir():
         return FAILED
+    from openfactory.product import semaphore
+
+    try:
+        with semaphore.held(project, timeout=timeout):
+            return _publish_dir(src_dir, remote_url, subpath=subpath, message=message, what=what,
+                                author=author)
+    except semaphore.Busy as exc:
+        _log.warning("knowledge: %s not published — %s; the next refresh publishes", what, exc)
+        return BUSY
+
+
+def _publish_dir(src_dir: Path, remote_url: str, *, subpath: Path, message: str, what: str,
+                 author: tuple[str, str]) -> str:
+    """`publish_dir`'s clone, commit and push, with the product's semaphore held by its caller."""
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-knowledge-pub-"))
     pub = tmp / "pub"
     try:

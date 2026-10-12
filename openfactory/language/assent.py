@@ -98,6 +98,7 @@ def words_of(text: str) -> list[str]:
     return re.findall(_WORD_LETTERS, (text or "").lower())
 
 
+
 def is_bare_assent(text: str) -> bool:
     """The whole message IS an assent — the FLOOR's bar, because that gesture merges (#156).
 

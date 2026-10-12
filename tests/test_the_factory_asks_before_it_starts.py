@@ -145,7 +145,7 @@ class _World:
             self.fetches.append(subpath)
             return fetched
 
-        def publish(bundle_dir, url, *, subpath, source_commit="", author=None):
+        def publish(bundle_dir, url, *, project, subpath, source_commit="", author=None):
             self.published.append((subpath, source_commit))
             return True
 

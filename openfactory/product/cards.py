@@ -191,6 +191,67 @@ def _said(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", (text or "").lower()).split())
 
 
+class Problem(str):
+    """A problem the floor found: the string itself is the instruction the redraft reads, written
+    for a model, in English; `kind` and `fields` say what it is, so a person can be told it in
+    their own language (#677) — the redraft's instruction is never what a person reads."""
+
+    kind: str
+    fields: dict
+
+    def __new__(cls, text: str, kind: str = "", **fields):
+        made = super().__new__(cls, text)
+        made.kind, made.fields = kind, fields
+        return made
+
+
+def _problem(kind: str, text: str, **fields) -> Problem:
+    return Problem(text, kind, **fields)
+
+
+#: WHAT THE REVIEW FOUND, SAID TO A PERSON (#677). The floor's problems and the judge's findings are
+#: written for the model that redrafts the card, in English, and a breakdown's refusal pasted them
+#: after "O que falta:" in a pt-BR conversation and on the owner's page. A person reads these
+#: instead: the floor's problem by its kind, the judge's own `told` (asked of it in the person's
+#: language), or, when the judge gave none, `_REVIEW_UNSAID`.
+_FLOOR_SAID = {
+    "pt-BR": {
+        "untitled": "o cartão não tem título",
+        "title_too_long": "o título tem {length} caracteres, e o limite é {limit}",
+        "undescribed": "o cartão não descreve o trabalho",
+        "echo": "a descrição só repete o pedido, sem dizer o que foi visto ou pedido",
+        "no_done_when": "nada diz quando o trabalho estará pronto",
+        "quote_not_said": "a citação não está na conversa",
+        "gate_refuses": "a entrada da fábrica recusaria o cartão como está",
+        "wrong_language": "o cartão não está escrito na língua da conversa",
+    },
+    "en": {
+        "untitled": "the card has no title",
+        "title_too_long": "the title has {length} characters, and the limit is {limit}",
+        "undescribed": "the card does not describe the work",
+        "echo": "the description only repeats the request, without saying what was seen or asked "
+                "for",
+        "no_done_when": "nothing says when the work is done",
+        "quote_not_said": "the quote is not in the conversation",
+        "gate_refuses": "the factory's intake would refuse the card as it is",
+        "wrong_language": "the card is not written in the conversation's language",
+    },
+}
+_REVIEW_UNSAID = {"pt-BR": "a revisão automática ainda não aceitou o cartão",
+                  "en": "the automatic review has not accepted the card yet"}
+
+
+def review_said(feedback: list[str], said: Ruling | None, language: str | None) -> list[str]:
+    """What the review found, as a person is told it, in `language`: the judge's `told`, the
+    floor's problems by their kind, or the language's own sentence — never the redraft's English."""
+    if said is not None and said.told:
+        return list(said.told[:3])
+    by_kind = _pick(_FLOOR_SAID, language)
+    told = [by_kind[p.kind].format(**p.fields) for p in feedback[:3]
+            if isinstance(p, Problem) and p.kind in by_kind]
+    return told or [_pick(_REVIEW_UNSAID, language)]
+
+
 def floor(draft: CardDraft, body: str, *, request: str, conversation: str,
           described: bool = True, language: str | None = None) -> list[str]:
     """What is wrong with `draft` before any model looks at it — `[]` when nothing is.
@@ -201,10 +262,12 @@ def floor(draft: CardDraft, body: str, *, request: str, conversation: str,
 
     problems = []
     if not draft.title:
-        problems.append("the card has no title")
+        problems.append(_problem("untitled", "the card has no title"))
     elif len(draft.title) > TITLE_LIMIT:
-        problems.append(f"the title has {len(draft.title)} characters; the limit is {TITLE_LIMIT} "
-                        f"— write a shorter one, never a cut one")
+        problems.append(_problem(
+            "title_too_long", f"the title has {len(draft.title)} characters; the limit is "
+            f"{TITLE_LIMIT} — write a shorter one, never a cut one",
+            length=len(draft.title), limit=TITLE_LIMIT))
     description = _said(draft.description)
     if not described:
         # A CARD OF A REQUIREMENT CARRIES NO DESCRIPTION OF ITS OWN (#392): its objective and its
@@ -214,22 +277,26 @@ def floor(draft: CardDraft, body: str, *, request: str, conversation: str,
         # faithful to its front of the requirement is the judge's to score (`REQUIREMENT_NOTE`).
         pass
     elif not description:
-        problems.append("the card has no description of the work")
+        problems.append(_problem("undescribed", "the card has no description of the work"))
     elif description == _said(request) or len(description) < 20:
         # THE DEFECT THIS MODULE EXISTS FOR: the message that asked for the card, as the card
-        problems.append("the description is the request to open the card, not a description of "
-                        "the work — say what was observed or asked for, where and under which "
-                        "conditions, as the conversation established it")
+        problems.append(_problem(
+            "echo", "the description is the request to open the card, not a description of the "
+            "work — say what was observed or asked for, where and under which conditions, as the "
+            "conversation established it"))
     if not draft.done_when:
-        problems.append("nothing says when the work is done — write the observable behaviour the "
-                        "conversation said 'fixed' means")
+        problems.append(_problem(
+            "no_done_when", "nothing says when the work is done — write the observable behaviour "
+            "the conversation said 'fixed' means"))
     if draft.source_quote and _said(draft.source_quote) not in _said(f"{conversation}\n{request}"):
         # A QUOTE IS PROVENANCE: attributed words somebody did not say are an invented source
-        problems.append("the quote in source_quote is not in the conversation — quote the "
-                        "person's words exactly, or leave it empty")
+        problems.append(_problem(
+            "quote_not_said", "the quote in source_quote is not in the conversation — quote the "
+            "person's words exactly, or leave it empty"))
     refused = spec_verdict(parse_ticket_body(id="draft", title=draft.title, body=body, repo=""))
     if refused:
-        problems.append(f"the factory's pickup gate would refuse this card: {refused}")
+        problems.append(_problem("gate_refuses",
+                                 f"the factory's pickup gate would refuse this card: {refused}"))
     # THE CARD IS IN THE LANGUAGE IT WAS ASKED FOR (#429). The layout and the instruction name it;
     # this is what checks the model obeyed — an English conversation got a Portuguese card because
     # nothing did. Only a CLEAR miss refuses (`language.written`): a refusal costs a redraft.
@@ -239,9 +306,10 @@ def floor(draft: CardDraft, body: str, *, request: str, conversation: str,
     other = not_in(written, language)
     if other:
         wanted = _LANGUAGE_NAMES.get(base(language), language)
-        problems.append(f"the card is written in {_LANGUAGE_NAMES.get(other, other)}, and the "
-                        f"conversation's language is {wanted} — write every field in {wanted}, "
-                        f"except the person's own words in source_quote")
+        problems.append(_problem(
+            "wrong_language", f"the card is written in {_LANGUAGE_NAMES.get(other, other)}, and "
+            f"the conversation's language is {wanted} — write every field in {wanted}, except the "
+            f"person's own words in source_quote"))
     return problems
 
 
@@ -417,10 +485,14 @@ class Ruling:
     passed: bool
     #: why it did not pass, in the code's words — `()` when it passed
     because: tuple[str, ...] = ()
+    #: the findings as the PERSON is told them, in their language (#677) — `()` when the judge
+    #: gave none; `findings` stay the redraft's
+    told: tuple[str, ...] = ()
 
 
 def judge_prompt(rubric: Rubric, *, conversation: str, request: str, card: str,
-                 source_note: str = "", reply: str = "", answer: str = "") -> str:
+                 source_note: str = "", reply: str = "", answer: str = "",
+                 language: str | None = None) -> str:
     """The judge's whole prompt: the rubric, the conversation, the card, and the answer's shape.
     SELF-CONTAINED — the judge stands in an empty directory and has nothing else to open."""
     criteria = []
@@ -470,9 +542,19 @@ def judge_prompt(rubric: Rubric, *, conversation: str, request: str, card: str,
         + f"## The card\n\n{card.strip()}\n\n"
         "## Answer\n\nReturn ONLY a JSON object (no prose, no code fences):\n"
         f'{{"scores": {{{ids}}}, "evidence": {{"<criterion id>": str}}, '
-        '"critical": ["<critical failure id>"], "findings": [str], "ask": str}\n'
-        "`findings` are what the author must change, one per line, most important first."
+        '"critical": ["<critical failure id>"], "findings": [str], "told": [str], "ask": str}\n'
+        "`findings` are what the author must change, one per line, most important first. "
+        f"`told` is the same findings said to the person who asked, one line each, in "
+        f"{_told_in(language)} — plain words, no criterion ids; empty when `findings` is."
     )
+
+
+def _told_in(language: str | None) -> str:
+    """The language the judge writes `told` in, named for it (#677)."""
+    from openfactory.language.written import base
+
+    named = _LANGUAGE_NAMES.get(base(language), "") if language else ""
+    return named or "the language the conversation is written in"
 
 
 def ruling(answer: str | None, rubric: Rubric) -> Ruling | None:
@@ -511,10 +593,12 @@ def ruling(answer: str | None, rubric: Rubric) -> Ruling | None:
     low = sorted(k for k, v in scores.items() if v < rubric.lowest)
     if low:
         because.append(f"below the floor of {rubric.lowest}: {', '.join(low)}")
+    told = tuple(" ".join(str(t).split()) for t in (raw.get("told") or [])
+                 if isinstance(raw.get("told"), list) and str(t).strip())
     return Ruling(scores=scores, evidence={str(k): str(v) for k, v in evidence.items()},
                   critical=critical, findings=findings,
                   ask=" ".join(str(raw.get("ask") or "").split()), average=average,
-                  passed=not because, because=tuple(because))
+                  passed=not because, because=tuple(because), told=told)
 
 
 def in_a_room(project, harness, phase: str) -> Judge:
@@ -933,7 +1017,8 @@ def compose(*, draft: Callable[[str], dict | None], judge: Judge | None, rubric:
         progress.stage("card_review", step=attempt, of=rounds)
         said = ruling(judge(judge_prompt(
             rubric, conversation=conversation, request=request, card=f"# {card.title}\n\n{body}",
-            reply=reply, answer=answered.answer if answered is not None else "")), rubric)
+            reply=reply, answer=answered.answer if answered is not None else "",
+            language=language)), rubric)
         if said is None:
             log.warning("OPENFACTORY_CARD_JUDGE_UNREADABLE project=%s attempt=%s — the card is "
                         "shown unjudged", project_name, attempt)
@@ -1025,7 +1110,8 @@ def vet_issue(fields: dict, *, body_of: Callable[[dict], str], source: str, rubr
         else:
             said = ruling(judge(judge_prompt(rubric, conversation=source, request=ask,
                                              card=f"# {card.title}\n\n{body}",
-                                             source_note=REQUIREMENT_NOTE)), rubric)
+                                             source_note=REQUIREMENT_NOTE, language=language)),
+                          rubric)
             if said is None:
                 # UNREAD IS NOT FILED (review of #390). The requested card and the defect show an
                 # unjudged card to a person before the yes; here nobody is in the loop, so a judge
@@ -1055,7 +1141,7 @@ def vet_issue(fields: dict, *, body_of: Callable[[dict], str], source: str, rubr
         fields = {**fields, **{k: again[k] for k in
                                ("title", "objective", "acceptance_criteria", "out_of_scope")
                                if k in again}}
-    return None, "; ".join(feedback[:3]) or "it did not pass the review"
+    return None, "; ".join(review_said(feedback, said, language))
 
 
 def _record_verdict(project_name: str, attempt: int, rubric: Rubric, *,
