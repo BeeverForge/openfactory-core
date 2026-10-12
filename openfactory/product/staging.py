@@ -75,8 +75,12 @@ _MAX_PENDING = 200
 #: ("No sistema de férias…"), so any pt-BR sentence opening with it read as a rejection — and a
 #: rejection DESTROYS the staged proposal before the judge ever sees the sentence. English "no"
 #: still counts, but only as the whole message, where it cannot be a preposition.
-_NO = re.compile(r"^\s*(n[ãa]o|nao|nope|errado|not quite|not right)\b|^\s*no\s*[.,!…]*\s*$",
-                 re.IGNORECASE)
+#: The words a rejection may OPEN with, read by the pattern below and by the test that sweeps them.
+NO_OPENERS = ("não", "nao", "nope", "errado", "not quite", "not right")
+#: …and the one that only counts as the whole message.
+NO_ALONE = "no"
+_NO = re.compile(r"^\s*(" + "|".join(map(re.escape, NO_OPENERS)) + r")\b|^\s*"
+                 + re.escape(NO_ALONE) + r"\s*[.,!…]*\s*$", re.IGNORECASE)
 
 #: Proposals that aged out, so the NEXT yes can be told what happened instead of being silently
 #: swallowed. A person who steps away and comes back to type "sim" deserves "that expired, ask me
@@ -173,7 +177,10 @@ def is_yes(text: str) -> bool:
 
 
 def is_no(text: str) -> bool:
-    return bool(_NO.match(text or ""))
+    """A rejection, read without the mention that addressed it (`assent.unaddressed`, #667)."""
+    from openfactory.language import assent
+
+    return bool(_NO.match(assent.unaddressed(text)))
 
 
 def pending_for(thread: str, *, project=None) -> dict | None:

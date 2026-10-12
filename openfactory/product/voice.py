@@ -1307,14 +1307,14 @@ _ADMINS_MUST_CONFIRM = {
         "record": "o registro", "order": "gravar a ordem", "card": "abrir o cartão",
         "note": "a anotação", "decision": "a decisão", "closing": "o encerramento",
         "correction": "a correção", "change": "a mudança", "breakdown": "a quebra",
-        "refine": "escrever o que ele precisa cumprir",
+        "refine": "escrever o que ele precisa cumprir", "agreement": "o acordo",
     },
     "en": {
         "frame": "({admins}: {what} needs your confirmation.)",
         "record": "registering this", "order": "saving the order", "card": "opening the card",
         "note": "the note", "decision": "the decision", "closing": "closing it",
         "correction": "the correction", "change": "the change", "breakdown": "the breakdown",
-        "refine": "writing what it must meet",
+        "refine": "writing what it must meet", "agreement": "the agreement",
     },
 }
 

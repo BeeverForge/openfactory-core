@@ -98,6 +98,21 @@ def words_of(text: str) -> list[str]:
     return re.findall(_WORD_LETTERS, (text or "").lower())
 
 
+#: A MENTION — `@` and a name, not joined to a word before it (`a@b.com` is an address) — with the
+#: comma or colon a vocative carries on either side: "@po, pode seguir", "pode seguir, @po".
+_MENTION = re.compile(r"[,;:]?\s*(?<![\w@])@[\w.-]+[,:;]?")
+
+
+def unaddressed(text: str) -> str:
+    """The message without the mentions that address it: who it is FOR is never what it SAYS.
+
+    JOURNEY 0 (#640, C-13). The panel writes `@po ` in front of every message typed in a project's
+    room (`api/panel.html::pchatAddressed`), so a late "sim" arrived as "@po sim", and `po` is no
+    catalogued word: the yes was read as neither yes nor no, and the person who said it was never
+    told the proposal had expired. A mention names a person or the role; it asserts nothing."""
+    return _MENTION.sub(" ", text or "")
+
+
 def is_bare_assent(text: str) -> bool:
     """The whole message IS an assent — the FLOOR's bar, because that gesture merges (#156).
 
@@ -122,7 +137,7 @@ def asserts_assent(text: str) -> bool:
     this refuses is NOT a no — it goes to the model judge, which is the only thing that can read a
     sentence (ADR-0028/ADR-0029).
     """
-    body = text or ""
+    body = unaddressed(text)
     if "?" in body:
         return False
     if is_bare_assent(body):
