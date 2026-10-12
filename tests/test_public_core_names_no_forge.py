@@ -825,6 +825,9 @@ def test_a_reimport_leaves_the_parent_attribute_stale_unless_it_is_pinned():
 
     agent_pkg = importlib.import_module("openfactory.adapters.agent")
     name = "openfactory.adapters.agent.codex"
+    # IMPORTED HERE, NOT ASSUMED: the parent binds the attribute only once the submodule is
+    # imported, and alone in a process (or first under random order) nothing had imported it
+    importlib.import_module(name)
     original = agent_pkg.codex
 
     unpinned = MonkeyPatch()
