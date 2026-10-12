@@ -1,5 +1,12 @@
 # CI for the platform itself (O3) — the platform that enforces gates on other repos
 # must gate its own code. deploy.sh also refuses to ship a red tree.
+#
+# THE SUITE RUNS AS JOBS SIDE BY SIDE: lint, the tests that start their own durable engine or need
+# Docker, and the rest in slices. One job running everything took 22–26 minutes on every pull
+# request. The jobs are cut by marker and by a slice of the node id (`make test-unit`,
+# `make test-integration`), never by a list, so a test added tomorrow lands in one of them; and the
+# job named `test` — the check reviewers and the rulesets know — proves every collected test ran
+# exactly once before it says green.
 name: ci
 on:
   push:
@@ -7,7 +14,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,4 +31,76 @@ jobs:
       # the suite covers and holds this to them). It ran `ruff check openfactory/ tests/` here
       # while the gate covered addons/ too — the add-on packages were never linted by CI.
       - run: make lint
-      - run: pytest -q
+      # the whole collection, which the `test` job holds the other jobs' runs to
+      - run: make test-collect
+        env:
+          TEST_IDS: test-ids/collected.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-ids-collected
+          path: test-ids/
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: make install
+      - run: make test-unit
+        env:
+          TEST_SHARD: ${{ matrix.shard }}
+          TEST_SHARDS: 3
+          TEST_IDS: test-ids/ran-unit-${{ matrix.shard }}.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-ids-unit-${{ matrix.shard }}
+          path: test-ids/
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: make install
+      - run: make test-integration
+        env:
+          TEST_IDS: test-ids/ran-integration.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-ids-integration
+          path: test-ids/
+
+  test:
+    needs: [lint, unit, integration]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: every job passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "lint: ${{ needs.lint.result }}, unit: ${{ needs.unit.result }}, integration: ${{ needs.integration.result }}"
+          exit 1
+      - uses: actions/download-artifact@v4
+        if: always()
+        with:
+          pattern: test-ids-*
+          path: test-ids
+          merge-multiple: true
+      - if: always()
+        run: make test-ran-once

@@ -567,6 +567,68 @@ def _the_environment_is_restored_after_every_test():
 #: that file, written by `test_the_synchronous_release_asks_the_same_question`. Green, and writing
 #: into the registry of whoever ran it: the credential floor's shape exactly, one variable over.
 #:
+#: CI RUNS THE SUITE AS PARALLEL JOBS, and a test that no job selected would leave the gate green
+#: over nothing. So the jobs take their part by an option rather than a list: `--shard I/N` keeps
+#: one slice of whatever the marker expression selected, fixed by the test's node id, so a test
+#: added tomorrow lands in exactly one slice with no file to edit. And every job writes the tests
+#: it STARTED (`--record-ids`), which CI compares with the whole collection
+#: (`scripts/every_test_ran_once.py`): missing, doubled or unknown fails the run.
+#:
+#: Stdlib and pytest only, like the rest of this file: the live-engine probe copies it.
+def pytest_addoption(parser) -> None:
+    group = parser.getgroup("openfactory", "the suite's own options")
+    group.addoption("--shard", default="", metavar="I/N",
+                    help="run only the I-th of N slices of the selected tests, fixed by node id")
+    group.addoption("--record-ids", default="", metavar="PATH",
+                    help="append to PATH the node id of every test this run starts (with "
+                         "--collect-only: every test it collects), one per line")
+
+
+def _in_slice(nodeid: str, index: int, count: int) -> bool:
+    """CRC32, NOT `hash()`: a string's hash is salted per process, and every xdist worker and
+    every CI job has to put a test in the same slice."""
+    import zlib
+
+    return zlib.crc32(nodeid.encode()) % count == index - 1
+
+
+def pytest_collection_modifyitems(config, items) -> None:
+    spec = config.getoption("--shard", default="")
+    if not spec:
+        return
+    index, _, count = spec.partition("/")
+    if not (index.isdigit() and count.isdigit() and 1 <= int(index) <= int(count)):
+        raise pytest.UsageError(f"--shard {spec}: expected I/N with 1 <= I <= N")
+    kept = [item for item in items if _in_slice(item.nodeid, int(index), int(count))]
+    left = [item for item in items if not _in_slice(item.nodeid, int(index), int(count))]
+    if left:
+        config.hook.pytest_deselected(items=left)
+        items[:] = kept
+
+
+class _RecordIds:
+    """Registered on the run that REPORTS — the controller under xdist, never a worker, or every
+    test would be written twice. One line per SETUP report: every test has exactly one, whether
+    it then passes, fails or skips, so a skipped test counts as run and a test a crashed worker
+    never started does not."""
+
+    def __init__(self, path: str) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def pytest_collection_finish(self, session) -> None:
+        if session.config.option.collectonly:
+            self._write(item.nodeid for item in session.items)
+
+    def pytest_runtest_logreport(self, report) -> None:
+        if report.when == "setup":
+            self._write([report.nodeid])
+
+    def _write(self, ids) -> None:
+        with self.path.open("a", encoding="utf-8") as out:
+            out.writelines(f"{nodeid}\n" for nodeid in ids)
+
+
 #: SET, NOT STRIPPED. Deleting the variable would send `ProjectRegistry()` to the operator's home
 #: file, which is the other half of the same damage. So the suite names a registry of its own: an
 #: empty temporary file per test, which every test that sets its own still overrides.
@@ -588,6 +650,9 @@ def pytest_configure(config) -> None:
     if config.pluginmanager.hasplugin("xdist") and not hasattr(config, "workerinput"):
         config.pluginmanager.register(_HandDown(), "openfactory-suite-operator-hand-down")
     os.environ[REGISTRY_VARIABLE] = str(home / "registry.yaml")
+    record = config.getoption("--record-ids", default="")
+    if record and not hasattr(config, "workerinput"):
+        config.pluginmanager.register(_RecordIds(record), "openfactory-suite-record-ids")
 
 
 def pytest_unconfigure(config) -> None:
