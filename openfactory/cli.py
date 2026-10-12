@@ -1859,7 +1859,8 @@ def knowledge_build(
                 typer.echo(f"  · already published — {docs_repo}'s .okf/repos/{subpath.name}/ "
                            "carries this exact map")
                 return
-        if publish_bundle(dest, context_url, subpath=subpath, source_commit=commit,
+        if publish_bundle(dest, context_url, project=project, subpath=subpath,
+                          source_commit=commit,
                           author=(bot.name, bot.email)):
             typer.echo(f"  ✓ published to {docs_repo}'s .okf/repos/{subpath.name}/ — the next "
                        "job reads it from there")

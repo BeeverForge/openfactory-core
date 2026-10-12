@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -291,8 +292,9 @@ def test_a_link_in_the_context_repository_is_never_written_through(tmp_path, lin
     src = tmp_path / "src"
     src.mkdir()
     (src / "system.yaml").write_text("version: '1'\n")
-    done = pipeline.publish_dir(src, str(remote), subpath=Path(".okf") / "system",
-                                message="m", what="system layer")
+    done = pipeline.publish_dir(src, str(remote), project=SimpleNamespace(name="p", product=None),
+                                subpath=Path(".okf") / "system", message="m",
+                                what="system layer")
     assert done == pipeline.FAILED
     assert sorted(p.name for p in (elsewhere / "system").iterdir()) == ["canary"]
     assert _commits(remote) == before
