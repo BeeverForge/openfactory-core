@@ -14,7 +14,9 @@ THE RULES THIS FILE HOLDS:
      are the matrix's; the unit, integration and alone runs select markers that split the suite
      without overlap;
   4. a test that asserts its own CPU time is marked `alone`, so CI runs it with no neighbours on
-     its cores.
+     its cores;
+  5. a test on the real Docker daemon is in the `docker` xdist group, and the integration run
+     distributes by group, so two of them never share the daemon's compose projects at once.
 
 Driven as real pytest runs over a probe outside the tree, with this suite's conftest copied beside
 it, as `test_the_suite_cannot_reach_a_live_engine.py` does: only pytest applies the hooks.
@@ -25,9 +27,11 @@ from __future__ import annotations
 import ast
 import importlib.util
 import re
+import shutil
 import subprocess
 import sys
 import textwrap
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -131,13 +135,20 @@ def test_under_xdist_each_started_test_is_written_once(probe):
 
 def test_ids_written_inside_the_tree_are_refused(probe):
     """A test that scans the tree read the ids file while the run was writing it, and failed on a
-    test id that named a maintainer: in one CI slice and not the next."""
-    inside = ROOT / "test-ids-probe" / "ran.txt"
-    done = probe(f"--record-ids={inside}")
+    test id that named a maintainer: in one CI slice and not the next.
+
+    THE DIRECTORY IS REMOVED WHATEVER THE OUTCOME. With the refusal broken, the run writes there,
+    and a guard that leaves a file in the tree while failing hands the scan its next red."""
+    inside = ROOT / f"test-ids-probe-{uuid.uuid4().hex[:8]}" / "ran.txt"
+    try:
+        done = probe(f"--record-ids={inside}")
+        wrote = inside.parent.exists()
+    finally:
+        shutil.rmtree(inside.parent, ignore_errors=True)
 
     assert done.returncode != 0
     assert "outside the tree" in done.stdout + done.stderr
-    assert not inside.parent.exists(), "the refused run still wrote into the tree"
+    assert not wrote, "the refused run still wrote into the tree"
 
 
 def test_a_slice_that_does_not_exist_is_refused(probe):
@@ -271,3 +282,53 @@ def test_the_reader_sees_a_cpu_clock_and_a_mark():
                and n.name == "test_generating_is_fast_enough_to_do_every_time"]
 
     assert _reads_cpu_time(timed) and _marked_alone(timed.decorator_list)
+
+
+# ── 5. the real-daemon tests run one at a time ─────────────────────────────────────────────────
+
+def _needs_the_daemon(decorators: list[ast.expr]) -> bool:
+    return any("skipif" in ast.unparse(d) and "_docker_and_compose" in ast.unparse(d)
+               for d in decorators)
+
+
+def _in_the_docker_group(decorators: list[ast.expr]) -> bool:
+    return any(ast.unparse(d) in ("pytest.mark.xdist_group('docker')",
+                                  'pytest.mark.xdist_group("docker")') for d in decorators)
+
+
+def _real_daemon_tests() -> dict[str, bool]:
+    """Every test gated on a real Docker daemon, and whether it is in the `docker` group: by the
+    module's `pytestmark`, or by its own decorators."""
+    found = {}
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        marks = next((n.value.elts for n in tree.body if isinstance(n, ast.Assign)
+                      and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in n.targets)
+                      and isinstance(n.value, ast.List)), [])
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+                every = [*marks, *node.decorator_list]
+                if _needs_the_daemon(every):
+                    found[f"{path.relative_to(ROOT)}::{node.name}"] = _in_the_docker_group(every)
+    return found
+
+
+def test_every_test_on_the_real_daemon_is_in_the_docker_group():
+    outside = sorted(name for name, grouped in _real_daemon_tests().items() if not grouped)
+
+    assert not outside, (f"{outside} drive the real Docker daemon outside the `docker` group: under "
+                         f"xdist two of them can bring up the same compose project at once")
+
+
+def test_the_integration_run_distributes_by_group():
+    assert "--dist loadgroup" in _make_n("test-integration"), (
+        "the integration run ignores xdist groups, so the real-daemon tests run side by side")
+
+
+def test_the_reader_finds_the_real_daemon_tests_by_module_and_by_function():
+    """Verify the verifier: the module-level gate and the one on a single function are both seen."""
+    found = _real_daemon_tests()
+
+    assert any(name.startswith("tests/test_a_preview_runs_on_a_real_daemon.py::") for name in found)
+    assert ("tests/test_a_preview_reaches_nothing_of_the_host.py::"
+            "test_on_a_real_engine_a_unit_network_reaches_nothing_of_the_host") in found

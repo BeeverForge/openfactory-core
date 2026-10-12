@@ -45,6 +45,9 @@ pytestmark = [
     pytest.mark.slow,
     pytest.mark.skipif(not _docker_and_compose(),
                        reason="needs a Docker daemon and the compose plugin"),
+    # ONE DAEMON, ONE TEST AT A TIME: CI's integration job runs with xdist, and the real-daemon
+    # tests share compose projects (`openfactory-pv-acme-12`); the group keeps them on one worker.
+    pytest.mark.xdist_group("docker"),
 ]
 
 

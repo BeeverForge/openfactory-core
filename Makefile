@@ -81,8 +81,10 @@ test-collect: ## write the node id of every test the suite collects to TEST_IDS
 test-unit: ## the tests that start no engine and need no Docker, in parallel (TEST_SHARD/TEST_SHARDS: one slice)
 	python -m pytest -q -n auto -m "not ($(INTEGRATION_TESTS) or $(ALONE_TESTS))" --durations=15 $(if $(TEST_SHARDS),--shard=$(TEST_SHARD)/$(TEST_SHARDS)) $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
 
+# `--dist loadgroup`: the tests on the real Docker daemon share compose projects, so they carry
+# `xdist_group("docker")` and run on one worker, one after another; the rest spread as before.
 test-integration: ## the tests that start their own durable engine, and the slow ones that need Docker
-	python -m pytest -q -n auto -m "$(INTEGRATION_TESTS)" --durations=15 $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
+	python -m pytest -q -n auto --dist loadgroup -m "$(INTEGRATION_TESTS)" --durations=15 $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
 
 test-alone: ## the tests that assert their own CPU time, in one process with no xdist neighbours
 	python -m pytest -q -p no:xdist -m "$(ALONE_TESTS) and not ($(INTEGRATION_TESTS))" $(if $(TEST_IDS),--record-ids=$(TEST_IDS))

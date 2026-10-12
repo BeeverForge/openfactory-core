@@ -10,7 +10,8 @@ The claims, each a row:
   3. CI wires it: the `test` job needs every job and runs the proof, the slices are the matrix's,
      the three runs' markers split the suite without overlap, and the guard on CI's pytest follows
      the Makefile;
-  4. a test that asserts its own CPU time is marked `alone` and runs with no xdist neighbours.
+  4. a test that asserts its own CPU time is marked `alone` and runs with no xdist neighbours;
+  5. the real-daemon tests are in the `docker` group, and the integration run distributes by it.
 """
 
 TEST = "tests/test_ci_runs_every_test_exactly_once.py"
@@ -74,6 +75,17 @@ MUTATIONS = [
      "def test_generating_is_fast_enough_to_do_every_time():"),
     ("the sweep does not see os.times()", TEST,
      'CPU_CLOCKS = {("os", "times"), ', "CPU_CLOCKS = {"),
+
+    # 5. the real-daemon tests run one at a time
+    ("a real-daemon module leaves the docker group", "tests/test_a_preview_runs_on_a_real_daemon.py",
+     '    pytest.mark.xdist_group("docker"),\n', ""),
+    ("the one real-daemon function leaves the docker group",
+     "tests/test_a_preview_reaches_nothing_of_the_host.py",
+     '@pytest.mark.xdist_group("docker")\ndef test_on_a_real_engine', "def test_on_a_real_engine"),
+    ("the integration run ignores the groups", "Makefile",
+     "	python -m pytest -q -n auto --dist loadgroup -m", "	python -m pytest -q -n auto -m"),
+    ("the reader misses a gate on a single function", TEST,
+     "                every = [*marks, *node.decorator_list]", "                every = marks"),
 
     ("the guard on CI's pytest stops following the Makefile", GUARD,
      "            lines += shown.stdout.splitlines()", "            pass",
