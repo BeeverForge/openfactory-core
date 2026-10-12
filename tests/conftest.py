@@ -611,6 +611,14 @@ def pytest_collection_modifyitems(config, items) -> None:
         items[:] = kept
 
 
+def _without_the_group(nodeid: str) -> str:
+    """The node id the collection names. Under `--dist loadgroup` pytest-xdist suffixes a grouped
+    test's id with `@<group>` — CI's sixth run reported the four real-daemon tests MISSING and
+    their suffixed ids UNKNOWN. Only that suffix matches: a function name cannot hold `@`, and a
+    parametrized id ends in `]`."""
+    return re.sub(r"@[\w.-]+$", "", nodeid)
+
+
 class _RecordIds:
     """Registered on the run that REPORTS — the controller under xdist, never a worker, or every
     test would be written twice. One line per SETUP report: every test has exactly one, whether
@@ -627,7 +635,7 @@ class _RecordIds:
 
     def pytest_runtest_logreport(self, report) -> None:
         if report.when == "setup":
-            self._write([report.nodeid])
+            self._write([_without_the_group(report.nodeid)])
 
     def _write(self, ids) -> None:
         with self.path.open("a", encoding="utf-8") as out:

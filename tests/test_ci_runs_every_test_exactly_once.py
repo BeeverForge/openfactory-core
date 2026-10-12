@@ -54,6 +54,12 @@ PROBE = textwrap.dedent("""\
     @pytest.mark.skip(reason="a skipped test still counts as started")
     def test_skipped():
         pass
+
+
+    @pytest.mark.xdist_group("together")
+    @pytest.mark.parametrize("who", ["a@b", "c"])
+    def test_grouped(who):
+        assert who
 """)
 
 
@@ -108,7 +114,7 @@ def test_the_slices_hold_every_collected_test_exactly_once(sliced):
     collected, ran = sliced
     every = [nodeid for path in ran for nodeid in _ids(path)]
 
-    assert len(_ids(collected)) == 31, _ids(collected)
+    assert len(_ids(collected)) == 33, _ids(collected)
     assert Counter(every) == Counter(_ids(collected)), "a test fell between the slices, or in two"
     assert all(_ids(path) for path in ran), "a slice is empty: the rule does not spread the tests"
 
@@ -122,14 +128,17 @@ def test_a_skipped_test_counts_as_started(sliced):
 @pytest.mark.skipif(importlib.util.find_spec("xdist") is None, reason="pytest-xdist not installed")
 def test_under_xdist_each_started_test_is_written_once(probe):
     """The workers run the hooks too: a recorder registered on them would write every test twice,
-    and a slice rule salted per process would make the workers collect different suites."""
+    and a slice rule salted per process would make the workers collect different suites. And
+    under `--dist loadgroup`, as CI's integration job runs, xdist suffixes a grouped test's id
+    with `@<group>`, which the collection does not carry."""
     path = probe.dir / "ran-xdist.txt"
-    done = probe("-n", "2", f"--shard=1/{SLICES}", f"--record-ids={path}")
+    done = probe("-n", "2", "--dist", "loadgroup", f"--record-ids={path}")
     assert done.returncode == 0, done.stdout[-1500:]
     alone = probe.dir / "ran-alone.txt"
-    assert probe(f"--shard=1/{SLICES}", f"--record-ids={alone}").returncode == 0
+    assert probe(f"--record-ids={alone}").returncode == 0
 
     assert sorted(_ids(path)) == sorted(_ids(alone)), "xdist and one process ran different tests"
+    assert any("test_grouped[a@b]" in nodeid for nodeid in _ids(path)), "the grouped test ran nowhere"
     assert len(_ids(path)) == len(set(_ids(path))), "a test was written twice under xdist"
 
 

@@ -36,6 +36,11 @@ MUTATIONS = [
      '        if report.when == "setup":', '        if report.when == "call":'),
     ("the ids may be written inside the tree, where a scan reads them mid-run", CONF,
      "        if config.rootpath.resolve() in Path(record).resolve().parents:", "        if False:"),
+    ("a grouped test is recorded with xdist's @group suffix", CONF,
+     "            self._write([_without_the_group(report.nodeid)])",
+     "            self._write([report.nodeid])"),
+    ("the suffix rule also cuts a parametrized id that holds an @", CONF,
+     '    return re.sub(r"@[\\w.-]+$", "", nodeid)', '    return re.sub(r"@.*$", "", nodeid)'),
     ("the collection is never written", CONF,
      "        if session.config.option.collectonly:", "        if False:"),
 
