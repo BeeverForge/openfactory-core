@@ -90,31 +90,30 @@ GATE_CANNOT_RUN = "gate-cannot-run"
 #: These were Portuguese until 2026-08-16 and are English now, which re-files any impediment
 #: ticket open at that moment ONCE. Measured before changing: no deployment has a factory board
 #: configured today, so the cost is zero and would not have stayed that way.
-_TITLES = {
-    PRODUCT_NO_CODE: "the product agent cannot open the product's code",
-    PRODUCT_MOUNT_EMPTY: "what is mounted for the product agent is empty",
-    PRODUCT_CORPUS_UNREADABLE: "the product's requirements cannot be read",
-    PRODUCT_BOARD_UNREADABLE: "the work board cannot be read",
-    PRODUCT_CANNOT_WRITE: "a write by the product agent failed",
-    GATE_CANNOT_RUN: "a gate this project declares cannot run in the box",
-}
-
+#:
 #: ON THE PERSON'S OWN BOARD THE TITLE IS SAID IN THEIR LANGUAGE (#671). The split above was argued
 #: for a factory board of its own, read by a supervisor. The local row has one board, the person's,
 #: and journey 0 filed "the product's requirements cannot be read" there, in English, beside a
-#: pt-BR team's own cards. There the title follows the project's language, and the identity stays
-#: whole the other way round: an impediment is found under ANY of its spellings (`_open`), so a
-#: deployment that changes its language neither re-files it nor leaves it open.
+#: pt-BR team's own cards. There the title follows the project's language (`title_on`), and the
+#: identity stays whole the other way round: an impediment is found under ANY of its spellings
+#: (`_open`), so a deployment that changes its language neither re-files it nor leaves it open.
+#: The `en` spelling of each cause IS the identity.
 _TITLES_SAID = {
-    "pt-BR": {
-        PRODUCT_NO_CODE: "a agente de produto não consegue abrir o código do produto",
-        PRODUCT_MOUNT_EMPTY: "o que foi montado para a agente de produto está vazio",
-        PRODUCT_CORPUS_UNREADABLE: "os requisitos do produto não podem ser lidos",
-        PRODUCT_BOARD_UNREADABLE: "o quadro de trabalho não pode ser lido",
-        PRODUCT_CANNOT_WRITE: "uma escrita da agente de produto falhou",
-        GATE_CANNOT_RUN: "uma verificação que este projeto declara não consegue rodar no box",
-    },
+    PRODUCT_NO_CODE: {"en": "the product agent cannot open the product's code",
+                      "pt-BR": "a agente de produto não consegue abrir o código do produto"},
+    PRODUCT_MOUNT_EMPTY: {"en": "what is mounted for the product agent is empty",
+                          "pt-BR": "o que foi montado para a agente de produto está vazio"},
+    PRODUCT_CORPUS_UNREADABLE: {"en": "the product's requirements cannot be read",
+                                "pt-BR": "os requisitos do produto não podem ser lidos"},
+    PRODUCT_BOARD_UNREADABLE: {"en": "the work board cannot be read",
+                               "pt-BR": "o quadro de trabalho não pode ser lido"},
+    PRODUCT_CANNOT_WRITE: {"en": "a write by the product agent failed",
+                           "pt-BR": "uma escrita da agente de produto falhou"},
+    GATE_CANNOT_RUN: {"en": "a gate this project declares cannot run in the box",
+                      "pt-BR": "uma verificação que este projeto declara não consegue rodar no "
+                               "box"},
 }
+_TITLES = {cause: said["en"] for cause, said in _TITLES_SAID.items()}
 
 #: What every impediment says about itself, so a supervisor opening it cold knows what it costs and
 #: how it ends without reading this module — IN THE DEPLOYMENT'S OWN LANGUAGE (#160). The split
@@ -146,15 +145,15 @@ def title_on(project, cause: str) -> str:
     if not _the_persons_own_board(project):
         return title_for(name, cause)
     lang = (getattr(project, "language", None) or "").strip()
-    said = _TITLES_SAID.get(lang, {}).get(cause)
+    said = _TITLES_SAID.get(cause, {}).get(lang)
     return f"[openfactory] {name}: {said}" if said else title_for(name, cause)
 
 
 def _spellings(name: str, cause: str) -> list[str]:
     """Every title the impediment for `cause` can be open under: the identity, then each
     language's."""
-    said = [f"[openfactory] {name}: {titles[cause]}" for titles in _TITLES_SAID.values()
-            if cause in titles]
+    said = [f"[openfactory] {name}: {title}"
+            for lang, title in _TITLES_SAID.get(cause, {}).items() if lang != "en"]
     return [title_for(name, cause), *said]
 
 

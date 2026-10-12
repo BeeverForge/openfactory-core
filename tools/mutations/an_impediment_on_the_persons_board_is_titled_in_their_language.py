@@ -17,8 +17,13 @@ IMP = "openfactory/ops/impediment.py"
 MUTATIONS = [
     # 1. every cause, every language
     ("a cause has no title in Portuguese", IMP,
-     '        GATE_CANNOT_RUN: "uma verificação que este projeto declara não consegue rodar no box",\n',
-     ""),
+     '    GATE_CANNOT_RUN: {"en": "a gate this project declares cannot run in the box",\n'
+     '                      "pt-BR": "uma verificação que este projeto declara não consegue rodar no "\n'
+     '                               "box"},\n',
+     '    GATE_CANNOT_RUN: {"en": "a gate this project declares cannot run in the box"},\n'),
+    ("the identity is not the English spelling", IMP,
+     '_TITLES = {cause: said["en"] for cause, said in _TITLES_SAID.items()}',
+     '_TITLES = {cause: said.get("pt-BR", said["en"]) for cause, said in _TITLES_SAID.items()}'),
 
     # 2. the person's own board
     ("TODAY'S RUN: the impediment is filed under the English identity", IMP,
