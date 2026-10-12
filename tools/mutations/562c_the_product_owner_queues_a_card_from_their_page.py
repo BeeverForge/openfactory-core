@@ -59,7 +59,8 @@ MUTATIONS = [
     # ── 2. who may not is told who can ───────────────────────────────────────────────────────
     ("a person who may not start work is told nothing", MODULE,
      "            return {\"offered\": False,\n"
-     "                    \"note\": card_queue_not_yours(ref=number, column=queue, language=lang)}\n",
+     "                    \"note\": card_queue_not_yours(ref=number, column=queue, language=lang,\n"
+     "                                                 approvers=approvers_of(self.project))}\n",
      "            return {\"offered\": False}\n"),
 
     # ── 3. the page ──────────────────────────────────────────────────────────────────────────

@@ -789,8 +789,10 @@ def _may_say_yes(project, entry: dict, user: str, *, via: str, module=None) -> s
 
         # THE REFUSAL OF THE ACT THEY TRIED, never another's: "nothing was sent back" to a yes
         said = accept_change_said if entry.get("kind") == "accept_change" else adjust_said
+        from openfactory.product.module import approvers_of
+
         return said("not_yours", ref=str(entry.get("number") or ""),
-                    language=getattr(project, "language", None))
+                    language=getattr(project, "language", None), approvers=approvers_of(project))
     return unauthorized_message(project)
 
 

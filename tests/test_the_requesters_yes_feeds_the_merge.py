@@ -1021,7 +1021,8 @@ def test_every_sentence_the_requester_reads_is_free_of_delivery_jargon():
                *accept.NOTHING_TO_ACCEPT}
     assert reasons <= set(_ACCEPT_CHANGE_SAID), "a reason the yes can be refused for has no words"
     for lang in ("en", "pt-BR"):
-        said = [accept_change_said(r, ref="7", language=lang) for r in _ACCEPT_CHANGE_SAID]
+        said = [accept_change_said(r, ref="7", language=lang, approvers=["po"])
+                for r in _ACCEPT_CHANGE_SAID]
         said += [accept_change_confirmation(number="7", merges=m, language=lang)
                  for m in (True, False)]
         said += [accept_change_done(ref="7", merging=m, unmerged=u, language=lang)

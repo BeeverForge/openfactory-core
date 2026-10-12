@@ -361,7 +361,7 @@ def test_somebody_who_did_not_ask_for_the_card_hears_it_is_not_theirs(deployment
 
     said = _say(deployment, module, NOT_YET, who=STRANGER, where=f"person:{STRANGER}")
 
-    reason = adjust_said("not_yours", ref=card, language="en")
+    reason = adjust_said("not_yours", ref=card, language="en", approvers=[ADMIN])
     assert said == _head() + reason[:1].upper() + reason[1:], said
     assert module._agent.prompts == [] and job.signals == []
 
