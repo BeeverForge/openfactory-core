@@ -1664,7 +1664,7 @@ def offer_draft(project, *, request: str, user: str, thread: str, module,
     # sentinel — which is why the preamble is an argument here and never glued on outside.
     return offer(project, thread, preamble + replaced + confirmation_request(
         title=draft.title, must_be_true=draft.must_be_true,
-        conflicts=[_conflict_line(c, lang) for c in draft.conflicts], language=lang))
+        conflicts=[(c.kind, _conflict_line(c, lang)) for c in draft.conflicts], language=lang))
 
 
 def _conflict_line(conflict, lang=None) -> str:
