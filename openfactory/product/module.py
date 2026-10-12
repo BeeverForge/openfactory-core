@@ -1318,6 +1318,12 @@ class ProductModule:
                         "files will name the repository without linking to it",
                         getattr(self.project, "name", "?"), exc)
             return ""
+        if not _re.match(r"https?://", url):
+            # NOT AN ADDRESS A PERSON CAN OPEN (#662). The local row's clone URL is a path on this
+            # machine, and as a link it wrote the operator's home directory onto every card; a
+            # `file://` or an ssh address opens nothing from a board either. The card names the
+            # repository as plain text instead.
+            return ""
         authority = url.split("://", 1)[-1].split("/", 1)[0]
         if "@" in authority:
             log.error("OPENFACTORY_PRODUCT_DOCS_URL_HAS_A_CREDENTIAL project=%s — the forge "
