@@ -3172,6 +3172,44 @@ def one_act_at_a_time(*, language: str | None = None) -> str:
     return _pick(_ONE_ACT_AT_A_TIME, language)
 
 
+#: A REQUIREMENT IS NOT PROPOSED WHILE ITS TEXT WAITS ON AN ANSWER (#670). The drafter names what
+#: must be answered before the text can be written (`RequirementDraft.ask_first`): nothing is
+#: staged, and the person reads that the proposal comes after their answer — with every question
+#: the role's reply above them has not already asked.
+_ASKED_FIRST = {
+    "pt-BR": ("Ainda não escrevi a proposta: ela depende da sua resposta. Quando você responder, "
+              "eu escrevo o texto e mostro para você confirmar."),
+    "en": ("I have not written the proposal yet: it depends on your answer. Once you answer, I "
+           "write the text and show it to you to confirm."),
+}
+_ASKED_FIRST_LISTED = {"pt-BR": "Preciso saber:", "en": "I need to know:"}
+#: …AND WHAT A STAGED PROPOSAL LEAVES OPEN IS SAID TO BE ANSWERABLE AFTER IT (#670). The role
+#: wrote "I need two answers before I close the text" above a proposal that had already chosen
+#: them for the person; what the draft leaves open is now said under it, as open.
+_STILL_OPEN = {
+    "pt-BR": "Fica em aberto, e dá para responder depois de ver o texto:\n{items}",
+    "en": "Still open, and you can answer it after reading the text:\n{items}",
+}
+
+
+def asked_first(*, questions: list[str], language: str | None = None) -> str:
+    """Why no proposal follows the role's reply yet, and what must be answered first that the
+    reply has not asked — `questions`, none when it asked them all (#670)."""
+    said = _pick(_ASKED_FIRST, language)
+    if not questions:
+        return said
+    items = "\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1))
+    return f"{_pick(_ASKED_FIRST_LISTED, language)}\n{items}\n\n{said}"
+
+
+def still_open(*, questions: list[str], language: str | None = None) -> str:
+    """What a staged requirement leaves open, said as answerable after the text — "" for none."""
+    if not questions:
+        return ""
+    return "\n\n" + _pick(_STILL_OPEN, language).format(
+        items="\n".join(f"• {q}" for q in questions))
+
+
 def dropped(*, number: int, was_a_promise: bool = False, language: str | None = None,
             agent_name: str = "") -> str:
     sig = f"{agent_name}: " if agent_name.strip() else ""
