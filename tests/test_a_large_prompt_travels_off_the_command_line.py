@@ -154,6 +154,12 @@ def _ws_small():
     return Workspace(path="/work", branch="b", base_branch="main")
 
 
+def _guard_of(adapter) -> str:
+    import sys
+
+    return getattr(sys.modules[type(adapter).__module__], "BEFORE_THE_HARNESS", "")
+
+
 @pytest.mark.parametrize("adapter", [
     ClaudeCodeAdapter(model="opus"),
     CodexAdapter(model="gpt-5"),
@@ -171,8 +177,10 @@ def test_the_executor_prompt_is_staged_not_interpolated(adapter):
 
     assert box.staged, "the prompt never reached the off-argv channel"
     assert _HUGE in box.staged[0]
-    invoke = box.commands[0]
-    assert _HUGE not in invoke, "the prompt is still on the command line"
+    # past what the shell runs before the harness (GHSA-6g62): a guard that reads the account's files
+    # and starts nothing, and, for OpenCode, a configuration directory made for the run
+    invoke = box.commands[0].removeprefix(_guard_of(adapter)).lstrip()
+    assert _HUGE not in box.commands[0], "the prompt is still on the command line"
     assert invoke.startswith("cat "), invoke
     assert len(invoke) < 4096, "the command line must stay short whatever the corpus is"
 

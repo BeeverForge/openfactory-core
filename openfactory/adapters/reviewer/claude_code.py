@@ -15,6 +15,7 @@ from openfactory.adapters.agent.base import (
     json_envelope,
     stage_prompt,
 )
+from openfactory.adapters.agent.claude_code import NO_MCP_SERVERS
 from openfactory.adapters.reviewer.base import (
     ACCEPTANCE_SHAPE,
     EVIDENCE_RULE,
@@ -159,7 +160,10 @@ class ClaudeCodeReviewer(ReviewerAdapter):
         # small enough for an argument.
         head = ([f"cat {shlex.quote(prompt_path)} |", harness, "-p"] if prompt_path
                 else [harness, "-p", shlex.quote(prompt)])
-        cmd = [*head, "--output-format", "json", "--permission-mode", "plan"]
+        cmd = [*head, "--output-format", "json", "--permission-mode", "plan",
+               # NO MCP SERVER OF THE ACCOUNT: the reviewer builds its own command, and was the one
+               # Claude role still started with every server the account running the CLI reaches.
+               *(shlex.quote(a) for a in NO_MCP_SERVERS)]
         if self.model:
             cmd += ["--model", shlex.quote(self.model)]
         return " ".join(cmd)

@@ -163,6 +163,10 @@ def test_the_command_starts_with_the_path_the_box_gave_it(module, cls, name, kwa
         pytest.skip(f"{cls} not present")
 
     command = adapter_cls()._cli("do the thing", harness=_Box().harness_path(name), **kwargs)
+    # past what the shell runs before the harness (GHSA-6g62): a guard that holds it back while the
+    # account declares an MCP server it cannot be started without; what then starts is the box's
+    command = command.removeprefix(getattr(importlib.import_module(
+        f"openfactory.adapters.agent.{module}"), "BEFORE_THE_HARNESS", "")).lstrip()
 
     assert command.startswith(f"/opt/openfactory-toolbox/{name} "), command[:80]
 

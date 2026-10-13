@@ -64,8 +64,8 @@ MUTATIONS = [
     ("opencode's read-only profile and project-config lock bind to `cat` instead of opencode, so "
      "a judging pass honours the client's own opencode.json — with every word still in the string",
      "openfactory/adapters/agent/opencode.py",
-     '        cmd = [*pipe, *env, harness, "run", "--format", "json"]\n',
-     '        cmd = [*env, *pipe, harness, "run", "--format", "json"]\n'),
+     '        cmd = [BEFORE_THE_HARNESS, *pipe, *env, harness, "run", "--format", "json"]\n',
+     '        cmd = [BEFORE_THE_HARNESS, *env, *pipe, harness, "run", "--format", "json"]\n'),
 
     # ── the argument-only row ────────────────────────────────────────────────────────────────────
     ("a prompt no argument can carry is handed to the argument-only harness anyway, instead of "

@@ -24,7 +24,7 @@ import json
 
 import pytest
 
-from openfactory.adapters.agent.opencode import JUDGE_AGENT, OpenCodeAdapter
+from openfactory.adapters.agent.opencode import BEFORE_THE_HARNESS, JUDGE_AGENT, OpenCodeAdapter
 
 SESSION = "ses_02d53fe0dffeBgEKK74yFBlCLI"
 
@@ -224,7 +224,10 @@ def test_the_profile_is_never_written_into_the_clients_workspace():
     sb = _FakeSandbox(_GOOD)
     OpenCodeAdapter().ask(sandbox=sb, workspace=_ws(), prompt="q")
     assert "OPENCODE_CONFIG_CONTENT=" in sb.commands[0]
-    assert "opencode.json" not in sb.commands[0]
+    # past what runs before the harness (GHSA-6g62): a guard that names the ACCOUNT's
+    # `~/.opencode/opencode.json` only to refuse to start while it exists, and a directory made
+    # outside the workspace for the run; neither writes into the client's checkout
+    assert "opencode.json" not in sb.commands[0].removeprefix(BEFORE_THE_HARNESS)
 
 
 # ── the stream ───────────────────────────────────────────────────────────────────────────────────

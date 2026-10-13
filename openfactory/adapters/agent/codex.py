@@ -12,6 +12,8 @@ Built against the REAL `codex exec --help` surface (verified 2026-07-26), not fr
     -o, --output-last-message <FILE>     the agent's final message, written to a file
         --skip-git-repo-check            allow running outside a git repo
     -c, --config <key=value>             TOML config override
+        --ignore-user-config             do not load `$CODEX_HOME/config.toml`; auth still uses
+                                         `CODEX_HOME` (global, so `exec resume` takes it too)
 
 It implements the MINIMUM contract (`execute` + `repair`) plus `plan`, and deliberately not
 `continue_execute` / `recover`: those resume a live session across containers, which for Claude
@@ -65,6 +67,12 @@ from openfactory.contracts import AgentRunResult
 # The agent's final message is written here (inside the workspace's container/worktree) and read
 # back THROUGH the sandbox — on a container sandbox the host cannot see the file at all.
 _LAST_MESSAGE_FILE = ".openfactory-codex-last-message"
+
+#: The MCP servers a role is started with: none. The account running the CLI declares its own MCP
+#: servers and plugins in `$CODEX_HOME/config.toml`, and none of them is a role's tool. A `-c
+#: mcp_servers={}` override does not clear them (it merges), so the file is not read at all; the
+#: login still is. In 0.146.0, the pinned `HARNESS_CODEX`, and measured on 0.157.1.
+IGNORE_USER_CONFIG = "--ignore-user-config"
 
 # Markers that suggest a usage/auth stop rather than a code failure. Unverified against a real
 # Codex limit — see the module docstring.
@@ -213,6 +221,9 @@ class CodexAdapter:
             "--json",                       # JSONL events on stdout (parsed best-effort)
             "-o", _LAST_MESSAGE_FILE,       # the final message, schema-free
             "--skip-git-repo-check",        # the workspace is a checkout, not always a repo root
+            # NO MCP SERVER IS A ROLE'S: the account's own configuration declares its servers and
+            # plugins, and every role was started with them. Not read; the login still is.
+            IGNORE_USER_CONFIG,
         ]
         if self.full_access:
             cmd += ["--dangerously-bypass-approvals-and-sandbox"]

@@ -28,6 +28,7 @@ from __future__ import annotations
 import ast
 import re
 import shlex
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -145,6 +146,19 @@ STOPPED = "ran out of turns while wiring the exporter"
 _STAGED: dict[str, str] = {}
 
 
+#: What the shell runs before a harness, per row that has it (GHSA-6g62): a guard that reads the
+#: account's files and starts nothing, and, for OpenCode, a configuration directory made for the run.
+#: Read off each row's own module, as the shape tests read it, so a row that gains one is read past.
+_BEFORE_THE_HARNESS = tuple(
+    before for build in HARNESSES.values()
+    if (before := getattr(sys.modules[type(build()).__module__], "BEFORE_THE_HARNESS", "")))
+
+
+def _past_what_runs_before_the_harness(command: str) -> str:
+    return next((command[len(b):].lstrip() for b in _BEFORE_THE_HARNESS if command.startswith(b)),
+                command)
+
+
 def _staged_prompt(command: str) -> str:
     """The prompt a harness CLI was handed. It travels OFF the command line now (#5): the box stages
     it into a file and the command is `cat <path> | harness …`.
@@ -155,7 +169,7 @@ def _staged_prompt(command: str) -> str:
     `test_one_author_writes_the_order_of_a_recovery_and_a_resume` does, once per process — would
     read a path that is correctly gone. A box with no channel keeps the prompt on argv, and that
     shape is read too."""
-    parts = shlex.split(command)
+    parts = shlex.split(_past_what_runs_before_the_harness(command))
     if parts and parts[0] == "cat":
         path = parts[1]
         if path in _STAGED:

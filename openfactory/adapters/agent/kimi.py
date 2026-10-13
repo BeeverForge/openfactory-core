@@ -74,6 +74,26 @@ _AUTH_RE = re.compile(r"unauthor|forbidden|invalid api key|not logged in|401|403
 # the shared wall-clock wall — see openfactory/adapters/sandbox/timeouts.py
 _TIMEOUT = AGENT_TIMEOUT
 
+#: NO MCP SERVER OF THE ACCOUNT, AND KIMI CODE CANNOT BE STARTED WITHOUT THEM. It has no flag and no
+#: variable for it (0.31.1, pinned, read in its bundle): `loadMcpServers` reads
+#: `$KIMI_CODE_HOME/mcp.json`, every enabled plugin under `$KIMI_CODE_HOME/plugins/` adds its own,
+#: and the login lives in the same directory, so the directory cannot be moved away. So no role
+#: starts while the account declares either, and the person reads which file and what to do.
+NOT_WHILE_DECLARED = (
+    'k="${KIMI_CODE_HOME:-$HOME/.kimi-code}"; '
+    'for f in "$k/mcp.json" "$k/plugins/installed.json"; do '
+    'if [ -e "$f" ]; then echo "Kimi Code starts every MCP server declared in $f and cannot be '
+    'started without them, so they would reach this role. Nothing was started: remove the file '
+    'from the account that runs the harness, or give this role another harness."; '
+    'exit 3; fi; done;')
+
+#: What the shell runs before Kimi Code: the refusal. `plugins/installed.json` refuses even when it
+#: enables nothing: its format is readable in the bundle (`{"version": 1, "plugins": [{"enabled":
+#: …}]}`, a plugin's servers starting only when `enabled` is truthy), but this check runs in the
+#: box's own POSIX shell, which has no JSON reader, and deciding truthiness by matching text would
+#: be a guess. On the safe side, and the person reads the file to remove.
+BEFORE_THE_HARNESS = NOT_WHILE_DECLARED
+
 
 class KimiAdapter:
     """Kimi Code, driven non-interactively through the sandbox (never on the host)."""
@@ -181,7 +201,8 @@ class KimiAdapter:
         # Read in the bundle, 0.31.1 and 0.32.0: no path reads stdin into the prompt. `prompt_path`
         # is therefore always None here (the caller asks with `channel=False`), and the branch stays
         # so the day that CLI grows a stdin or file form is a one-line change rather than a rewrite.
-        head = ([f"cat {shlex.quote(prompt_path)} |", harness] if prompt_path else [harness])
+        head = ([BEFORE_THE_HARNESS, f"cat {shlex.quote(prompt_path)} |", harness] if prompt_path
+                else [BEFORE_THE_HARNESS, harness])
         cmd = [*head, "--auto", "--output-format", "stream-json"]
         if plan_mode:
             cmd += ["--plan"]
