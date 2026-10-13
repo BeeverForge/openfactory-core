@@ -692,7 +692,10 @@ def test_an_answer_the_judge_still_blocks_shows_the_card_with_what_it_still_says
     assert len(world.script.prompts) == 3, "asked once, answered once: ONE redraft, no second"
     staged = pc.find_waiting(KEY, KEY)[1]
     assert staged["kind"] == "ticket" and staged["judged"]["disputed"] == ["name the screen size"]
-    assert "A revisão automática ainda aponta: name the screen size" in shown
+    # THE PERSON'S WORDS, NOT THE REDRAFT'S (#677): a judge that gave none is told in the
+    # language's own sentence; the findings stay on the record above
+    assert ("A revisão automática ainda aponta: " + cards.review_said([], None, "pt-BR")[0]
+            in shown) and "name the screen size" not in shown, shown
     chat_turn(_project(), text="sim", user=ADMIN, thread=KEY, module=world)
     assert [f["card"] for f in world.filed] == [staged["card"]]
 
@@ -885,7 +888,9 @@ def test_a_requirements_card_the_judge_blocks_twice_is_not_filed_and_says_why():
     kept, why = _vet(dict(ISSUE), lambda p: _judge_says(2, findings=["name the file format"]),
                      lambda p: dict(ISSUE))
 
-    assert kept is None and "name the file format" in why
+    # THE PERSON'S WORDS, NOT THE REDRAFT'S (#677)
+    assert kept is None and why == "; ".join(cards.review_said([], None, None)), why
+    assert "name the file format" not in why
 
 
 def test_the_breakdown_files_nothing_the_review_refuses_and_says_which_front(tmp_path):
