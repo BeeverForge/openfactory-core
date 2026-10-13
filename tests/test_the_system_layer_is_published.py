@@ -241,9 +241,13 @@ def test_a_forge_that_cannot_name_a_source_costs_that_source_and_no_credential(p
 
 
 def test_a_project_the_product_link_does_not_hold_for_publishes_nothing(product):
+    """Another name AND another repository: a project whose code the context lists is one of the
+    product's projects whatever it is called (#663), so the stranger's code is not listed."""
     project, remotes, root, _ = product
     before = _commits(remotes["quayside-context"])
-    stranger = project.model_copy(update={"name": "someone-else"})
+    elsewhere = ProviderRef(kind="local", repo="someone-else", options={})
+    stranger = project.model_copy(update={"name": "someone-else", "tracker": elsewhere,
+                                          "forge": elsewhere})
     assert refresh.refresh_system(stranger, root=root) == refresh.NO_PRODUCT
     assert _commits(remotes["quayside-context"]) == before
 

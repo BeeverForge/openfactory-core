@@ -226,7 +226,8 @@ class ProductPreview(BaseModel):
 class ProductDocs(BaseModel):
     """`.openfactory/product.yaml`, at the root of the documentation repository."""
 
-    #: which product these requirements describe — must match the project's name
+    #: which product these requirements describe. A product of one project carries its name; each
+    #: project of a product of several is admitted by being listed in `sources:` (#663)
     product: str
     #: EVERY source repository implementing this product. A product spans N repos (back end, front
     #: end, a fleet of services) while a job still targets exactly one.
