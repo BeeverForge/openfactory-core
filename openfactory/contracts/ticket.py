@@ -52,6 +52,11 @@ class Ticket(BaseModel):
     #: view, `JobRunner._change_repo`).
     repo: str
     base_branch: str | None = None  # falls back to the manifest's base_branch
+    #: THE REPOSITORY THE CARD'S CHANGE BELONGS TO, when a board that keeps every card in one
+    #: place filed it outside it (#665): a front the breakdown meant for another repository of
+    #: the product. None for a card whose change is in the repository its project runs in.
+    #: Read from the card's front matter (`belongs_to:`), never from its title.
+    belongs_to: str | None = None
 
     #: Whether the tracker still considers this ticket OPEN — `"open"` / `"closed"`, or None when
     #: the provider was not asked.

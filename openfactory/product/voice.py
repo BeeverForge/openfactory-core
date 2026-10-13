@@ -4858,6 +4858,42 @@ def card_raced(*, ref: str, language: str | None = None) -> str:
     return _pick(_CARD_RACED, language).format(ref=ref_label(ref))
 
 
+#: A CARD WHOSE CHANGE BELONGS TO ANOTHER REPOSITORY OF THE PRODUCT (#665). A board that keeps every
+#: card in one place filed it here, and its job would run in this project's repository, where the
+#: code it changes is not: journey 0's API front ran in the web repository, changed nothing and held
+#: the floor. Queueing it is refused (`queue`); a card that reached the queue anyway is taken out of
+#: it (`pickup`), and a job started on it is not sized (`preflight`). Each names where it belongs.
+_CARD_BELONGS_ELSEWHERE = {
+    "pt-BR": {
+        "queue": ("O {ref} é de `{home}`: a mudança dele está no código de `{home}`, e os cards "
+                  "deste quadro rodam no repositório `{here}`. Ele não foi posto na fila — abra "
+                  "esse trabalho no quadro de `{home}`."),
+        "pickup": ("O {ref} é de `{home}`, e os cards deste quadro rodam no repositório "
+                   "`{here}`, onde o código que ele muda não está. Tirei da fila sem começar — "
+                   "abra esse trabalho no quadro de `{home}`."),
+        "preflight": ("o {ref} é de `{home}`, e este job roda no repositório `{here}`, onde o "
+                      "código que ele muda não está — abra esse trabalho no quadro de `{home}`"),
+    },
+    "en": {
+        "queue": ("{ref} belongs to `{home}`: its change is in `{home}`'s code, and this board's "
+                  "cards run in the `{here}` repository. It was not queued — open this work on "
+                  "`{home}`'s board."),
+        "pickup": ("{ref} belongs to `{home}`, and this board's cards run in the `{here}` "
+                   "repository, where the code it changes is not. It was taken out of the queue "
+                   "without starting — open this work on `{home}`'s board."),
+        "preflight": ("{ref} belongs to `{home}`, and this job runs in the `{here}` repository, "
+                      "where the code it changes is not — open this work on `{home}`'s board"),
+    },
+}
+
+
+def card_belongs_elsewhere(kind: str, *, ref: str, home: str, here: str,
+                           language: str | None = None) -> str:
+    """Why card `ref` is not run in `here`: its change belongs to `home` (#665)."""
+    return _pick(_CARD_BELONGS_ELSEWHERE, language)[kind].format(ref=ref_label(ref), home=home,
+                                                                 here=here)
+
+
 #: A CARD IN A COLUMN NO STAGE IS (#521). The door cannot tell where such a card is in its life, and
 #: it refuses rather than guesses — that stays. What the refusal said about it was *"map it in the
 #: project's tracker options"*, in English to every conversation, naming neither the option nor
