@@ -14,10 +14,11 @@ THE BODIES DID NOT CHANGE, AND TWO RULES KEEP IT SO:
     `response_model_exclude_unset=True` (`app._reads`), so a field with a default is never written
     into a body that did not carry it: `pr` is absent from a board with no board, not `null`.
 
-A FIELD IS REQUIRED WHERE EVERY BRANCH THAT PRODUCES THE BODY WRITES IT, and has a default
-otherwise. The card and the pull request a person opens on the board are drawn by helpers that each
-ask a vendor and degrade on their own, so beyond `ref` their fields are named with defaults: a body
-the model refuses is a 500 on the panel, and a declaration must not be what breaks a page.
+NO FIELD IS REQUIRED, AND EVERY ONE MAY BE `None`. The rows behind these bodies are read from
+journals, stores and the engine, and a row written before a field existed, or by a producer that
+leaves it null, is still a row the panel showed before these were declared. A body the model refuses
+is a 500 on the panel, and a declaration must not be what breaks a page — so a field names what a
+read carries, and never what it must.
 
 A NUMBER IS `int | float`, never `float`: validated as `float`, a `3` is sent as `3.0`.
 """
@@ -43,24 +44,24 @@ class ReadModel(BaseModel):
 class FloorRead(ReadModel):
     """`/api/floor[/{project}]` — whether the factory is working (`floor.ladder.FloorState`)."""
 
-    scope: str
-    word: str
-    short: str
-    level: str
-    rung: int
-    cause: str
-    clause: str
-    line: str
-    detail: str
-    cmd: str
-    meta: str
-    actions: list[dict[str, Any]]
-    also: list[dict[str, Any]]
-    also_more: int
-    census: dict[str, Any] | None
-    census_line: str
-    per_project: dict[str, Any] | None
-    ok: bool
+    scope: str | None = None
+    word: str | None = None
+    short: str | None = None
+    level: str | None = None
+    rung: int | None = None
+    cause: str | None = None
+    clause: str | None = None
+    line: str | None = None
+    detail: str | None = None
+    cmd: str | None = None
+    meta: str | None = None
+    actions: list[dict[str, Any]] | None = None
+    also: list[dict[str, Any]] | None = None
+    also_more: int | None = None
+    census: dict[str, Any] | None = None
+    census_line: str | None = None
+    per_project: dict[str, Any] | None = None
+    ok: bool | None = None
 
 
 # ── the jobs ────────────────────────────────────────────────────────────────────────────────────
@@ -68,13 +69,13 @@ class FloorRead(ReadModel):
 class JournalJob(ReadModel):
     """One local job, read from its journal (`/api/jobs`, `/api/attention`)."""
 
-    project: str
-    issue: str
-    state: str | None
-    updated: str
-    events: int
-    pr_url: str | None
-    cost_usd: Number | None
+    project: str | None = None
+    issue: str | None = None
+    state: str | None = None
+    updated: str | None = None
+    events: int | None = None
+    pr_url: str | None = None
+    cost_usd: Number | None = None
 
 
 class JournalJobs(RootModel[list[JournalJob]]):
@@ -100,7 +101,7 @@ class EngineJobsRead(ReadModel):
     """`/api/temporal/jobs` — the jobs, live. `jobs` is `None` when nobody could ask the engine,
     `[]` when it answered and nothing is there."""
 
-    connected: bool
+    connected: bool | None = None
     build: dict[str, Any] | None = None
     jobs: list[EngineJob] | None = None
     address: str | None = None
@@ -111,18 +112,18 @@ class EngineJobsRead(ReadModel):
 class JobDetailRead(ReadModel):
     """`/api/jobs/{project}/{issue}/detail` — one job's briefing, or `connected: false` and why."""
 
-    connected: bool
+    connected: bool | None = None
     error: str | None = None
 
 
 # ── the board ───────────────────────────────────────────────────────────────────────────────────
 
 class BoardCard(ReadModel):
-    ref: str
-    column: str
-    title: str
-    labels: list[str]
-    updated_at: str
+    ref: str | None = None
+    column: str | None = None
+    title: str | None = None
+    labels: list[str] | None = None
+    updated_at: str | None = None
 
 
 class CardComment(ReadModel):
@@ -135,7 +136,7 @@ class CardDetail(ReadModel):
     """The card a person opened: `readable: false` when it could not be read, and `comments: None`
     when its thread could not be, which is not `[]`."""
 
-    ref: str
+    ref: str | None = None
     readable: bool | None = None
     title: str | None = None
     body: str | None = None
@@ -147,7 +148,7 @@ class CardDetail(ReadModel):
 class PullRequestDetail(ReadModel):
     """The pull request a person opened (`app._pr_detail`). `events: None` could not be read."""
 
-    ref: str
+    ref: str | None = None
     state: str | None = None
     readable: bool | None = None
     body: str | None = None
@@ -160,24 +161,24 @@ class PullRequestDetail(ReadModel):
 class BoardRead(ReadModel):
     """`/api/board/{project}` — `columns`/`cards` are `None` when the board could not be read."""
 
-    project: str
-    columns: list[str] | None
-    cards: list[BoardCard] | None
-    poll_seconds: Number | None
-    board: bool
-    card: CardDetail | None
+    project: str | None = None
+    columns: list[str] | None = None
+    cards: list[BoardCard] | None = None
+    poll_seconds: Number | None = None
+    board: bool | None = None
+    card: CardDetail | None = None
     pr: PullRequestDetail | None = None
 
 
 # ── what needs a person ─────────────────────────────────────────────────────────────────────────
 
 class HowToAnswer(ReadModel):
-    method: str
-    url: str
+    method: str | None = None
+    url: str | None = None
 
 
 class Option(ReadModel):
-    key: str
+    key: str | None = None
     label: str | None = None
     consequence: str | None = None
 
@@ -185,18 +186,18 @@ class Option(ReadModel):
 class InboxItem(ReadModel):
     """One thing a person must answer, and exactly how to POST the answer."""
 
-    project: str | None
-    issue: str | None
-    title: str | None
-    state: str | None
-    kind: str
-    note: str | None
-    pr_url: str | None
-    review: dict[str, Any]
-    parked_at: Any
-    wakes_at: Any
-    retry_at: Any
-    answer: HowToAnswer
+    project: str | None = None
+    issue: str | None = None
+    title: str | None = None
+    state: str | None = None
+    kind: str | None = None
+    note: str | None = None
+    pr_url: str | None = None
+    review: dict[str, Any] | None = None
+    parked_at: Any = None
+    wakes_at: Any = None
+    retry_at: Any = None
+    answer: HowToAnswer | None = None
     decision: dict[str, Any] | None = None
     options: list[Option] | None = None
     accepted: dict[str, Any] | None = None
@@ -207,11 +208,11 @@ class InboxRead(RootModel[list[InboxItem]]):
 
 
 class ParkedDecision(ReadModel):
-    project: str | None
-    issue: str | None
-    title: str | None
-    state: str | None
-    decision: dict[str, Any]
+    project: str | None = None
+    issue: str | None = None
+    title: str | None = None
+    state: str | None = None
+    decision: dict[str, Any] | None = None
 
 
 class DecisionsRead(RootModel[list[ParkedDecision]]):
@@ -224,7 +225,7 @@ class BudgetRow(ReadModel):
     """One tracker credential's budget (`floor.reading.budgets`). `state` is
     `ok | low | unread | not_reported`; the numbers are there only for a vendor that reports one."""
 
-    state: str
+    state: str | None = None
     kind: str | None = None
     projects: list[str] | None = None
     vendor: str | None = None
@@ -240,76 +241,76 @@ class BudgetRow(ReadModel):
 class BudgetRead(ReadModel):
     """`/api/budget` — one row per credential, and the one row a single sentence renders."""
 
-    summary: BudgetRow
-    rows: list[BudgetRow]
+    summary: BudgetRow | None = None
+    rows: list[BudgetRow] | None = None
 
 
 # ── the loops and the messages ──────────────────────────────────────────────────────────────────
 
 class WaitingLoop(ReadModel):
-    kind: str
-    subject: str
-    about: str
-    owner: str
-    state: str
-    opened: str
-    chased: str
-    context: dict[str, Any]
+    kind: str | None = None
+    subject: str | None = None
+    about: str | None = None
+    owner: str | None = None
+    state: str | None = None
+    opened: str | None = None
+    chased: str | None = None
+    context: dict[str, Any] | None = None
 
 
 class LoopsRead(ReadModel):
     """`/api/loops/{project}` — everything the agents are still waiting on."""
 
-    project: str
-    waiting: list[WaitingLoop]
+    project: str | None = None
+    waiting: list[WaitingLoop] | None = None
 
 
 class ChannelMessage(ReadModel):
-    kind: str
-    text: str
-    ts: str
-    channel: str
-    token: str
-    answer: str
-    by: str
+    kind: str | None = None
+    text: str | None = None
+    ts: str | None = None
+    channel: str | None = None
+    token: str | None = None
+    answer: str | None = None
+    by: str | None = None
 
 
 class PendingQuestion(ReadModel):
-    token: str
-    text: str
-    ts: str
-    options: list[Option]
-    answer: HowToAnswer
+    token: str | None = None
+    text: str | None = None
+    ts: str | None = None
+    options: list[Option] | None = None
+    answer: HowToAnswer | None = None
 
 
 class StagedSuggestion(ReadModel):
     """The one action the tech-lead proposed; `live: false` with a `reason` when it may be shown
     and not pressed."""
 
-    token: str
-    ts: str
-    action: str
-    issue: str | None
-    params: dict[str, Any]
-    labels: dict[str, str]
-    live: bool
-    reason: str
-    act: HowToAnswer
+    token: str | None = None
+    ts: str | None = None
+    action: str | None = None
+    issue: str | None = None
+    params: dict[str, Any] | None = None
+    labels: dict[str, str] | None = None
+    live: bool | None = None
+    reason: str | None = None
+    act: HowToAnswer | None = None
 
 
 class MessagesRead(ReadModel):
     """`/api/messages/{project}` — what the factory said to a project, and what it waits to hear."""
 
-    project: str
-    messages: list[ChannelMessage]
-    pending: list[PendingQuestion]
-    suggestion: StagedSuggestion | None
+    project: str | None = None
+    messages: list[ChannelMessage] | None = None
+    pending: list[PendingQuestion] | None = None
+    suggestion: StagedSuggestion | None = None
 
 
 # ── the product room ────────────────────────────────────────────────────────────────────────────
 
 class ProductProject(ReadModel):
-    name: str
+    name: str | None = None
 
 
 class ProductProjectsRead(RootModel[list[ProductProject]]):
@@ -328,38 +329,38 @@ class AttachmentLimitsRead(ReadModel):
     """`/api/product/{project}/attachments` — what a message may carry, and, for a conversation the
     page names, the files sent in it."""
 
-    accept: list[str]
-    max_bytes: int
-    max_per_message: int
+    accept: list[str] | None = None
+    max_bytes: int | None = None
+    max_per_message: int | None = None
     files: list[SentFile] | None = None
 
 
 class ProductDocument(ReadModel):
-    path: str
-    title: str
-    type: str
-    audience: str
+    path: str | None = None
+    title: str | None = None
+    type: str | None = None
+    audience: str | None = None
 
 
 class UnreadableDocument(ReadModel):
-    path: str
-    type: str
-    audience: str
-    reason: str
+    path: str | None = None
+    type: str | None = None
+    audience: str | None = None
+    reason: str | None = None
 
 
 class DocumentsRead(ReadModel):
     """`/api/product/{project}/documents` — `product.documents.ingest.overview`. `checked_at` is
     `None` before the first pass: nothing read yet is not nothing there."""
 
-    project: str
-    product: str
-    checked_at: str | None
-    read: int
-    documents: list[ProductDocument]
-    listed_all: bool
-    unreadable: list[UnreadableDocument]
-    internal_withheld: int
+    project: str | None = None
+    product: str | None = None
+    checked_at: str | None = None
+    read: int | None = None
+    documents: list[ProductDocument] | None = None
+    listed_all: bool | None = None
+    unreadable: list[UnreadableDocument] | None = None
+    internal_withheld: int | None = None
     unreadable_internal: list[UnreadableDocument] | None = None
     documents_internal: list[ProductDocument] | None = None
 
@@ -367,29 +368,29 @@ class DocumentsRead(ReadModel):
 # ── the metrics ─────────────────────────────────────────────────────────────────────────────────
 
 class MetricsTotals(ReadModel):
-    cost_usd: Number
-    tokens: int
-    tasks: int
-    avg_cost_per_task: Number
-    avg_wall_s: Number
-    agent_runs: int
+    cost_usd: Number | None = None
+    tokens: int | None = None
+    tasks: int | None = None
+    avg_cost_per_task: Number | None = None
+    avg_wall_s: Number | None = None
+    agent_runs: int | None = None
 
 
 class MetricsRead(ReadModel):
     """`/api/metrics` — `api.metrics_view.cost_dashboard`: spend by period, model, harness and role,
     the per-task table, and the project's autonomy."""
 
-    projects: list[str]
-    project: str
-    runs: list[dict[str, Any]]
-    knowledge_ab: dict[str, Any]
-    by_day: dict[str, Number]
-    by_model: dict[str, Number]
-    by_harness: dict[str, Number]
-    by_role: dict[str, Number]
-    tasks: list[dict[str, Any]]
-    totals: MetricsTotals
-    autonomy: dict[str, Any]
+    projects: list[str] | None = None
+    project: str | None = None
+    runs: list[dict[str, Any]] | None = None
+    knowledge_ab: dict[str, Any] | None = None
+    by_day: dict[str, Number] | None = None
+    by_model: dict[str, Number] | None = None
+    by_harness: dict[str, Number] | None = None
+    by_role: dict[str, Number] | None = None
+    tasks: list[dict[str, Any]] | None = None
+    totals: MetricsTotals | None = None
+    autonomy: dict[str, Any] | None = None
 
 
 # ── who is asking, and what may be asked ────────────────────────────────────────────────────────
@@ -397,26 +398,26 @@ class MetricsRead(ReadModel):
 class WhoamiRead(ReadModel):
     """`/api/whoami`. `scopes: None` is unscoped — not `[]`, which is no area at all."""
 
-    id: str | None
-    display: str
-    known: bool
-    scopes: list[str] | None
-    logout: str | None
+    id: str | None = None
+    display: str | None = None
+    known: bool | None = None
+    scopes: list[str] | None = None
+    logout: str | None = None
 
 
 class ActionRow(ReadModel):
     """One catalogued action. `still_in` names the old route an action not yet moved into the layer
     still lives behind; `available` is its absence."""
 
-    name: str
-    summary: str
-    required: list[str]
-    optional: list[str]
-    needs_admin: bool
-    params: dict[str, str]
-    choose_when: str | None
-    available: bool
-    still_in: str | None
+    name: str | None = None
+    summary: str | None = None
+    required: list[str] | None = None
+    optional: list[str] | None = None
+    needs_admin: bool | None = None
+    params: dict[str, str] | None = None
+    choose_when: str | None = None
+    available: bool | None = None
+    still_in: str | None = None
 
 
 class ActionsRead(RootModel[list[ActionRow]]):

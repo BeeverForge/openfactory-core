@@ -267,3 +267,127 @@ def test_the_declared_models_are_typed_and_not_free_form():
             (model,) = get_args(model.model_fields["root"].annotation)
         assert issubclass(model, BaseModel) and model.model_fields, (
             f"{path}: {model.__name__} declares no field")
+
+
+# ── a legacy or malformed row is passed through, never refused ──────────────────────────────────
+#
+# A READ MUST NOT FAIL BECAUSE A PRODUCER ROW LACKS A FIELD OR CARRIES A NULL. Every row below is
+# one a store, a journal or the engine can hold today — written before a field existed, or by a
+# producer that sets it to `None` — and the route answers it as it did before it declared a model.
+
+def _passes_through(bench, route: str, at: str) -> object:
+    got = bench.get(at)
+    assert got.status_code == 200, f"{at} answered {got.status_code}: {got.text[:400]}"
+    body = got.json()
+    assert _model(route).model_validate(body).model_dump(
+        mode="json", exclude_unset=True) == body, f"{at}: the row did not pass through as sent"
+    return body
+
+
+def test_a_floor_with_null_and_missing_words_still_answers(bench, monkeypatch):
+    from openfactory import floor
+
+    class _Thin:
+        def as_dict(self):
+            return {"scope": None, "word": None, "short": None, "level": None, "rung": None,
+                    "cause": None, "line": None, "census": None, "ok": None}
+
+    monkeypatch.setattr(floor, "state", lambda *_a, **_k: _Thin())
+    body = _passes_through(bench, "/api/floor/{project}", "/api/floor/acme")
+    assert body["word"] is None and "detail" not in body, body
+
+
+def test_a_journal_event_with_no_stamp_and_a_null_state_still_lists(bench):
+    from openfactory.paths import events_file
+    from openfactory.registry import ProjectRegistry
+
+    journal = events_file(ProjectRegistry().get("acme"), "13")
+    journal.write_text('{"kind": "state", "message": null}\n', encoding="utf-8")
+    body = _passes_through(bench, "/api/jobs", "/api/jobs")
+    row = next(j for j in body if j["issue"] == "13")
+    assert row["updated"] == "" and row["state"] is None, row
+
+
+def _engine_lists(monkeypatch, jobs):
+    from openfactory.runtime.temporal import view as tv
+
+    async def _list_jobs(*_a, **_k):
+        return [dict(j) for j in jobs]
+
+    monkeypatch.setattr(tv, "list_jobs", _list_jobs)
+
+
+def test_an_engine_row_with_nothing_but_its_park_still_reaches_the_inbox(bench, monkeypatch):
+    # a run listed before it carried a project, an issue or a title, parked with a null note
+    _engine_lists(monkeypatch, [
+        {"status": "running", "state": "on_hold", "attention": True, "workflow_id": "w-1",
+         "action": {"decision": {"question": "Which?", "options": [{"key": "a", "label": None}]},
+                    "note": None}}])
+    body = _passes_through(bench, "/api/inbox", "/api/inbox")
+    assert len(body) == 1 and body[0]["project"] is None, body
+    assert body[0]["decision"]["options"] == [{"key": "a", "label": None}], body
+
+
+def test_an_inbox_item_without_a_review_or_an_answer_is_its_model():
+    """`review` and `answer` are written by the route today; a row from before either existed, or
+    one a channel relays with them null, is still an inbox item."""
+    from openfactory.api.read_models import InboxRead
+
+    rows = [{"kind": "decision", "project": "acme"},
+            {"kind": "paused", "review": None, "answer": None, "note": None}]
+    assert InboxRead.model_validate(rows).model_dump(mode="json", exclude_unset=True) == rows
+
+
+def test_a_decision_row_with_missing_fields_still_lists(bench, monkeypatch):
+    _engine_lists(monkeypatch, [{"action": {"decision": {"question": "Which?"}}}])
+    body = _passes_through(bench, "/api/decisions", "/api/decisions")
+    assert body == [{"project": None, "issue": None, "title": None, "state": None,
+                     "decision": {"question": "Which?"}}], body
+
+
+def test_a_budget_row_with_no_state_still_answers(bench, monkeypatch):
+    from openfactory.floor import reading
+
+    monkeypatch.setattr(reading, "budgets", lambda projects=None: [
+        {"kind": "github", "state": None, "vendor": None}])
+    _passes_through(bench, "/api/budget", "/api/budget")
+
+
+def test_a_loop_with_a_null_context_and_unchased_still_lists(bench, monkeypatch):
+    from openfactory.memory import ledger
+
+    loop = ledger.Loop(kind="review_finding", subject="acme#12", owner="techlead",
+                       about="a finding", ts="2026-10-12T08:00:00Z", chased_ts=None,
+                       context=None)
+    monkeypatch.setattr(ledger, "waiting", lambda _loops: [loop])
+    body = _passes_through(bench, "/api/loops/{project}", "/api/loops/acme")
+    assert body["waiting"][0]["context"] is None and body["waiting"][0]["chased"] is None, body
+
+
+def test_a_message_and_a_suggestion_with_null_fields_still_answer(bench, monkeypatch):
+    from openfactory.memory import messages
+
+    said = messages.Message(kind="said", text=None, ts=None, channel=None, token=None,
+                            answer=None, by=None)
+    asked = messages.Message(kind="ask", text="register it?", ts="2026-10-12T08:02:00Z",
+                             token="req-7", approve=None, reject=None)
+    monkeypatch.setattr(messages, "read", lambda _p, *a, **k: [said])
+    monkeypatch.setattr(messages, "pending", lambda _p, *a, **k: [asked])
+    monkeypatch.setattr(messages, "staged", lambda _p, *a, **k: (asked, None))
+    monkeypatch.setattr(messages, "read_suggestion", lambda _m: ("not-a-catalogued-action", None,
+                                                                 None))
+    body = _passes_through(bench, "/api/messages/{project}", "/api/messages/acme")
+    assert body["messages"][0]["text"] is None, body
+    assert body["pending"][0]["options"][0]["label"] is None, body
+    suggestion = body["suggestion"]
+    assert suggestion["params"] is None and suggestion["reason"] is None, suggestion
+
+
+def test_a_card_with_no_title_or_stamp_is_still_on_the_board(bench, monkeypatch):
+    from openfactory.adapters.tracker import local as local_tracker
+    from openfactory.adapters.tracker.base import TicketSummary
+
+    monkeypatch.setattr(local_tracker.LocalTracker, "list_tickets", lambda *_a, **_k: [
+        TicketSummary.model_construct(ref="1", title=None, labels=None, updated_at=None)])
+    body = _passes_through(bench, "/api/board/{project}", "/api/board/acme")
+    assert body["cards"][0]["title"] is None, body
