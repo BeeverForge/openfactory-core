@@ -173,9 +173,10 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24: moved to engine.py
     # RE-PINNED 2026-09-24 (#266 slice 6): who asked is the person's id, no mention syntax
+    # RE-PINNED 2026-10-12 (#661): the call goes on to what the draft is written from
     ("the draft forgets where the request came from", ENGINE,
-     '                              asked_by=user or "", source=ex.source or "")',
-     '                              asked_by=user or "", source="")'),
+     '                              asked_by=user or "", source=ex.source or "",',
+     '                              asked_by=user or "", source="",'),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("the role's answer is dropped from in front of the draft", ENGINE,
@@ -242,8 +243,10 @@ MUTATIONS = [
      "        pass"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-12 (#661): the discarded proposal is carried as what a redraft is
+    # written from, never as pending
     ("the discarded proposal stays in the prompt as still pending", ENGINE,
-     "        waiting_key, waiting = None, None", "        pass"),
+     "        rejected, waiting_key, waiting = waiting, None, None", "        rejected = waiting"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("the requester may not take their own proposal back", ENGINE,

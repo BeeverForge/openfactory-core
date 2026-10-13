@@ -109,10 +109,11 @@ MUTATIONS = [
     ("the add-on's port is never asked — its user is the person", SPEAKER,
      '            person = str(ask(who, project=project) or "").strip()',
      "            person = who"),
+    # RE-PINNED 2026-10-12 (#661): the call goes on to what the draft is written from
     ("what a turn stages wears the vendor's mention syntax again", ENGINE,
-     '                              asked_by=user or "", source=ex.source or "")',
+     '                              asked_by=user or "", source=ex.source or "",',
      '                              asked_by=f"<@{user}>" if user else "", '
-     'source=ex.source or "")'),
+     'source=ex.source or "",'),
 
     # ── the three addressing rules (D14, decision 3) ─────────────────────────────────────────────
     ("a DIRECT conversation is not addressed to the role", ADDRESSING,

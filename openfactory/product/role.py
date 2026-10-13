@@ -1369,7 +1369,8 @@ class ProductRole:
         return verdict
 
     def draft(self, *, sandbox, workspace, request: str, asked_by: str = "",
-              asked: str = "") -> ProductAnswer:
+              asked: str = "", conversation: str = "", reply: str = "",
+              replacing: str = "") -> ProductAnswer:
         """Turn a request into a requirement draft — and, more importantly, into the conflicts it
         creates with what the product already promises.
 
@@ -1377,15 +1378,33 @@ class ProductRole:
         what the product's whole memory holds that may be this same request — a card closed years
         ago, a requirement dropped or superseded, a distilled conversation (#269 slice 3, ADR-0053
         D7). The duplicate check before the draft is staged reads it, so the person sees the
-        duplication before the yes, not after."""
+        duplication before the yes, not after.
+
+        WRITTEN FROM THE CONVERSATION, NOT FROM ITS LAST MESSAGE (#661). `conversation` is this
+        conversation as the answer read it, `reply` what the role said when it proposed the draft,
+        and `replacing` the draft this one replaces. With the last message alone, "o filtro
+        também por situação" was redrafted into a filter on the list, under a reply that said "o
+        resto da proposta continua igual", and the CSV export the person had asked for was in no
+        requirement."""
+        from openfactory.product.cards import REPLACING_HEADING, REPLACING_RULE
+
         prompt = self._prompt(
             "Someone has asked for the change below. FIRST check it against the requirements "
             "that already exist: open the ones the index suggests are related. Report any "
             "contradiction, duplication or narrowing you can cite. THEN draft the requirement."
             + (" When one of the leads under «Possibly already asked» IS this request — even one "
                "dropped, superseded or closed long ago — report it as a `duplicates` conflict "
-               "that cites it by its reference and says what became of it." if asked else ""),
-            f"## The request\n{request}"
+               "that cites it by its reference and says what became of it." if asked else "")
+            + (" The request is the conversation's latest message: draft the requirement the "
+               "WHOLE conversation has established — what the person asked earlier, what they "
+               "answered since, and what you said back — never the latest message alone."
+               if conversation.strip() else ""),
+            (f"## The conversation (oldest first)\n{conversation.strip()}\n\n"
+             if conversation.strip() else "")
+            + f"## The request\n{request}"
+            + (f"\n\n## Your reply to it\n{reply.strip()}" if reply.strip() else "")
+            + (f"\n\n## {REPLACING_HEADING}\n{REPLACING_RULE}\n\n{replacing.strip()}"
+               if replacing.strip() else "")
             + (f"\n\n## Asked by\n{asked_by}" if asked_by else "")
             + (f"\n\n{asked}" if asked else ""),
             _DRAFT_SCHEMA,
