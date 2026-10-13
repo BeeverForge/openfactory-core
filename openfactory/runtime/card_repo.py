@@ -110,6 +110,23 @@ def _runner_view(project, ref) -> tuple[object, str]:
 
 
 
+def runs_elsewhere(project, belongs_to: str | None) -> str:
+    """The repository a card's change belongs to when it is NOT the one this project's jobs run in
+    — `""` when the card names none, or names this project's own (#665).
+
+    A board that keeps every card in one place files a front the breakdown meant for another
+    repository of the product here, and records where it belongs (`Ticket.belongs_to`). Run here,
+    journey 0's API front changed nothing in the web repository and held the floor; the queue, the
+    pickup and the pre-flight ask this, and none of them runs it."""
+    repo = str(belongs_to or "").strip()
+    if not repo:
+        return ""
+    try:
+        return "" if _is_default_repo(project, repo) else repo
+    except AttributeError:  # a project with no repository named: nothing to run it in either
+        return repo
+
+
 def _is_default_repo(project, repo: str) -> bool:
     """Whether `repo` names the project's DEFAULT repository, at either qualification level.
 

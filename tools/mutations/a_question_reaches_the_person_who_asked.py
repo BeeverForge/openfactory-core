@@ -50,8 +50,8 @@ MUTATIONS = [
 
     ("the forge identity is written bare, and @login is not YAML",
      "openfactory/product/authoring.py",
-     '        [f"requester_forge: {json.dumps(forge, ensure_ascii=False)}"] if forge else [])\n',
-     '        [f"requester_forge: {forge}"] if forge else [])\n'),
+     '        [f"requester_forge: {json.dumps(forge, ensure_ascii=False)}"] if forge else []) + (\n',
+     '        [f"requester_forge: {forge}"] if forge else []) + (\n'),
 
     ("the prose line loses its parenthesis",
      "openfactory/product/authoring.py",

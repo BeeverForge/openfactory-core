@@ -149,8 +149,8 @@ MUTATIONS = [
 
     # ── filing: `target_repo` only within `sources:` ──
     ("a card is filed in any repository the role names", MODULE,
-     "        home = next((s for s in self._sources() if s and repo_match(target, s)), \"\")",
-     "        home = target"),
+     "        return next((s for s in self._sources() if s and repo_match(target, s)), \"\")",
+     "        return target"),
     ("a retried filing in another repository files the card twice", MODULE,
      "            existing = tracker.find_ticket(title=title) or self._titled_in(where, title)",
      "            existing = tracker.find_ticket(title=title)"),
