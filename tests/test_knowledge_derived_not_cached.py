@@ -78,6 +78,7 @@ def test_the_temp_directory_is_reclaimed():
 
 # ── cheap enough that the cache was never justified ─────────────────────────────────────────────
 
+@pytest.mark.alone
 def test_generating_is_fast_enough_to_do_every_time():
     """0.24s for 215 files, measured 2026-07-29. The assertion is generous — it guards the
     ARCHITECTURE (deriving beats caching) rather than a benchmark: if this ever failed, the answer
@@ -87,7 +88,13 @@ def test_generating_is_fast_enough_to_do_every_time():
     three suites sharing the cores and 0.3s alone — the same work, and the assertion is about
     the WORK. `os.times()` counts this process and the children it waited for (the pipeline
     shells out), which is what generation costs wherever it runs; a loaded machine is not a
-    finding about the architecture."""
+    finding about the architecture.
+
+    AND NOT BESIDE OTHER WORKERS (2026-10-12). CPU time is not immune to neighbours either: with
+    CI's suite split across xdist workers on a four-core runner, this read 13.1 s, against 7.6–8.0 s
+    for the same generation alone on a loaded laptop. So it is marked `alone`, and runs in a process
+    of its own. The 0.24 s above was 215 files; REPO is this repository, now about 2,000, so the
+    budget it guards is much closer than it was."""
     def cpu() -> float:
         t = os.times()
         return t.user + t.system + t.children_user + t.children_system
