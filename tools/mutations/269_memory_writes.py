@@ -104,10 +104,11 @@ MUTATIONS = [
      "        section = \"\""),
 
     ("the draft is not told to report a dropped twin as a duplicate", ROLE,
+     # RE-PINNED 2026-10-12 (#661): the instruction goes on to the conversation it is written from
      "               \"that cites it by its reference and says what became of it.\" if asked "
-     "else \"\"),",
+     "else \"\")",
      "               \"that cites it by its reference and says what became of it.\" if False "
-     "else \"\"),"),
+     "else \"\")"),
 
     # ── 2. an internal document never reaches a client's turn ─────────────────────────────────
     ("the view is made with nothing withheld", MODULE,

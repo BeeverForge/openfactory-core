@@ -37,9 +37,10 @@ MUTATIONS = [
      "            template=cards.load_template(ctx.docs_path, kind, lang),",
      "            template=cards.load_template(ctx.docs_path, kind),"),
 
+    # RE-PINNED 2026-10-12 (#661): the call goes on to the draft it replaces
     ("the drafter is not told the language by name", CARDS,
-     "            template=template, feedback=feedback, kind=kind, language=language)))",
-     "            template=template, feedback=feedback, kind=kind)))"),
+     "            template=template, feedback=feedback, kind=kind, language=language,\n",
+     "            template=template, feedback=feedback, kind=kind,\n"),
 
     ("the floor never checks the language", CARDS,
      "    other = not_in(written, language)",

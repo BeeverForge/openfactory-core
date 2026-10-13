@@ -897,9 +897,19 @@ _ASKED = {
 }
 
 
+#: WHAT A REDRAFT IS WRITTEN FROM (#661), shared with the requirement's drafter (`role.draft`): the
+#: draft the person was shown, kept whole except where they changed it. An adjustment drafted from
+#: the last message alone dropped everything the adjustment did not repeat.
+REPLACING_HEADING = "The draft this replaces, as the person was shown it"
+REPLACING_RULE = ("The person's last message adjusts it, or answers it. Write the WHOLE draft the "
+                   "conversation has now established: this one, with what they changed applied, "
+                   "and everything they did not change kept. Never the adjustment alone. What you "
+                   "write must say what your reply to them said it would.")
+
+
 def draft_prompt(*, conversation: str, request: str, reply: str, intake: str, title: str,
                  template: str, feedback: list[str], kind: str = "ticket",
-                 language: str | None = None) -> str:
+                 language: str | None = None, replacing: str = "") -> str:
     """What the role is asked when it drafts (or redrafts) a card — in `language` when one is
     named (#429): "the person's language" left the model to infer it, and it inferred it from
     the layout."""
@@ -943,6 +953,8 @@ def draft_prompt(*, conversation: str, request: str, reply: str, intake: str, ti
         + f"\n\n## The message that asked for the card\n\n{request.strip()}"
         + (f"\n\n## Your reply to it\n\n{reply.strip()}" if reply else "")
         + (f"\n\n## The title you proposed\n\n{title.strip()}" if title else "")
+        + (f"\n\n## {REPLACING_HEADING}\n\n{REPLACING_RULE}\n\n{replacing.strip()}"
+           if replacing else "")
         + again
         + "\n\n## Answer\n\nAnswer at once with ONLY a JSON object (no prose, no code fences, "
         "nothing to look up — everything the card is written from is above):\n"
@@ -956,7 +968,7 @@ def compose(*, draft: Callable[[str], dict | None], judge: Judge | None, rubric:
             template: str, conversation: str, request: str, reply: str = "", intake: str = "",
             title: str = "", project_name: str = "",
             answered: Answered | None = None, kind: str = "ticket",
-            language: str | None = None) -> Composed:
+            language: str | None = None, replacing: str = "") -> Composed:
     """Draft, check and judge one card — at most `ATTEMPTS` drafts — and say what came of it.
 
     `draft` is the role's JSON call (a prompt in, a dict or None out); `judge` the judge's text
@@ -985,7 +997,8 @@ def compose(*, draft: Callable[[str], dict | None], judge: Judge | None, rubric:
         progress.stage("card_draft", step=attempt, of=rounds)
         card = CardDraft.from_answer(draft(draft_prompt(
             conversation=conversation, request=request, reply=reply, intake=intake, title=title,
-            template=template, feedback=feedback, kind=kind, language=language)))
+            template=template, feedback=feedback, kind=kind, language=language,
+            replacing=replacing)))
         if card is None:
             log.info("[%s] the card draft could not be read (attempt %s)", project_name, attempt)
             feedback = ["your answer was not the JSON object asked for"]

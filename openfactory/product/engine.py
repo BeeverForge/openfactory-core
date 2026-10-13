@@ -255,6 +255,11 @@ class Exchange:
         #: on the board.
         self.conversation = ""
         self.intake = ""
+        #: THE DRAFT THIS TURN MAY REPLACE (#661): the proposal still waiting for this person's
+        #: yes, or the one this message's "no" just took off the table. A draft written after it
+        #: is written FROM it — the request alone redrafted "o filtro também por situação" into a
+        #: filter on the list, and the CSV export the person had asked for was dropped.
+        self.replacing: dict | None = None
         # ONE RECEIPT PER MESSAGE, and the factory is in the core so the click path gets the same
         # one: seeded by the message, so consecutive questions differ while the same message
         # always produces the same acknowledgement (deterministic tests, answerable support).
@@ -512,6 +517,7 @@ def _answer(ex: Exchange, *, arrival_ts: str = "") -> Reply | str | None:
     if settled.reply is not None:
         return settled.reply
     waiting = settled.waiting
+    ex.replacing = waiting or settled.rejected
 
     # ---- the answer to the question a card was held on (#383) ----------------------------------
     # BEFORE the intents and the conversation: the person was just asked one thing, and this
@@ -570,6 +576,10 @@ class Settled:
     #: `_answer`, which holds the whole exchange, stages another pass on it from the conversation
     #: (`_offer_another_pass`), and `reply` is what is said where none can be staged. "" otherwise.
     not_yet: str = ""
+    #: THE PROPOSAL THIS MESSAGE'S "NO" TOOK OFF THE TABLE (#661) — a conditional yes is a
+    #: rejection, and it is usually a correction of that proposal: the draft that follows is
+    #: written from it. None when nothing was rejected.
+    rejected: dict | None = None
 
 
 def settle(project, *, text: str, user: str, thread: str, module, channel: str = "",
@@ -626,6 +636,7 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # initialised BEFORE the gate: the branches below read them unconditionally, and they are only
     # assigned when the model is consulted at all
     judged_yes = judged_no = False
+    rejected = None
     if waiting and not is_yes(text, project=project) and not is_no(text, project=project):
         verdict = "neither"
         try:
@@ -685,8 +696,9 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
                 approved=False)
         # the discarded proposal must not survive in this turn's PROMPT either: `waiting` fed the
         # "still pending" section of the conversation, so after a rejection she was told the thing
-        # the person had just thrown away was still on the table — and said so
-        waiting_key, waiting = None, None
+        # the person had just thrown away was still on the table — and said so. It is CARRIED, as
+        # what a redraft is written from (#661), never as what is pending.
+        rejected, waiting_key, waiting = waiting, None, None
         # fall through: whatever they said next is the correction, and it deserves an answer
 
     # ---- an answer to "did it work?" — the loop that makes this a product role ----------------
@@ -745,7 +757,7 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
 
         return Settled(proposal_expired(language=lang), waiting)
 
-    return Settled(None, waiting)
+    return Settled(None, waiting, rejected=rejected)
 
 
 def _a_defect_for_what_did_not_work(project, loop, *, text: str, user: str, thread: str,
@@ -1183,7 +1195,7 @@ def gestures(ex: Exchange, answer) -> Reply | str | None:
         if callable(compose):
             composed = compose(request=text, conversation=ex.conversation,
                                reply=answer.text or "", intake=ex.intake, kind="defect",
-                               language=ex.lang)
+                               language=ex.lang, **_replacing(ex, compose))
             return _offer_card(ex, composed, request=text,
                                preamble=(answer.text + "\n\n") if answer.text else "",
                                kind="defect", extra={"violates": getattr(answer, "violates",
@@ -1260,7 +1272,7 @@ def gestures(ex: Exchange, answer) -> Reply | str | None:
             return _stage_ticket_as_said(ex, answer)
         composed = compose(request=text, conversation=ex.conversation, reply=answer.text or "",
                            intake=ex.intake, title=getattr(answer, "ticket_title", "") or "",
-                           language=ex.lang)
+                           language=ex.lang, **_replacing(ex, compose))
         return _offer_card(ex, composed, request=text, preamble=preamble)
     if getattr(answer, "is_reorder", False) and getattr(answer, "order", None):
         # SHE READ AN ORDER FOR THE BACKLOG (#33 slice 9, the chat half of `reorder`). Staged like
@@ -1596,12 +1608,47 @@ def staging(ex: Exchange, answer) -> Reply | str | None:
                               key=ex.key, module=ex.module, on_it=ex.on_it, channel=ex.channel,
                               seen=ex.seen,
                               preamble=f"{answer.text}\n\n" if answer.text else "",
-                              asked_by=user or "", source=ex.source or "")
+                              asked_by=user or "", source=ex.source or "",
+                              conversation=ex.conversation, reply=answer.text or "",
+                              replacing=the_draft_it_replaces(ex.replacing))
         if offered:
             # returned WHOLE and untouched, so the confirmation survives: interpolating it here is
             # exactly what posted the proposal twice
             return offered
     return None
+
+
+def the_draft_it_replaces(entry: dict | None) -> str:
+    """The draft `entry` holds, whole, as a drafter reads what it is replacing — "" when it holds
+    none: an act, a queue, an order (#661).
+
+    WHOLE, NOT THE SUMMARY THE JUDGE READS (`_proposal_summary`): a redraft keeps everything the
+    person did not change, and it can only keep what it is shown — the out-of-scope line and the
+    `why` included."""
+    if not entry:
+        return ""
+    import json
+
+    answer = entry.get("answer")
+    draft = answer.get("draft") if isinstance(answer, dict) else getattr(answer, "draft", None)
+    if draft is not None:
+        fields = draft.model_dump() if hasattr(draft, "model_dump") else dict(draft)
+        kept = {k: v for k, v in fields.items() if k not in ("conflicts", "supersedes") and v}
+        return json.dumps(kept, ensure_ascii=False, indent=1)
+    if entry.get("card"):
+        return f"# {entry.get('title', '')}\n\n{entry['card']}".strip()
+    return ""
+
+
+def _replacing(ex: Exchange, compose) -> dict:
+    """`replacing=` for a card drafter that takes it, when this turn replaces a draft (#661)."""
+    return _drafted_from(compose, replacing=the_draft_it_replaces(ex.replacing))
+
+
+def _drafted_from(drafter, **values: str) -> dict:
+    """What a draft is written from, as keywords `drafter` takes — each only when it holds text, so
+    a drafter written before it took them is called exactly as before (#661)."""
+    return {name: value for name, value in values.items() if value and _accepts(drafter, name)}
 
 
 def offer(project, key: str, text: str) -> Reply | str:
@@ -1629,7 +1676,8 @@ def offer(project, key: str, text: str) -> Reply | str:
 def offer_draft(project, *, request: str, user: str, thread: str, module,
                 asked_by: str = "", date: str = "", source: str = "", on_it=None,
                 preamble: str = "", channel: str = "",
-                seen: int | None = None, key: str = "") -> Reply | str | None:
+                seen: int | None = None, key: str = "", conversation: str = "",
+                reply: str = "", replacing: str = "") -> Reply | str | None:
     """Draft what was asked for and show it back for confirmation.
 
     Separate from the conversation because drafting is a deliberate step: it costs a model call and
@@ -1641,15 +1689,20 @@ def offer_draft(project, *, request: str, user: str, thread: str, module,
 
     `key` is where the draft is staged — the turn's `key_for(conversation, person)`, so it waits
     for `user` beside anybody else's in the same room (#266 slice 4). A caller that gives none
-    stages under `thread` itself, the conversation alone, as every caller did before."""
-    from openfactory.product.voice import confirmation_request
+    stages under `thread` itself, the conversation alone, as every caller did before.
 
+    `conversation`, `reply` and `replacing` are what the draft is written FROM (#661): this
+    conversation as the role read it, the role's reply that proposed the draft, and the draft it
+    replaces — still waiting for the person's yes, or just taken off the table by their "no". The
+    request alone is the conversation's last message, and an adjustment drafted from it alone
+    drops everything the adjustment did not repeat."""
     thread = key or thread
     lang = getattr(project, "language", None)
     if on_it:
         on_it()
     _progress.stage("drafting")    # a model call of its own, after the answer's (#395)
-    answer = module.draft(request, asked_by=asked_by or user)
+    answer = module.draft(request, asked_by=asked_by or user, **_drafted_from(
+        module.draft, conversation=conversation, reply=reply, replacing=replacing))
     if not answer.ok or answer.draft is None:
         return None  # nothing to confirm; the conversation continues
 
@@ -1665,6 +1718,8 @@ def offer_draft(project, *, request: str, user: str, thread: str, module,
     # plain `str`, the boundary could no longer tell it had been posted, and the whole proposal
     # went out TWICE. A sentinel that survives only until somebody interpolates it is not a
     # sentinel — which is why the preamble is an argument here and never glued on outside.
+    from openfactory.product.voice import confirmation_request
+
     return offer(project, thread, preamble + replaced + confirmation_request(
         title=draft.title, must_be_true=draft.must_be_true,
         conflicts=[(c.kind, _conflict_line(c, lang)) for c in draft.conflicts], language=lang))

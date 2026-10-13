@@ -2423,9 +2423,14 @@ class ProductModule:
             log.warning("could not judge a confirmation", exc_info=True)
             return "neither"
 
-    def draft(self, request: str, *, asked_by: str = "") -> ProductAnswer:
+    def draft(self, request: str, *, asked_by: str = "", conversation: str = "", reply: str = "",
+              replacing: str = "") -> ProductAnswer:
         """Drafting is READ-ONLY: it produces a proposal and the conflicts it found, and writes
-        nothing. Anyone may ask for one — the gate is on recording it, not on thinking about it."""
+        nothing. Anyone may ask for one — the gate is on recording it, not on thinking about it.
+
+        Written FROM the conversation (#661): `conversation` as the role read it, its `reply`
+        that proposed the draft, and the draft it replaces (`replacing`) — see
+        `engine.offer_draft`."""
         ctx = self.context()
         if not ctx.available:
             return ProductAnswer(ok=False, error=ctx.reason)
@@ -2436,8 +2441,12 @@ class ProductModule:
         # shown — a request dropped years ago is a `duplicates` conflict the person reads before
         # the yes. Handed only to a role whose `draft` takes it, like every keyword grown here.
         section = self.already_asked(request) if _takes(role.draft, "asked") else ""
+        drafted_from = {name: value for name, value in (("conversation", conversation),
+                                                         ("reply", reply),
+                                                         ("replacing", replacing))
+                        if value and _takes(role.draft, name)}
         drafted = role.draft(sandbox=sandbox, workspace=ws, request=request, asked_by=asked_by,
-                             **({"asked": section} if section else {}))
+                             **({"asked": section} if section else {}), **drafted_from)
         # A REQUIREMENT BELONGS TO THE WHOLE PRODUCT: each path in it from its repository's root,
         # naming the repository where the product has several (#672)
         if getattr(drafted, "draft", None) is None:
@@ -2998,7 +3007,7 @@ class ProductModule:
 
     def compose_card(self, *, request: str, conversation: str = "", reply: str = "",
                      intake: str = "", title: str = "", answered=None, kind: str = "ticket",
-                     language: str | None = None):
+                     language: str | None = None, replacing: str = ""):
         """The card a person asked for, drafted from the conversation, checked and judged — a
         `cards.Composed` — before anything is staged for their yes (#383).
 
@@ -3032,7 +3041,7 @@ class ProductModule:
             template=cards.load_template(ctx.docs_path, kind, lang),
             conversation=conversation, request=request, reply=reply, intake=intake, title=title,
             project_name=getattr(self.project, "name", "") or "", answered=answered, kind=kind,
-            language=lang)
+            language=lang, replacing=replacing)
 
     def _held_for_its_requirement(self, text: str, ctx) -> WriteResult | None:
         """The requested card held, when it names an accepted requirement — or None to file it.
