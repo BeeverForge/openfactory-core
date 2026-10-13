@@ -27,8 +27,9 @@ MUTATIONS = [
 
     ("the concepts stay with this job — never published",
      "openfactory/orchestrator/machine.py",
-     "        if home is None or not publish_bundle(bundle, home[0], subpath=home[1],\n"
-     "                                              source_commit=commit):",
+     # re-pinned 2026-10-12: the publish names the product whose semaphore it takes (#673)
+     "        if home is None or not publish_bundle(bundle, home[0], project=self.project,\n"
+     "                                              subpath=home[1], source_commit=commit):",
      "        if home is None or not True:"),
 
     ("the budget goes to the ranking, not to the dark modules",
