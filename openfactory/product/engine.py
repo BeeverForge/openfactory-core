@@ -1618,6 +1618,16 @@ def staging(ex: Exchange, answer) -> Reply | str | None:
     return None
 
 
+def _not_yet_asked(questions: list[str], reply: str) -> list[str]:
+    """The questions `reply` does not already carry — each read off the drafter's field, never a
+    scan of the prose for a question mark (review of #670): "Posso seguir?" above a hold showed
+    neither of the two questions it waited on, and the person's "sim" settled nothing. Case,
+    spacing and trailing punctuation aside; a question the reply did not ask is always listed."""
+    said = " ".join(str(reply or "").casefold().split())
+    return [q for q in questions
+            if " ".join(q.casefold().split()).rstrip(" ?.!…:;") not in said]
+
+
 def the_draft_it_replaces(entry: dict | None) -> str:
     """The draft `entry` holds, whole, as a drafter reads what it is replacing — "" when it holds
     none: an act, a queue, an order (#661).
@@ -1710,15 +1720,15 @@ def offer_draft(project, *, request: str, user: str, thread: str, module,
     # NOTHING IS PROPOSED WHILE ITS TEXT WAITS ON AN ANSWER (#670). Read off the drafter's field,
     # never off the role's prose: a draft that names what it cannot write without
     # (`RequirementDraft.ask_first`) stages nothing — what was on the table stays there — and the
-    # person is asked, the questions listed unless the role's reply has just asked. Journey 0 had
-    # a proposal under "I need two answers before I close the text" that chose both for them.
+    # person is asked. Journey 0 had a proposal under "I need two answers before I close the
+    # text" that chose both for them.
     first = [str(q).strip() for q in (getattr(draft, "ask_first", None) or []) if str(q).strip()]
     if first:
         from openfactory.product.voice import asked_first
 
         log.info("OPENFACTORY_PRODUCT_DRAFT_ASKS_FIRST project=%s questions=%d",
                  getattr(project, "name", "?"), len(first))
-        return preamble + asked_first(questions=first, listed="?" not in preamble, language=lang)
+        return preamble + asked_first(questions=_not_yet_asked(first, preamble), language=lang)
     replaced = remember(thread, {"answer": answer, "asked_by": asked_by or user, "date": date,
                                  "source": source, "kind": "draft", "channel": channel,
                                  "seq": seen,

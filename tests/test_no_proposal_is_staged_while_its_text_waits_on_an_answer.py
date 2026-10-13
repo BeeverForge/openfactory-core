@@ -19,8 +19,9 @@ THE RULE THIS FILE HOLDS, swept over every drafter a turn reaches — the requir
 card, the defect:
   1. a drafter that says its text waits on an answer stages nothing, and the person is asked;
      what was already on the table for them stays there;
-  2. the requirement's questions are listed under the role's reply, unless that reply has just
-     asked them;
+  2. every question the draft waits on reaches the person once: listed under the role's reply
+     unless the reply already carries it — read per question off the field, never by a scan of
+     the prose for a question mark (review of #721);
   3. a requirement staged with questions still open says, under it, that they can be answered
      after the text;
   4. the drafter is told what `ask_first` is for, and its answer is read.
@@ -109,8 +110,7 @@ def test_TODAYS_RUN_the_requirement_is_not_proposed_under_the_questions_it_needs
                          module=_Asking({"is_request": True})))
 
     assert _waiting() is None
-    assert said == f"{ASKING}\n\n" + asked_first(questions=QUESTIONS, listed=False,
-                                                  language="pt-BR"), said
+    assert said == f"{ASKING}\n\n" + asked_first(questions=[], language="pt-BR"), said
 
 
 def test_what_was_on_the_table_stays_when_its_redraft_waits_on_an_answer(conversation):
@@ -130,8 +130,41 @@ def test_the_questions_are_listed_when_the_reply_did_not_ask_them(conversation):
     said = str(chat_turn(_project(), text=ASKED, user=ADMIN, thread=KEY,
                          module=_Asking({"is_request": True}, reply="Certo, entendi o pedido.")))
 
-    assert said.endswith(asked_first(questions=QUESTIONS, listed=True, language="pt-BR")), said
+    assert said.endswith(asked_first(questions=QUESTIONS, language="pt-BR")), said
     assert f"1. {QUESTIONS[0]}" in said and f"2. {QUESTIONS[1]}" in said
+
+
+#: What the role may write above a draft that waits on an answer: asking nothing, asking something
+#: else, asking one of the drafter's questions — in its own case, spacing and punctuation — or all.
+REPLIES = {
+    "asks nothing": "Certo, entendi o pedido.",
+    "asks something else": "Entendi o pedido. Posso seguir?",
+    "quotes another question": ('Entendi. (O requisito 2 pergunta "a moeda e sempre o real?" — vou '
+                                "conferir.)"),
+    "asks one of them": "Preciso saber: " + QUESTIONS[0],
+    "asks one, in its own case and spacing": ("preciso saber:  "
+                                              + QUESTIONS[1].upper().rstrip("?") + "."),
+    "asks all of them": ASKING,
+}
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+@pytest.mark.parametrize("reply", sorted(REPLIES))
+def test_REVIEW_OF_721_every_question_the_draft_waits_on_reaches_the_person_once(reply,
+                                                                               conversation):
+    """Read off the FIELD, per question: a reply that asked something else, or one of the two, left
+    the person with 0 or 1 of the questions the hold waits on, and the hold looped. Each question
+    the drafter cannot write without is shown — once: listed unless the reply already carries it."""
+    said = str(chat_turn(_project(), text=ASKED, user=ADMIN, thread=KEY,
+                         module=_Asking({"is_request": True}, reply=REPLIES[reply])))
+
+    assert _waiting() is None
+    for question in QUESTIONS:
+        shown = _flat(said).count(_flat(question).rstrip("?"))
+        assert shown == 1, (reply, question, shown, said)
 
 
 # ── 3. a draft staged with questions open ──────────────────────────────────────────────────────

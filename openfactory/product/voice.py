@@ -3174,8 +3174,8 @@ def one_act_at_a_time(*, language: str | None = None) -> str:
 
 #: A REQUIREMENT IS NOT PROPOSED WHILE ITS TEXT WAITS ON AN ANSWER (#670). The drafter names what
 #: must be answered before the text can be written (`RequirementDraft.ask_first`): nothing is
-#: staged, and the person reads that the proposal comes after their answer — with the questions,
-#: unless the role's reply above them has just asked.
+#: staged, and the person reads that the proposal comes after their answer — with every question
+#: the role's reply above them has not already asked.
 _ASKED_FIRST = {
     "pt-BR": ("Ainda não escrevi a proposta: ela depende da sua resposta. Quando você responder, "
               "eu escrevo o texto e mostro para você confirmar."),
@@ -3192,10 +3192,11 @@ _STILL_OPEN = {
 }
 
 
-def asked_first(*, questions: list[str], listed: bool, language: str | None = None) -> str:
-    """Why no proposal follows the role's reply yet: what must be answered first (#670)."""
+def asked_first(*, questions: list[str], language: str | None = None) -> str:
+    """Why no proposal follows the role's reply yet, and what must be answered first that the
+    reply has not asked — `questions`, none when it asked them all (#670)."""
     said = _pick(_ASKED_FIRST, language)
-    if not listed:
+    if not questions:
         return said
     items = "\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1))
     return f"{_pick(_ASKED_FIRST_LISTED, language)}\n{items}\n\n{said}"
