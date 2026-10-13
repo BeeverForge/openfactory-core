@@ -297,14 +297,21 @@ def test_another_admin_s_yes_is_refused_from_a_process_that_never_staged_the_dra
 def test_the_admins_are_not_told_to_confirm_what_their_yes_cannot(table, ledger):
     """Under a client's proposal the role used to name the admins — "the record needs your
     confirmation". With the first yes bound to the requester that sentence would send them to a
-    refusal, so it is said only where the product lets them accept on the requester's behalf."""
+    refusal, so it is said only where the product lets them accept on the requester's behalf.
+
+    AND WHERE IT DOES NOT, NOTHING IS STAGED AT ALL (#667): no yes could count, so the requester
+    hears at once who can act (`unauthorized_message`, which names them since #705) — never a
+    question for the admins."""
+    from openfactory.product.module import unauthorized_message
+
     fact = "anota que o fechamento roda sempre no quinto dia útil"
 
     bound = _Conversation(_project(), _Room(_project())).say(fact, user=CAIO)
     on_behalf = _Conversation(_project(accept_on_behalf=True),
                               _Room(_project(accept_on_behalf=True))).say(fact, user=CAIO)
 
-    assert ANA not in bound and "precisa da sua confirmação" not in bound
+    assert "precisa da sua confirmação" not in bound, bound
+    assert bound.endswith(unauthorized_message(_project())), bound
     assert ANA in on_behalf and "precisa da sua confirmação" in on_behalf
 
 
