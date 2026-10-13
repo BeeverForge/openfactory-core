@@ -65,6 +65,11 @@ _EXECUTE_TIMEOUT = AGENT_TIMEOUT
 _CHAT_TIMEOUT = int(os.environ.get("OPENFACTORY_CHAT_TIMEOUT", "300"))
 _CHAT_MAX_TURNS = int(os.environ.get("OPENFACTORY_CHAT_MAX_TURNS", "12"))
 
+#: The MCP servers a role is started with: none, and from nowhere else (`--strict-mcp-config`). The
+#: account running the CLI may reach connectors and plugin servers of its own, and none of them is a
+#: role's tool.
+NO_MCP_SERVERS = ("--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}')
+
 
 #: The pool of failover tokens, a JSON array of `{"id", "token", "type"?}`.
 POOL = "OPENFACTORY_AGENT_TOKENS"
@@ -274,7 +279,7 @@ def recognises_model(model: str, *, harness: str = "claude") -> tuple[str, str]:
             # — measured on the pilot's worker, where the probe exited 1 before reading the model
             # name while every job's own invocation was fine. A probe that behaves differently
             # from the thing it is probing answers a different question.
-            [harness, "--model", model, "--permission-mode", "acceptEdits",
+            [harness, "--model", model, "--permission-mode", "acceptEdits", *NO_MCP_SERVERS,
              "--output-format", "stream-json", "--verbose", "-p", "ok"],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, errors="replace",
@@ -739,6 +744,12 @@ class ClaudeCodeAdapter(CodingAgentAdapter):
             *head,
             "--output-format", "stream-json", "--verbose",
             "--permission-mode", "acceptEdits",
+            # NO MCP SERVER IS A ROLE'S BUT THE ONES IT IS GIVEN, AND IT IS GIVEN NONE: `--tools`
+            # bounds the CLI's built-in tools only, and every MCP server the account running the
+            # CLI reaches (its hosted connectors, its plugins' servers, its own configuration) was
+            # loaded into every role beside them. An empty configuration, and nothing read from
+            # anywhere else — measured: the run's `init` reports the role's tools and no server.
+            *(shlex.quote(a) for a in NO_MCP_SERVERS),
             "--max-turns", str(_CHAT_MAX_TURNS if phase == "chat" else self.max_turns),
         ]
         if resume_session:  # C2: continue the paused session instead of a cold start
