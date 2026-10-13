@@ -3751,8 +3751,9 @@ class ProductModule:
             return self._handed_card_judge
         return cards.build_judge(self.project)
 
-    def _issue_body(self, draft, requirement, tracker) -> str:
+    def _issue_body(self, draft, requirement, tracker, *, belongs_to: str = "") -> str:
         return issue_body(draft, requirement_path=self._requirement_path(requirement),
+                          belongs_to=belongs_to,
                           docs_repo=self.context().link.docs_repo,
                           docs_url=self._docs_url(),
                           commit=self.context().docs_commit,
@@ -3790,7 +3791,10 @@ class ProductModule:
         # paths as its view reads them, `src/<name>/…`, and the repository reads them from its root
         draft = _in_repository_terms(self, draft, where)
         title = draft.title.strip()
-        body = self._issue_body(draft, requirement, tracker)
+        # A FRONT FILED OUTSIDE ITS REPOSITORY SAYS WHERE IT BELONGS, ON THE CARD (#665), so the
+        # queue, the pickup and the pre-flight never run it in this project's repository
+        body = self._issue_body(draft, requirement, tracker,
+                                belongs_to="" if where else self._home_of(draft))
 
         def _write() -> WriteResult:
             # THE RE-READ AND THE WRITE, UNDER THE PRODUCT'S SEMAPHORE (#563 slice 18d, ADR-0051
@@ -3951,7 +3955,7 @@ class ProductModule:
         default = self._source_repo()
         if not target or (default and repo_match(target, default)):
             return "", ""
-        home = next((s for s in self._sources() if s and repo_match(target, s)), "")
+        home = self._home_of(draft)
         if not home:
             log.warning("OPENFACTORY_PRODUCT_TARGET_OUTSIDE_SOURCES project=%s target=%s — not a "
                         "repository of this product; the card is filed in %s",
@@ -3962,6 +3966,17 @@ class ProductModule:
             return "", breakdown_said("one_place", default=default, home=home,
                                       language=getattr(self.project, "language", None))
         return home, ""
+
+    def _home_of(self, draft) -> str:
+        """The repository of the product's `sources:` that a front's `target_repo` names, when it
+        is not this project's own — `""` otherwise (#265 §6.2, #665)."""
+        from openfactory.product.config import repo_match
+
+        target = str(getattr(draft, "target_repo", "") or "").strip().strip("/")
+        default = self._source_repo()
+        if not target or (default and repo_match(target, default)):
+            return ""
+        return next((s for s in self._sources() if s and repo_match(target, s)), "")
 
     def _titled_in(self, repo: str, title: str) -> str | None:
         """An OPEN card titled `title` in `repo`, from the board this pass already read — the

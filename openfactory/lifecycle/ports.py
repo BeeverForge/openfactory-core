@@ -35,6 +35,8 @@ class Seen:
     #: the column the card sits in AS ITS BOARD CALLS IT, `""` when no board places it — what a
     #: refusal names, so the person looks for `A Fazer` on their board rather than `TO-DO` (#502)
     column: str = ""
+    #: the repository the card's change belongs to, when it was filed outside it (#665)
+    belongs_to: str = ""
 
 
 #: How a tracker says a card was closed as NOT delivered, in its own word (`Ticket.state_reason`).
@@ -142,12 +144,13 @@ class Ports:
 
         title = str(getattr(ticket, "title", "") or "")
         opened_by = filed_by_the_product_role(getattr(ticket, "raw", "") or "")
+        belongs_to = str(getattr(ticket, "belongs_to", "") or "")
         if (getattr(ticket, "state", "") or "open") != "open":
             return Seen(state=self._closed_as(card, ticket), title=title, opened_by=opened_by,
                         open=False)
         board = self.board
         if board is None:
-            return Seen(state=None, title=title, opened_by=opened_by)
+            return Seen(state=None, title=title, opened_by=opened_by, belongs_to=belongs_to)
         where = self._where()
         if where is None:
             return Seen(title=title, cannot_tell=(
@@ -155,7 +158,7 @@ class Ports:
                 f"{ref_label(card)} is. Nothing was changed — try again."))
         column = where.get(canonical_ref(card)) or where.get(str(card))
         if not column:
-            return Seen(state=None, title=title, opened_by=opened_by)
+            return Seen(state=None, title=title, opened_by=opened_by, belongs_to=belongs_to)
         state = BY_COLUMN.get(stage_key(board, column))
         if state is None:
             # REFUSED, NEVER READ AS THE BACKLOG (#521). An Azure board on a stock process files
@@ -169,7 +172,8 @@ class Ports:
             return Seen(title=title, cannot_tell=card_unmapped(
                 ref=card, column=column, option=stage_option(board),
                 language=getattr(self.project, "language", None)))
-        return Seen(state=state, title=title, opened_by=opened_by, column=column)
+        return Seen(state=state, title=title, opened_by=opened_by, column=column,
+                    belongs_to=belongs_to)
 
     def _closed_as(self, card: str, ticket) -> State:
         """A closed card is `delivered` when it was closed as finished work — the tracker's own

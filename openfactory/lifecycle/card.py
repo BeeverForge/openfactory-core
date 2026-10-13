@@ -178,6 +178,18 @@ def transition(project, card: str, event: CardEvent, *, by: str, why: str = "",
             return Transition(card=card, event=event, before=seen.state, refused=card_refused(
                 event.value, state=(seen.state.value if seen.state else ""), ref=card,
                 language=language, column=seen.column))
+        if event is CardEvent.PROMOTED and not observed:
+            # A CARD OF ANOTHER REPOSITORY IS NOT QUEUED HERE (#665): its job would run in this
+            # project's repository, where the code it changes is not
+            from openfactory.product.voice import card_belongs_elsewhere
+            from openfactory.runtime.card_repo import runs_elsewhere
+
+            home = runs_elsewhere(project, getattr(seen, "belongs_to", ""))
+            if home:
+                return Transition(card=card, event=event, before=seen.state,
+                                  refused=card_belongs_elsewhere(
+                                      "queue", ref=card, home=home, here=_here(project),
+                                      language=language))
         if act is not None and not acted:
             answer = act()
             if answer is not None:
@@ -217,6 +229,13 @@ def transition(project, card: str, event: CardEvent, *, by: str, why: str = "",
                           before=seen.state, after=lands, effects=tuple(done),
                           recorded=recorded, facts=known)
     return Transition(card=card, event=event, refused=card_raced(ref=card, language=language))
+
+
+def _here(project) -> str:
+    """The repository this project's jobs run in, as a sentence names it."""
+    forge, tracker = getattr(project, "forge", None), getattr(project, "tracker", None)
+    return (getattr(forge, "repo", "") or getattr(tracker, "repo", "")
+            or getattr(project, "name", "") or "")
 
 
 def _state(value: str) -> State | None:
