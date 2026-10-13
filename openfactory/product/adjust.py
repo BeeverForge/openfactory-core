@@ -171,6 +171,10 @@ def _gate(project, card: str, *, last: bool) -> Gate:
         return from_a_thread(_run)
     except Exception as exc:  # noqa: BLE001 — a person's turn must never see a traceback
         if _missing(exc):
+            # SAID, WITH WHAT WAS MATCHED (#668): this reading turns an engine error into "no job
+            # ever ran", and a person is then told nothing waits on them
+            log.info("OPENFACTORY_ADJUST_GATE_NO_JOB project=%s card=#%s — the engine said %r, "
+                     "read as no job ever having run for the card", name, card, str(exc)[:200])
             return Gate(card=card, why=NOT_WAITING)
         log.error("OPENFACTORY_ADJUST_GATE_UNREADABLE project=%s card=#%s (%s) — the merge gate "
                   "could not be read, so no pass was offered or sent", name, card, str(exc)[:200])
