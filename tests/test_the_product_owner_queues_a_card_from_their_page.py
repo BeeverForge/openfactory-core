@@ -196,8 +196,8 @@ def test_a_person_who_may_not_start_work_is_told_in_the_projects_language(deploy
     view = _module(deployment).queue_view("7", actor=ASKER, column="Pendências", board=RENAMED)
 
     assert view == {"offered": False, "note": (
-        "Pôr o #7 em A Fazer começa o trabalho, e isso custa dinheiro — é um sim de quem aprova. "
-        "Peça a uma dessas pessoas, ou diga na conversa.")}, view
+        "Pôr o #7 em A Fazer começa o trabalho, e isso custa dinheiro — é um sim de quem aprova: "
+        f"peça a {ADMIN}, ou diga na conversa.")}, view
 
 
 # ── the page: asks before it spends, says the row's sentence, draws what the server offered ─────

@@ -671,9 +671,15 @@ def unauthorized_message(project) -> str:
     slightly insulting to someone who was never meant to edit one."""
     from openfactory.product.voice import cannot_write
 
-    cfg = getattr(project, "product", None)
-    return cannot_write(has_approvers=bool(cfg is not None and (cfg.admins or [])),
+    return cannot_write(approvers=approvers_of(project),
                         language=getattr(project, "language", None))
+
+
+def approvers_of(project) -> list[str]:
+    """The people whose yes approves, as the platform knows them (`product.admins`) — the names a
+    sentence that sends a person to them carries (#666)."""
+    cfg = getattr(project, "product", None)
+    return [str(a) for a in (getattr(cfg, "admins", None) or []) if str(a).strip()]
 
 
 #: A ticket ref as a person types it back: `412`, `#412`, or a Jira-style `CONT-412`. Bounded so
@@ -4474,7 +4480,8 @@ class ProductModule:
         queue = stage_column(board, self.QUEUE_KEY) if board is not None else ""
         if not may_act(self.project, actor, via=self._via):
             return {"offered": False,
-                    "note": card_queue_not_yours(ref=number, column=queue, language=lang)}
+                    "note": card_queue_not_yours(ref=number, column=queue, language=lang,
+                                                 approvers=approvers_of(self.project))}
         return {"offered": True,
                 "words": card_queue_controls(ref=number, column=queue, language=lang)}
 
@@ -4881,8 +4888,8 @@ class ProductModule:
                 or (actor and not is_guest(actor) and self._asked_by(number) == actor)):
             # ITS OWN SENTENCE, NOT `unauthorized_message`: that one is about writing a REQUIREMENT
             # down, and this person asked to drop a card — the sentence names who can.
-            return WriteResult(ok=False, detail=card_withdrawn_result(ref=number, how="not_yours",
-                                                                      language=lang))
+            return WriteResult(ok=False, detail=card_withdrawn_result(
+                ref=number, how="not_yours", language=lang, approvers=approvers_of(self.project)))
 
         # THE CONVERSATION IS TOLD BY THE CARD'S DOOR (ADR-0055), once per transition, for every
         # way a card leaves the table — not only this one, which was the only path that told it
@@ -5187,7 +5194,8 @@ class ProductModule:
         number = canonical_ref(number)
         lang = language or getattr(self.project, "language", None)
         if not self.may_send_back(number, actor):
-            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang))
+            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang,
+                                                    approvers=approvers_of(self.project)))
         # THE MERGE GATE, OR THE LAST ONE (#448 slice 4): a change already in, waiting before the
         # product's users, is sent back too — as a new change (`Gate.merged`)
         gate = adjust.pass_gate_of(self.project, number)
@@ -5258,7 +5266,8 @@ class ProductModule:
                 language=lang))
         if not self.may_send_back(number, actor, vouched=vouched):
             return WriteResult(ok=False, ref=f"#{number}",
-                               detail=adjust_said("not_yours", ref=number, language=lang))
+                               detail=adjust_said("not_yours", ref=number, language=lang,
+                                                  approvers=approvers_of(self.project)))
         gate = adjust.pass_gate_of(self.project, number)
         if not gate.open:
             return WriteResult(ok=False, ref=f"#{number}", detail=adjust_said(
@@ -5356,7 +5365,8 @@ class ProductModule:
         lang = language or getattr(self.project, "language", None)
         if not self.may_send_back(number, actor):
             return accept.Prepared(said=accept_change_said("not_yours", ref=number,
-                                                           language=lang))
+                                                           language=lang,
+                                                           approvers=approvers_of(self.project)))
         gate = adjust.gate_of(self.project, number)
         if gate.why in accept.NOTHING_TO_ACCEPT:
             return accept.Prepared(said=accept_change_said(gate.why, ref=number, language=lang))
@@ -5410,7 +5420,8 @@ class ProductModule:
 
         def refused(why: str) -> WriteResult:
             return WriteResult(ok=False, ref=f"#{number}",
-                               detail=accept_change_said(why, ref=number, language=lang))
+                               detail=accept_change_said(why, ref=number, language=lang,
+                                                         approvers=approvers_of(self.project)))
 
         if not self.may_send_back(number, actor, vouched=vouched):
             return refused("not_yours")
