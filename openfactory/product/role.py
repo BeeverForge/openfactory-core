@@ -410,6 +410,10 @@ class RequirementDraft(BaseModel):
     #: what the role could not determine and a human must answer. An empty list after a vague
     #: request is a warning sign, not a success.
     questions: list[str] = Field(default_factory=list)
+    #: WHAT MUST BE ANSWERED BEFORE THE TEXT CAN BE WRITTEN AT ALL (#670): a question whose answer
+    #: would change `must_be_true`. Any entry and nothing is staged — the person is asked, and the
+    #: draft is written from their answer. `questions` stays the requirement's open questions.
+    ask_first: list[str] = Field(default_factory=list)
     conflicts: list[Conflict] = Field(default_factory=list)
     supersedes: list[int] = Field(default_factory=list)
 
@@ -606,6 +610,7 @@ Return ONLY a JSON object (no prose, no code fences):
   "out_of_scope": [str],
   "affects": [str],
   "questions": [str],
+  "ask_first": [str],
   "supersedes": [int],
   "conflicts": [{"requirement": int|null,
                  "kind": "contradicts"|"duplicates"|"narrows"|"depends_on",
@@ -623,7 +628,15 @@ role warned about exactly this before it happened ("you end up with two versions
 requirement to reconcile") and was right.
 
 A revision supersedes. A genuinely new promise does not. If you are unsure which one you are
-writing, you are writing a revision."""
+writing, you are writing a revision.
+
+`ask_first` IS FOR WHAT YOU CANNOT WRITE WITHOUT. A question goes there only when its answer would
+change what `must_be_true` says — a choice between two readings the conversation has not settled
+(which currency; whether a filter applies to the screen or to the file). When it has any entry the
+person is NOT shown a proposal: they are asked, and you write the draft again from their answer. So
+never answer such a question yourself in `must_be_true` and also list it — that is the proposal
+that chose for the person while saying it needed them. Everything else you would like to know goes
+in `questions`, which stays in the requirement as an open question."""
 
 _ISSUES_SCHEMA = """\
 Return ONLY a JSON object (no prose, no code fences):
