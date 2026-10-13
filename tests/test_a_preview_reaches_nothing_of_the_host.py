@@ -189,6 +189,7 @@ def _docker(*argv: str, timeout: float = 60) -> subprocess.CompletedProcess:
 
 @pytest.mark.slow
 @pytest.mark.skipif(not _docker_and_compose(), reason="needs a Docker daemon")
+@pytest.mark.xdist_group("docker")
 def test_on_a_real_engine_a_unit_network_reaches_nothing_of_the_host():
     """A listener on every address of the host (the host's own network namespace), and two
     probes: one on a plain internal network, which must reach it — so a quiet answer from the

@@ -192,8 +192,8 @@ MUTATIONS = [
      "                language=language))"),
 
     ("the door's look at the card forgets the column it found it in", PORTS,
-     "        return Seen(state=state, title=title, opened_by=opened_by, column=column)",
-     "        return Seen(state=state, title=title, opened_by=opened_by)"),
+     "        return Seen(state=state, title=title, opened_by=opened_by, column=column,\n",
+     "        return Seen(state=state, title=title, opened_by=opened_by,\n"),
 
     ("a refusal says the platform's `TO-DO` whatever it is handed", VOICE,
      '        where = where.format(queue=column_said(column, "todo"))',

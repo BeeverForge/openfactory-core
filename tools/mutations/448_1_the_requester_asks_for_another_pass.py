@@ -117,16 +117,12 @@ MUTATIONS = [
     # words, so the anchor carries the next two lines, which are `adjust_view`'s alone
     ("the card view offers the pass to anybody who opens it", MODULE,
      "        if not self.may_send_back(number, actor, vouched=vouched):\n"
-     '            return {"offered": False}\n'
-     # re-pinned 2026-10-04: the card view asks the gate a person can send back from (#448)
-     "        gate = adjust.pass_gate_of(self.project, number)       # the last gate too (#448 "
-     "slice 4)\n"
-     "        if gate.why in (adjust.SPENT, adjust.WORKING, adjust.DEAF):\n",
+     # re-pinned 2026-10-12: a refused viewer is told why (#668), naming the approvers (#666)
+     '            return {"offered": False, "note": adjust_said("not_yours", ref=number, '
+     'language=lang,\n',
      "        if False:\n"
-     '            return {"offered": False}\n'
-     "        gate = adjust.pass_gate_of(self.project, number)       # the last gate too (#448 "
-     "slice 4)\n"
-     "        if gate.why in (adjust.SPENT, adjust.WORKING, adjust.DEAF):\n"),
+     '            return {"offered": False, "note": adjust_said("not_yours", ref=number, '
+     'language=lang,\n'),
     ("a spent budget reads as a gate a pass can be sent to", ADJUST,
      # re-pinned 2026-10-04: the last gate reads its own budget beside it (#448 slice 4)
      "    if deaf:\n        return Gate(why=DEAF, **said)\n    if left == 0:\n",
