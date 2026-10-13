@@ -59,6 +59,7 @@ MUTATIONS = [
 
     ("the panel waits for every open stream before it exits, so a SIGTERM never ends it", CLI,
      '    uvicorn.run("openfactory.api.app:app", host=host, port=port, '
-     'timeout_graceful_shutdown=5)',
-     '    uvicorn.run("openfactory.api.app:app", host=host, port=port)'),
+     'timeout_graceful_shutdown=5,\n                log_config=None)',
+     '    uvicorn.run("openfactory.api.app:app", host=host, port=port,\n'
+     '                log_config=None)'),
 ]
