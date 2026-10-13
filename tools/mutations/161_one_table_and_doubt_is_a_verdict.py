@@ -39,8 +39,9 @@ MUTATIONS = [
      ""),
 
     # ── one table, three surfaces ───────────────────────────────────────────────────────────────
+    # RE-PINNED 2026-10-12 (#667): the yes is read without the role's address
     ("the product channel goes back to its own vocabulary — `certo` asserts again", STAGING,
-     "    from openfactory.language import assent\n\n    return assent.asserts_assent(text)",
+     "    return assent.asserts_assent(without_the_roles_address(text, project))",
      "    return True if (text or '').strip().lower() in {'certo', 'sim', 'ok'} else False",
      CHANNEL),
 

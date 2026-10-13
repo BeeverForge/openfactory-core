@@ -201,8 +201,9 @@ MUTATIONS = [
 
     # ── 3. a yes confirms the staged proposal, once ──────────────────────────────────────────────
     # RE-PINNED 2026-09-24: moved to engine.py
+    # RE-PINNED 2026-10-12 (#667): a yes and a no are read without the role's address
     ("a typed yes on a staged proposal is not performed", ENGINE,
-     "    if waiting and (is_yes(text) or judged_yes):", "    if False:"),
+     "    if waiting and (is_yes(text, project=project) or judged_yes):", "    if False:"),
 
     ("the performed proposal is not consumed — a second yes writes it again", CONFIRM,
      "    performed = consume(key, entry, fingerprint=fingerprint, project=project, by=user,\n"
@@ -261,8 +262,8 @@ MUTATIONS = [
 
     # RE-PINNED 2026-09-24: moved to engine.py
     ("a typed no is sent to the judge — a model call to read a word the list already read", ENGINE,
-     "    if waiting and not is_yes(text) and not is_no(text):",
-     "    if waiting and not is_yes(text):"),
+     "    if waiting and not is_yes(text, project=project) and not is_no(text, project=project):",
+     "    if waiting and not is_yes(text, project=project):"),
 
     # RETIRED 2026-09-24 (#272): "…and the reverse: a typed no is recorded durably as a rejection
     # (pinned as found)". The row applied `approved=False` to the typed rejection to prove the pin
@@ -321,18 +322,18 @@ MUTATIONS = [
     # ── 6. an expired proposal ───────────────────────────────────────────────────────────────────
     # RE-PINNED 2026-09-24: moved to engine.py
     # RE-PINNED 2026-10-02 (#452): the notice is read from the store too; `project=` wraps the line
+    # RE-PINNED 2026-10-12 (#667)
     ("a late yes on an expired proposal is answered by the model", ENGINE,
-     "    if not waiting and (is_yes(text) or is_no(text)) and _expired_recently(thread, channel,\n"
-     "                                                                           project=project):",
+     "    if (not waiting and (is_yes(text, project=project) or is_no(text, project=project))\n"
+     "            and _expired_recently(thread, channel, project=project)):",
      "    if False:"),
 
     # RE-PINNED 2026-09-24: moved to engine.py
     # RE-PINNED 2026-10-02 (#452): as the row above
+    # RE-PINNED 2026-10-12 (#667)
     ("a late no on an expired proposal hears nothing about it", ENGINE,
-     "    if not waiting and (is_yes(text) or is_no(text)) and _expired_recently(thread, channel,\n"
-     "                                                                           project=project):",
-     "    if not waiting and is_yes(text) and _expired_recently(thread, channel,\n"
-     "                                                          project=project):"),
+     "    if (not waiting and (is_yes(text, project=project) or is_no(text, project=project))\n",
+     "    if (not waiting and is_yes(text, project=project)\n"),
 
     ("the expiry notice is owed to every later yes, not to one", STAGING,
      "            if key and _EXPIRED_TOMBSTONES.pop(key, None) is not None:",

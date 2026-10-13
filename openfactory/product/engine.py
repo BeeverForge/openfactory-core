@@ -626,7 +626,7 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # initialised BEFORE the gate: the branches below read them unconditionally, and they are only
     # assigned when the model is consulted at all
     judged_yes = judged_no = False
-    if waiting and not is_yes(text) and not is_no(text):
+    if waiting and not is_yes(text, project=project) and not is_no(text, project=project):
         verdict = "neither"
         try:
             verdict = module.confirmed(text, proposal=_proposal_summary(waiting))
@@ -655,7 +655,7 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # The receipt goes with it. A confirmed write is always the slow path — every branch reaches a
     # checkout, the client's board or an agent — and `confirm` fires `on_it` before the
     # authorisation, so nobody approves something irreversible and then waits in silence.
-    if waiting and (is_yes(text) or judged_yes):
+    if waiting and (is_yes(text, project=project) or judged_yes):
         return Settled(confirm_staged(project, key=waiting_key, entry=waiting,
                                       fingerprint=fingerprint, module=module, user=user,
                                       lang=lang, on_it=on_it, via=via),
@@ -664,7 +664,7 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # THE REJECTION STAYS HERE, and it is not the executor's tenth branch. It performs nothing: it
     # destroys the proposal and FALLS THROUGH, so whatever the person wrote is answered as the
     # correction it usually is. `confirm` returns a sentence; this one has to keep going.
-    if waiting and (is_no(text) or judged_no):
+    if waiting and (is_no(text, project=project) or judged_no):
         # REFUSING IS AN ACT, so it is gated — but NOT by the approval rule, which would be wrong.
         # Two different people can say "não" here and they are not the same case: the person whose
         # request this is, saying "não, não é isso" to CORRECT their own wording, and a third party
@@ -739,8 +739,8 @@ def settle(project, *, text: str, user: str, thread: str, module, channel: str =
     # it work?", and the ledger read first.
     # THE NOTICE IS READ FROM THE STORE TOO (#452): the expiry may have been found before a restart,
     # or by another worker, and a late yes reaching this process is owed it all the same
-    if not waiting and (is_yes(text) or is_no(text)) and _expired_recently(thread, channel,
-                                                                           project=project):
+    if (not waiting and (is_yes(text, project=project) or is_no(text, project=project))
+            and _expired_recently(thread, channel, project=project)):
         from openfactory.product.voice import proposal_expired
 
         return Settled(proposal_expired(language=lang), waiting)
@@ -1524,7 +1524,7 @@ def resume_card(ex: Exchange, *, arrival_ts: str = "") -> Reply | str | None:
     from openfactory.product import case as _case
 
     held = cards.held_question(ex.key, project=ex.project)
-    if held is None or is_no(ex.text):
+    if held is None or is_no(ex.text, project=ex.project):
         if held is not None:
             # DECLINED ("não", "esquece"): closed as an answer closes it
             cards.close_question(ex.key, project=ex.project)
@@ -1728,6 +1728,13 @@ def _term_of(fact: str) -> str:
     return " ".join(picked) if picked else " ".join(fact.split()[:4])
 
 
+def _acts_staged_for_a_yes() -> frozenset[str]:
+    """The intent of every act the role proposes, read off `role.ACTS`: each is staged for a yes."""
+    from openfactory.product.role import GESTURE_INTENT
+
+    return frozenset(GESTURE_INTENT.values())
+
+
 def _admin_mentions(project) -> str:
     """The people whose yes unlocks the pen, NAMED AS THE PLATFORM KNOWS THEM — the ids the
     deployment's `product.admins` lists, which are people of the platform (#266 slice 6).
@@ -1793,6 +1800,17 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         if preamble:
             return preamble + sentence
         return f"{name}: {sentence}" if name else sentence
+
+    # NO QUESTION NOBODY CAN ANSWER, FOR EVERY ACT THE ROLE PROPOSES (#634, #638, #667). The
+    # requester's own yes counts only from somebody who may act, and an admin's counts for them
+    # only where the product lets admins accept on their behalf (`_admin_mentions`). Anywhere else
+    # a staged question waits for a yes nobody can give, and the person who asked reads it as if
+    # theirs would do: refused at once, naming who can. ONE RULE, READ OFF THE ACTS' TABLE
+    # (`role.ACTS`): it was written into the breakdown and the refine alone, and the note a person
+    # off the list asked for was staged in their name for a yes that never came (journey 0, C-13).
+    if (intent in _acts_staged_for_a_yes() and not may_act(project, user)
+            and not _admin_mentions(project)):
+        return said(unauthorized_message(project))
 
     if intent == "announce":
         return module.introduce()
@@ -1872,12 +1890,7 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         # free-standing card beside the breakdown already running (#563). The role proposes it
         # now (`[[QUEBRAR: REQ-N]]`), what is checked before the question is checked here, and the
         # yes starts it on the worker (`confirm._confirm_breakdown`, #563 slice 18b).
-        # NO QUESTION NOBODY CAN ANSWER (review of #634). The requester's own yes counts only from
-        # somebody who may act, and an admin's counts for them only where the product lets admins
-        # accept on their behalf (`_admin_mentions`). Anywhere else a staged question waits for a
-        # yes nobody can give: refused at once, naming who can, as before it was staged.
-        if not may_act(project, user) and not _admin_mentions(project):
-            return said(unauthorized_message(project))
+        # NO QUESTION NOBODY CAN ANSWER (review of #634): refused above, for every act.
         req, _corpus, instead = _named_requirement(project, module, number,
                                                    "" if preamble else name, lang)
         if instead:
@@ -1918,8 +1931,14 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         body = remember(thread, {"kind": "accept", "number": number, "channel": channel,
                                  "asked_by": user or ""},
                         lang=lang, project=project, person=user)
-        return offer(project, thread, body + asking + accept_confirmation(
-            number=number, title=req.title or req.slug, language=lang))
+        ask = accept_confirmation(number=number, title=req.title or req.slug, language=lang)
+        # NAMED UNDER IT, as under every other act (#667): the one act that said nothing of whose
+        # yes it waits for, where an admin's counts for the person who asked
+        if not may_act(project, user):
+            admins = _admin_mentions(project)
+            if admins:
+                ask += admins_must_confirm(admins, "agreement", language=lang)
+        return offer(project, thread, body + asking + ask)
 
     if intent == "drop":
         number = int(captures.get("number") or 0)
@@ -2074,9 +2093,6 @@ def _run_intent(project, intent: str, captures: dict, *, module, lang: str | Non
         # STAGED FOR A YES LIKE EVERY OTHER WRITE (#565 slice c), and `breakdown` beside it: it
         # edited a client's card on the match alone. The yes writes the criteria
         # (`confirm._confirm_refine`), which it still writes only where there are none.
-        # No question nobody can answer — see `breakdown` above.
-        if not may_act(project, user) and not _admin_mentions(project):
-            return said(unauthorized_message(project))
         from openfactory.product.voice import refine_confirmation
 
         body = remember(thread, {"kind": "refine", "number": number, "channel": channel,
