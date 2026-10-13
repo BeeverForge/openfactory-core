@@ -475,6 +475,7 @@ def parse_ticket_body(*, id: str, title: str, body: str, repo: str) -> Ticket:
         relevant_docs=list(fm.get("relevant_docs", []) or []),
         repo=repo,
         base_branch=fm.get("base_branch"),
+        belongs_to=str(fm.get("belongs_to") or "").strip() or None,
         requester=_requester(fm, md),
         requester_forge=_requester_forge(fm, md),
         raw=body,

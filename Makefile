@@ -58,6 +58,40 @@ install: ## install the package + dev tools (+ the add-on packages under addons/
 test: ## run the test suite
 	python -m pytest -q
 
+# ── the suite as CI runs it: parallel jobs, and the proof that every test ran once ──────────────
+# CI splits the suite into jobs that run side by side (.github/workflows/ci.yml): the tests that
+# start their own durable engine or need Docker (`owns_its_engine`, `slow`), then the few that
+# assert their own CPU time (`alone`) in a process of their own, and the rest in
+# TEST_SHARDS slices. Every job writes the node ids it started to TEST_IDS, the lint job writes
+# the whole collection, and `test-ran-once` fails on a test that is missing, doubled or unknown —
+# so a test added tomorrow cannot fall between two jobs. The same targets run here, one at a time
+# or a slice at a time: `make test-unit TEST_SHARD=2 TEST_SHARDS=3`.
+INTEGRATION_TESTS := owns_its_engine or slow
+ALONE_TESTS := alone
+# OUTSIDE THE TREE: a test that scans the tree would read the ids while they are written.
+TEST_IDS_DIR ?= $(or $(RUNNER_TEMP),$(TMPDIR),/tmp)/openfactory-test-ids
+.PHONY: test-collect test-unit test-integration test-alone test-ran-once
+# The listing goes to a file, not the terminal: printed, 17,000 lines took five of the job's six
+# minutes on GitHub's runner while the collection itself took forty seconds.
+test-collect: ## write the node id of every test the suite collects to TEST_IDS
+	@mkdir -p $(TEST_IDS_DIR)
+	python -m pytest -q --collect-only -p no:randomly $(if $(TEST_IDS),--record-ids=$(TEST_IDS)) > $(TEST_IDS_DIR)/collect.log 2>&1 || { tail -50 $(TEST_IDS_DIR)/collect.log; exit 1; }
+	@tail -1 $(TEST_IDS_DIR)/collect.log
+
+test-unit: ## the tests that start no engine and need no Docker, in parallel (TEST_SHARD/TEST_SHARDS: one slice)
+	python -m pytest -q -n auto -m "not ($(INTEGRATION_TESTS) or $(ALONE_TESTS))" --durations=15 $(if $(TEST_SHARDS),--shard=$(TEST_SHARD)/$(TEST_SHARDS)) $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
+
+# `--dist loadgroup`: the tests on the real Docker daemon share compose projects, so they carry
+# `xdist_group("docker")` and run on one worker, one after another; the rest spread as before.
+test-integration: ## the tests that start their own durable engine, and the slow ones that need Docker
+	python -m pytest -q -n auto --dist loadgroup -m "$(INTEGRATION_TESTS)" --durations=15 $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
+
+test-alone: ## the tests that assert their own CPU time, in one process with no xdist neighbours
+	python -m pytest -q -p no:xdist -m "$(ALONE_TESTS) and not ($(INTEGRATION_TESTS))" $(if $(TEST_IDS),--record-ids=$(TEST_IDS))
+
+test-ran-once: ## fail unless every collected test was started exactly once across CI's jobs
+	python scripts/every_test_ran_once.py $(TEST_IDS_DIR)/collected.txt $(wildcard $(TEST_IDS_DIR)/ran-*.txt)
+
 # ── shellcheck, and why it is not a CI-only step ─────────────────────────────
 # `install.sh` is the first thing a stranger runs and the one artefact in this repository that no
 # Python test can execute. It belongs in `make lint` rather than in a job of its own, because

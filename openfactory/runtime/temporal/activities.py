@@ -840,6 +840,22 @@ def _pf_emit(sink, project: str, issue: str, kind: str, message: str, **data) ->
         activity.logger.warning("journal entry lost for %s#%s (%s)", project, issue, kind)
 
 
+def _belongs_elsewhere_said(project, tracker, issue: str) -> str:
+    """The pre-flight's sentence when `issue`'s change belongs to another repository (#665), else
+    `""` — and `""` when the card cannot be read, which the sizing below finds out and says."""
+    from openfactory.lifecycle.card import _here
+    from openfactory.product.voice import card_belongs_elsewhere
+    from openfactory.runtime.card_repo import runs_elsewhere
+
+    try:
+        home = runs_elsewhere(project, getattr(tracker.get_ticket(issue), "belongs_to", None))
+    except Exception as exc:  # noqa: BLE001 — see the docstring
+        activity.logger.info("pre-flight could not read #%s for its repository (%s)", issue, exc)
+        return ""
+    return card_belongs_elsewhere("preflight", ref=issue, home=home, here=_here(project),
+                                  language=getattr(project, "language", None)) if home else ""
+
+
 def _do_preflight(inp: PreflightInput) -> PreflightVerdict:
     """Judge the ticket BEFORE launching any Fargate. Every failure path returns fit+degraded
     — the gate can only ever help; it must never become a new way to block the pipeline."""
@@ -858,6 +874,11 @@ def _do_preflight(inp: PreflightInput) -> PreflightVerdict:
 
     project = ProjectRegistry().get(inp.project)
     tracker = _tracker_for(project)
+    # A CARD OF ANOTHER REPOSITORY OF THE PRODUCT IS NOT SIZED HERE (#665): a job started on it
+    # past the queue and the pickup is parked with the sentence naming where it belongs
+    elsewhere = _belongs_elsewhere_said(project, tracker, inp.issue)
+    if elsewhere:
+        return PreflightVerdict(verdict="unclear", questions=[elsewhere], reasons=elsewhere)
     # THE TICKET IS THE CLIENT'S (#160). Everything this gate writes onto it is unprompted — it
     # comments before anything runs, to say why — and it went out in English on every project.
     _lang = str(getattr(project, "language", "") or "")
@@ -3413,6 +3434,10 @@ async def scan_todo(inp: ScanInput) -> list[str]:
     admitted: list[str] = []
     held_by_repo: dict[str, str | None] = {}
     for ref in open_refs:
+        # A CARD OF ANOTHER REPOSITORY OF THE PRODUCT IS NEVER STARTED HERE (#665): it reached
+        # the queue past the door (a drag on the vendor's own board), and is taken out of it
+        if await asyncio.to_thread(_taken_out_for_its_repository, project, tracker, board, ref):
+            continue
         card_repo, _bare = _ref_repo(project, ref)
         # _is_default_repo, not string equality: an ADO card arrives QUALIFIED
         # (`Deskline/fx-ado`) while the registry row is bare (`fx-ado`) — equality read
@@ -3432,6 +3457,34 @@ async def scan_todo(inp: ScanInput) -> list[str]:
         clear_gate_announcement(key)
         admitted.append(ref)
     return admitted
+
+
+def _taken_out_for_its_repository(project, tracker, board, ref: str) -> bool:
+    """True when `ref`'s change belongs to another repository of the product (#665): the card is
+    refused through its door — out of the queue, back to a person, with the sentence naming where
+    it belongs — and no job starts. False when it belongs here, or when the card cannot be read:
+    an unreadable card is the job's to find out, as `_open_refs` already decides."""
+    from openfactory.lifecycle import CardEvent, transition
+    from openfactory.lifecycle.card import _here
+    from openfactory.product.voice import card_belongs_elsewhere
+    from openfactory.runtime.card_repo import runs_elsewhere
+
+    try:
+        home = runs_elsewhere(project, getattr(tracker.get_ticket(ref), "belongs_to", None))
+    except Exception as exc:  # noqa: BLE001 — see the docstring
+        activity.logger.info("the pickup could not read #%s for its repository (%s)", ref, exc)
+        return False
+    if not home:
+        return False
+    note = card_belongs_elsewhere("pickup", ref=ref, home=home, here=_here(project),
+                                  language=getattr(project, "language", None))
+    moved = transition(project, ref, CardEvent.REFUSED, by="the factory", why=note,
+                       facts={"note": note, "column": "todo", "before": "todo"},
+                       tracker=tracker, board=board)
+    activity.logger.warning("OPENFACTORY_PICKUP_BELONGS_ELSEWHERE %s#%s belongs to %s — not "
+                            "started; %s", project.name, ref, home,
+                            moved.refused or "taken out of the queue")
+    return True
 
 
 async def _open_refs(tracker, candidates: list[str]) -> list[str]:

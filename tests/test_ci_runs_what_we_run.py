@@ -171,13 +171,29 @@ def test_collection_survives_a_machine_without_THE_OPTIONAL_TOY_PROJECTS():
 @pytest.mark.skipif(not CI.exists(), reason="no CI workflow in this checkout")
 def test_ci_still_runs_the_command_this_guard_protects():
     """If CI's command changes, this guard is protecting the wrong thing — and would keep
-    passing while saying nothing, which is the failure shape it was written against."""
-    workflow = CI.read_text()
+    passing while saying nothing, which is the failure shape it was written against.
 
-    assert re.search(r"^\s*-\s*run:\s*.*\bpytest\b", workflow, re.M), (
-        "ci.yml no longer runs pytest — update this guard to whatever it runs now, or it is "
-        "asserting a property nobody depends on"
+    THROUGH THE MAKEFILE, since CI runs the suite as parallel jobs (`make test-unit`,
+    `make test-integration`): the line read is the one make itself expands, as the linter's
+    below is, so a target that stopped running pytest is seen."""
+    assert any(re.search(r"\bpytest\b", line) for line in _lines_ci_runs()), (
+        "ci.yml no longer runs pytest, directly or through a Makefile target — update this guard "
+        "to whatever it runs now, or it is asserting a property nobody depends on"
     )
+
+
+def _lines_ci_runs() -> list[str]:
+    """Every command CI runs: each `run:` line, and each Makefile target one names as make
+    expands it (`make -n`), with the variables CI's jobs pass left empty."""
+    lines = []
+    for run in re.findall(r"^\s*(?:-\s*)?run:\s*(.+?)\s*$", CI.read_text(), re.M):
+        lines.append(run)
+        m = re.fullmatch(r"make\s+(\S+)", run)
+        if m:
+            shown = subprocess.run(["make", "-n", m.group(1)], cwd=ROOT, capture_output=True,
+                                   text=True, timeout=60)
+            lines += shown.stdout.splitlines()
+    return lines
 
 
 # ── the linter, too ─────────────────────────────────────────────────────────────────────────────
