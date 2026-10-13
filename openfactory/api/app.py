@@ -1805,7 +1805,7 @@ async def inbox() -> list[dict]:
     return out
 
 
-@app.get("/api/budget", **_reads(read_models.BudgetRead))
+@app.get("/api/budget")
 def api_budget() -> dict:
     """The API budget of the trackers this deployment reads — one row per credential, plus the
     ONE row a single sentence renders (`summary`), so the panel can SHOW when the engine is

@@ -15,6 +15,7 @@ WHAT IS PROVEN HERE:
 
 from __future__ import annotations
 
+import json
 from typing import get_args
 
 import pytest
@@ -177,11 +178,13 @@ def bench(monkeypatch, tmp_path):
     monkeypatch.setattr(attachments, "listed_in", lambda *_a, **_k: [
         {"id": "f1", "name": "brief.pdf", "type": "pdf", "size": 1024, "filed": True}])
 
-    # the trackers' budgets and the metrics store
+    # the trackers' budgets and the metrics store. TWO TRAPS FOR A MODEL THAT CHANGES A BODY: a key
+    # no model names (`used`), which a model that ignored extras would drop, and integral numbers
+    # in `int | float` fields (`remaining`, `limit`), which a `float` field would send as `4900.0`
     monkeypatch.setattr(reading, "budgets", lambda projects=None: [
         {"kind": "github", "projects": ["acme"], "state": "ok", "vendor": "github",
          "resource": "graphql", "remaining": 4900, "limit": 5000, "reset_epoch": 1760256000,
-         "floor": 200, "reset_at": "08:00"}])
+         "floor": 200, "reset_at": "08:00", "used": 100}])
     monkeypatch.setattr("openfactory.api.metrics_view.scan_all_or_raise", lambda *_a: [
         {"pk": "acme", "kind": "agent_run", "ticket": "12", "ts": "2026-10-12T08:00:00Z",
          "role": "executor", "model": "opus", "harness": "claude", "cost_usd": 0.5,
@@ -221,17 +224,39 @@ def test_the_bench_calls_every_listed_route():
     assert {route for route, _at in CALLED} == set(LISTED)
 
 
+def _as_sent(text: str) -> object:
+    """A body as its bytes say it, where `3` and `3.0` differ — `json.loads` alone makes them equal
+    in Python, and a model that turned one into the other would pass unseen."""
+    return json.loads(text, parse_float=lambda s: ("float", s))
+
+
+def _undeclared(monkeypatch, route: str, at: str, client: TestClient) -> object:
+    """What `at` answers with its route's declaration taken away — the body it sent before #678.
+    FastAPI builds a route's handler once, from its `response_field`, so the handler is rebuilt
+    without it; `monkeypatch` puts all three back when the read is done."""
+    from fastapi.routing import request_response
+
+    found = _route(route)
+    with monkeypatch.context() as m:
+        m.setattr(found, "response_model", None)
+        m.setattr(found, "response_field", None)
+        m.setattr(found, "app", request_response(found.get_route_handler()))
+        got = client.get(at)
+    assert got.status_code == 200, f"{at}, undeclared, answered {got.status_code}: {got.text[:400]}"
+    return _as_sent(got.text)
+
+
 @pytest.mark.parametrize(("route", "at"), CALLED, ids=[at for _r, at in CALLED])
-def test_each_listed_read_answers_in_its_declared_model_and_unchanged(bench, route, at):
+def test_each_listed_read_answers_in_its_declared_model_and_unchanged(bench, monkeypatch, route,
+                                                                      at):
     got = bench.get(at)
     assert got.status_code == 200, f"{at} answered {got.status_code}: {got.text[:400]}"
     body = got.json()
     assert body, f"{at} answered an empty body — the bench did not populate it"
+    _model(route).model_validate(body)
 
-    read = _model(route).model_validate(body)
-
-    assert read.model_dump(mode="json", exclude_unset=True) == body, (
-        f"{at}: the declared model does not carry the body as it is sent")
+    assert _as_sent(got.text) == _undeclared(monkeypatch, route, at, bench), (
+        f"{at}: declaring its model changed the body it sends")
 
 
 def test_a_degraded_engine_frame_is_still_its_declared_model(bench, monkeypatch):
