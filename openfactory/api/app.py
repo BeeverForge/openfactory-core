@@ -40,6 +40,7 @@ from openfactory.identity import oidc as _sso
 from openfactory.identity.base import REGISTER_PATH as _REGISTER_PATH
 from openfactory.paths import events_file, project_log_dir
 from openfactory.registry import ProjectRegistry
+from openfactory.runtime.temporal.vocabulary import EngineUnreachable
 
 log = logging.getLogger("openfactory.panel")
 
@@ -76,6 +77,25 @@ if os.environ.get("OPENFACTORY_GH_APP_KEY_CONTENT") and not os.environ.get("OPEN
 PANEL_ROLE = "panel"
 
 app = FastAPI(title=os.environ.get("OPENFACTORY_PLATFORM_NAME", "OpenFactory"))
+
+
+@app.exception_handler(EngineUnreachable)
+async def _the_engine_did_not_answer(request: Request, exc: EngineUnreachable) -> JSONResponse:
+    """An engine that did not answer is a 503 that says so, from every route (#674).
+
+    #161 bounded every read somebody waits for, and the read raises `EngineUnreachable` when the
+    engine runs out of time. The routes written before it caught only a failed `connect()`, so the
+    bounded read escaped them: in journey 0 the panel answered 103 requests with a 500 and a
+    ~200-line traceback each, from `/api/inbox` and `/api/coordinator/messages`, where the route's
+    own contract is a 503. ONE HANDLER, NOT A `try` IN EACH ROUTE, so the next route that reads the
+    engine cannot forget it — `tests/test_no_route_answers_500_when_the_engine_does_not_answer.py`
+    calls every route with an engine that does not answer.
+
+    ONE LINE IN THE LOG, NO TRACEBACK: an engine that is slow is a state of the deployment, said
+    where it happens; the stack of the route that met it says nothing more."""
+    log.warning("%s %s: durable engine unreachable: %s", request.method, request.url.path, exc)
+    return JSONResponse({"detail": f"durable engine unreachable: {str(exc)[:150]}"},
+                        status_code=503)
 
 # ── SOMEBODY ELSE'S DASHBOARD ───────────────────────────────────────────────────────────────────
 #
