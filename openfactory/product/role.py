@@ -290,6 +290,18 @@ STAGED_AFTER_YOUR_REPLY = (
     "draft it later, and do NOT ask them to confirm: the platform prepares it from this "
     "conversation right after your reply and shows it to them whole, with its own question.")
 
+#: WHERE A REQUEST STOPS AND A CARD BEGINS, for one kind of change (#669). "The date shows as
+#: 2026-11-03, we read dd/mm/aaaa — can you fix it?" was argued into a requirement: written on one
+#: yes, agreed on a second, and only then broken down into a card, so nothing reached the board for
+#: a one-line fix. Drawn in ONE phrase, which the card instruction takes and the requirement
+#: instruction leaves out, so the two sides of the line read the same words. Narrow on purpose: how
+#: something already built is SHOWN or WORDED, and only when no agreed requirement says otherwise;
+#: a change to what the product does is still argued into a requirement.
+SHOWN_OR_WORDED = (
+    "how something the product already does is SHOWN or WORDED — a date or number format, a "
+    "label, a message's wording, the order of a list — when the change is small and contradicts "
+    "no agreed requirement")
+
 #: The markers whose gesture STAGES something for a yes — a requirement draft, a defect card, a
 #: card, an order, a queue — each shown with its own question (`engine.py::gestures`, `staging`).
 #: A marker added here must carry `STAGED_AFTER_YOUR_REPLY` in its instruction; one that stages
@@ -990,7 +1002,8 @@ class ProductRole:
             "it, name the date instead of a relative word.\n\n"
             "THEN decide what the person was doing. If they ASKED FOR SOMETHING the product does "
             "not do yet — a need, a change, a complaint that implies one — end your reply with the "
-            f"marker {REQUEST_MARKER} on its own line. {STAGED_AFTER_YOUR_REPLY} If they "
+            f"marker {REQUEST_MARKER} on its own line — NOT for a change to {SHOWN_OR_WORDED}: "
+            f"that is a card they asked for, below. {STAGED_AFTER_YOUR_REPLY} If they "
             "asked a question, or were "
             "discussing something already decided, do not add it. The marker is how a conversation "
             "turns into a written requirement, so a missing one loses the request and a spurious "
@@ -1090,7 +1103,8 @@ class ProductRole:
             "uma tarefa\", any way of asking for work to be PUT ON THE BOARD as they described "
             "it, rather than discussed into a requirement — end with [[TICKET: <title>]] on its "
             "own line, the title in their words, at most 80 characters, naming the part of the "
-            "product and the problem — never cut, never the request itself. "
+            "product and the problem — never cut, never the request itself. The same marker "
+            f"when they ask to change {SHOWN_OR_WORDED} (\"can you fix it?\"). "
             f"{STAGED_AFTER_YOUR_REPLY} A card is not a promise: "
             "it carries no requirement and starts nothing by itself. Do NOT use it for a wish "
             "you should argue into a requirement, nor for a broken promise, NOR FOR THE WORK OF "
