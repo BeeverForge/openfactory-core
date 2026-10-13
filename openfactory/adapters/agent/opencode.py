@@ -84,6 +84,41 @@ _AUTH_RE = re.compile(r"unauthor|forbidden|invalid api key|invalid x-api-key|401
                       re.IGNORECASE)
 _TIMEOUT = AGENT_TIMEOUT
 
+#: NO MCP SERVER OF THE ACCOUNT, AND OPENCODE HAS NO FLAG FOR IT. Its global configuration is
+#: `$XDG_CONFIG_HOME/opencode/` (1.18.13, `packages/core/src/global.ts`), where the account running
+#: the CLI declares its MCP servers, plugins and agents; `OPENCODE_CONFIG` and `OPENCODE_CONFIG_DIR`
+#: add a file and a directory to it. So every role is handed a configuration directory of its own
+#: (`FRESH_CONFIG`), and both variables emptied, so a deployment's environment cannot hand one back.
+#: The login is in `$XDG_DATA_HOME`, untouched, and a route's credentials travel in `box.env`.
+#: Measured on 1.18.28: a server in the global file is in `opencode debug config`, and is gone with
+#: the directory moved.
+ACCOUNT_CONFIG_UNREAD = ('XDG_CONFIG_HOME="$of_cfg"', "OPENCODE_CONFIG=", "OPENCODE_CONFIG_DIR=")
+
+#: A CONFIGURATION DIRECTORY MADE FOR THE RUN, EMPTY, AND GONE WHEN IT ENDS. A fixed directory
+#: under `$HOME` was trusted to stay empty and nothing made it so; a role on the worktree box runs
+#: on the host with that `$HOME`, and could plant `opencode/opencode.json` there for every later
+#: role (review of this fix). So the command makes a fresh one, hands it to OpenCode, and removes it
+#: when the shell exits, whatever ended the run; a directory it cannot make starts nothing.
+FRESH_CONFIG = (
+    'of_cfg="$(mktemp -d)" || { echo "OpenCode was not started: no empty configuration directory '
+    'could be made for it (mktemp -d failed), and it is never started with the account '
+    'configuration."; exit 3; }; '
+    "trap 'rm -rf \"$of_cfg\"' EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; "
+    "trap 'exit 143' TERM;")
+
+#: The account file nothing moves: OpenCode also reads `~/.opencode/opencode.json` from the home
+#: directory itself (`ConfigPaths.directories`), so no role starts while it exists, and the person
+#: reads which file and what to do.
+NOT_WHILE_DECLARED = (
+    'for f in "$HOME/.opencode/opencode.json" "$HOME/.opencode/opencode.jsonc"; do '
+    'if [ -e "$f" ]; then echo "OpenCode reads $f on every run and nothing turns it off, so an MCP '
+    'server it declares would reach this role. Nothing was started: remove the file from the '
+    'account that runs the harness, and keep the deployment settings in box.env and model:."; '
+    'exit 3; fi; done;')
+
+#: What the shell runs before OpenCode: the refusal, then the directory made for the run.
+BEFORE_THE_HARNESS = f"{NOT_WHILE_DECLARED} {FRESH_CONFIG}"
+
 #: The name of the read-only profile this adapter defines and then asks for by name.
 JUDGE_AGENT = "openfactory-readonly"
 
@@ -239,6 +274,7 @@ class OpenCodeAdapter:
         # ours. For a judging pass it is a permission escalation; for a coding pass it would let
         # the repository silently redirect the model or the provider we are billing for.
         env.append("OPENCODE_DISABLE_PROJECT_CONFIG=1")
+        env += ACCOUNT_CONFIG_UNREAD
 
         # THE PROMPT TRAVELS OFF ARGV WHEN THE BOX STAGED IT (#5), so a corpus past the
         # single-argument ceiling no longer raises `OSError: Argument list too long`. `cat <path> |
@@ -255,7 +291,7 @@ class OpenCodeAdapter:
         # (see the module docstring); `box prove` is what runs it, per deployment.
         # `prompt_path` is None for the smoke probe and a box with no channel and a small prompt.
         pipe = [f"cat {shlex.quote(prompt_path)} |"] if prompt_path else []
-        cmd = [*pipe, *env, harness, "run", "--format", "json"]
+        cmd = [BEFORE_THE_HARNESS, *pipe, *env, harness, "run", "--format", "json"]
         if model:
             cmd += ["-m", shlex.quote(model)]
         if read_only:
