@@ -43,7 +43,6 @@ MUTATIONS = [
      "    window._journalUnread=true;", "    ;"),
 
     ("the durable listing starts asking the engine", "openfactory/api/app.py",
-     "@app.get(\"/api/jobs\")\ndef list_jobs() -> list[dict]:\n    jobs: list[dict] = []",
-     "@app.get(\"/api/jobs\")\ndef list_jobs() -> list[dict]:\n    # temporal\n"
-     "    jobs: list[dict] = []"),
+     "def list_jobs() -> list[dict]:\n    jobs: list[dict] = []",
+     "def list_jobs() -> list[dict]:\n    # temporal\n    jobs: list[dict] = []"),
 ]
