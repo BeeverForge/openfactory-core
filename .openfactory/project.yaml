@@ -1,0 +1,7 @@
+version: 1
+base_branch: main
+setup:
+- make install
+validate:
+  test: make test-collect
+  lint: make lint
