@@ -31,6 +31,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from pydantic import BaseModel
+from starlette.routing import compile_path
 
 from openfactory import __version__, actions, doors
 from openfactory.api import read_models
@@ -1085,13 +1086,22 @@ def _read(path: str, model: type[BaseModel]):
     def register(handler):
         app.get(API_V1 + path.removeprefix("/api"), **_reads(model))(handler)
         app.get(path, deprecated=True, **_reads(model))(handler)
+        _VERSIONED_READS.append(compile_path(API_V1 + path.removeprefix("/api"))[0])
         return handler
     return register
 
 
+#: The addresses `_read` served under `/api/v1`, as the router matches them.
+_VERSIONED_READS: list[re.Pattern] = []
+
+
 def _unversioned(path: str) -> str:
-    """`path` as its alias: the gate decides an area once, by the unversioned address."""
-    return "/api" + path.removeprefix(API_V1) if path.startswith(API_V1 + "/") else path
+    """`path` as its alias: the gate decides an area once, by the unversioned address. ONLY FOR A
+    TYPED READ REGISTERED UNDER `/api/v1`: any other path under it keeps its own address, so it
+    cannot inherit an area by sharing a prefix with a read — it is the floor's, and not found."""
+    if any(read.match(path) for read in _VERSIONED_READS):
+        return "/api" + path.removeprefix(API_V1)
+    return path
 
 
 # ── the panel as a transport over the action layer (C-23) ────────────────────────────────────────

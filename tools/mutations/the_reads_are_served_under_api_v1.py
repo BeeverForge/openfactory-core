@@ -6,7 +6,7 @@ Run:  .venv/bin/python tools/mutate.py tools/mutations/the_reads_are_served_unde
 The claims, each a row:
   1. a typed read answers under `/api/v1/…`;
   2. its unversioned path is marked deprecated;
-  3. a versioned path is in its alias's area at the gate;
+  3. a versioned path is in its alias's area at the gate — only a registered typed read's;
   4. the committed description says the package's version.
 """
 
@@ -28,6 +28,11 @@ MUTATIONS = [
     ("the gate reads a versioned path as the floor's", APP,
      "    path = _unversioned(path)\n    if path in",
      "    if path in"),
+
+    # 3b. only a registered read is mapped
+    ("any path under /api/v1 inherits its alias's area", APP,
+     "    if any(read.match(path) for read in _VERSIONED_READS):",
+     '    if path.startswith(API_V1 + "/"):'),
 
     # 4. the version
     ("the app does not say the package's version", APP,

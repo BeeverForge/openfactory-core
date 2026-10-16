@@ -127,6 +127,34 @@ def test_a_versioned_path_is_in_its_aliases_area(path, area):
     assert _scope_of_path(path.replace("/api/v1/", "/api/", 1)) == area
 
 
+def test_every_registered_typed_read_is_mapped_to_its_alias():
+    from openfactory.api.app import _unversioned as as_alias
+
+    for path in _unversioned():
+        concrete = path.replace("{", "").replace("}", "")   # `/api/board/project`
+        assert as_alias("/api/v1" + concrete.removeprefix("/api")) == concrete, path
+
+
+@pytest.mark.parametrize("path", [
+    "/api/v1/nothing-registered",
+    "/api/v1/whoami/more",
+    "/api/v1/product/x",
+    "/api/v1/board/x/y",
+    "/api/v1/",
+])
+def test_an_unregistered_versioned_path_is_not_mapped(path):
+    """Only a typed read registered under `/api/v1` borrows its alias's area: any other path keeps
+    its own address, so it cannot inherit an area by sharing a prefix with one."""
+    from openfactory.api.app import _unversioned as as_alias
+
+    assert as_alias(path) == path
+
+
+def test_an_unregistered_versioned_path_is_not_found(gated):
+    assert gated.get("/api/v1/nothing-registered",
+                     headers={"Authorization": "Bearer the-operator"}).status_code == 404
+
+
 @pytest.fixture
 def gated(monkeypatch):
     for var in ("OPENFACTORY_PANEL_TOKENS", "OPENFACTORY_PRODUCT_TOKEN", "OPENFACTORY_IDENTITY"):
