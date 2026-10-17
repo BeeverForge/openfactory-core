@@ -4,7 +4,8 @@ THREE CLAIMS:
 
   1. **`update_branch` rebases in a scratch tree in every repository, bare or not.** The person
      stays on their branch, and an uncommitted change is no reason to stay `behind`.
-  2. **Their `rebase.updateRefs` moves none of their branches.**
+  2. **Their config does not steer the factory's rebase**: `rebase.updateRefs` moves none of their
+     branches, and `commit.gpgSign` does not fail a rebase the bot commits.
   3. **The cleanup removes the scratch tree's own registration and nothing else** — never
      `worktree prune`, which would drop a linked worktree of theirs whose directory is missing.
 
@@ -32,8 +33,13 @@ MUTATIONS = [
 
     ("the person's `rebase.updateRefs` applies, and a branch of theirs inside the range moves",
      FORGE,
-     '"rebase", "--no-update-refs", "--no-autosquash", base, cwd=tree)',
-     '"rebase", "--no-autosquash", base, cwd=tree)'),
+     '"-c", "rebase.updateRefs=false", "-c", "commit.gpgSign=false",',
+     '"-c", "commit.gpgSign=false",'),
+
+    ("the person's `commit.gpgSign` applies, gpg looks for the bot's key, and the rebase fails",
+     FORGE,
+     '"-c", "rebase.updateRefs=false", "-c", "commit.gpgSign=false",',
+     '"-c", "rebase.updateRefs=false",'),
 
     ("the cleanup prunes, and a stale registration of the person's own goes with the scratch's",
      FORGE,

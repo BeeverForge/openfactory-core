@@ -37,9 +37,8 @@ MUTATIONS = [
 
     ("the rebase carries no identity, and git refuses to write its commits on a machine with none",
      FORGE,
-     '            p = self._git("-c", f"user.name={bot.name}", "-c", f"user.email={bot.email}",\n'
-     '                          "rebase", "--no-update-refs", "--no-autosquash", base, cwd=tree)',
-     '            p = self._git("rebase", "--no-update-refs", "--no-autosquash", base, cwd=tree)'),
+     '            p = self._git("-c", f"user.name={bot.name}", "-c", f"user.email={bot.email}",\n',
+     '            p = self._git(\n'),
 
     ("the rebase is thrown away: the branch is never moved, so the fast-forward is refused anyway",
      FORGE,

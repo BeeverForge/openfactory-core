@@ -805,9 +805,15 @@ class LocalForge:
         moment, and in a person's repository that includes their own linked worktrees on an
         unmounted disk or in a moved folder. Only the scratch tree's own registration is ours.
 
-        `--no-update-refs --no-autosquash`, because the person's config applies to a rebase run in
-        their repository: `rebase.updateRefs` would move every branch of theirs that points into
-        the rebased range, and `rebase.autoSquash` would reorder the job's commits.
+        THE PERSON'S CONFIG APPLIES TO A REBASE RUN IN THEIR REPOSITORY, so two keys are overridden
+        for this one command. `rebase.updateRefs=false`, because `true` would move every branch of
+        theirs that points into the rebased range. As `-c`, never `--no-update-refs`: the flag
+        arrived in git 2.38 and an older git refuses the whole rebase over it (`unknown option`,
+        measured on 2.34.1, which Ubuntu 22.04 ships), while a config key it does not know is
+        ignored. `commit.gpgSign=false`, because the committer is the bot: gpg looks for the bot's
+        key and fails (`No secret key`, measured on 2.43), and with `user.signingKey` set it would
+        sign the bot's commits with the person's key. The factory's commits are not signed
+        anywhere else either.
 
         DETACHED, AND THE BRANCH MOVES BY COMPARE-AND-SWAP. The tree holds the head's COMMIT, not
         its branch, and `update-ref <branch> <rebased> <started>` moves the branch only if it is
@@ -830,7 +836,8 @@ class LocalForge:
                         f"moved — {self._sentence(added)}")
             bot = bot_identity()
             p = self._git("-c", f"user.name={bot.name}", "-c", f"user.email={bot.email}",
-                          "rebase", "--no-update-refs", "--no-autosquash", base, cwd=tree)
+                          "-c", "rebase.updateRefs=false", "-c", "commit.gpgSign=false",
+                          "rebase", base, cwd=tree)
             if p.returncode != 0:
                 conflicted = self._out("diff", "--name-only", "--diff-filter=U", cwd=tree)
                 if not conflicted:

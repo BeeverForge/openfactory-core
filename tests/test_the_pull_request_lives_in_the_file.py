@@ -16,8 +16,9 @@ WHAT IS PROVEN, and it is D3's table row by row:
   · nothing else in the person's repository is written: no remote, no config, no hook;
   · bringing a job branch up to date never touches their tree (#622): they stay on their branch,
     their uncommitted and staged changes stay as they were, a head anybody has out — here or in a
-    linked worktree — is refused, a worktree registration of theirs is never pruned, and their
-    `rebase.updateRefs` moves none of their branches.
+    linked worktree — is refused, a worktree registration of theirs is never pruned, their
+    `rebase.updateRefs` moves none of their branches, their `commit.gpgSign` does not fail the
+    rebase, and the rebased commits keep their author and name the bot as committer.
 """
 
 from __future__ import annotations
@@ -299,6 +300,12 @@ def test_a_CLEAN_tree_stays_on_its_branch_while_the_head_is_brought_up_to_date(f
     assert forge.mergeable_state(pr=pr) == "clean"
     assert _git(repo, "status", "--porcelain").stdout == "", "the tree was written"
 
+    from openfactory.credentials import bot_identity
+
+    committer = _git(repo, "log", "-1", "--format=%an|%cn", "openfactory/1").stdout.strip()
+    assert committer == f"A Person|{bot_identity().name}", (
+        "the author must be kept and the rebase committed as the bot")
+
 
 def test_an_UNCOMMITTED_change_is_no_reason_to_stay_behind_and_is_left_alone(forge, pr, repo):
     """Before the fix the rebase exited 1 here — it had to check the head out over their edit —
@@ -359,6 +366,21 @@ def test_a_CONFLICT_moves_nothing_and_leaves_nothing_behind(forge, pr, repo, tmp
     assert {p.name: p.read_bytes() for p in repo.iterdir() if p.is_file()} == files
     assert _registered(repo) == before, "a scratch tree is still registered, or theirs was pruned"
     assert str(away) in _registered(repo)
+
+
+def test_their_commit_gpgSign_is_no_reason_to_stay_behind(forge, pr, repo):
+    """Their config applies here too, and the rebase commits as the bot: gpg looks for the bot's
+    key, finds none, and the rebase fails — measured on git 2.43 with a real key for the person:
+    `gpg: skipped "<bot>": No secret key`. `gpg.program` is `false` so that no gpg is needed to
+    prove it: any signing attempt fails."""
+    _move_main(repo)                           # before the config, or this commit fails instead
+    assert forge.mergeable_state(pr=pr) == "behind", "the setup must leave something to rebase"
+    _git(repo, "config", "commit.gpgSign", "true")
+    _git(repo, "config", "gpg.program", "false")
+
+    assert forge.update_branch(pr=pr) is True
+    assert _rebased(repo)
+    assert _current(repo) == "main"
 
 
 def test_their_rebase_updateRefs_moves_none_of_their_branches(forge, repo):
