@@ -32,6 +32,13 @@ class Ticket(BaseModel):
     title: str
     objective: str
     context: str | None = None
+    #: WHAT A SPLIT CHILD'S PARENT SAID BEYOND ITS OBJECTIVE AND CRITERIA (#624): the block under
+    #: `## From the parent card (#N)`, as written. A field and not only body text because the job's
+    #: brief and the reviewer render FIELDS, never `raw` — a child whose body carried the parent's
+    #: Scope still handed nobody the Scope. None means the card is not a split child (or its parent
+    #: had nothing else to say); the default also keeps a payload serialised before this field
+    #: existed (a Temporal history from an older worker) valid.
+    from_parent: str | None = None
 
     in_scope: list[str] = Field(default_factory=list)
     out_of_scope: list[str] = Field(default_factory=list)

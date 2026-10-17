@@ -3,7 +3,10 @@
 Convention (shared across projects — strong convention on the human/agent interface,
 ADR-0001): optional YAML front-matter (depends_on, base_branch, relevant_docs)
 followed by markdown sections: `## Objective`, `## Context`, `## Acceptance criteria`
-(a bullet list), `## In scope`, `## Out of scope`.
+(a bullet list), `## In scope`, `## Out of scope`. One more is written by the platform itself: a
+card the pre-flight sizer split from a parent carries `## From the parent card (#N)`, the parent's
+other sections as its author wrote them, demoted to `### ` (#624; `carried_sections` reads them
+off the parent, `Ticket.from_parent` holds them on the child).
 
 THE CONVENTION IS ON THE MEANING, NOT ON THE SPELLING. The section names used to be matched as
 literal lowercased English, so a ticket whose author wrote `## Critérios de aceite` parsed as a
@@ -129,6 +132,36 @@ def _sections(md: str) -> list[tuple[str, str, str]]:
     if heading is not None:
         out.append((heading, _normalise(heading), "\n".join(buf).strip()))
     return out
+
+
+#: THE ONE SPELLING of the heading a split child's carried block sits under (#624), written by
+#: `activities._child_body` and read back by `parse_ticket_body`. The writer appends `(#N)`, so the
+#: reader matches the normalised heading by its START — the alias table is exact-match.
+FROM_THE_PARENT = "From the parent card"
+
+#: The two sections the sizer REWRITES for each child, by canonical key. The parent's would sit
+#: beside the child's own, and a reader could not tell which one the card promises.
+_REWRITTEN_BY_THE_SIZER = ("objective", "acceptance criteria")
+
+
+def carried_sections(body: str) -> tuple[str, list[tuple[str, str]]]:
+    """What a split child carries of its parent's `body` (#624): the preamble above the first
+    heading (front matter stripped), and `(heading as written, text)` for every `## ` section the
+    sizer did not rewrite, in order.
+
+    BY MEANING, NOT BY SPELLING: `## Critérios de aceite` and `## AC` are the criteria and are left
+    out; `## Escopo` is a scope and is carried. Everything else a person wrote — `## Context`,
+    `## Housekeeping`, the factory template's `## What was asked` — is carried whether or not the
+    parser has a name for it, because the parent is closed and the child is all anybody reads."""
+    _fm, md = _split_front_matter(body or "")
+    preamble: list[str] = []
+    for line in md.splitlines():
+        if line.startswith("## "):
+            break
+        preamble.append(line)
+    kept = [(written, text) for written, norm, text in _sections(md)
+            if _CANONICAL.get(norm, norm) not in _REWRITTEN_BY_THE_SIZER]
+    return "\n".join(preamble).strip(), kept
 
 
 def section_names(body: str) -> list[str]:
@@ -461,11 +494,14 @@ def changed_sections(before: str, after: str) -> list[str]:
 def parse_ticket_body(*, id: str, title: str, body: str, repo: str) -> Ticket:
     fm, md = _split_front_matter(body)
     s = _split_sections(md)
+    carried = _normalise(FROM_THE_PARENT)
     return Ticket(
         id=id,
         title=title,
         objective=(s.get("objective") or title).strip(),
         context=s.get("context") or None,
+        from_parent=next((text for _w, norm, text in _sections(md)
+                          if norm.startswith(carried) and text), None),
         in_scope=_list_items(s.get("in scope", "")),
         out_of_scope=_list_items(s.get("out of scope", "")),
         acceptance_criteria=[

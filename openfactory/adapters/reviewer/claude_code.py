@@ -145,8 +145,12 @@ class ClaudeCodeReviewer(ReviewerAdapter):
             + EVIDENCE_RULE,
             f"\n# Ticket {t.id}: {t.title}\n## Objective\n{t.objective}",
             f"\n## Acceptance criteria\n{crits}",
-            f"\n## Platform validation results\n{vals}",
         ]
+        # See `harness.build_review_prompt`: a split child's parent is closed, and its Scope
+        # reaches the reviewer only here (#624).
+        if t.from_parent:
+            parts.append(f"\n## From the parent card\n{t.from_parent}")
+        parts.append(f"\n## Platform validation results\n{vals}")
         if ri.constraints:
             parts.append("\n## Constraints (ADRs)\n" + "\n\n".join(ri.constraints))
         parts.append("\n## Diff\n```diff\n" + ri.diff + "\n```")

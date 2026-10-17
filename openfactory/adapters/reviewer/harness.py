@@ -72,8 +72,13 @@ def build_review_prompt(ri: ReviewInput) -> str:
         _INSTRUCTIONS + " " + EVIDENCE_RULE,
         f"\n# Ticket {t.id}: {t.title}\n## Objective\n{t.objective}",
         f"\n## Acceptance criteria\n{crits}",
-        f"\n## Platform validation results\n{vals}",
     ]
+    # A SPLIT CHILD'S PARENT IS CLOSED (#624): what its author wrote beside the objective and the
+    # criteria — the Scope the change is judged against — reaches the reviewer only here. The
+    # same lines are in `ClaudeCodeReviewer._prompt`, for the reason the comment above gives.
+    if t.from_parent:
+        parts.append(f"\n## From the parent card\n{t.from_parent}")
+    parts.append(f"\n## Platform validation results\n{vals}")
     if ri.constraints:
         parts.append("\n## Constraints (ADRs)\n" + "\n\n".join(ri.constraints))
     parts.append("\n## Diff\n```diff\n" + ri.diff + "\n```")

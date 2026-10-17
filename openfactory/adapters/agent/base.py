@@ -689,12 +689,16 @@ def ticket_brief(context: AgentContext, *, failures: str = "",
     ticket_brief(...)` — so on the repair path the first text the model read was whatever the
     client's suite printed, and a test name or an assertion message is a string somebody writes.
     Rendered here it lands under a DATA heading, inside this brief's fence, below the rule, like
-    every other value nobody in this platform wrote (review of #108)."""
+    every other value nobody in this platform wrote (review of #108).
+
+    A card the sizer split from a parent also carries what that parent's author wrote beside its
+    objective and criteria (`Ticket.from_parent`, #624) — the parent is closed, so this is the
+    only place the job reads its Scope — fenced like the rest of the card."""
     t = context.ticket
     criteria = [c.text for c in t.acceptance_criteria]
     nonce = _marker_nonce([str(v) for v in (t.title, t.objective, t.context, context.knowledge_map,
                                             failures, context.another_pass, *t.in_scope,
-                                            *criteria, *t.out_of_scope)
+                                            *criteria, *t.out_of_scope, t.from_parent)
                            if v])
 
     # THE RULE IS THE FIRST BYTE OF THE BRIEF, and the ticket's own title is no longer above it.
@@ -718,6 +722,9 @@ def ticket_brief(context: AgentContext, *, failures: str = "",
             nonce, *(c.bullet() for c in t.acceptance_criteria))
     if t.out_of_scope:
         parts += ["", "### Out of scope"] + _fenced(nonce, *(f"- {x}" for x in t.out_of_scope))
+    if t.from_parent:
+        parts += ["", "### From the parent card — what it said beyond its objective and "
+                      "criteria; this card delivers only its own"] + _fenced(nonce, t.from_parent)
     if context.another_pass:
         # A NEW CHANGE OF A CARD WHOSE LAST ONE MERGED (#448 slice 4): its requester tried that
         # change and said what is still wrong. The criteria above were corrected to match before
