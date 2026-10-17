@@ -14,7 +14,8 @@ failed all three with a traceback. The cheap question — does a daemon answer �
 module's `skipif` and runs at import; the expensive one — can S1's images be pulled and built
 here — is `s1_product_builds`, asked once per process at run time, which skips with a sentence
 naming what was missing. Where `TEST_REQUIRE_DOCKER` says docker is required (CI's integration
-job), neither skips: a missing daemon or an image that cannot be built fails the live tests.
+job), neither skips: a missing daemon or an image that cannot be built fails the live tests, and
+a missing daemon fails the reaches-nothing test that shares the cheap guard.
 """
 
 from __future__ import annotations
@@ -43,7 +44,10 @@ def _docker_and_compose() -> bool:
 
     WHERE `TEST_REQUIRE_DOCKER` IS SET it answers yes regardless. A `skipif` at import can only
     skip, and CI losing its daemon would then be the live tests skipping in silence; instead they
-    run, and `s1_product_builds` fails them with its sentence. What is collected is the same."""
+    run, and `s1_product_builds` fails them with its sentence. What is collected is the same. It is
+    also the guard of `test_a_preview_reaches_nothing_of_the_host.py`'s real-engine test, which has
+    no probe: under the switch that one runs too, and fails on docker's own error rather than
+    skipping — red, as intended, without the sentence."""
     if os.environ.get("TEST_REQUIRE_DOCKER"):
         return True
     if not shutil.which("docker"):
@@ -124,9 +128,12 @@ def _tail(cp: subprocess.CompletedProcess) -> str:
 
 
 def probe_the_s1_build(run: Runner = _docker) -> Probe:
-    """Pull what S1 pulls and build what it builds, the way the preview runtime will: in its
-    reduced environment (`compose._base_env`: the same registry logins, the same daemon). The probe's
-    own tags are removed; the bases stay, for the test that needs them next."""
+    """Get what S1 pulls and build what it builds, the way the preview runtime's
+    `docker compose up -d --build` will: a base is pulled only when this daemon lacks it, a build
+    runs on the cached base and never asks the registry for a newer one (no `--pull`), and both in
+    the runtime's reduced environment (`compose._base_env`: the same registry logins, the same
+    daemon). So a machine with the bases loaded and no registry passes, as the tests would. The
+    probe's own tags are removed; the bases stay, for the test that needs them next."""
     from openfactory.adapters.preview import compose
 
     tags = [f"openfactory-s1-probe-{svc}" for svc in BUILT_FROM]
@@ -142,13 +149,18 @@ def probe_the_s1_build(run: Runner = _docker) -> Probe:
             before = images()
             try:
                 why = ""
-                pulled = run(["docker", "pull", PULLED], env=env, timeout=PROBE_TIMEOUT)
-                if pulled.returncode != 0:
-                    why = f"`{PULLED}` could not be pulled on this daemon: {_tail(pulled)}"
+                for base in (PULLED, *BUILT_FROM.values()):
+                    if run(["docker", "image", "inspect", base], env=env,
+                           timeout=60).returncode == 0:
+                        continue
+                    pulled = run(["docker", "pull", base], env=env, timeout=PROBE_TIMEOUT)
+                    if pulled.returncode != 0:
+                        why = f"`{base}` could not be pulled on this daemon: {_tail(pulled)}"
+                        break
                 for (svc, base), tag in zip(BUILT_FROM.items(), tags, strict=True):
                     if why:
                         break
-                    built = run(["docker", "build", "--pull", "-t", tag, str(FIXTURE / svc)],
+                    built = run(["docker", "build", "-t", tag, str(FIXTURE / svc)],
                                 env=env, timeout=PROBE_TIMEOUT)
                     if built.returncode != 0:
                         why = (f"S1's `{svc}` could not be built from `{base}` on this daemon: "

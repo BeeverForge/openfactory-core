@@ -55,13 +55,12 @@ def test_no_live_preview_test_reads_the_build_log_inside_an_assert_message():
 
 
 class _Daemon:
-    """`docker` as the probe runs it: every call answers `0`, except the ones named to fail."""
+    """`docker` as the probe runs it: it holds `images`, `image inspect` answers from them, a
+    `pull` adds the image, and every other call answers `0` — except the ones named to fail."""
 
-    def __init__(self, fails: dict[str, str] | None = None, *, images=("busybox:latest",),
-                 pulls=()):
+    def __init__(self, fails: dict[str, str] | None = None, *, images=("busybox:latest",)):
         self.fails = fails or {}
         self.images = list(images)
-        self.pulls = pulls
         self.ran: list[list[str]] = []
 
     def __call__(self, argv, *, env, timeout):
@@ -72,9 +71,17 @@ class _Daemon:
                 return subprocess.CompletedProcess(argv, 1, "", said)
         if argv[1:3] == ["image", "ls"]:
             return subprocess.CompletedProcess(argv, 0, "\n".join(self.images), "")
-        if argv[1] in ("pull", "build"):
-            self.images.extend(self.pulls)
+        if argv[1:3] == ["image", "inspect"]:
+            held = argv[3] in self.images
+            return subprocess.CompletedProcess(argv, 0 if held else 1, "",
+                                               "" if held else f"No such image: {argv[3]}")
+        if argv[1] == "pull":
+            self.images.append(argv[2])
         return subprocess.CompletedProcess(argv, 0, "", "")
+
+
+#: Every base S1 needs, as an air-gapped machine that loaded them would hold them.
+BASES = ("postgres:16", "python:3.12-slim", "node:20-slim")
 
 
 def test_a_base_that_cannot_be_pulled_is_named_with_the_daemons_words():
@@ -97,9 +104,43 @@ def test_a_service_that_cannot_be_built_names_its_base():
     assert "failed to resolve source metadata for node" in probe.why
 
 
+def test_a_machine_that_holds_the_bases_builds_without_a_registry():
+    """The runtime's `docker compose up --build` pulls only what is missing and builds on the
+    cached base: so must the probe, or an air-gapped machine that can run the tests skips them."""
+    daemon = _Daemon({"pull ": "dial tcp: lookup registry-1.docker.io: no such host"},
+                     images=BASES)
+
+    probe = one_live_preview.probe_the_s1_build(daemon)
+
+    assert probe.ok, probe.why
+    assert not [call for call in daemon.ran if call[1] == "pull"]
+    assert probe.brought == set()
+
+
+def test_only_the_missing_base_is_pulled_and_named_when_it_cannot_be():
+    daemon = _Daemon({"pull python:3.12-slim": "dial tcp: lookup registry-1.docker.io: no such host"},
+                     images=("postgres:16", "node:20-slim"))
+
+    probe = one_live_preview.probe_the_s1_build(daemon)
+
+    assert not probe.ok
+    assert "`python:3.12-slim` could not be pulled on this daemon" in probe.why
+    assert "no such host" in probe.why
+    assert [call for call in daemon.ran if call[1] == "pull"] == [
+        ["docker", "pull", "python:3.12-slim"]]
+
+
+def test_no_build_asks_the_registry_for_a_newer_base():
+    daemon = _Daemon()
+
+    one_live_preview.probe_the_s1_build(daemon)
+
+    builds = [call for call in daemon.ran if call[1] == "build"]
+    assert len(builds) == 2 and not [call for call in builds if "--pull" in call]
+
+
 def test_a_probe_that_builds_removes_its_tags_and_says_which_bases_it_brought():
-    daemon = _Daemon(pulls=("postgres:16", "python:3.12-slim", "node:20-slim"),
-                     images=("busybox:latest", "node:20-slim"))
+    daemon = _Daemon(images=("busybox:latest", "node:20-slim"))
 
     probe = one_live_preview.probe_the_s1_build(daemon)
 
@@ -165,8 +206,11 @@ def test_where_docker_is_required_a_missing_daemon_runs_the_live_tests_to_fail(m
     assert one_live_preview._docker_and_compose() is True
     probe = one_live_preview.probe_the_s1_build(
         lambda argv, *, env, timeout: (_ for _ in ()).throw(FileNotFoundError("docker")))
-    with pytest.raises(pytest.fail.Exception, match="docker could not be run"):
+    # a skip passes through `pytest.raises(Failed)` and is reported skipped, in a green run
+    with pytest.raises((pytest.fail.Exception, pytest.skip.Exception),
+                       match="docker could not be run") as caught:
         required(probe)
+    assert caught.type is pytest.fail.Exception
 
 
 def test_a_docker_that_cannot_be_run_is_a_failed_probe_not_a_crash():
@@ -214,8 +258,11 @@ def test_where_docker_is_required_a_probe_that_failed_fails_the_test(monkeypatch
     fails (`tests/demo_projects.py`)."""
     monkeypatch.setenv("TEST_REQUIRE_DOCKER", "1")
 
-    with pytest.raises(pytest.fail.Exception, match="`postgres:16` could not be pulled"):
+    # a skip passes through `pytest.raises(Failed)` and is reported skipped, in a green run
+    with pytest.raises((pytest.fail.Exception, pytest.skip.Exception),
+                       match="`postgres:16` could not be pulled") as caught:
         required(Probe(ok=False, why="`postgres:16` could not be pulled on this daemon: denied"))
+    assert caught.type is pytest.fail.Exception
 
 
 def test_ci_requires_docker_where_the_live_previews_run():
