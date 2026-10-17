@@ -64,4 +64,9 @@ def holder(porcelain: str, branch: str) -> WorkingTree | None:
 
     `None` here means the porcelain was read and nobody holds it. A caller whose read FAILED must
     not call this with an empty string and conclude the same (engineering lessons §2)."""
-    return next((t for t in parse(porcelain) if branch and t.branch == branch), None)
+    return holder_of(parse(porcelain), branch)
+
+
+def holder_of(trees: list[WorkingTree], branch: str) -> WorkingTree | None:
+    """`holder`, over working trees already parsed."""
+    return next((t for t in trees if branch and t.branch == branch), None)

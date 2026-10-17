@@ -129,19 +129,21 @@ def _working_trees(repo_path) -> list[gitworktrees.WorkingTree] | None:
     return gitworktrees.parse(out)
 
 
-def _holder(repo_path, branch: str, ours: Path) -> gitworktrees.WorkingTree | None:
-    """The working tree OTHER THAN THE BOX'S OWN `ours` that has `branch` out, or `None`.
+def _holder(repo_path, branch: str) -> gitworktrees.WorkingTree | None:
+    """The working tree that has `branch` out, or `None`.
+
+    ASKED AFTER `_clear_our_own`, so the box's own tree is gone and whoever is listed is somebody
+    else. (An exclusion of `wt` here was dead code: the mutation that dropped it survived.)
 
     `None` also when the list could not be read: then `worktree add` is the judge, and its refusal
     is passed on as before — never read as "free" and never a start from the base."""
     trees = _working_trees(repo_path)
     if trees is None:
         return None
-    for tree in trees:
-        if tree.branch == branch and not _same_dir(tree.path, ours):
-            return tree
-    log.debug("nobody else has %s out in %s", branch, repo_path)
-    return None
+    held = gitworktrees.holder_of(trees, branch)
+    if held is None:
+        log.debug("nobody has %s out in %s", branch, repo_path)
+    return held
 
 
 def _branch_held_elsewhere(branch: str, tree: gitworktrees.WorkingTree) -> BranchHeldElsewhere:
@@ -334,7 +336,7 @@ class WorktreeSandbox(SandboxAdapter):
         # only at `worktree add`: after `branch -D` was tried, and after the fetch below wrote
         # `refs/remotes/origin/<branch>` into their clone. Asked first, of the porcelain rather
         # than of git's sentence, which changes with git's version and the locale (#623).
-        held = _holder(repo_path, branch, wt)
+        held = _holder(repo_path, branch)
         if held is not None:
             raise _branch_held_elsewhere(branch, held)
         # WHEN THE REMOTE IS THIS REPOSITORY, THE BRANCH IS THE WORK (ADR-0049 D3). On a forge that
@@ -412,7 +414,7 @@ class WorktreeSandbox(SandboxAdapter):
             # Somebody may have checked the branch out between the read above and this add, or
             # the read may have failed; the porcelain is asked once more before git's sentence is
             # passed on.
-            held = _holder(repo_path, branch, wt)
+            held = _holder(repo_path, branch)
             if held is not None:
                 raise _branch_held_elsewhere(branch, held)
             raise RuntimeError(f"worktree add failed: {out}")
@@ -436,10 +438,10 @@ class WorktreeSandbox(SandboxAdapter):
         refuses the `worktree add` over it, as it always did, rather than this deleting it."""
         trees = _working_trees(repo_path)
         if trees is None:
-            # Could not read the list: remove by our own path. Git removes only a working tree of
-            # THIS repository, so the path names nothing but ours.
-            if wt.exists():
-                _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", str(wt)])
+            # Could not read the list: remove by our own path, whether or not its directory is
+            # still there (rc 0 on a missing one). Git removes only a working tree of THIS
+            # repository, so the path names nothing but ours.
+            _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", str(wt)])
             return
         for tree in trees:
             if not tree.main and _same_dir(tree.path, wt):
