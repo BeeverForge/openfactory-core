@@ -30,31 +30,38 @@ class WorkingTree:
 
     `branch` is the short name (`openfactory/28`), or `""` for a detached HEAD or a bare
     repository. `main` is the repository's own working tree (the first block), which git cannot
-    remove. `locked` was set by `git worktree lock`, which `git worktree remove` then refuses."""
+    remove. `locked` was set by `git worktree lock`, which `git worktree remove` then refuses.
+    `prunable` is git's own word for a tree whose directory is gone (`prunable gitdir file points
+    to non-existent location`, 2.34.1 and 2.43.0); a LOCKED tree whose directory is gone is listed
+    `locked` and never `prunable`, so a caller asks the filesystem as well."""
 
     path: str
     branch: str
     main: bool
     locked: bool
+    prunable: bool = False
 
 
 def parse(porcelain: str) -> list[WorkingTree]:
     """Every working tree in `git worktree list --porcelain`'s output, main first."""
     trees: list[WorkingTree] = []
-    path, branch, locked = "", "", False
+    path, branch, locked, prunable = "", "", False, False
 
     def close() -> None:
         if path:
-            trees.append(WorkingTree(path=path, branch=branch, main=not trees, locked=locked))
+            trees.append(WorkingTree(path=path, branch=branch, main=not trees, locked=locked,
+                                     prunable=prunable))
 
     for line in (porcelain or "").splitlines():
         if line.startswith("worktree "):
             close()
-            path, branch, locked = line[len("worktree "):], "", False
+            path, branch, locked, prunable = line[len("worktree "):], "", False, False
         elif line.startswith("branch refs/heads/"):
             branch = line[len("branch refs/heads/"):]
         elif line == "locked" or line.startswith("locked "):
             locked = True
+        elif line == "prunable" or line.startswith("prunable "):
+            prunable = True
     close()
     return trees
 

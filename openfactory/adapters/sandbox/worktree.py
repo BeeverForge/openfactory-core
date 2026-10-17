@@ -77,7 +77,8 @@ def no_such_base(base_branch: str, where: str) -> str:
             f"instead. Push that branch, or name a base {where} has.")
 
 
-def branch_held(branch: str, path: str, *, main: bool, locked: bool) -> str:
+def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str = "",
+                gone: bool = False, rebuilt: bool = False, ours: bool = False) -> str:
     """The refusal for a card's branch somebody else has out (#623): one sentence naming the
     branch, the working tree that holds it, and what frees it.
 
@@ -89,19 +90,49 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool) -> str:
     `main`: the holder is the repository's own checkout, which `git worktree remove` refuses
     (`is a main working tree`), so the remedy is to switch it away. `locked`: a locked tree is
     refused by `remove` (`cannot remove a locked working tree`, git 2.43.0), so the unlock comes
-    first. The path is shell-quoted where it is a command, so a path with a space pastes whole."""
+    first. Every path is shell-quoted where it is a command, so a path with a space pastes whole.
+
+    EVERY COMMAND NAMES THE REPOSITORY (`git -C <repo>`), because a person pastes it from wherever
+    their shell is, and `git worktree remove <path>` run outside the repository answers `is not a
+    working tree` (review of 268c726: a test running the sentence's own command found it).
+
+    WHAT THE PERSON IS TOLD TO KEEP MUST SURVIVE THE RESUME (review of 268c726). `rebuilt`: this
+    door runs `branch -D` and builds the branch again, from the base or from the forge (every door
+    but the local forge's continuing one), so a commit left on it would be on no branch afterwards.
+    There the remedy is `git -C <tree> switch -c <a branch of yours>`, which keeps what is there on
+    a branch of theirs and frees the card's branch in one command, in a locked tree too (2.34.1 and
+    2.43.0, measured). `gone`: the tree's directory was deleted by hand, and git still counts the
+    branch as out there; nothing is left to lose, and `remove` frees it. `ours`: the box's own
+    tree from an earlier pass, which a person locked; the box leaves it as it is."""
     where = shlex.quote(path)
+    git = f"git -C {shlex.quote(repo)}" if repo else "git"
+    unlock = f"`{git} worktree unlock {where}`, then " if locked else ""
+    remove = f"{unlock}`{git} worktree remove {where}`"
+    switch_new = f"`git -C {where} switch -c <a branch of yours>`"
+    again = (f"This job builds {branch} again from the forge or the base, so a commit left on it "
+             f"would not be in the job: ")
+    once = "git lets a branch be checked out in only one place, so this job did not start"
+    if gone:
+        return (f"{branch} is checked out in another working tree, at {path}, whose directory is "
+                f"gone: git still counts the branch as out there, and {once}. Nothing is left "
+                f"there to lose: free it with {remove}, then resume.")
     if main:
-        return (f"{branch} is checked out in your repository at {path}, and git lets a branch be "
-                f"checked out in only one place, so this job did not start, and nothing in that "
-                f"checkout was touched. Switch that checkout to another branch "
+        head = (f"{branch} is checked out in your repository at {path}, and {once}, and nothing in "
+                f"that checkout was touched.")
+        if rebuilt:
+            return (f"{head} {again}move that checkout with {switch_new}, which keeps what is "
+                    f"there on a branch of yours and frees {branch}, then resume.")
+        return (f"{head} Switch that checkout to another branch "
                 f"(`git -C {where} switch <another branch>`), then resume.")
-    unlock = f"`git worktree unlock {where}`, then " if locked else ""
-    return (f"{branch} is checked out in another working tree, at {path}, and git lets a branch "
-            f"be checked out in only one place, so this job did not start, and nothing in that "
-            f"tree was touched. Free it with {unlock}`git worktree remove {where}` (commit or "
-            f"stash anything there first), or switch that checkout to another branch, then "
-            f"resume.")
+    whose = (", the job's own from an earlier pass, which somebody locked, so it was left as it is"
+             if ours else "")
+    head = (f"{branch} is checked out in another working tree, at {path}{whose}, and {once}, and "
+            f"nothing in that tree was touched.")
+    if rebuilt:
+        return (f"{head} {again}free it with {switch_new}, which keeps what is there on a branch "
+                f"of yours, then resume. With nothing there to keep, {remove} frees it too.")
+    return (f"{head} Free it with {remove} (commit or stash anything there first), or switch "
+            f"that checkout to another branch, then resume.")
 
 
 def _branch_exists(repo_path, branch: str) -> bool:
@@ -146,10 +177,15 @@ def _holder(repo_path, branch: str) -> gitworktrees.WorkingTree | None:
     return held
 
 
-def _branch_held_elsewhere(branch: str, tree: gitworktrees.WorkingTree) -> BranchHeldElsewhere:
+def _branch_held_elsewhere(branch: str, tree: gitworktrees.WorkingTree, *, repo_path,
+                           rebuilt: bool, ours: Path) -> BranchHeldElsewhere:
+    # `gone` from git's `prunable` OR from the filesystem: a locked tree whose directory is gone
+    # is listed `locked` and never `prunable` (2.34.1 and 2.43.0, measured)
+    gone = not tree.main and (tree.prunable or not Path(tree.path).exists())
     return BranchHeldElsewhere(
-        branch_held(branch, tree.path, main=tree.main, locked=tree.locked),
-        branch=branch, path=tree.path, main=tree.main, locked=tree.locked)
+        branch_held(branch, tree.path, main=tree.main, locked=tree.locked, repo=str(repo_path),
+                    gone=gone, rebuilt=rebuilt, ours=_same_dir(tree.path, ours)),
+        branch=branch, path=tree.path, main=tree.main, locked=tree.locked, gone=gone)
 
 # A job clones/pushes over git and talks to GitHub — it never needs AWS. But a Fargate
 # task inherits the ECS task-role credentials (chiefly via
@@ -336,9 +372,13 @@ class WorktreeSandbox(SandboxAdapter):
         # only at `worktree add`: after `branch -D` was tried, and after the fetch below wrote
         # `refs/remotes/origin/<branch>` into their clone. Asked first, of the porcelain rather
         # than of git's sentence, which changes with git's version and the locale (#623).
+        # Which door this is decides what the refusal tells the person to keep: only the local
+        # forge's continuing door keeps the branch (`keep` below), every other one builds it again.
+        rebuilt = not (checkout_existing and _is_this_repo(remote_url, repo_path))
         held = _holder(repo_path, branch)
         if held is not None:
-            raise _branch_held_elsewhere(branch, held)
+            raise _branch_held_elsewhere(branch, held, repo_path=repo_path, rebuilt=rebuilt,
+                                         ours=wt)
         # WHEN THE REMOTE IS THIS REPOSITORY, THE BRANCH IS THE WORK (ADR-0049 D3). On a forge that
         # hosts a copy, deleting the local branch is free: the resume fetches it back from the
         # remote. Here `remote_url` IS `repo_path`, so the delete below removes the only copy — and
@@ -416,7 +456,8 @@ class WorktreeSandbox(SandboxAdapter):
             # passed on.
             held = _holder(repo_path, branch)
             if held is not None:
-                raise _branch_held_elsewhere(branch, held)
+                raise _branch_held_elsewhere(branch, held, repo_path=repo_path, rebuilt=rebuilt,
+                                             ours=wt)
             raise RuntimeError(f"worktree add failed: {out}")
         base_commit = None
         if not keep and remote_url and not _is_this_repo(remote_url, repo_path):
@@ -445,6 +486,13 @@ class WorktreeSandbox(SandboxAdapter):
             return
         for tree in trees:
             if not tree.main and _same_dir(tree.path, wt):
+                if tree.locked:
+                    # THE PLATFORM NEVER LOCKS A TREE, so a lock here is a person's "keep this"
+                    # (review of 268c726). One `--force` refuses it anyway (rc 128, 2.34.1 and
+                    # 2.43.0), and the `rmtree` below then deleted what they kept and the refusal
+                    # said nothing was touched. Left as it is: `_holder` names it, unlock first.
+                    log.warning("the box's own tree %s is locked — left as it is", tree.path)
+                    continue
                 _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", tree.path])
                 # what a failed remove left on disk is ours too: git listed it as this box's tree
                 if wt.exists():
