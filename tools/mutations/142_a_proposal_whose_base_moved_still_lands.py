@@ -38,8 +38,8 @@ MUTATIONS = [
     ("the rebase carries no identity, and git refuses to write its commits on a machine with none",
      FORGE,
      '            p = self._git("-c", f"user.name={bot.name}", "-c", f"user.email={bot.email}",\n'
-     '                          "rebase", base, cwd=tree)',
-     '            p = self._git("rebase", base, cwd=tree)'),
+     '                          "rebase", "--no-update-refs", "--no-autosquash", base, cwd=tree)',
+     '            p = self._git("rebase", "--no-update-refs", "--no-autosquash", base, cwd=tree)'),
 
     ("the rebase is thrown away: the branch is never moved, so the fast-forward is refused anyway",
      FORGE,
@@ -55,11 +55,11 @@ MUTATIONS = [
      "                              cwd=where)"),
 
     ("`update_branch` answers False on a bare repository again, as before the fix", FORGE,
-     "        if self._bare(where):\n"
-     "            if refused := self._rebase_in_a_scratch_tree(base, head, where):\n"
-     '                log.warning("could not rebase %s onto %s — %s", head, base, refused)\n'
-     "                return False\n",
-     "        if self._bare(where):\n            return False\n"),
+     "        if refused := self._rebase_in_a_scratch_tree(base, head, where):\n"
+     '            log.warning("could not rebase %s onto %s — %s", head, base, refused)\n',
+     "        if self._bare(where):\n            return False\n"
+     "        if refused := self._rebase_in_a_scratch_tree(base, head, where):\n"
+     '            log.warning("could not rebase %s onto %s — %s", head, base, refused)\n'),
 
     ("a base that does not exist yet is read as `behind`, and the rebase refuses `invalid upstream` "
      "where the fast-forward used to create it", FORGE,
@@ -81,14 +81,13 @@ MUTATIONS = [
      "                self._refuse(pr, refused)\n                raise RuntimeError(refused)",
      "                self._refuse(pr, refused)"),
 
-    ("the scratch directory is left in the temp directory, and still registered because prune "
-     "only drops trees whose directory is gone", FORGE,
+    ("the scratch directory is left in the temp directory", FORGE,
      "            shutil.rmtree(scratch, ignore_errors=True)\n",
      ""),
 
-    ("the scratch tree's registration is never pruned, so the repository lists a worktree that "
+    ("the scratch tree's registration is never removed, so the repository lists a worktree that "
      "does not exist", FORGE,
-     '            self._git("worktree", "prune", cwd=where)\n',
+     '            self._git("worktree", "remove", "--force", tree, cwd=where)\n',
      ""),
 
     # ── 3. only the bare repository ───────────────────────────────────────────────────────────

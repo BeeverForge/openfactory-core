@@ -11,6 +11,8 @@ the list has to be short enough to read:
 
   · `refs/heads/openfactory/<n>` — the job's branch, force-pushed by the box on every publish;
   · on the worktree box, a linked worktree under `.git/worktrees/<n>` (the box's own doing);
+  · while `update_branch` rebases a job branch, a short-lived linked worktree in a temporary
+    directory, registered under `.git/worktrees/` and gone before it returns (#622);
   · the fast-forward THEY asked for, on the base branch, when they press merge.
 
 Nothing else. No remote is added, no hook is installed, no config is edited,
@@ -23,13 +25,14 @@ FAST-FORWARD, NEVER SQUASH. The hosted rows squash; locally the history is the j
 commits, authored as the bot, which is how a reader tells the factory's commits from the person's.
 A squash would write the person's index; a fast-forward writes only the ref.
 
-A PROPOSAL WHOSE BASE MOVED IS REBASED FIRST, AND ONLY IN THE INSTALLATION'S BARE REPOSITORY
+A MERGE REBASES A PROPOSAL WHOSE BASE MOVED, AND ONLY IN THE INSTALLATION'S BARE REPOSITORY
 (#142). The context repository's `main` moves on its own — the knowledge pipeline's module-map
 refresh lands there while a baseline waits for a person — and a fast-forward alone refused that
 baseline for ever. So `merge_pr` rebases it in a scratch tree outside the repository and then
 fast-forwards as always: still the proposal's own commits, in a line, with no merge commit. The
 person's repository is never rebased by a merge; a job branch that fell behind there goes through
-`update_branch`, which the loop asks for.
+`update_branch`, which the loop asks for, and which rebases in the same kind of scratch tree in
+every repository, bare or not (#622).
 
 RAISING WHERE THE HOSTED ROWS TRIGGER. `merge_pr` on GitHub arms auto-merge and returns; the caller
 polls `pr_status` for the verdict. Here the merge either happened or it did not, and
@@ -654,18 +657,24 @@ class LocalForge:
         return "dirty"
 
     def update_branch(self, *, pr: str) -> bool:
-        """Rebase the head onto the base — the three commands the box's own rebase runs.
+        """Rebase the head onto the base, in a scratch tree, and move the head's ref. False when
+        it could not, with nothing moved.
 
-        IN THE PERSON'S REPOSITORY BUT NEVER IN THEIR TREE: `rebase --onto` on a branch that is
-        not checked out moves the ref and touches no working file. A branch they have checked out
-        is refused, because rebasing it under them is exactly the act this row promises not to
-        make.
+        IN THE PERSON'S REPOSITORY BUT NEVER IN THEIR TREE, AND THAT TAKES A TREE OF ITS OWN
+        (#622). `rebase --onto <base> <merge-base> <head>` was here, on the claim that it moves the
+        ref and touches no working file. It does not: given a branch, git checks that branch out
+        first (measured, git 2.43), so a clean tree was left on `openfactory/<n>` afterwards and a
+        tree with an uncommitted change refused the rebase and stayed `behind`. A bare repository
+        has no tree to rebase in at all (#142). So every repository, bare or not, is rebased the
+        way `merge_pr` rebases the context repository: `_rebase_in_a_scratch_tree`.
 
-        ON A BARE REPOSITORY, IN A SCRATCH TREE (#142). `rebase --onto` needs a working tree and
-        the context repository has none — git says `this operation must be run in a work tree`
-        (measured, git 2.43) — so this answered False there and a proposal whose base moved stayed
-        `behind`. It rebases the way `merge_pr` does now; a conflict is still False, with nothing
-        moved."""
+        A BRANCH SOMEBODY HAS OUT IS STILL REFUSED — here or in a linked worktree — because
+        rebasing it under them is exactly the act this row promises not to make.
+
+        THE COMMITTER IS THE BOT. The rebase in their own tree committed as their configured
+        identity; the scratch tree commits as `bot_identity()`, and each commit keeps its author.
+        The branch is `openfactory/<n>`, the factory's own, and this is how a reader tells the
+        factory's commits from theirs."""
         row = self._row(pr)
         if row is None:
             return False
@@ -676,16 +685,9 @@ class LocalForge:
         merge_base = self._out("merge-base", base, head, cwd=where)
         if not merge_base:
             return False
-        if self._bare(where):
-            if refused := self._rebase_in_a_scratch_tree(base, head, where):
-                log.warning("could not rebase %s onto %s — %s", head, base, refused)
-                return False
-        else:
-            p = self._git("rebase", "--onto", base, merge_base, head, cwd=where)
-            if p.returncode != 0:
-                self._git("rebase", "--abort", cwd=where)
-                log.warning("could not rebase %s onto %s — %s", head, base, self._sentence(p))
-                return False
+        if refused := self._rebase_in_a_scratch_tree(base, head, where):
+            log.warning("could not rebase %s onto %s — %s", head, base, refused)
+            return False
         with connect(self._db, write=True) as conn:
             conn.execute("UPDATE pull_requests SET patch_id = ?, base_sha = ?, updated_at = ? "
                          "WHERE project = ? AND number = ?",
@@ -790,14 +792,22 @@ class LocalForge:
         return self._out("rev-parse", "--is-bare-repository", cwd=where) == "true"
 
     def _rebase_in_a_scratch_tree(self, base: str, head: str, where: str) -> str:
-        """Rebase `head` onto `base` in the bare repository at `where`, and move `head` there. `""`
-        when it did; otherwise the sentence saying why, with nothing moved (#142).
+        """Rebase `head` onto `base` in the repository at `where`, bare or not, and move `head`
+        there. `""` when it did; otherwise the sentence saying why, with nothing moved (#142, #622).
 
-        A SCRATCH TREE, BECAUSE A BARE REPOSITORY HAS NONE: a linked worktree of `where` in a
-        temporary directory, gone before this returns whichever way it went. `rmtree` takes the
-        files and `worktree prune` takes the registration, and the rebase's own state goes with it
-        — measured on git 2.43 over a real conflict: nothing left under `worktrees/`, no ref moved.
-        So there is no `rebase --abort` to run first.
+        A SCRATCH TREE, BECAUSE A BARE REPOSITORY HAS NONE AND A PERSON'S IS THEIRS: a linked
+        worktree of `where` in a temporary directory, gone before this returns whichever way it
+        went. `worktree remove --force` takes the registration and the rebase's own state with it —
+        measured on git 2.43 over a real conflict: nothing left under `worktrees/`, no ref moved —
+        and `rmtree` takes whatever files remain. So there is no `rebase --abort` to run first.
+
+        NEVER `worktree prune`. It drops EVERY registration whose directory is missing at that
+        moment, and in a person's repository that includes their own linked worktrees on an
+        unmounted disk or in a moved folder. Only the scratch tree's own registration is ours.
+
+        `--no-update-refs --no-autosquash`, because the person's config applies to a rebase run in
+        their repository: `rebase.updateRefs` would move every branch of theirs that points into
+        the rebased range, and `rebase.autoSquash` would reorder the job's commits.
 
         DETACHED, AND THE BRANCH MOVES BY COMPARE-AND-SWAP. The tree holds the head's COMMIT, not
         its branch, and `update-ref <branch> <rebased> <started>` moves the branch only if it is
@@ -820,7 +830,7 @@ class LocalForge:
                         f"moved — {self._sentence(added)}")
             bot = bot_identity()
             p = self._git("-c", f"user.name={bot.name}", "-c", f"user.email={bot.email}",
-                          "rebase", base, cwd=tree)
+                          "rebase", "--no-update-refs", "--no-autosquash", base, cwd=tree)
             if p.returncode != 0:
                 conflicted = self._out("diff", "--name-only", "--diff-filter=U", cwd=tree)
                 if not conflicted:
@@ -837,8 +847,8 @@ class LocalForge:
                         f"newer push was kept and nothing was merged — {self._sentence(moved)}")
             return ""
         finally:
+            self._git("worktree", "remove", "--force", tree, cwd=where)
             shutil.rmtree(scratch, ignore_errors=True)
-            self._git("worktree", "prune", cwd=where)
 
 
 def _same(a: str, b: str) -> bool:
