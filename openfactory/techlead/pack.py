@@ -8,10 +8,10 @@ question is about.
 
 WHY FILES AND NOT A PROTOCOL. Every judging harness this platform supports already runs a
 read-only agentic loop with filesystem reads over the checkout — `claude Read,Grep,Glob`,
-`codex -s read-only`, kimi's plan mode, opencode's read-only profile. A fact written as a file is
-therefore a tool on ALL FOUR, today, with no new flag, no new dependency and no new process. MCP
-buys laziness and a structured channel on top of this; it does not replace it, and it would work
-on one harness out of four.
+`codex -s read-only`, kimi's read-only instruction, opencode's read-only profile. A fact written
+as a file is therefore a tool on ALL FOUR, today, with no new flag, no new dependency and no new
+process. MCP buys laziness and a structured channel on top of this; it does not replace it, and it
+would work on one harness out of four.
 
 PURE TEXT OVER WHAT `gather_jobs` ALREADY READ. Every provider call was made and caught there.
 This module renders and writes; it never reaches a vendor, so `answer()` can keep its promise

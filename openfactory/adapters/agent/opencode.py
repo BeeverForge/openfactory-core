@@ -30,7 +30,7 @@ FOUR THINGS THAT SHAPE THIS ADAPTER, each found by running it:
 3. READ-ONLY IS REAL ENFORCEMENT, not a mode. An agent whose `permission` map denies `edit`/`bash`
    has those tools REMOVED from the model's tool list — `opencode debug agent` reports
    `bash: false, edit: false, write: false`, and an agent told to write a file answered that it had
-   no tool to do it. That is stronger than Kimi's `--plan` (a mode, i.e. instruction) and on a par
+   no tool to do it. That is stronger than Kimi's instruction-only read-only (#362) and on a par
    with Codex's `-s read-only` sandbox policy. It is what makes this harness fit to judge.
 
 4. A CLIENT'S REPOSITORY CAN DEFINE AGENTS, and judging roles run against client checkouts. An

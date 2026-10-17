@@ -14,7 +14,8 @@ makes read-only real:
 
     claude   `--tools Read,Grep,Glob` + an explicit deny of the mutating set
     codex    `-s read-only` (a sandbox POLICY: it cannot edit, it is not merely told not to)
-    kimi     `--plan` (a MODE — weaker; see the Kimi adapter's docstring)
+    kimi     instruction only (no mode reachable beside `-p`, #362 — weakest; see the Kimi
+             adapter's docstring)
 
 Everything else — the sizer, the tech-lead's diagnosis, the coordinator's advice, the Slack answer,
 the independent review — is then one shared implementation over `ask()`, identical for every
