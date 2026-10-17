@@ -1317,6 +1317,11 @@ class JobRunner:
                 cost_usd=agent_result.cost_usd, role="executor",
             )
             self._count(agent_result, "executor")
+            # WHAT THE AGENT SAYS IT DID, WHOLE (#627): the note above keeps its 200-character cut
+            # for the journal, and the pull request carries the message itself, as the agent's
+            # claim. `summary` is capped at ~1000 characters with no marker; `final_text` is not.
+            account = final_text(agent_result)
+            passes: list[PassAccount] = []
             if agent_result.pause_reason:
                 return self._paused(
                     ticket, agent_result.pause_reason, agent_result.retry_at, branch=branch,
@@ -1379,6 +1384,9 @@ class JobRunner:
                                            f"{agent_result.summary[:150]}",
                            cost_usd=agent_result.cost_usd, role="executor")
                 self._count(agent_result, "recovery")
+                # a recovery commits nothing of its own: its position is its identity
+                passes.append(PassAccount(kind=f"recovery {rec}",
+                                          words=_pass_words(agent_result)))
                 if agent_result.pause_reason:
                     return self._paused(
                         ticket, agent_result.pause_reason, agent_result.retry_at, branch=branch,
@@ -1437,6 +1445,8 @@ class JobRunner:
                     return self._paused(ticket, rep.pause_reason, rep.retry_at, branch=branch,
                                         ws=ws, resume_handle=rep.resume_handle)
                 self._commit(ws, ticket)
+                passes.append(PassAccount(kind=f"gate repair {attempts}", words=_pass_words(rep),
+                                          head=self._head(ws)))
                 touched, validations = self._validate(ws, ticket)
 
             # Stopped repairing because the ticket got too expensive (not because it's
@@ -1452,6 +1462,8 @@ class JobRunner:
                 repair_attempts=attempts, total_cost_usd=self._reported_cost(),
                 spent_turns=getattr(self, "_turns", 0),  # effort accounting (D4)
                 agent_runs=getattr(self, "_agent_runs", []),  # per-model/harness cost telemetry
+                agent_account=account[:4 * AGENT_ACCOUNT_MAX], agent_account_chars=len(account),
+                agent_passes=passes,
             )
             self._record_risk(result)
             if not result.all_passed:
@@ -1543,6 +1555,9 @@ class JobRunner:
                 total_cost += rep.cost_usd or 0.0
                 result.total_cost_usd = self._reported_cost()
                 self._commit(ws, ticket)
+                result.agent_passes.append(PassAccount(
+                    kind=f"suppression repair {supp_attempts}", words=_pass_words(rep),
+                    head=self._head(ws)))
                 touched, validations = self._validate(ws, ticket)  # must stay green
                 result.touched_components, result.validations = touched, validations
                 self._record_risk(result)
@@ -1621,6 +1636,9 @@ class JobRunner:
                     total_cost += rep.cost_usd or 0.0
                     result.total_cost_usd = self._reported_cost()
                     self._commit(ws, ticket)
+                    result.agent_passes.append(PassAccount(
+                        kind=f"review repair {rev_attempts}", words=_pass_words(rep),
+                        head=self._head(ws)))
                     touched, validations = self._validate(ws, ticket)  # the fix must stay green
                     result.touched_components, result.validations = touched, validations
                     self._record_risk(result)
@@ -3168,6 +3186,17 @@ class JobRunner:
         )
         return [ln.strip() for ln in out.splitlines() if ln.strip()] if rc == 0 else []
 
+    def _head(self, ws: Workspace) -> str:
+        """The commit the workspace's branch points at — "" when git could not say.
+
+        Read through the box, so it is the box's git that answers. `rev-parse HEAD` takes no
+        option and prints the same full name on git 2.28 (CONTRIBUTING's floor) as on 2.34.1;
+        `--short` is avoided on purpose — its length depends on the repository — and the pull
+        request's line cuts the name itself (#627)."""
+        rc, out = self.sandbox.run(workspace=ws, command="git rev-parse HEAD", timeout=60)
+        head = out.strip().splitlines()[-1].strip() if rc == 0 and out.strip() else ""
+        return head if re.fullmatch(r"[0-9a-f]{40,64}", head) else ""
+
     def _commit(self, ws: Workspace, ticket: Ticket) -> None:
         """Commit the working tree authored as the bot (D-12).
 
@@ -3723,6 +3752,13 @@ class JobRunner:
             lines += ["", "this project requires a person to look at a preview of it before a "
                           "change merges — start one from the card, and merge when it looks "
                           "right; nobody merges this for you"]
+        # WHAT THE AGENT SAYS IT DID (#627), LAST AND DIRECTLY BEFORE THE `Cost:` LINE, under its
+        # own `## ` heading. Placed here because a fresh review replaces everything from its heading
+        # to the next `## ` or the `Cost:` row (`_republish_review`; measured at 3a582f1: review +
+        # `Touched components:` + `risk:` + `Cost` came back as review + `Cost`) — so this heading
+        # also ends the review's span, and a dated review never stamps the agent's account `was:`.
+        # Read from `result` only, never `self`: stub holders build this body.
+        lines += ["", *_account_lines(_account_of(result))]
         if result.total_cost_usd is not None:
             lines += ["", f"{_COST_LINE}{result.total_cost_usd:.4f}"]
         return "\n".join(lines)

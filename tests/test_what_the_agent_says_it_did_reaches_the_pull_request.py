@@ -153,6 +153,8 @@ def test_what_the_agent_wrote_cannot_pose_as_the_platform(repo: Path, tmp_path: 
 
     # (d) a body that carried no `Cost:` row gains none from the agent's fake one
     rows = [r for r in body.splitlines() if not r.startswith(_COST_LINE)]
+    while not rows[-1]:
+        rows.pop()
     unpriced = _holder("\n".join(rows), owed=0.5)
     JobRunner._republish_review(unpriced, "https://forge/pr/1")
     assert unpriced.forge.body == "\n".join(rows), "the agent's fake Cost line was charged"
