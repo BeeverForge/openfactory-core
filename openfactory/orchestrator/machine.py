@@ -647,6 +647,43 @@ def _read_account(rows: list[str]) -> tuple[int, int, _Account] | None:
     return start, end, account
 
 
+def _with_passes(rows: list[str], passes: list[PassAccount]) -> list[str]:
+    """`rows` with each of `passes` that is not already a line added under the section — the
+    section inserted whole, before the `Cost:` row or at the end, where the pull request was opened
+    before it existed.
+
+    A pass is `(kind, head)`: the same pass republished twice adds its line once. Lines beyond
+    `AGENT_PASSES_SHOWN` roll into the count of earlier passes, which accumulates. The executor's
+    rows are re-rendered from what they say, by the one writer, so they come back byte for byte."""
+    read = _read_account(rows)
+    if read is None:
+        cost_at = next((i for i in range(len(rows) - 1, -1, -1)
+                        if rows[i].startswith(_COST_LINE)), len(rows))
+        start = end = cost_at
+        while start > 0 and not rows[start - 1].strip():
+            start -= 1
+        account = _Account(quote=None, total=0)
+    else:
+        start, end, account = read
+    known = {(p.kind, p.head[:12]) for p in account.passes}
+    new = []
+    for p in passes:
+        if (p.kind, p.head[:12]) not in known:
+            known.add((p.kind, p.head[:12]))
+            new.append(p)
+    if not new:
+        return rows
+    account.passes += new
+    if len(account.passes) > AGENT_PASSES_SHOWN:
+        account.earlier += len(account.passes) - AGENT_PASSES_SHOWN
+        account.passes = account.passes[-AGENT_PASSES_SHOWN:]
+    section = _account_lines(account)
+    if read is None:  # its own blank rows around it, as `_pr_body` writes it
+        section = ["", *section, *([""] if end < len(rows) else [])]
+        return rows[:start] + section + rows[end:]
+    return rows[:start] + section + rows[end:]
+
+
 def _measured_from(ws: Workspace, base: str) -> str:
     """What `<this>..HEAD` names so that the diff is this job's own change (#168).
 
@@ -1975,6 +2012,10 @@ class JobRunner:
                     JobState.ON_HOLD, branch=branch,
                 ))
             self._commit(ws, ticket)
+            #: this pass's line under what the agent says it did (#627), with the commit it made —
+            #: published only if the pass pushes, and then with the gate repairs that followed it
+            passes = [PassAccount(kind="adjust" if human else "CI repair", words=_pass_words(rep),
+                                  head=self._head(ws))]
             # A PERSON'S PASS IS GATED THE WAY THE FIRST ONE WAS (#448). An adjust pass rewrote
             # the pull request, pushed, and went to re-review with none of the project's gates
             # re-run in the box, and the requester was then handed a preview of a head nothing
@@ -1982,8 +2023,9 @@ class JobRunner:
             # re-run by the forge on the push, and that run is its gate.
             validations: list[ValidationResult] = []
             if human:
-                validations, held = self._the_adjusted_change_passes_its_gates(
+                validations, held, fixes = self._the_adjusted_change_passes_its_gates(
                     ticket, owner, ws, branch, rep)
+                passes += fixes
                 if held is not None:
                     # NOTHING WAS PUSHED, so the pull request is the one the reviewer read and
                     # `code_changed` is False by construction rather than by `as_left`'s measure:
@@ -2057,7 +2099,7 @@ class JobRunner:
                 # The pass pushed and no reviewer read what it pushed, so the verdict standing on
                 # the pull request is about a diff that is gone. #187: say so THERE too.
                 if pushed:
-                    self._republish_review(pr_url, review=None)
+                    self._republish_review(pr_url, review=None, account_passes=passes)
                 return as_left(self._hold(
                     ticket, owner,
                     f"ci-repair added {because} — needs human review",
@@ -2102,7 +2144,8 @@ class JobRunner:
             # one a collaborator without the panel token has. A fresh reading REPLACES the section;
             # without one, what stands is dated rather than deleted.
             if pushed or review is not None:
-                self._republish_review(pr_url, review=review)
+                self._republish_review(pr_url, review=review,
+                                       account_passes=passes if pushed else ())
             self._emit(ticket, "pr", "ci-repair pushed — CI re-running", url="")
             # CI IS RE-RUNNING on a pull request this platform just pushed to: the machine is the
             # one working. Whether a person is then needed is decided when the watch ends.
@@ -2122,7 +2165,7 @@ class JobRunner:
     def _the_adjusted_change_passes_its_gates(
         self, ticket: Ticket, owner: str | None, ws: Workspace, branch: str,
         rep: AgentRunResult,
-    ) -> tuple[list[ValidationResult], RunResult | None]:
+    ) -> tuple[list[ValidationResult], RunResult | None, list[PassAccount]]:
         """Run the project's gates on an adjust pass's commit, repair while they are red, and say
         whether the change may be pushed (#448).
 
@@ -2133,14 +2176,16 @@ class JobRunner:
           · a pause mid-repair keeps its partial work in the workspace. `run` pushes it so a
             resume continues; here that push would put a red head under the requester's preview.
 
-        Returns the validations, and a hold when the change may not be pushed. NOTHING IS PUSHED
-        on a hold, as on the first pass, whose red gates open no pull request. The pull request
-        and its preview stay what the requester was given, and a resume goes back to the merge
-        watch, the mark the empty-instruction hold uses.
+        Returns the validations, a hold when the change may not be pushed, and one line per gate
+        repair for what the agent says it did (#627) — published only with the push. NOTHING IS
+        PUSHED on a hold, as on the first pass, whose red gates open no pull request. The pull
+        request and its preview stay what the requester was given, and a resume goes back to the
+        merge watch, the mark the empty-instruction hold uses.
         """
         _, validations = self._validate(ws, ticket)
         self._account_for_gates_that_could_not_run(validations)
         spent, attempts = rep.cost_usd or 0.0, 0
+        fixes: list[PassAccount] = []
         while (
             not _all_passed(validations)
             and not _never_ran(validations)
@@ -2159,11 +2204,13 @@ class JobRunner:
             self._count(fix, "repair")
             if fix.pause_reason:
                 return validations, self._paused(ticket, fix.pause_reason, fix.retry_at,
-                                                 branch=branch)
+                                                 branch=branch), fixes
             self._commit(ws, ticket)
+            fixes.append(PassAccount(kind=f"adjust gate repair {attempts}",
+                                     words=_pass_words(fix), head=self._head(ws)))
             _, validations = self._validate(ws, ticket)
         if _all_passed(validations):
-            return validations, None
+            return validations, None, fixes
         reason = _never_ran_reason(validations) or (
             self._cost_reason(spent) if self._over_cost_ceiling(spent) else
             "the adjusted change fails the project's gates ("
@@ -2173,7 +2220,7 @@ class JobRunner:
         return validations, self._hold(
             ticket, owner,
             f"{reason}. Nothing was pushed: the pull request and its preview are as they were",
-            JobState.ON_HOLD, branch=branch, validations=validations, merge_refused=True)
+            JobState.ON_HOLD, branch=branch, validations=validations, merge_refused=True), fixes
 
     def review_pr(self, ticket_ref: str, pr_url: str = "") -> RunResult:
         """Read the open pull request again, as it stands now, and publish a fresh verdict (#181).
@@ -3503,7 +3550,8 @@ class JobRunner:
                                    for v in validations[:4]))
 
     def _republish_review(self, pr_url: str, *,
-                          review: ReviewResult | None | object = _SECTION_AS_IT_STANDS) -> bool:
+                          review: ReviewResult | None | object = _SECTION_AS_IT_STANDS,
+                          account_passes: list[PassAccount] | tuple = ()) -> bool:
         """Bring the pull request's own review section back into agreement with the card (#187).
 
         MEASURED ON THE PILOT. podbeam #119 was reviewed and rejected (score 58); an adjust pass
@@ -3538,6 +3586,13 @@ class JobRunner:
         that opened with no line — nobody priced the ticket — is not given one by the first pass
         that is priced, which would read as the cost of the whole ticket.
 
+        AND EACH LATER PASS'S LINE UNDER WHAT THE AGENT SAYS IT DID (#627), IN THE SAME WRITE.
+        `account_passes` are the passes that pushed; each adds its line once (`_with_passes`). The
+        BODY IS THE STORE: a CI repair or an adjust runs on a fresh runner, and nothing in memory
+        holds the first run's result — the executor's account is carried over from the body as it
+        stands, and only the pass lines are re-rendered. One read and at most one write, as #310
+        made it, so the account, the review and the `Cost:` line never disagree between writes.
+
         BEST-EFFORT, ALWAYS. A forge that refuses a description edit must not fail the pass that
         was doing the work — but it may not be silent either, so the refusal is journalled.
         """
@@ -3545,7 +3600,7 @@ class JobRunner:
             return False
         spent = self._reported_cost()
         owed = (spent or 0.0) - getattr(self, "_cost_on_the_pr", 0.0)
-        if review is _SECTION_AS_IT_STANDS and not owed:
+        if review is _SECTION_AS_IT_STANDS and not owed and not account_passes:
             return False  # nothing to say, so nothing is read
         body = self.forge.pr_body(pr=pr_url)
         if body is None:
@@ -3571,6 +3626,10 @@ class JobRunner:
                 if cost_at is not None and cost_at >= end:
                     cost_at += len(section) - (end - start)
                 rows = rows[:start] + section + rows[end:]
+        if account_passes:
+            rows = _with_passes(rows, list(account_passes))
+            cost_at = next((i for i in range(len(rows) - 1, -1, -1)
+                            if rows[i].startswith(_COST_LINE)), None)
         if owed and cost_at is not None:
             try:
                 stood = float(rows[cost_at][len(_COST_LINE):])

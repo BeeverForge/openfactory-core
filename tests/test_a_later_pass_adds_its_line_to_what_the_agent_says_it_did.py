@@ -254,14 +254,14 @@ def test_only_the_latest_ten_passes_are_listed_and_the_rest_are_counted():
     holder = _holder(_opened_body())
     for i in range(1, 14):
         JobRunner._republish_review(holder, PR, account_passes=[
-            passes(kind="CI repair", words=f"pass {i}", head=f"{i:040x}")])
+            passes(kind="CI repair", words=f"pass {i}", head=f"{i:012x}" + "0" * 28)])
 
     rows = _pass_rows(holder.forge.body)
     assert [r.rsplit(" — ", 1)[1] for r in rows] == [f"pass {i}" for i in range(4, 14)]
     assert "3 earlier passes are not shown." in _rows(holder.forge.body)
 
     JobRunner._republish_review(holder, PR, account_passes=[
-        passes(kind="CI repair", words="pass 14", head=f"{14:040x}")])
+        passes(kind="CI repair", words="pass 14", head=f"{14:012x}" + "0" * 28)])
     assert "4 earlier passes are not shown." in _rows(holder.forge.body), (
         "the count of earlier passes does not accumulate across republishes")
 
