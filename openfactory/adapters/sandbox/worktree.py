@@ -3,6 +3,12 @@
 Isolates the code state only (no CPU/mem/network/secret isolation). Use it for fast
 orchestrator tests and local debugging without Docker; real jobs run in
 ContainerSandbox. Same Protocol, so the orchestrator is identical against both.
+
+IT WORKS IN THE PERSON'S REPOSITORY, SO IT NEVER REMOVES, PRUNES OR FORCES A WORKTREE IT DID NOT
+CREATE (#623). Its own is exactly `root / <branch>`, compared resolved. A card's branch out in any
+other working tree (a review tree, or the person's own checkout) is refused before anything is
+written, with `BranchHeldElsewhere`, read from `git worktree list --porcelain` and not from git's
+sentence, which changes with git's version and the locale.
 """
 
 from __future__ import annotations
@@ -17,7 +23,9 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from openfactory.adapters import gitworktrees
 from openfactory.adapters.sandbox.base import (
+    BranchHeldElsewhere,
     OutputBuffer,
     SandboxAdapter,
     Workspace,
@@ -100,6 +108,46 @@ def _branch_exists(repo_path, branch: str) -> bool:
     rc, _ = _run(["git", "-C", str(repo_path), "rev-parse", "--verify", "--quiet",
                   f"refs/heads/{branch}"])
     return rc == 0
+
+
+def _same_dir(a, b) -> bool:
+    """Whether two paths name the same directory: resolved on both sides, because git lists the
+    real path and the box's root may be relative or reached through a symlink."""
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return str(a) == str(b)
+
+
+def _working_trees(repo_path) -> list[gitworktrees.WorkingTree] | None:
+    """The repository's working trees, or `None` when git could not be asked — which is NOT "there
+    are none" (engineering lessons §2)."""
+    rc, out = _run(["git", "-C", str(repo_path), "worktree", "list", "--porcelain"])
+    if rc != 0:
+        log.debug("could not read the working trees of %s: %s", repo_path, out.strip())
+        return None
+    return gitworktrees.parse(out)
+
+
+def _holder(repo_path, branch: str, ours: Path) -> gitworktrees.WorkingTree | None:
+    """The working tree OTHER THAN THE BOX'S OWN `ours` that has `branch` out, or `None`.
+
+    `None` also when the list could not be read: then `worktree add` is the judge, and its refusal
+    is passed on as before — never read as "free" and never a start from the base."""
+    trees = _working_trees(repo_path)
+    if trees is None:
+        return None
+    for tree in trees:
+        if tree.branch == branch and not _same_dir(tree.path, ours):
+            return tree
+    log.debug("nobody else has %s out in %s", branch, repo_path)
+    return None
+
+
+def _branch_held_elsewhere(branch: str, tree: gitworktrees.WorkingTree) -> BranchHeldElsewhere:
+    return BranchHeldElsewhere(
+        branch_held(branch, tree.path, main=tree.main, locked=tree.locked),
+        branch=branch, path=tree.path, main=tree.main, locked=tree.locked)
 
 # A job clones/pushes over git and talks to GitHub — it never needs AWS. But a Fargate
 # task inherits the ECS task-role credentials (chiefly via
@@ -271,14 +319,24 @@ class WorktreeSandbox(SandboxAdapter):
         self._repo_root = repo_path
         self.root.mkdir(parents=True, exist_ok=True)
         wt = self.root / branch.replace("/", "-")
-        if wt.exists():
-            _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", str(wt)])
-        # Re-running the same ticket must start clean. `worktree remove` frees the dir but
-        # the branch outlives it, so a bare `worktree add -b` collides ("branch already
-        # exists"). Prune stale worktree refs and drop the branch first (both no-ops when
-        # absent — e.g. a fresh cloud clone). Matches the codebase's idempotent-retry
-        # posture (publish_branch --force, workflow-id no-op).
-        _run(["git", "-C", str(repo_path), "worktree", "prune"])
+        # Re-running the same ticket must start clean, so the box's OWN worktree of this branch
+        # goes first — and only that one. "Ours" is exactly `wt`, compared resolved: every other
+        # `worktree add` in the package is `--detach`, so this is the only platform worktree that
+        # holds a card's branch. It used to be a blanket `git worktree prune`, which drops EVERY
+        # registration whose directory is missing at that moment, a person's worktree on an
+        # unmounted disk included — the rule the local forge's scratch rebase already wrote down
+        # (`LocalForge._rebase_in_a_scratch_tree`, "NEVER `worktree prune`"). `remove --force`
+        # takes our registration whether or not its directory is still there (rc 0 on a missing
+        # directory, git 2.43.0, measured 2026-10-17).
+        self._clear_our_own(repo_path, wt)
+        # DECIDE BEFORE YOU WRITE (engineering lessons §12). A card's branch somebody else has
+        # out — a review tree, or their own checkout — cannot be checked out here, and git says so
+        # only at `worktree add`: after `branch -D` was tried, and after the fetch below wrote
+        # `refs/remotes/origin/<branch>` into their clone. Asked first, of the porcelain rather
+        # than of git's sentence, which changes with git's version and the locale (#623).
+        held = _holder(repo_path, branch, wt)
+        if held is not None:
+            raise _branch_held_elsewhere(branch, held)
         # WHEN THE REMOTE IS THIS REPOSITORY, THE BRANCH IS THE WORK (ADR-0049 D3). On a forge that
         # hosts a copy, deleting the local branch is free: the resume fetches it back from the
         # remote. Here `remote_url` IS `repo_path`, so the delete below removes the only copy — and
@@ -351,6 +409,12 @@ class WorktreeSandbox(SandboxAdapter):
                else ["worktree", "add", "-b", branch, str(wt), start])
         rc, out = _run(["git", "-C", str(repo_path), *add])
         if rc != 0:
+            # Somebody may have checked the branch out between the read above and this add, or
+            # the read may have failed; the porcelain is asked once more before git's sentence is
+            # passed on.
+            held = _holder(repo_path, branch, wt)
+            if held is not None:
+                raise _branch_held_elsewhere(branch, held)
             raise RuntimeError(f"worktree add failed: {out}")
         base_commit = None
         if not keep and remote_url and not _is_this_repo(remote_url, repo_path):
@@ -360,6 +424,29 @@ class WorktreeSandbox(SandboxAdapter):
         # host_path == path here: the worktree IS on the orchestrator's filesystem.
         return Workspace(path=wt, host_path=wt, branch=branch, base_branch=base_branch,
                          base_commit=base_commit)
+
+    @staticmethod
+    def _clear_our_own(repo_path: Path, wt: Path) -> None:
+        """Remove the box's own worktree at `wt`, by the path git lists it under, registration and
+        directory. Nothing else is removed, pruned or forced.
+
+        A DIRECTORY AT `wt` THAT THIS REPOSITORY DOES NOT LIST IS LEFT ALONE. The default root is
+        `.openfactory-worktrees` under the working directory, shared by every project the process
+        serves, so `wt` can be another repository's worktree of a branch with the same name; git
+        refuses the `worktree add` over it, as it always did, rather than this deleting it."""
+        trees = _working_trees(repo_path)
+        if trees is None:
+            # Could not read the list: remove by our own path. Git removes only a working tree of
+            # THIS repository, so the path names nothing but ours.
+            if wt.exists():
+                _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", str(wt)])
+            return
+        for tree in trees:
+            if not tree.main and _same_dir(tree.path, wt):
+                _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", tree.path])
+                # what a failed remove left on disk is ours too: git listed it as this box's tree
+                if wt.exists():
+                    shutil.rmtree(wt, ignore_errors=True)
 
     @staticmethod
     def _read_the_forges_base(*, repo_path: Path, wt: Path, base_branch: str, branch: str,

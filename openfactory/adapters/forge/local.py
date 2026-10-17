@@ -50,6 +50,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from openfactory.adapters import gitworktrees
 from openfactory.adapters.board_db import connect, next_pr, now_iso
 
 log = logging.getLogger("openfactory.forge.local")
@@ -627,18 +628,15 @@ class LocalForge:
         `_overlap`, which exist to protect a person's working tree, are clean on it by
         construction, and `merge_pr` moves its base as a ref with `fetch . head:base`. That is the
         right answer: there is no tree there to protect, and the repository is the
-        installation's, not a person's."""
+        installation's, not a person's.
+
+        The porcelain is parsed by `gitworktrees`, which the worktree box reads too (#623)."""
         p = self._git("worktree", "list", "--porcelain", cwd=where)
         if p.returncode != 0:
             return (where
                     if self._out("symbolic-ref", "--short", "HEAD", cwd=where) == branch else "")
-        where = ""
-        for line in (p.stdout or "").splitlines():
-            if line.startswith("worktree "):
-                where = line.split(" ", 1)[1].strip()
-            elif line.strip() == f"branch refs/heads/{branch}":
-                return where
-        return ""
+        tree = gitworktrees.holder(p.stdout or "", branch)
+        return tree.path if tree else ""
 
     def _checked_out(self, branch: str, where: str) -> bool:
         """Whether anybody has `branch` out. `_worktree_of` says WHO, which is what the callers
