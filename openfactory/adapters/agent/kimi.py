@@ -1,39 +1,49 @@
 """KimiAdapter — Kimi Code (Moonshot) as a coding harness.
 
-Built against the REAL `kimi --help` surface (kimi-code 0.29.1, verified 2026-07-26):
+Built against kimi-code 0.31.1 — the version `docker/worker.Dockerfile` pins — read in its
+bundle (`dist/main.mjs`) and measured against the binary on 2026-10-17 (#362):
 
     kimi -p, --prompt <prompt>        run ONE prompt non-interactively and print the response
-         --output-format text|stream-json
+         --output-format text|stream-json   (only with -p)
     -m, --model <model>               model alias (else `default_model` in config.toml)
     -S, --session [id]                resume a session by id
-    -c, --continue                    continue the previous session for this working directory
-    -y, --yolo                        auto-approve regular tool calls; MAY STILL ASK QUESTIONS
-        --auto                        fully autonomous: the agent will NOT ask questions
-        --plan                        start in plan mode
+    -c, --continue                    continue the previous session (not with -S)
+    -y, --yolo                        auto-approve regular tool calls     (NOT with -p)
+        --auto                        fully autonomous                    (NOT with -p, not with -y)
+        --plan                        start in plan mode                  (NOT with -p)
         --add-dir <dir>               extra workspace directory (repeatable)
     kimi login                        device-code authentication
 
+The "NOT with -p" column is `validateOptions`, which exits 1 with `Cannot combine --prompt with
+--auto.` (or `--yolo`, `--plan`) before any model is called. A pin bump reads it again first:
+`tests/test_kimi_flags_are_a_combination_the_cli_accepts.py` holds that table as data.
+
 TWO DIFFERENCES FROM CODEX THAT SHAPE THIS ADAPTER
 
-1. `--auto`, not `-y`. In a headless job there is nobody to answer a question, and `-y/--yolo`'s
-   own help says the agent "may still ask questions" — a run that stops to ask is a run that
-   burns its budget and returns nothing. `--auto` is the only flag whose contract is "will not
-   ask". This codebase already paid for that lesson once with Claude, where an approval-gated
-   headless run silently denied every `pytest` the agent tried and killed its own TDD loop.
+1. No permission flag at all, because prompt mode IS auto. In a headless job there is nobody to
+   answer a question, and a run that stops to ask burns its budget and returns nothing — this
+   codebase paid for that once with Claude, where an approval-gated headless run silently denied
+   every `pytest` the agent tried. Up to 0.29.1 `--auto` bought "will not ask"; 0.31.1 refuses it
+   beside `-p` and gives it by construction instead: a new session is put in `setMode("auto")`,
+   a resumed one (`-S`) gets `forceAuto`. So the command carries neither `--auto` nor `-y`, and
+   the full-access and resumed runs keep the mode they need from prompt mode itself (#362).
 
-2. There is NO sandbox-policy flag. Codex has `-s read-only`, which makes its planner genuinely
-   INCAPABLE of editing. Kimi has only `--plan` (a mode). So the plan stage here is read-only by
-   MODE AND INSTRUCTION, not by enforcement — a weaker guarantee, stated rather than papered over.
-   The isolation that does hold is the sandbox the platform already puts around it: an ephemeral,
-   credential-less Fargate box (ADR-0001 D-4). It cannot escape the box; it could in principle
-   edit inside it during a plan.
+2. There is NO sandbox-policy flag, and in prompt mode no plan mode either. Codex has
+   `-s read-only`, which makes its planner genuinely INCAPABLE of editing. Kimi had only `--plan`
+   (a mode), and 0.31.1 refuses it beside `-p`; the only other way in, `defaultPlanMode` in
+   `config.toml`, is account-wide rather than per run. So the plan stage and `ask` here are
+   read-only by INSTRUCTION ONLY, not by mode and not by enforcement — the weakest guarantee of
+   the shipped rows, stated rather than papered over. The isolation that does hold is the sandbox
+   the platform already puts around it: an ephemeral, credential-less Fargate box (ADR-0001 D-4).
+   It cannot escape the box; it could edit inside it during a plan, and no such edit outlives the
+   run, whose output is text.
 
    There is also no `--cd`: the working directory is the process's, which is exactly what the
    platform's sandbox already sets (`sandbox.run(workspace=…)` runs in the workspace). Nothing to
    pass, nothing to get wrong.
 
 WHAT IS NOT VERIFIED — read this before trusting a number from here
-- **The `stream-json` schema is unknown.** Nobody has run this binary yet (Moonshot access is
+- **The `stream-json` schema is unknown.** Nobody has run a model through this binary yet (access is
   pending), so actions/usage/session-id parsing is a defensive best-effort over plausible shapes.
   Unknown shapes degrade to None/[] and NEVER raise. Cost is left None rather than invented.
 - **Session resume is untested.** `-S <id>` is documented, but which id and where it appears in
@@ -120,19 +130,20 @@ class KimiAdapter:
         prompt = f"{role}\n\n{ticket_brief(context)}" if role else (
             f"{PLANNER_FALLBACK}\n\n{ticket_brief(context)}")
         return self._run(sandbox, workspace, prompt, model=self.planner_model,
-                         plan_mode=True, phase="plan", project=context.ticket.repo)
+                         phase="plan", project=context.ticket.repo)
 
     def ask(
         self, *, sandbox: SandboxAdapter, workspace: Workspace, prompt: str, phase: str = "ask"
     ) -> AgentRunResult:
         """Run a READ-ONLY prompt against the checkout and return the text (see roles.py).
 
-        WEAKER than the other harnesses: Kimi exposes no sandbox-policy flag, so this is plan
-        MODE plus instruction, not enforcement. It cannot escape the platform's own ephemeral box,
-        but it could in principle edit inside it while judging."""
+        WEAKER than the other harnesses: Kimi exposes no sandbox-policy flag, and 0.31.1 refuses
+        `--plan` beside `-p`, so this is instruction only — no mode, no enforcement (#362). It
+        cannot escape the platform's own ephemeral box, but it could edit inside it while
+        judging."""
         return self._run(sandbox, workspace,
                          "Answer READ-ONLY. Do not modify any file.\n\n" + prompt,
-                         model=self.planner_model, plan_mode=True, phase=phase)
+                         model=self.planner_model, phase=phase)
 
     def execute(
         self, *, sandbox: SandboxAdapter, workspace: Workspace, context: AgentContext
@@ -168,7 +179,7 @@ class KimiAdapter:
         return self._run(sandbox, workspace, prompt, model=self.model,
                          project=context.ticket.repo)
 
-    # ---- command construction (exact, from `kimi --help`) -------------------------------------
+    # ---- command construction (exact, from kimi-code 0.31.1's option table) -------------------
 
     def smoke_command(self, *, harness: str, prompt: str) -> str:
         """The smallest real call this harness can be asked to make (#129).
@@ -177,8 +188,7 @@ class KimiAdapter:
         that actually runs — the harness binary at the path the box chose, its own flags, its own
         credential. A probe assembled by hand here would prove a command nothing issues, which is
         how #122 survived every check: `curl` reached the endpoint while the harness could not."""
-        return self._cli(prompt, harness=harness, model=self.planner_model,
-                         plan_mode=True)
+        return self._cli(prompt, harness=harness, model=self.planner_model)
 
     def smoke_reply(self, out: str) -> str:
         """What the model said to `smoke_command`, read by `_final_text` — the reading this
@@ -188,7 +198,7 @@ class KimiAdapter:
         return _final_text(_parse_jsonl(out))
 
     def _cli(
-        self, prompt: str, *, harness: str, model: str | None, plan_mode: bool = False,
+        self, prompt: str, *, harness: str, model: str | None,
         resume_session: str = "", prompt_path: str | None = None
     ) -> str:
         # `harness` is the ABSOLUTE path the box chose — never a bare name,
@@ -203,9 +213,9 @@ class KimiAdapter:
         # so the day that CLI grows a stdin or file form is a one-line change rather than a rewrite.
         head = ([BEFORE_THE_HARNESS, f"cat {shlex.quote(prompt_path)} |", harness] if prompt_path
                 else [BEFORE_THE_HARNESS, harness])
-        cmd = [*head, "--auto", "--output-format", "stream-json"]
-        if plan_mode:
-            cmd += ["--plan"]
+        # NO `--auto`, `-y` OR `--plan` (#362): 0.31.1 refuses each beside `-p` before it calls a
+        # model, and prompt mode is auto already — see the module docstring, difference 1.
+        cmd = [*head, "--output-format", "stream-json"]
         if model:
             cmd += ["-m", shlex.quote(model)]
         if resume_session:
@@ -224,7 +234,7 @@ class KimiAdapter:
 
     def _run(
         self, sandbox: SandboxAdapter, workspace: Workspace, prompt: str, *,
-        model: str | None, plan_mode: bool = False, resume_session: str = "",
+        model: str | None, resume_session: str = "",
         phase: str = "execute", project: str = "",
     ) -> AgentRunResult:
         prompt = self._localised(prompt, phase)
@@ -247,8 +257,8 @@ class KimiAdapter:
         except PromptTooLarge as exc:
             return prompt_too_large_result(exc, model=model, harness=self.name)
         command = self._cli(prompt, harness=sandbox.harness_path("kimi"),
-                            model=model, plan_mode=plan_mode,
-                            resume_session=resume_session, prompt_path=prompt_path)
+                            model=model, resume_session=resume_session,
+                            prompt_path=prompt_path)
         code, out = sandbox.run(workspace=workspace, command=command, timeout=_TIMEOUT)
         if timed_out(code, out):
             return wall_result("agent", model, self.name, out)

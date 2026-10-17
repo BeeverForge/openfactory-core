@@ -150,7 +150,7 @@ class _Box:
 @pytest.mark.parametrize("module,cls,name,kwargs", [
     ("claude_code", "ClaudeCodeAdapter", "claude", {"tools": [], "model": None}),
     ("codex", "CodexAdapter", "codex", {"model": None, "sandbox_mode": "workspace-write"}),
-    ("kimi", "KimiAdapter", "kimi", {"model": None, "plan_mode": False}),
+    ("kimi", "KimiAdapter", "kimi", {"model": None}),
 ])
 def test_the_command_starts_with_the_path_the_box_gave_it(module, cls, name, kwargs):
     """Behavioural, at the end of the chain — the assertion my first attempt got wrong by inventing

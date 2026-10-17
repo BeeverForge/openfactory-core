@@ -342,17 +342,19 @@ def test_codex_declares_the_capabilities_it_does_not_have():
 
 # ── the Kimi adapter: verified command shape, UNVERIFIED stream ──────────────────────────────────
 
-def test_kimi_uses_auto_not_yolo():
-    """`-y/--yolo`'s own help says the agent "may still ask questions". In a headless job there
-    is nobody to answer, and a run that stops to ask burns its budget and returns nothing. Only
-    `--auto` promises it will not ask."""
+def test_kimi_prompt_mode_asks_no_permission_flag():
+    """In a headless job there is nobody to answer, so the run must not ask — and kimi-code
+    0.31.1's prompt mode is auto by construction, while it REFUSES `--auto`, `--yolo` and
+    `--plan` beside `-p` (#362; the whole option table is held in
+    `test_kimi_flags_are_a_combination_the_cli_accepts.py`)."""
     from openfactory.adapters.agent.kimi import KimiAdapter
 
     sb = _FakeSandbox(run_out="done")
     KimiAdapter(model="k3").execute(sandbox=sb, workspace=_ws(), context=_ctx())
     cmd = sb.commands[0]
-    assert "--auto" in cmd
-    assert "--yolo" not in cmd and " -y " not in cmd
+    flags = cmd.split(" -p ", 1)[0]
+    assert "--auto" not in flags and "--plan" not in flags
+    assert "--yolo" not in flags and " -y " not in flags
     assert "--output-format stream-json" in cmd
     assert "-m k3" in cmd and "-p " in cmd
 
@@ -402,15 +404,17 @@ def test_kimi_degrades_to_the_fixed_sentence_when_no_role_file_resolves(monkeypa
     assert "You are the **planner**" not in sb.commands[0]
 
 
-def test_kimi_plan_mode_is_a_MODE_not_an_enforced_policy():
-    """Unlike Codex's `-s read-only`, Kimi exposes no sandbox policy — so this is the weaker
-    guarantee, and the test says so rather than implying parity."""
+def test_kimi_plan_is_read_only_by_INSTRUCTION_only():
+    """Unlike Codex's `-s read-only`, Kimi exposes no sandbox policy, and 0.31.1 refuses `--plan`
+    beside `-p` (#362) — so this is the weakest guarantee of the rows, and the test says so
+    rather than implying parity: the planner is told, not made, to stay read-only."""
     from openfactory.adapters.agent.kimi import KimiAdapter
 
     sb = _FakeSandbox(run_out="the plan")
     KimiAdapter().plan(sandbox=sb, workspace=_ws(), context=_ctx())
     cmd = sb.commands[0]
-    assert "--plan" in cmd
+    assert "--plan" not in cmd.split(" -p ", 1)[0]
+    assert "You are the **planner**" in cmd
     # ONLY THE FLAGS, NOT THE PROMPT: `org_defaults/roles/planner.md` now reaches this command
     # (role_prompt lands its consumer here too), and its own prose legitimately says
     # "read-only access" — checking the whole command would false-positive on that text instead
