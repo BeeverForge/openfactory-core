@@ -68,10 +68,19 @@ each harness implements it once in whatever way its CLI makes read-only real:
 |---|---|---|
 | `claude_code` | `--tools Read,Grep,Glob` + explicit deny of the mutating set | enforced (twice) |
 | `codex` | `-s read-only` | enforced — a sandbox **policy** |
-| `kimi` | `--plan` | **weaker** — a mode plus instruction, not enforcement |
+| `kimi` | instruction only | **weakest** — no mode; enforcement through `--agent-file` is reachable and not used yet (#785) |
 
 Kimi's row is stated rather than papered over. It cannot escape the platform's own box (ADR-0001
-D-4), but it could in principle edit inside it while judging.
+D-4), but it could edit inside it while judging.
+
+**Amended (2026-10-17, #362, #783):** the row above used to name the plan flag, `--plan` — a mode
+plus instruction. `kimi-code` 0.31.1, the pinned version, refuses that flag (and `--auto`, `--yolo`)
+beside `-p` before calling a model, and its only other route into plan mode, `defaultPlanMode` in
+`config.toml`, is account-wide rather than per run — so the flag is no longer sent, and the
+instruction alone is what keeps that harness read-only. `--agent-file` with a `tools:` list is
+reachable per run and not used yet (#785): measured in the review of #783, it takes `Write` off the
+model's tool list, but its body replaces Kimi's whole system prompt and 0.31.1 refuses it beside
+`-S`, so adopting it is a design choice of its own.
 
 Everything above that primitive — the sizer, the diagnosis, the coordinator's advice, the Slack
 answer, the independent review — is **one shared implementation**. Parity by construction rather

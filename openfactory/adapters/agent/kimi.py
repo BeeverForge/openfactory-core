@@ -1,48 +1,72 @@
 """KimiAdapter — Kimi Code (Moonshot) as a coding harness.
 
-Built against the REAL `kimi --help` surface (kimi-code 0.29.1, verified 2026-07-26):
+Built against kimi-code 0.31.1 — the version `docker/worker.Dockerfile` pins — read in its
+bundle (`dist/main.mjs`) and measured against the binary on 2026-10-17 (#362):
 
     kimi -p, --prompt <prompt>        run ONE prompt non-interactively and print the response
-         --output-format text|stream-json
+         --output-format text|stream-json   (only with -p)
     -m, --model <model>               model alias (else `default_model` in config.toml)
-    -S, --session [id]                resume a session by id
-    -c, --continue                    continue the previous session for this working directory
-    -y, --yolo                        auto-approve regular tool calls; MAY STILL ASK QUESTIONS
-        --auto                        fully autonomous: the agent will NOT ask questions
-        --plan                        start in plan mode
+    -S, --session [id]                resume a session by id      (hidden aliases: -r, --resume)
+    -c, --continue                    continue the previous session (not with -S; hidden: -C)
+    -y, --yolo                        auto-approve regular tool calls     (NOT with -p)
+                                      (hidden aliases: --yes, --auto-approve)
+        --auto                        fully autonomous                    (NOT with -p, not with -y)
+        --plan                        start in plan mode                  (NOT with -p)
+        --agent <name>                a built-in agent, e.g. `explore`    (not with -S/-c)
+        --agent-file <path>           an agent file; its `tools:` list is the model's tool list
+                                      (not with --agent, not with -S/-c)
         --add-dir <dir>               extra workspace directory (repeatable)
     kimi login                        device-code authentication
 
+The "NOT with -p" column is `validateOptions`, which exits 1 with `Cannot combine --prompt with
+--auto.` (or `--yolo`, `--plan`) before any model is called. The hidden aliases are mapped by
+`createProgram` before it, so `--yes -p` is refused as `--yolo`. A pin bump reads both again
+first: `tests/test_kimi_flags_are_a_combination_the_cli_accepts.py` holds that table as data.
+
 TWO DIFFERENCES FROM CODEX THAT SHAPE THIS ADAPTER
 
-1. `--auto`, not `-y`. In a headless job there is nobody to answer a question, and `-y/--yolo`'s
-   own help says the agent "may still ask questions" — a run that stops to ask is a run that
-   burns its budget and returns nothing. `--auto` is the only flag whose contract is "will not
-   ask". This codebase already paid for that lesson once with Claude, where an approval-gated
-   headless run silently denied every `pytest` the agent tried and killed its own TDD loop.
+1. No permission flag at all, because prompt mode IS auto. In a headless job there is nobody to
+   answer a question, and a run that stops to ask burns its budget and returns nothing — this
+   codebase paid for that once with Claude, where an approval-gated headless run silently denied
+   every `pytest` the agent tried. Up to 0.29.1 `--auto` bought "will not ask"; 0.31.1 refuses it
+   beside `-p` and gives it by construction instead: a new session is put in `setMode("auto")`,
+   a resumed one (`-S`) gets `forceAuto`. So the command carries neither `--auto` nor `-y`, and
+   the full-access and resumed runs keep the mode they need from prompt mode itself (#362) —
+   observed in the review of #783: a tool call ran unattended on a new session and on a resume.
 
-2. There is NO sandbox-policy flag. Codex has `-s read-only`, which makes its planner genuinely
-   INCAPABLE of editing. Kimi has only `--plan` (a mode). So the plan stage here is read-only by
-   MODE AND INSTRUCTION, not by enforcement — a weaker guarantee, stated rather than papered over.
-   The isolation that does hold is the sandbox the platform already puts around it: an ephemeral,
-   credential-less Fargate box (ADR-0001 D-4). It cannot escape the box; it could in principle
-   edit inside it during a plan.
+2. There is NO sandbox-policy flag, and in prompt mode no plan mode either. Codex has
+   `-s read-only`, which makes its planner genuinely INCAPABLE of editing. Kimi had only `--plan`
+   (a mode), and 0.31.1 refuses it beside `-p`; the only other way in, `defaultPlanMode` in
+   `config.toml`, is account-wide rather than per run. So the plan stage and `ask` here are
+   read-only by INSTRUCTION ONLY, not by mode and not by enforcement — the weakest guarantee of
+   the shipped rows, stated rather than papered over. `--agent-file` with a `tools:` list is
+   reachable per run and not used yet (#785): measured, it removes `Write` from the model's tools,
+   but its body replaces Kimi's whole system prompt and it cannot be used with `-S`. The isolation
+   that does hold is the sandbox the platform already puts around it: an ephemeral,
+   credential-less Fargate box (ADR-0001 D-4).
+   It cannot escape the box; it could edit inside it during a plan, and no such edit outlives the
+   run, whose output is text.
 
    There is also no `--cd`: the working directory is the process's, which is exactly what the
    platform's sandbox already sets (`sandbox.run(workspace=…)` runs in the workspace). Nothing to
    pass, nothing to get wrong.
 
 WHAT IS NOT VERIFIED — read this before trusting a number from here
-- **The `stream-json` schema is unknown.** Nobody has run this binary yet (Moonshot access is
-  pending), so actions/usage/session-id parsing is a defensive best-effort over plausible shapes.
-  Unknown shapes degrade to None/[] and NEVER raise. Cost is left None rather than invented.
-- **Session resume is untested.** `-S <id>` is documented, but which id and where it appears in
-  the stream is not; if the id cannot be recovered, a resumed run starts cold — which the
+- **The `stream-json` schema is captured, usage is not.** 0.31.1 was run against a local stub in
+  the review of #783: one JSON object per line, `role` `assistant` (the reply in `content`, tool
+  calls in `tool_calls[].function.name`), `tool` (a result), and a closing `meta` line of type
+  `session.resume_hint` carrying `session_id` — whose own `content` is NOT the answer. Prompt mode
+  was observed running a tool unattended on a new session and on a `-S` resume. No token usage
+  appeared in that capture, so usage parsing stays a best-effort walk; unknown shapes degrade to
+  None/[] and NEVER raise. Cost is left None rather than invented.
+- **Session resume works from the hint's `session_id`**, against the stub. 0.31.1 refuses `-S`
+  when the session was created under another directory, so a resume must run in the workspace
+  path that created it; if the id cannot be recovered, a resumed run starts cold — which the
   orchestrator already handles.
 - **Rate-limit/auth detection is text-matched** and unverified, exactly as for Codex.
 
-The first real run is the acceptance test. Until then treat this as wired, not proven — the
-harness seam makes it one table entry, so correcting it costs a small diff, not a redesign.
+A real Moonshot answer is still the acceptance test. Until then treat this as wired, not proven —
+the harness seam makes it one table entry, so correcting it costs a small diff, not a redesign.
 """
 
 from __future__ import annotations
@@ -120,19 +144,21 @@ class KimiAdapter:
         prompt = f"{role}\n\n{ticket_brief(context)}" if role else (
             f"{PLANNER_FALLBACK}\n\n{ticket_brief(context)}")
         return self._run(sandbox, workspace, prompt, model=self.planner_model,
-                         plan_mode=True, phase="plan", project=context.ticket.repo)
+                         phase="plan", project=context.ticket.repo)
 
     def ask(
         self, *, sandbox: SandboxAdapter, workspace: Workspace, prompt: str, phase: str = "ask"
     ) -> AgentRunResult:
         """Run a READ-ONLY prompt against the checkout and return the text (see roles.py).
 
-        WEAKER than the other harnesses: Kimi exposes no sandbox-policy flag, so this is plan
-        MODE plus instruction, not enforcement. It cannot escape the platform's own ephemeral box,
-        but it could in principle edit inside it while judging."""
+        WEAKER than the other harnesses: Kimi exposes no sandbox-policy flag, and 0.31.1 refuses
+        `--plan` beside `-p`, so this is instruction only — no mode, no enforcement (#362);
+        `--agent-file` with a `tools:` list is reachable per run and not used yet (#785). It
+        cannot escape the platform's own ephemeral box, but it could edit inside it while
+        judging."""
         return self._run(sandbox, workspace,
                          "Answer READ-ONLY. Do not modify any file.\n\n" + prompt,
-                         model=self.planner_model, plan_mode=True, phase=phase)
+                         model=self.planner_model, phase=phase)
 
     def execute(
         self, *, sandbox: SandboxAdapter, workspace: Workspace, context: AgentContext
@@ -168,7 +194,7 @@ class KimiAdapter:
         return self._run(sandbox, workspace, prompt, model=self.model,
                          project=context.ticket.repo)
 
-    # ---- command construction (exact, from `kimi --help`) -------------------------------------
+    # ---- command construction (exact, from kimi-code 0.31.1's option table) -------------------
 
     def smoke_command(self, *, harness: str, prompt: str) -> str:
         """The smallest real call this harness can be asked to make (#129).
@@ -177,18 +203,16 @@ class KimiAdapter:
         that actually runs — the harness binary at the path the box chose, its own flags, its own
         credential. A probe assembled by hand here would prove a command nothing issues, which is
         how #122 survived every check: `curl` reached the endpoint while the harness could not."""
-        return self._cli(prompt, harness=harness, model=self.planner_model,
-                         plan_mode=True)
+        return self._cli(prompt, harness=harness, model=self.planner_model)
 
     def smoke_reply(self, out: str) -> str:
         """What the model said to `smoke_command`, read by `_final_text` — the reading this
-        adapter's ticket summary uses. The `stream-json` schema has never been captured (see the
-        module docstring), so this is exactly as proven as that summary is, and no more. `""`
-        when there is none."""
+        adapter's ticket summary uses: the last assistant message, never the resume hint the CLI
+        prints after it (see the module docstring). `""` when there is none."""
         return _final_text(_parse_jsonl(out))
 
     def _cli(
-        self, prompt: str, *, harness: str, model: str | None, plan_mode: bool = False,
+        self, prompt: str, *, harness: str, model: str | None,
         resume_session: str = "", prompt_path: str | None = None
     ) -> str:
         # `harness` is the ABSOLUTE path the box chose — never a bare name,
@@ -203,9 +227,9 @@ class KimiAdapter:
         # so the day that CLI grows a stdin or file form is a one-line change rather than a rewrite.
         head = ([BEFORE_THE_HARNESS, f"cat {shlex.quote(prompt_path)} |", harness] if prompt_path
                 else [BEFORE_THE_HARNESS, harness])
-        cmd = [*head, "--auto", "--output-format", "stream-json"]
-        if plan_mode:
-            cmd += ["--plan"]
+        # NO `--auto`, `-y` OR `--plan` (#362): 0.31.1 refuses each beside `-p` before it calls a
+        # model, and prompt mode is auto already — see the module docstring, difference 1.
+        cmd = [*head, "--output-format", "stream-json"]
         if model:
             cmd += ["-m", shlex.quote(model)]
         if resume_session:
@@ -224,7 +248,7 @@ class KimiAdapter:
 
     def _run(
         self, sandbox: SandboxAdapter, workspace: Workspace, prompt: str, *,
-        model: str | None, plan_mode: bool = False, resume_session: str = "",
+        model: str | None, resume_session: str = "",
         phase: str = "execute", project: str = "",
     ) -> AgentRunResult:
         prompt = self._localised(prompt, phase)
@@ -247,8 +271,8 @@ class KimiAdapter:
         except PromptTooLarge as exc:
             return prompt_too_large_result(exc, model=model, harness=self.name)
         command = self._cli(prompt, harness=sandbox.harness_path("kimi"),
-                            model=model, plan_mode=plan_mode,
-                            resume_session=resume_session, prompt_path=prompt_path)
+                            model=model, resume_session=resume_session,
+                            prompt_path=prompt_path)
         code, out = sandbox.run(workspace=workspace, command=command, timeout=_TIMEOUT)
         if timed_out(code, out):
             return wall_result("agent", model, self.name, out)
@@ -256,9 +280,10 @@ class KimiAdapter:
         events = _parse_jsonl(out)
         pause, retry_at = _pause_from(out)
         # Kimi has no --output-last-message equivalent, so the summary has to come from the
-        # stream (or, failing that, the raw tail). That is a WEAKER contract than Codex's file:
-        # if the stream schema differs from what we guess, the summary degrades to raw output
-        # rather than being wrong — the orchestrator only journals it and shows it in the PR.
+        # stream (or, failing that, the raw tail). That is a WEAKER contract than Codex's file.
+        # It reads the captured shape — the last `role: assistant` message, never the `meta`
+        # resume hint after it (review of #783) — and when no assistant line is there, it degrades
+        # to raw output; the orchestrator only journals it and shows it in the PR.
         res = AgentRunResult(
             ok=code == 0 and pause is None,
             summary=_final_text(events) or _plain_tail(out),
@@ -314,20 +339,33 @@ def _walk(obj, key: str):
 
 
 def _final_text(events: list[dict]) -> str:
-    """The assistant's last textual message, under whichever key the stream uses."""
-    texts: list[str] = []
-    for ev in events:
-        for key in ("text", "content", "message", "response"):
-            val = ev.get(key) if isinstance(ev, dict) else None
-            if isinstance(val, str) and val.strip():
-                texts.append(val.strip())
-                break
-    return texts[-1] if texts else ""
+    """The assistant's last non-blank message — and ONLY the assistant's (review of #783): 0.31.1
+    ends every prompt-mode turn with a `role: meta` `session.resume_hint` line whose `content` is
+    "To resume this session: kimi -r …", and reading the last `content` of any role handed that
+    hint to `box prove`, to every plan and to every `ask` as the model's answer."""
+    for ev in reversed(events):
+        val = ev.get("content") if ev.get("role") == "assistant" else None
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
 
 
 def _actions(events: list[dict]) -> list[str]:
+    """Each tool the model called, from `tool_calls[].function.name` — every call of a message,
+    not only its first. A `meta` line is the CLI talking, never the model: the resume hint's
+    `command` (`kimi -r …`) is not an action. Any other shape keeps the defensive walk."""
     out: list[str] = []
     for ev in events:
+        if ev.get("role") == "meta":
+            continue
+        calls = ev.get("tool_calls")
+        if isinstance(calls, list):
+            for call in calls:
+                fn = call.get("function") if isinstance(call, dict) else None
+                name = fn.get("name") if isinstance(fn, dict) else None
+                if isinstance(name, str) and name.strip():
+                    out.append(name.strip()[:200])
+            continue
         for key in ("command", "tool_name", "tool", "name"):
             val = _walk(ev, key)
             if isinstance(val, str) and val.strip():
@@ -335,7 +373,7 @@ def _actions(events: list[dict]) -> list[str]:
                 break
         if len(out) >= 200:
             break
-    return out
+    return out[:200]
 
 
 def _session_id(events: list[dict]) -> str:

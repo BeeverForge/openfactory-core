@@ -342,17 +342,19 @@ def test_codex_declares_the_capabilities_it_does_not_have():
 
 # ── the Kimi adapter: verified command shape, UNVERIFIED stream ──────────────────────────────────
 
-def test_kimi_uses_auto_not_yolo():
-    """`-y/--yolo`'s own help says the agent "may still ask questions". In a headless job there
-    is nobody to answer, and a run that stops to ask burns its budget and returns nothing. Only
-    `--auto` promises it will not ask."""
+def test_kimi_prompt_mode_asks_no_permission_flag():
+    """In a headless job there is nobody to answer, so the run must not ask — and kimi-code
+    0.31.1's prompt mode is auto by construction, while it REFUSES `--auto`, `--yolo` and
+    `--plan` beside `-p` (#362; the whole option table is held in
+    `test_kimi_flags_are_a_combination_the_cli_accepts.py`)."""
     from openfactory.adapters.agent.kimi import KimiAdapter
 
     sb = _FakeSandbox(run_out="done")
     KimiAdapter(model="k3").execute(sandbox=sb, workspace=_ws(), context=_ctx())
     cmd = sb.commands[0]
-    assert "--auto" in cmd
-    assert "--yolo" not in cmd and " -y " not in cmd
+    flags = cmd.split(" -p ", 1)[0]
+    assert "--auto" not in flags and "--plan" not in flags
+    assert "--yolo" not in flags and " -y " not in flags
     assert "--output-format stream-json" in cmd
     assert "-m k3" in cmd and "-p " in cmd
 
@@ -402,15 +404,17 @@ def test_kimi_degrades_to_the_fixed_sentence_when_no_role_file_resolves(monkeypa
     assert "You are the **planner**" not in sb.commands[0]
 
 
-def test_kimi_plan_mode_is_a_MODE_not_an_enforced_policy():
-    """Unlike Codex's `-s read-only`, Kimi exposes no sandbox policy — so this is the weaker
-    guarantee, and the test says so rather than implying parity."""
+def test_kimi_plan_is_read_only_by_INSTRUCTION_only():
+    """Unlike Codex's `-s read-only`, Kimi exposes no sandbox policy, and 0.31.1 refuses `--plan`
+    beside `-p` (#362) — so this is the weakest guarantee of the rows, and the test says so
+    rather than implying parity: the planner is told, not made, to stay read-only."""
     from openfactory.adapters.agent.kimi import KimiAdapter
 
     sb = _FakeSandbox(run_out="the plan")
     KimiAdapter().plan(sandbox=sb, workspace=_ws(), context=_ctx())
     cmd = sb.commands[0]
-    assert "--plan" in cmd
+    assert "--plan" not in cmd.split(" -p ", 1)[0]
+    assert "You are the **planner**" in cmd
     # ONLY THE FLAGS, NOT THE PROMPT: `org_defaults/roles/planner.md` now reaches this command
     # (role_prompt lands its consumer here too), and its own prose legitimately says
     # "read-only access" — checking the whole command would false-positive on that text instead
@@ -438,6 +442,53 @@ def test_kimi_degrades_to_raw_output_when_the_stream_is_unrecognized():
     assert "plain text" in res.summary
     assert res.cost_usd is None and res.input_tokens is None
     assert res.harness == "kimi"
+
+
+#: Captured from kimi-code 0.31.1 against a local stub (review of #783): a tool call, its result,
+#: the reply, then the `session.resume_hint` meta line `writeResumeHint` prints after EVERY
+#: prompt-mode turn — with a `content` of its own, which a reader of "the last content" takes for
+#: the answer.
+KIMI_REAL_STREAM = "\n".join([
+    '{"role":"assistant","content":"Looking first.","tool_calls":[{"type":"function","id":"call_1",'
+    '"function":{"name":"Glob","arguments":"{\\"pattern\\":\\"*\\"}"}}]}',
+    '{"role":"tool","tool_call_id":"call_1","content":"a.txt"}',
+    '{"role":"assistant","content":"57"}',
+    '{"role":"meta","type":"session.resume_hint","session_id":"session_c0c4",'
+    '"command":"kimi -r session_c0c4","content":"To resume this session: kimi -r session_c0c4"}',
+])
+
+
+def test_kimi_reply_is_the_assistant_s_last_message_not_the_resume_hint():
+    """`box prove` read the hint as the model's answer and was refused with the wrong remedy."""
+    from openfactory.adapters.agent.kimi import KimiAdapter
+
+    assert KimiAdapter().smoke_reply(KIMI_REAL_STREAM) == "57"
+
+
+def test_kimi_run_reads_its_answer_handle_and_actions_from_the_real_stream():
+    from openfactory.adapters.agent.kimi import KimiAdapter
+
+    sb = _FakeSandbox(run_out=KIMI_REAL_STREAM)
+    res = KimiAdapter().ask(sandbox=sb, workspace=_ws(), prompt="what is 20+37?")
+    assert res.summary == "57"
+    assert res.resume_handle == "session_c0c4"
+    assert res.actions == ["Glob"]
+
+
+def test_kimi_lists_every_tool_call_of_one_assistant_message():
+    """One assistant line can carry several calls; each is an action, not only the first."""
+    from openfactory.adapters.agent.kimi import KimiAdapter
+
+    stream = (
+        '{"role":"assistant","content":"","tool_calls":['
+        '{"type":"function","id":"c1","function":{"name":"Read","arguments":"{}"}},'
+        '{"type":"function","id":"c2","function":{"name":"Grep","arguments":"{}"}}]}\n'
+        '{"role":"assistant","content":"done"}'
+    )
+    res = KimiAdapter().execute(sandbox=_FakeSandbox(run_out=stream), workspace=_ws(),
+                                context=_ctx())
+    assert res.actions == ["Read", "Grep"]
+    assert res.summary == "done"
 
 
 def test_kimi_is_registered_but_carries_no_cost_claim():
