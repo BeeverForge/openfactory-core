@@ -73,8 +73,8 @@ each harness implements it once in whatever way its CLI makes read-only real:
 Kimi's row is stated rather than papered over. It cannot escape the platform's own box (ADR-0001
 D-4), but it could edit inside it while judging.
 
-**Amended (2026-10-17, #362):** the row above used to name the plan flag, `--plan` — a mode plus
-instruction. `kimi-code` 0.31.1, the pinned version, refuses that flag (and `--auto`, `--yolo`)
+**Amended (2026-10-17, #362, #783):** the row above used to name the plan flag, `--plan` — a mode
+plus instruction. `kimi-code` 0.31.1, the pinned version, refuses that flag (and `--auto`, `--yolo`)
 beside `-p` before calling a model, and its only other route into plan mode, `defaultPlanMode` in
 `config.toml`, is account-wide rather than per run — so the flag is no longer sent, and the
 instruction alone is what keeps that harness read-only.

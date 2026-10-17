@@ -8,8 +8,9 @@ it had been shown a truncation of.
 WHY FILES AND NOT A PROTOCOL, and this is the vendor-neutrality claim in one line: every judging
 role this platform supports is already a read-only loop with filesystem reads over the checkout —
 `claude Read,Grep,Glob`, `codex -s read-only` (a sandbox POLICY), opencode's read-only profile
-(the mutating tools removed from the model's list), kimi's read-only instruction. A fact written as a file is
-therefore a tool on ALL FOUR today, with no new flag, no dependency and no second-class deployment.
+(the mutating tools removed from the model's list), kimi's read-only instruction. A fact written
+as a file is therefore a tool on ALL FOUR today, with no new flag, no dependency and no
+second-class deployment.
 
 THE PACK IS NOT THE POINT — THE PAIR IS. A shrunk prompt is only correct when the pack landed.
 Shrinking unconditionally would leave a tech-lead answering from nothing while believing it has
