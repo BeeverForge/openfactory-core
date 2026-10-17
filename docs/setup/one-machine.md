@@ -117,7 +117,13 @@ touched by the fast-forward itself, and only when it is safe:
 - **an unrelated edit of yours** — the merge lands and your edit stays;
 - **an edit over the same lines** — the merge is refused, in git's own words, on the card. Your
   file is exactly as you left it and the pull request stays open;
-- **a base you have checked out somewhere else** — refused for the same reason, by name.
+- **a base you have checked out somewhere else** — refused for the same reason, by name;
+- **a card's branch you have out yourself** — a tree you made to review the pull request, or
+  your own checkout. Git lets a branch be out in one working tree only, so the job that continues
+  it (an adjust, a repair, a resumed attempt, a re-review) waits for you instead: the card names
+  the path and the command that frees it (`git worktree remove <path>`, or switch that checkout to
+  another branch), and `resume` checks again. Nothing the job did not create is removed, and it
+  never runs `git worktree prune` in your repository.
 
 ## What this door does not do
 

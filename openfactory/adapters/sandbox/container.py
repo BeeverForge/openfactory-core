@@ -227,6 +227,8 @@ def _materialize_workspace(*, repo_path: Path, host_clone: Path, base_branch: st
         if rc != 0:
             raise RuntimeError(f"{what} failed ({rc}): {_redact(out).strip()[:300]}")
 
+    # A clone has its own refs, so a branch a person has out in a working tree of `repo_path` does
+    # not stop it: unlike the worktree box, this one never raises `BranchHeldElsewhere` (#623).
     _must(["git", "clone", "--no-local", str(repo_path), str(host_clone)],
           f"cloning {repo_path} into the box's workspace")
     if checkout_existing:

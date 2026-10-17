@@ -115,7 +115,12 @@ class SandboxAdapter(Protocol):
         agents read that checkout and a ticket can ask one to print `.git/config`. On a private
         repository the fetch therefore failed for want of a password, and both adapters
         misreported it: the container said "couldn't find remote ref" about a branch sitting on
-        the forge, and the worktree silently started from base and force-pushed over the PR."""
+        the forge, and the worktree silently started from base and force-pushed over the PR.
+
+        IT MAY RAISE `BranchHeldElsewhere` (#623): a box that checks the branch out in the
+        repository it was given (the worktree box) refuses a branch another working tree has out,
+        naming that tree, before it writes anything. A box that clones (the container) cannot meet
+        that refusal and never raises it."""
         ...
 
     def harness_path(self, name: str) -> str:
