@@ -22,23 +22,11 @@ import pytest
 
 from openfactory import preview
 from openfactory.adapters.preview import compose
-from tests.one_live_preview import one_at_a_time
+from tests import one_live_preview
+from tests.one_live_preview import _docker_and_compose, explained, one_at_a_time
 
 FIXTURE = Path(__file__).parent / "fixtures" / "preview" / "s1" / "tree"
 PLANTED = "PLANTED-factory-secret-9031"
-
-
-def _docker_and_compose() -> bool:
-    if not shutil.which("docker"):
-        return False
-    try:
-        daemon = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"],
-                                capture_output=True, timeout=20)
-        plugin = subprocess.run(["docker", "compose", "version", "--short"], capture_output=True,
-                                timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return daemon.returncode == 0 and plugin.returncode == 0
 
 
 pytestmark = [
@@ -51,9 +39,14 @@ pytestmark = [
 ]
 
 
+#: the session's build probe, here for pytest to find (`one_live_preview`)
+s1_product_builds = one_live_preview.s1_product_builds
+
+
 @pytest.fixture(autouse=True)
-def _the_daemon_is_taken_in_turns():
-    """The live preview tests share `openfactory-pv-acme-12` on one daemon (`one_live_preview`)."""
+def _the_daemon_is_taken_in_turns(s1_product_builds):
+    """The live preview tests share `openfactory-pv-acme-12` on one daemon (`one_live_preview`),
+    and run only where S1 can be built (`s1_product_builds`, asked before the lock is taken)."""
     with one_at_a_time():
         yield
 
@@ -125,7 +118,7 @@ def test_the_s1_product_comes_up_through_prove_with_nothing_of_the_factory_in_it
 
     result = compose.prove_project(project, runtime)
 
-    assert result.ok, f"{result.why}\n{Path(result.log_dir, 'build.log').read_text()[-2000:]}"
+    assert result.ok, explained(result.why, result.log_dir)
     assert result.health == {"web": "started", "api": "healthy"}
     assert "postgres" in result.images["db"]
     assert "migrate=Exited (0)" in seen["states"], (

@@ -30,7 +30,7 @@ from openfactory import preview
 from openfactory.adapters.preview import compose
 from openfactory.adapters.preview.base import refusals
 from openfactory.adapters.preview.compose import Ran
-from tests.test_a_preview_runs_on_a_real_daemon import _docker_and_compose
+from tests.one_live_preview import _docker_and_compose
 from tests.test_the_compose_row_runs_what_was_admitted import Daemon, _runtime
 from tests.test_the_shape_is_read_and_admitted import (
     S1_CFG,

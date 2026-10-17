@@ -341,7 +341,9 @@ will; there is nothing to pause on.)
 
 **`box_proof` is the check that decides whether work is picked up at all**, and it asks the
 poller's own question rather than a second version of it: whatever it says here is exactly what
-would hold a card in the pickup column.
+would hold a card in the pickup column. It says the commands ran green when the proof was taken,
+not that they still do: a suite that has gone red since fails in the job's gate, and
+`openfactory box prove` again is how to find out first.
 
 ---
 
