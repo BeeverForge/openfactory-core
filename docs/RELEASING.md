@@ -146,7 +146,10 @@ release/0.5          ●───●─────●────●───�
   `docs/reference/openapi.json` carries the version as `info.version`, so a bump that leaves it
   behind fails `test_the_committed_document_is_the_one_the_app_generates`. Write it again with
   `python -m openfactory.api.openapi` — the command that test prints — after editing the version
-  line: the next development version, a candidate's and a final's alike.
+  line: the next development version, a candidate's and a final's alike. Write it from an
+  environment `make install` built: `constraints.txt` pins the fastapi and pydantic the document is
+  generated with, so the release manager's venv cannot decide what is committed. Bumping either pin
+  is a pull request of its own that writes the document again.
 - **The final release is tagged on the commit the last candidate was verified on**, plus the one
   commit that declares the final version and assembles its notes. Nothing else changes between the
   last candidate and the release: what everybody installs is what was tested.

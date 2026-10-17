@@ -89,7 +89,8 @@ def test_the_committed_document_is_the_one_the_app_generates():
     committed = COMMITTED.read_text(encoding="utf-8") if COMMITTED.exists() else ""
     assert committed == render(), (
         f"{COMMITTED.relative_to(ROOT)} is not what the app generates. "
-        f"Write it again with:\n\n    {COMMAND}\n")
+        f"Install the pinned fastapi and pydantic (`make install` applies constraints.txt), "
+        f"then write it again with:\n\n    {COMMAND}\n")
 
 
 def test_the_document_does_not_carry_the_deployments_name(monkeypatch):
