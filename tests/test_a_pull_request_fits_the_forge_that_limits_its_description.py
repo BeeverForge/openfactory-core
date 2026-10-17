@@ -174,14 +174,14 @@ def test_the_oldest_pass_lines_go_first_and_are_counted():
 
 
 def test_the_executors_account_is_cut_only_after_the_older_passes_are_gone():
-    message = "the root cause was the cache key. " * 59  # about 2000 characters, no emoji
-    message = message[:1990]
+    message = ("the root cause was the cache key. " * 59)[:1990]  # no emoji
     # case A: shedding older passes is enough — the account stands whole
-    fits = _body(_Limited(), _result(message))
+    shorter = message[:1400]
+    fits = _body(_Limited(), _result(shorter))
     assert MEASURE(fits) <= LIMIT
     assert len(_pass_rows(fits)) < 12, "nothing was shed — this case measures nothing"
     assert _cut_line(fits) is None, "the account was cut while older passes could still go"
-    assert _quote(fits) == [f"> {message}"]
+    assert _quote(fits) == [f"> {shorter}"]
 
     # case B: even one pass does not fit — exactly the newest remains, and the account is cut
     long = _card82(objective="The level reload flickers. " * 70)
@@ -260,8 +260,11 @@ def test_a_body_too_long_without_the_account_is_said_by_name(caplog):
 
     section = _rows_of(body)
     section = section[:next(i for i, r in enumerate(section) if r.startswith(_COST_LINE))]
+    # heading, claim, cut line, and the newest pass under its label and the count of the rest
     assert [r for r in section if r.strip()] == [
-        section[0], section[1], _cut_line(body), _pass_rows(body)[0]], section
+        section[0], section[1], _cut_line(body), section[section.index(_cut_line(body)) + 2],
+        "11 earlier passes are not shown.", _pass_rows(body)[0]], section
+    assert "first 0 are shown" in _cut_line(body)
     assert NEWEST in _pass_rows(body)[0]
     assert any("OPENFACTORY_PR_BODY_OVER_LIMIT" in r.getMessage() for r in caplog.records)
     assert MEASURE(body) > LIMIT, "the machine cut the objective — that is the adapter's backstop"

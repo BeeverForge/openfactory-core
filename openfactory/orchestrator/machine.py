@@ -12,6 +12,7 @@ import logging
 import re
 import shlex
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from openfactory.adapters.agent.base import (
     final_text,
     takes_instruction,
 )
-from openfactory.adapters.forge.base import ForgeAdapter
+from openfactory.adapters.forge.base import ForgeAdapter, description_ceiling
 from openfactory.adapters.forge.base import display_name as forge_display_name
 from openfactory.adapters.notify.base import Level, NullNotifier
 from openfactory.adapters.notify.base import Notifier as NotifierT
@@ -597,8 +598,6 @@ def _account_lines(account: _Account, *, room: int = AGENT_ACCOUNT_MAX) -> list[
         out += kept
         shown = _quote_chars(kept)
         if shown < account.total:
-            log.info("the agent's account is %d characters and %d fit the pull request — the rest "
-                     "is cut, and the body says so", account.total, shown)
             out += [*([""] if kept else []),
                     f"The agent's message was {account.total} characters; the first {shown} are "
                     f"shown."]
@@ -682,6 +681,66 @@ def _with_passes(rows: list[str], passes: list[PassAccount]) -> list[str]:
         section = ["", *section, *([""] if end < len(rows) else [])]
         return rows[:start] + section + rows[end:]
     return rows[:start] + section + rows[end:]
+
+
+def _fit_to_forge(before: list[str], account: _Account, after: list[str],
+                  ceiling: tuple[int, Callable[[str], int]] | None) -> list[str]:
+    """`before` + the section + `after`, fitted to the forge's declared description limit — the ONE
+    place the order in which the section gives way is written (#627, decision 5).
+
+    Azure Repos refuses over 4,000 UTF-16 units, and its adapter's last-resort cut is from the end:
+    the `Cost:` line first, then the newest pass, then the review. So, on a forge that declares a
+    limit (`description_ceiling`), measured in ITS unit:
+      (a) the oldest pass lines go first, one at a time, each folded into the count of earlier
+          passes, until the body fits or only the newest is left;
+      (b) then the executor's quoted block is cut from its end, its cut line saying how much is
+          shown, down to nothing but the cut line if it must.
+    What `before` and `after` hold — the review, the `Cost:` line — always survives. Where they
+    alone are over the limit, the section is cut to its heading, claim, cut line and newest pass,
+    the warning names it, and the adapter's own cut stays the backstop: cutting the objective is
+    not this function's to do. A forge that declares nothing has no limit, and every decided line
+    stands."""
+    def composed(acct: _Account, room: int = AGENT_ACCOUNT_MAX) -> list[str]:
+        return [*before, *_account_lines(acct, room=room), *after]
+
+    rows = composed(account)
+    if ceiling is not None:
+        limit, measure = ceiling
+
+        def fits(r: list[str]) -> bool:
+            return measure("\n".join(r)) <= limit
+
+        if not fits(rows):
+            acct = _Account(quote=account.quote, total=account.total,
+                            passes=account.passes[-AGENT_PASSES_SHOWN:],
+                            earlier=account.earlier + max(0, len(account.passes)
+                                                          - AGENT_PASSES_SHOWN))
+            while len(acct.passes) > 1 and not fits(rows):
+                acct.passes, acct.earlier = acct.passes[1:], acct.earlier + 1
+                rows = composed(acct)
+            if not fits(rows):
+                rows = composed(acct, 0)
+                if not fits(rows):
+                    log.warning(
+                        "OPENFACTORY_PR_BODY_OVER_LIMIT the pull request's description is %d of "
+                        "the %d its forge accepts even with the agent's account cut to its "
+                        "heading and newest pass — the objective, the gates and the review alone "
+                        "are too long, and the forge's own cut decides the rest",
+                        measure("\n".join(rows)), limit)
+                else:  # the longest block that fits: the bisection only keeps a room it measured
+                    lo, hi = 0, AGENT_ACCOUNT_MAX
+                    while lo < hi:
+                        mid = (lo + hi + 1) // 2
+                        if fits(composed(acct, mid)):
+                            lo = mid
+                        else:
+                            hi = mid - 1
+                    rows = composed(acct, lo)
+    cut = next((m for m in map(_CUT.match, rows) if m), None)
+    if cut:  # a bound hit is logged
+        log.info("the agent's account is %s characters and %s fit the pull request — the rest is "
+                 "cut, and the body says so", cut.group(1), cut.group(2))
+    return rows
 
 
 def _measured_from(ws: Workspace, base: str) -> str:
@@ -3637,6 +3696,16 @@ class JobRunner:
                 stood = None
             if stood is not None:
                 rows[cost_at] = f"{_COST_LINE}{stood + owed:.4f}"
+        # FITTED IN THE SAME WRITE (#627, decision 5): a pass line, a fresh review or a grown cost
+        # can carry a body that fit past its forge's limit, and the adapter's cut from the end
+        # would take the `Cost:` line first. The executor's rows are re-cut from their end only
+        # when the older pass lines are already gone.
+        ceiling = description_ceiling(self.forge)
+        if ceiling is not None and ceiling[1]("\n".join(rows)) > ceiling[0]:
+            read = _read_account(rows)
+            if read is not None:
+                start, end, account = read
+                rows = _fit_to_forge(rows[:start], account, rows[end:], ceiling)
         updated = "\n".join(rows)
         if updated == body:
             return False
@@ -3817,10 +3886,12 @@ class JobRunner:
         # `Touched components:` + `risk:` + `Cost` came back as review + `Cost`) — so this heading
         # also ends the review's span, and a dated review never stamps the agent's account `was:`.
         # Read from `result` only, never `self`: stub holders build this body.
-        lines += ["", *_account_lines(_account_of(result))]
-        if result.total_cost_usd is not None:
-            lines += ["", f"{_COST_LINE}{result.total_cost_usd:.4f}"]
-        return "\n".join(lines)
+        # And on a forge that limits a description, fitted to it by giving up the oldest of the
+        # section's rows first (`_fit_to_forge`); a holder with no forge declares no limit.
+        cost = ["", f"{_COST_LINE}{result.total_cost_usd:.4f}"] \
+            if result.total_cost_usd is not None else []
+        return "\n".join(_fit_to_forge([*lines, ""], _account_of(result), cost,
+                                        description_ceiling(getattr(self, "forge", None))))
 
 
 # THE PUBLIC ENTRIES HAND THEIR OUTCOMES BACK (ADR-0055 D7, #414): each call's result carries what
