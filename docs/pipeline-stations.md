@@ -99,10 +99,24 @@ in only when a flag is raised.
 - `approved` **+** every criterion executed by a gate **+** green gates **+** policy allows →
   cleared for auto-merge.
 
+**A criterion that asks for a written answer** ("say which root causes you found") is answered in
+the implementing agent's final message, which the reviewer is never shown. Every reviewer is told
+so: such a criterion is `unknown`, like anything no gate executed (#447), never `failed` because the
+diff lacks the answer — so the card reads NOT VERIFIED, and the person at the merge reads the answer
+in the pull request, under `## What the agent says it did` (#627).
+
 ### 7. PR — open the pull request
 Opens the PR as the bot (idempotent — a re-run reuses the same PR, never a duplicate). The
 reviewer's verdict is posted on it. From here the merge posture decides: **auto-merge** (when
 policy = auto and it's safe) or **hand to humans** (request reviewers + comment the ticket).
+
+The body ends, before its `Cost:` line, with **`## What the agent says it did`**: the executor's
+whole final message, quoted and labelled as its claim — no gate checked it and the reviewer was
+not shown it — bounded at 2,000 characters with a line saying when it was cut. Each later pass that
+pushes (a recovery, a gate, suppression or review repair, an adjust, a CI repair) adds one line
+beneath it: its kind, the commit it pushed, and its own words cut at 200 characters; the latest
+ten are listed and the rest counted. On a forge that limits a description's length (Azure Repos),
+the oldest of those lines give way first, so the cost, the review and the newest pass remain.
 
 ---
 

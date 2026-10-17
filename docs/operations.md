@@ -65,7 +65,8 @@ Maps 1:1 to the `JobState` machine. `openfactory run <project> <issue>` drives:
 7. **REVIEWING** (optional) — the **reviewer** role, read-only, gets only
    spec+diff+validations → a structured verdict.
 8. **push + PR_OPEN** — host pushes the branch and opens the PR (`gh pr create`);
-   the PR body carries the validations, the review, touched components, and cost.
+   the PR body carries the validations, the review, touched components, and cost, and, last,
+   the implementing agent's own account quoted as its claim, with one line for each later pass.
    The issue is labelled `openfactory:pr_open`.
 
 Beyond the PR (D-12 — **built**): merge→staging, tag→prod, observe, notify. It is

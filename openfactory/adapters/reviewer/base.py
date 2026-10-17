@@ -6,6 +6,11 @@ job is to find evidence the solution is wrong or incomplete and emit structured
 findings, so the human reads a report instead of the raw diff. Same engine as the
 executor (Claude), different role — so it is its own adapter, not a method on the
 coding agent.
+
+What the implementing agent SAYS it did goes on the pull request, for the person deciding — never
+here (#627, D-5): `ReviewInput` carries no field for it, and a criterion that asks for a written
+answer is left `unknown` for that person by `WRITTEN_ANSWER_RULE` (D-11: the platform does not
+believe the agent).
 """
 
 from __future__ import annotations
@@ -54,7 +59,9 @@ ACCEPTANCE_SHAPE = ('  "acceptance": [{"criterion": str, "status": "passed"|"fai
 
 class ReviewInput(BaseModel):
     ticket: Ticket
-    diff: str  # the code change, as text — the reviewer never sees how it was made
+    # the code change, as text — the reviewer never sees how it was made, nor what the agent says
+    # it did: that is the pull request's, for the person (#627)
+    diff: str
     validations: list[ValidationResult] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)  # ADRs it must check against
 
