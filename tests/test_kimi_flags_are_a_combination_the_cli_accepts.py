@@ -30,11 +30,22 @@ from openfactory.adapters.agent.kimi import BEFORE_THE_HARNESS, KimiAdapter
 #: The version whose `validateOptions` the refusals below were read from.
 PINNED = "0.31.1"
 
-#: Flags `validateOptions` refuses beside `-p, --prompt` (0.31.1).
-REFUSED_WITH_PROMPT = {"--yolo", "-y", "--auto", "--plan"}
+#: Flags `validateOptions` refuses beside `-p, --prompt` (0.31.1). `--yes` and `--auto-approve`
+#: are hidden aliases `createProgram` maps to `yolo` before `validateOptions` sees them.
+REFUSED_WITH_PROMPT = {"--yolo", "-y", "--yes", "--auto-approve", "--auto", "--plan"}
+
+_YOLO = {"--yolo", "-y", "--yes", "--auto-approve"}
+#: `-r`/`--resume` are hidden aliases of `--session`, and `-C` of `--continue` (0.31.1).
+_SESSION = {"--session", "-S", "-r", "--resume"}
+_CONTINUE = {"--continue", "-c", "-C"}
 
 #: Pairs it refuses whatever the mode (0.31.1).
-REFUSED_TOGETHER = [({"--yolo", "-y"}, {"--auto"}), ({"--continue", "-c"}, {"--session", "-S"})]
+REFUSED_TOGETHER = [
+    (_YOLO, {"--auto"}),
+    (_CONTINUE, _SESSION),
+    ({"--agent"}, {"--agent-file"}),
+    ({"--agent", "--agent-file"}, _SESSION | _CONTINUE),
+]
 
 HARNESS = "/opt/openfactory-toolbox/kimi"
 
@@ -97,8 +108,8 @@ def _argv(command: str) -> list[str]:
 
 def _options(argv: list[str]) -> list[str]:
     """The flags alone: each option's value (the prompt's text among them) is skipped."""
-    takes_a_value = {"-p", "--prompt", "-m", "--model", "-S", "--session", "--output-format",
-                     "--add-dir"}
+    takes_a_value = {"-p", "--prompt", "-m", "--model", "-S", "--session", "-r", "--resume",
+                     "--output-format", "--add-dir", "--agent", "--agent-file"}
     flags, values = [], iter(argv)
     for token in values:
         flags.append(token)
