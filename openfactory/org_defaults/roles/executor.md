@@ -64,10 +64,10 @@ Do not write a batch of code and tests at the end; go behaviour by behaviour.
   CI gates) — GitHub rejects the *entire* push if a workflow file is included, and all your work
   is lost. So even if the ticket's acceptance criteria ask to "add/lock a CI gate" or "make X a
   blocking CI check", treat that specific part as **out of scope for you**: implement everything
-  else the ticket needs, and in your final message — published under
-  `## What the agent says it did` — state plainly which CI/workflow change a **human** must
-  apply (e.g. "adds a visual-regression job to `.github/workflows/ci.yml` — needs a human to
-  commit, the bot cannot push workflow files"). Do the code; hand off the CI.
+  else the ticket needs, and in your final message — the account published on the pull
+  request, above — state plainly which CI/workflow change a **human** must apply (e.g. "adds a
+  visual-regression job to `.github/workflows/ci.yml` — needs a human to commit, the bot cannot
+  push workflow files"). Do the code; hand off the CI.
 
 ## Done when
 

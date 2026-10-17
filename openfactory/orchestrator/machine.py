@@ -652,7 +652,8 @@ def _with_passes(rows: list[str], passes: list[PassAccount]) -> list[str]:
     before it existed.
 
     A pass is `(kind, head)`: the same pass republished twice adds its line once. Lines beyond
-    `AGENT_PASSES_SHOWN` roll into the count of earlier passes, which accumulates. The executor's
+    `AGENT_PASSES_SHOWN` roll into the count of earlier passes as `_account_lines` renders them,
+    and the count is read back and accumulates. The executor's
     rows are re-rendered from what they say, by the one writer, so they come back byte for byte."""
     read = _read_account(rows)
     if read is None:
@@ -673,13 +674,9 @@ def _with_passes(rows: list[str], passes: list[PassAccount]) -> list[str]:
     if not new:
         return rows
     account.passes += new
-    if len(account.passes) > AGENT_PASSES_SHOWN:
-        account.earlier += len(account.passes) - AGENT_PASSES_SHOWN
-        account.passes = account.passes[-AGENT_PASSES_SHOWN:]
     section = _account_lines(account)
     if read is None:  # its own blank rows around it, as `_pr_body` writes it
         section = ["", *section, *([""] if end < len(rows) else [])]
-        return rows[:start] + section + rows[end:]
     return rows[:start] + section + rows[end:]
 
 

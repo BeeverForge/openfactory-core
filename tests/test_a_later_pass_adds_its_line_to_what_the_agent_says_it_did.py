@@ -65,6 +65,8 @@ class _Says:
         said = self.words[min(self.passes, len(self.words)) - 1]
         if said.startswith("WRITE "):  # the pass that makes the gate green
             (workspace.path / said.split()[1]).write_text("ok\n")
+        if said.startswith("CLEAN "):  # the pass that makes a suppressed line testable
+            (workspace.path / said.split()[1]).write_text("VALUE = 1\n")
         return AgentRunResult(ok=True, summary=said, cost_usd=0.01)
 
 
@@ -192,11 +194,18 @@ def test_a_pass_that_pushed_nothing_adds_no_line(repo: Path, tmp_path: Path):
     held.repair_ci("#9", "make it blue", pr_url=PR, human=True)
     assert _rows(forge.opened["body"]) == _rows(original), "a held adjust added a line"
 
+    # and a pass that pushed nothing but was re-reviewed rewrites the review, never a pass line
+    read, forge = _runner(repo, tmp_path / "read", card_says._Idle(),
+                          reviewer=card_says._Reviewer(), body=original)
+    read.repair_ci("#9", "CI failed", pr_url=PR)
+    assert card_says.APPROVED.summary in forge.opened["body"], "no re-review — wrong case"
+    assert not _pass_rows(forge.opened["body"]), "a pass that pushed nothing added a line"
+
 
 def test_every_later_pass_of_the_first_run_has_its_line_in_order(repo: Path, tmp_path: Path):
     class _Stops(_Says):
         def execute(self, *, sandbox, workspace, context) -> AgentRunResult:
-            (workspace.path / "feature.py").write_text("VALUE = 1\n")
+            (workspace.path / "feature.py").write_text("VALUE = 1  # pragma: no cover\n")
             return AgentRunResult(ok=False, summary="ran out of turns")
 
     class _RejectsOnce:
@@ -211,7 +220,7 @@ def test_every_later_pass_of_the_first_run_has_its_line_in_order(repo: Path, tmp
             return card_says.APPROVED
 
     agent = _Stops("RECOVERED: finished it", "WRITE gate_ok.txt — the gate is green",
-                   "REVIEWED: named it")
+                   "CLEAN feature.py — the pragma is gone", "REVIEWED: named it")
     manifest = Manifest(validate={"test": "test -f gate_ok.txt"}, review_mode="blocking")
     runner = spine._runner(repo, spine.FakeTracker(spine._sizing_ticket_id("#9")), manifest,
                            tmp_path, agent=agent, reviewer=_RejectsOnce())
@@ -219,7 +228,8 @@ def test_every_later_pass_of_the_first_run_has_its_line_in_order(repo: Path, tmp
 
     assert runner.forge.opened, "no pull request was opened — this guard is measuring nothing"
     kinds = [r.split(" · ")[0].split(" — ")[0][4:] for r in _pass_rows(runner.forge.opened["body"])]
-    assert kinds == ["recovery 1", "gate repair 1", "review repair 1"], kinds
+    assert kinds == ["recovery 1", "gate repair 1", "suppression repair 1", "review repair 1"], (
+        kinds)
 
 
 def test_each_gate_repair_after_an_adjust_has_its_line(repo: Path, tmp_path: Path):

@@ -22,8 +22,10 @@ POLICY = "openfactory/orchestrator/merge_policy.py"
 MUTATIONS = [
     # ── the section reaches the body, in its place ─────────────────────────────────────────────
     ("the body carries no account of what the agent did", MACHINE,
-     '        lines += ["", *_account_lines(_account_of(result))]\n',
-     "        pass\n"),
+     # re-pinned after the fitting (decision 5) moved the section into `_fit_to_forge`
+     '        return "\\n".join(_fit_to_forge([*lines, ""], _account_of(result), cost,\n'
+     '                                        description_ceiling(getattr(self, "forge", None))))\n',
+     '        return "\\n".join([*lines, *cost])\n'),
     ("the account is written before the review", MACHINE,
      '        if result.review is not None:\n            lines += ["", *_review_lines(result.review)]\n',
      '        lines += ["", *_account_lines(_account_of(result))]\n'
