@@ -345,3 +345,34 @@ def test_an_empty_parent_section_is_not_carried_as_an_empty_heading(board):
     for kid in kids:
         assert "### Housekeeping" in kid.raw.splitlines()
         assert "### Scope" not in kid.raw.splitlines(), kid.raw
+
+
+# ── re-review of a3558546: what the no-room branch and the fence rules promise ──────────────────
+
+def test_a_child_with_no_room_to_carry_is_the_child_main_wrote_and_says_so(caplog):
+    """Not only within the limit: EXACTLY main's body — the "Auto-split from" line included — and
+    the cut logged, as the branch's comment says."""
+    child = {"title": "f", "objective": "o", "criteria": ["c"]}
+    bare = acts._child_body(child, "#1", 1, 2)
+    with caplog.at_level(logging.WARNING):
+        body = acts._child_body(child, "#1", 1, 2, carried=("", [("Scope", "word " * 200)]),
+                                limit=len(bare) + 100, parent_url="u", title="T")
+    assert body == bare, body
+    assert any("OPENFACTORY_SPLIT_CARRIED_CUT T — kept 0 of" in r.getMessage()
+               for r in caplog.records)
+
+
+@pytest.mark.parametrize(("text", "closer"), [
+    ("```\n``` not a closer\n" + "x\n" * 50, "```"),   # a fence line with text after it is content
+    ("  ```\n" + "x\n" * 50, "```"),                    # up to three spaces of indent still opens
+], ids=["closer-with-trailing-text", "indented-opener"])
+def test_what_commonmark_reads_as_a_fence_is_what_the_cut_closes(text, closer):
+    kept = acts._markdown_within(text, 20)
+    assert len(kept) <= 20 and kept.splitlines()[-1] == closer, kept
+
+
+def test_four_spaces_of_indent_is_not_a_fence_and_is_not_closed():
+    """Four spaces make an indented code block, not a fence: closing it would add a stray fence
+    that opens one below the cut."""
+    kept = acts._markdown_within("    ```\n" + "x\n" * 50, 20)
+    assert not kept.endswith("```"), kept

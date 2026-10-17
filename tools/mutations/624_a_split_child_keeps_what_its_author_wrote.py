@@ -129,4 +129,27 @@ MUTATIONS = [
     ("the cut is not logged", ACT,
      '        "OPENFACTORY_SPLIT_CARRIED_CUT %s — kept %d of %d characters',
      '        "SPLIT_CARRIED %s — kept %d of %d characters'),
+
+    # ── what the no-room branch and the fence rules promise (re-review of a3558546) ──────────────
+    ("a child with no room to carry loses its Auto-split line", ACT,
+     "        return own + tail\n    kept = _markdown_within(block, budget)",
+     "        return own\n    kept = _markdown_within(block, budget)"),
+
+    ("a child with no room to carry is cut without a word in the log", ACT,
+     '            "OPENFACTORY_SPLIT_CARRIED_CUT %s — kept 0 of %d characters',
+     '            "SPLIT_CARRIED %s — kept 0 of %d characters'),
+
+    ("a fence line with text after it closes the fence", ACT,
+     "        elif marker[0] == opener[0] and len(marker) >= len(opener) and not rest.strip():",
+     "        elif marker[0] == opener[0] and len(marker) >= len(opener):"),
+
+    ("an indented fence is not read as one", ACT,
+     'found = _re_module.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)',
+     'found = _re_module.match(r"(`{3,}|~{3,})(.*)$", line)'),
+
+    ("four spaces of indented code are read as a fence", ACT,
+     'found = _re_module.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)',
+     'found = _re_module.match(r"\\s*(`{3,}|~{3,})(.*)$", line)'),
+    # NOT A CUT: `budget <= 0` → `budget < 0` is an equivalent mutant — at a budget of 0
+    # `_markdown_within` keeps "" and the body is exactly `limit` characters (re-review of a3558546)
 ]
