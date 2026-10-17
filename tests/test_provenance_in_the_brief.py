@@ -59,7 +59,7 @@ FORGED = (
 #: strings the brief carries. DERIVED NOWHERE — written out, because a list built from the model
 #: would grow silently and this is the list the guards below are about.
 STRANGER_FIELDS = ("title", "objective", "context", "in_scope", "acceptance_criteria",
-                   "out_of_scope")
+                   "out_of_scope", "from_parent")
 
 
 def _with(field: str, value: str):
