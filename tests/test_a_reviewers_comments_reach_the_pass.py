@@ -300,8 +300,30 @@ def test_a_pass_a_working_tree_held_says_on_the_pull_request_that_it_did_not_run
     assert got.hold_cause == "tree"
     carried, stopped = (body for _, _, body in forge.said)
     assert "Adjust pass 2 carries 1" in carried
-    assert "Adjust pass 2 did not run" in stopped and "/home/rui/review" in stopped, stopped
+    assert "Adjust pass 2 did not run" in stopped and "the card" in stopped, stopped
+    # review of 83973c2: the pull request may be public on a hosted forge, and the card's sentence
+    # carries the person's local paths; the card says which tree and how to free it
+    assert "/home/rui" not in stopped, stopped
     assert "resume" in stopped, stopped
+
+
+def test_a_pass_held_for_another_reason_does_not_say_it_did_not_run(monkeypatch):
+    """A hold the agent itself reached came after an agent saw the comments: "did not run" would
+    be false there (review of 83973c2: dropping the TREE half of the condition stayed green)."""
+    from openfactory.runtime.temporal import activities as acts
+
+    forge = _Forge([ReviewComment(author="rui", body="guard the empty cart", path="cart.py",
+                                  line=9)])
+    monkeypatch.setattr(acts, "_forge_for", lambda project: forge)
+    monkeypatch.setattr(acts, "ProjectRegistry", lambda: SimpleNamespace(get=lambda name: name))
+    monkeypatch.setattr(acts, "_run_ci_repair", lambda inp, run_id=None, ci_log=None: RunResult(
+        ticket_id=inp.issue, state=JobState.ON_HOLD, note="the agent asked which cart",
+        hold_cause="", merge_refused=True, code_changed=False))
+
+    acts._run_adjust(AdjustInput(project="shop", issue="7", pr_url=PR, attempt=2,
+                                 source=REVIEW_THREAD, by="ana"))
+
+    assert not [b for _, _, b in forge.said if "did not run" in b], forge.said
 
 
 @pytest.mark.parametrize("found, why", [

@@ -280,6 +280,26 @@ async def test_a_held_re_review_is_not_charged(env):
 
 # ── replay ──────────────────────────────────────────────────────────────────────────────────────
 
+async def test_a_held_pass_whose_hold_lacks_the_mark_still_resumes_into_the_watch(env, monkeypatch):
+    """`_a_tree_holds_the_pass` marks the hold `merge_refused` itself, so a TREE hold that arrives
+    without the machine's mark still resumes into the watch, not into a fresh job (review of
+    83973c2: the mark's line survived its cut)."""
+    def unmarked(issue: str, pr_url: str) -> RunResult:
+        return RunResult(ticket_id=issue, state=JobState.ON_HOLD, pr_url=pr_url, note=HELD,
+                         hold_cause="tree", merge_refused=False, code_changed=False)
+    monkeypatch.setitem(globals(), "_held", unmarked)
+    _HELD_FOR[0] = 1
+    async with Worker(env.client, task_queue=gate.TQ, workflows=[JobWorkflow], activities=MOCKS):
+        h = await gate._start(env.client)
+        await _at_the_gate(h)
+        await answer_merge_gate(h, "adjust", "the button on the right", "ana")
+        await _parked(h, env, calls=_ADJUSTS, n=1)
+        await _resume(h)
+        await _at_the_gate(h, after=2, of=_ADJUSTS)
+        assert len(_ADJUSTS) == 2 and len(_RUNS) == 1, (len(_ADJUSTS), len(_RUNS))
+        await _discard(h)
+
+
 async def test_a_job_recorded_before_the_marker_replays(env, monkeypatch):
     """Recorded with `patched` answering False for this marker — the arm a job in flight before
     this change selects: the held adjust reopens the gate as it used to. Replayed through the real

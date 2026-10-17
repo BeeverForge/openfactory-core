@@ -409,8 +409,11 @@ def _commands(said: str) -> list[str]:
     return re.findall(r"`(git [^`]+)`", said)
 
 
-def _run_as_written(command: str, name: str = "keep-mine") -> None:
-    argv = shlex.split(command.replace("<a branch of yours>", name))
+def _run_as_written(command: str, name: str = "keep-mine", where: Path | None = None) -> None:
+    command = command.replace("<a branch of yours>", name)
+    if where is not None:
+        command = command.replace("<a path of yours>", shlex.quote(str(where)))
+    argv = shlex.split(command)
     p = subprocess.run(argv, capture_output=True, text=True, timeout=60)
     assert p.returncode == 0, f"{command}: {p.stderr}"
 
@@ -525,3 +528,105 @@ def test_the_box_s_own_tree_a_person_locked_is_left_with_what_is_in_it(tmp_path)
     said = str(caught.value)
     assert "the job's own" in said, said
     assert _git_in(repo, "unlock", ws.path) in said, said
+
+
+# ── review of 83973c2: the same rule, where last round's fixes did not reach ────────────────────
+
+def _fresh(box: WorktreeSandbox, repo: Path):
+    """A fresh job on the local forge: the branch is built again from the base."""
+    return box.prepare(repo_path=repo, base_branch="main", branch=BRANCH, checkout_existing=False,
+                       remote_url=str(repo))
+
+
+def _until_resume(said: str) -> list[str]:
+    """The commands the person runs before resuming, in order."""
+    return _commands(said.split("then resume")[0])
+
+
+def test_the_box_s_own_locked_tree_on_a_fresh_door_frees_when_followed_and_keeps_its_work(tmp_path):
+    """`switch -c` frees the branch, but the locked tree still stands at the box's own path, and
+    `worktree add -b` then fails with git's `already exists`. The sentence frees the path too, by
+    moving the tree somewhere of the person's: what is in it stays theirs."""
+    repo = _repository(tmp_path / "myapp")
+    box = WorktreeSandbox(root=tmp_path / "boxes")
+    wt = _keep(box, repo).path
+    _commit(wt, "kept.txt", "keep this\n", "mine")
+    mine = _sha(wt, "HEAD")
+    (wt / "draft.txt").write_text("not committed\n")
+    _git(repo, "worktree", "lock", "--reason", "keep this", str(wt))
+    with pytest.raises(RuntimeError) as caught:
+        _fresh(box, repo)
+    for command in _until_resume(str(caught.value)):
+        _run_as_written(command, where=tmp_path / "mine")
+    _fresh(box, repo)
+    assert _is_on(repo, mine, "keep-mine"), "the person's commit is on no branch of theirs"
+    assert (tmp_path / "mine" / "draft.txt").read_text() == "not committed\n", "the draft was lost"
+
+
+def test_a_deleted_review_tree_on_a_fresh_door_keeps_the_commits_made_in_it(held):
+    """A commit made in a review tree is on the card's branch, which outlives `rm -rf` of the tree.
+    A door that builds the branch again would drop it: the sentence keeps it on a branch first."""
+    repo, review, box = held
+    _commit(review, "notes.txt", "what I noticed reviewing\n", "mine")
+    mine = _sha(review, "HEAD")
+    shutil.rmtree(review)
+    with pytest.raises(RuntimeError) as caught:
+        _fresh(box, repo)
+    said = str(caught.value)
+    assert "Nothing in it can be reached to lose" not in said, said
+    assert "mount" in said, said
+    for command in _until_resume(said):
+        _run_as_written(command)
+    _fresh(box, repo)
+    assert _is_on(repo, mine, "keep-mine"), "the commit made in the deleted tree is on no branch"
+
+
+def test_the_box_s_own_tree_a_person_locked_is_not_deleted_by_cleanup_either(tmp_path):
+    """`cleanup` ends every run, repair and review, with the same `remove --force` a locked tree
+    refuses, then an `rmtree`. The lock is a person's "keep this" there too."""
+    repo = _repository(tmp_path / "myapp")
+    box = WorktreeSandbox(root=tmp_path / "boxes")
+    ws = _keep(box, repo)
+    (ws.path / "kept.txt").write_text("keep this\n")
+    _git(repo, "worktree", "lock", "--reason", "keep this", str(ws.path))
+    box.cleanup(workspace=ws)
+    assert (ws.path / "kept.txt").read_text() == "keep this\n", "cleanup deleted a locked tree"
+
+
+def test_the_race_on_a_fresh_door_is_worded_for_the_fresh_door(tmp_path, monkeypatch):
+    """The second porcelain read, after git refuses the add, names the door it is on too."""
+    repo = _repository(tmp_path / "myapp")
+    review = tmp_path / "review tree"
+    box = WorktreeSandbox(root=tmp_path / "boxes")
+    real, calls = worktree_box._holder, []
+
+    def late(repo_path, branch):
+        calls.append(branch)
+        if len(calls) == 1:
+            _git(repo, "worktree", "add", "-q", str(review), BRANCH)
+            return None
+        return real(repo_path, branch)
+
+    monkeypatch.setattr(worktree_box, "_holder", late)
+    with pytest.raises(RuntimeError) as caught:
+        _fresh(box, repo)
+    said = str(caught.value)
+    assert "switch -c" in said and "commit or stash" not in said, said
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root searches any directory")
+def test_a_holder_under_a_directory_the_box_cannot_search_still_holds_the_job(held):
+    """`Path.exists()` raises `PermissionError` under a directory the box cannot search (3.12).
+    What cannot be looked at is not "not there": the job still holds, naming the tree."""
+    from openfactory.adapters.sandbox.base import BranchHeldElsewhere
+    repo, review, box = held
+    closed = review.parent / "closed"
+    closed.mkdir()
+    _git(repo, "worktree", "move", str(review), str(closed / "review"))
+    closed.chmod(0)
+    try:
+        with pytest.raises(BranchHeldElsewhere) as caught:
+            _keep(box, repo)
+        assert "is not there" not in str(caught.value), str(caught.value)
+    finally:
+        closed.chmod(0o755)
