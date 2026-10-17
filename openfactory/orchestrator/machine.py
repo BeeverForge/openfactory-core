@@ -16,7 +16,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from openfactory import after_merge, namespace
-from openfactory.adapters.agent.base import AgentContext, CodingAgentAdapter, takes_instruction
+from openfactory.adapters.agent.base import (
+    AgentContext,
+    CodingAgentAdapter,
+    final_text,
+    takes_instruction,
+)
 from openfactory.adapters.forge.base import ForgeAdapter
 from openfactory.adapters.forge.base import display_name as forge_display_name
 from openfactory.adapters.notify.base import Level, NullNotifier
@@ -40,7 +45,14 @@ from openfactory.contracts import (
 from openfactory.contracts.bot import BotIdentity
 from openfactory.contracts.item_space import closing_keyword, forge_owns_the_card
 from openfactory.contracts.refs import canonical_ref
-from openfactory.contracts.run import HandedBack
+from openfactory.contracts.run import (
+    AGENT_ACCOUNT_HEADING,
+    AGENT_ACCOUNT_MAX,
+    AGENT_PASS_WORDS_MAX,
+    AGENT_PASSES_SHOWN,
+    HandedBack,
+    PassAccount,
+)
 from openfactory.contracts.state import PROGRESS_MARKS
 from openfactory.observability import EventKind, EventSink, JobEvent, NullEventSink, now_iso
 from openfactory.orchestrator.context import build_context
@@ -425,6 +437,214 @@ def _review_lines(r: ReviewResult) -> list[str]:
             loc = f" ({f.file}:{f.line})" if f.file else ""
             out.append(f"- **{f.severity}**{loc}: {f.description}")
         return out
+
+
+# ── what the agent says it did (#627) ──────────────────────────────────────────────────────────
+#
+# THE AGENT'S ACCOUNT REACHED NO ARTIFACT. Its final message went to the journal note `agent
+# finished: {summary[:200]}` and nowhere else, so a card that asked the agent to report something in
+# writing (the field report's card 82: "say which root causes you found") could not be satisfied
+# anywhere a person reads. The pull request now carries it, last, under `AGENT_ACCOUNT_HEADING`, as
+# the agent's CLAIM: no gate checks it and the reviewer is never shown it (ADR-0001 D-5, D-11).
+#
+# EVERY ROW OF AGENT TEXT STARTS WITH `>`. `_republish_review` finds the review and the `Cost:` line
+# by line prefix, so an agent row that started `## Review — ` or `Cost: $` would be read as the
+# platform's. And every plain row after a quote follows a blank row: CommonMark's lazy continuation
+# would otherwise pull the next platform row — the `Cost:` line included — into the quote.
+
+_CLAIM = ("This is the implementing agent's own account, as it wrote it. No gate checked it, and "
+          "the reviewer was not shown it.")
+_WROTE_NOTHING = "The agent ended its pass without a final message."
+_NOT_RECORDED = ("The account of the pass that opened this pull request was not recorded: it was "
+                 "opened before this section existed.")
+_PASSES_LABEL = ("Later passes, oldest first — each is that pass's own words, cut at "
+                 f"{AGENT_PASS_WORDS_MAX} characters:")
+_CUT = re.compile(r"^The agent's message was (\d+) characters; the first (\d+) are shown\.$")
+_EARLIER = re.compile(r"^(\d+) earlier pass(?:es are| is) not shown\.$")
+_PASS_ROW = re.compile(r"^> - (?P<kind>[A-Za-z ]+?(?: \d+)?)(?: · `(?P<head>[0-9a-f]*)`)? — "
+                       r"(?P<words>.*)$")
+
+#: A name GitHub would notify. Not after a word character, so `a@b.com` is left alone; ending on a
+#: word character, so a sentence's full stop is not part of the name. Whether it already sits in a
+#: code span is decided by `_spans`, not by a look-behind on one backtick (decision 4's pattern was
+#: `(?<![\w`])@…`): a stray backtick earlier on the line would otherwise pair with the wrapping and
+#: leave the name outside every span — notifying the very person the wrapping was for.
+_A_HANDLE = re.compile(r"(?<!\w)@([A-Za-z0-9](?:[\w.-]*\w)?)")
+_TICKS = re.compile(r"`+")
+
+
+def _spans(line: str) -> list[tuple[int, int]]:
+    """Where `line`'s inline code spans are, as CommonMark pairs them: a run of backticks opens a
+    span only if a run of exactly the same length closes it later; otherwise it is literal."""
+    runs = [(m.start(), m.end()) for m in _TICKS.finditer(line)]
+    spans, i = [], 0
+    while i < len(runs):
+        start, end = runs[i]
+        close = next((j for j in range(i + 1, len(runs))
+                      if runs[j][1] - runs[j][0] == end - start), None)
+        if close is None:
+            i += 1
+            continue
+        spans.append((start, runs[close][1]))
+        i = close + 1
+    return spans
+
+
+def _neutralised(line: str) -> str:
+    """One line of agent text as the pull request may carry it: every `#<number>` is `card
+    <number>` whatever the forge (`without_mentions`), and every `@name` outside a code span is put
+    in one, which GitHub renders literally and notifies nobody from — measured on its renderer
+    (#627, the pull request body). The run used is longer than any already on the line, so it can
+    pair with nothing the agent wrote."""
+    line = without_mentions(line)
+    spans = _spans(line)
+    found = [m for m in _A_HANDLE.finditer(line)
+             if not any(s <= m.start() < e for s, e in spans)]
+    if not found:
+        return line
+    ticks = "`" * (max((len(r) for r in _TICKS.findall(line)), default=0) + 1)
+    for m in reversed(found):
+        line = f"{line[:m.start()]}{ticks}{m.group(0)}{ticks}{line[m.end():]}"
+    return line
+
+
+def _quoted(text: str) -> list[str]:
+    """Agent text as quote rows: `> ` + each neutralised line, and `>` for an empty one, so the
+    quote does not end inside the agent's text."""
+    return [f"> {_neutralised(line)}" if line.strip() else ">" for line in text.splitlines()]
+
+
+def _quote_chars(rows: list[str]) -> int:
+    """How many characters of the message `rows` show — what the cut line counts in."""
+    return len("\n".join(row[2:] for row in rows))
+
+
+def _cut_quote(rows: list[str], room: int) -> list[str]:
+    """The leading quote rows that fit in `room` characters as rendered, prefixes and newlines
+    counted. The row that crosses the bound is cut, never inside a code span — a span cut open
+    would leave the name the wrapping hid outside it."""
+    kept: list[str] = []
+    used = -1  # no newline before the first row
+    for row in rows:
+        if used + 1 + len(row) <= room:
+            kept.append(row)
+            used += 1 + len(row)
+            continue
+        cut = room - used - 1
+        for start, end in _spans(row):
+            if start < cut < end:
+                cut = start
+        if cut > 2:
+            kept.append(row[:cut])
+        break
+    return kept
+
+
+@dataclass
+class _Account:
+    """The section's parts, as `_account_lines` renders them and `_read_account` reads them back.
+
+    `quote` is the executor's message as quote rows, uncut — or `None` when the pull request was
+    opened before this section existed. `total` is the message's length in the characters the cut
+    line counts in."""
+
+    quote: list[str] | None
+    total: int
+    passes: list[PassAccount] = field(default_factory=list)
+    earlier: int = 0
+
+
+def _account_of(result: RunResult) -> _Account:
+    """The section's parts for a run's own result. The message is kept raw on the result; the part
+    beyond what was kept (4 × the bound) is counted, not shown."""
+    quote = _quoted(result.agent_account) if result.agent_account.strip() else []
+    beyond = max(0, result.agent_account_chars - len(result.agent_account))
+    return _Account(quote=quote, total=_quote_chars(quote) + beyond,
+                    passes=list(result.agent_passes))
+
+
+def _pass_words(res: AgentRunResult) -> str:
+    """A later pass's own words on one line: its whole final message with whitespace runs folded,
+    cut at `AGENT_PASS_WORDS_MAX` like the `agent finished:` note, THEN neutralised — cutting
+    after the wrapping could leave a name outside a cut-open code span."""
+    words = " ".join(final_text(res).split())
+    if not words:
+        return "the pass ended without a final message"
+    cut = words[:AGENT_PASS_WORDS_MAX]
+    return _neutralised(cut) + ("…" if len(words) > AGENT_PASS_WORDS_MAX else "")
+
+
+def _pass_row(p: PassAccount) -> str:
+    commit = f" · `{p.head[:12]}`" if p.head else ""
+    return f"> - {p.kind}{commit} — {p.words}"
+
+
+def _account_lines(account: _Account, *, room: int = AGENT_ACCOUNT_MAX) -> list[str]:
+    """The pull request's `AGENT_ACCOUNT_HEADING` section — the ONE place it is composed (#187's
+    rule), when the pull request is opened and whenever a later pass adds its line.
+
+    The executor's block is cut to `room` characters as rendered (decision 3), with a platform
+    line giving both lengths; then the latest `AGENT_PASSES_SHOWN` pass lines, and a count of the
+    rest. "Wrote nothing" and "not recorded" are platform lines, never an empty quote: they are
+    different facts (docs/engineering-lessons.md, lesson 2)."""
+    out = [AGENT_ACCOUNT_HEADING, _CLAIM, ""]
+    if account.quote is None:
+        out.append(_NOT_RECORDED)
+    elif not account.quote and not account.total:
+        out.append(_WROTE_NOTHING)
+    else:  # a block cut to nothing on a limited forge still says how long the message was
+        kept = _cut_quote(account.quote, room)
+        out += kept
+        shown = _quote_chars(kept)
+        if shown < account.total:
+            log.info("the agent's account is %d characters and %d fit the pull request — the rest "
+                     "is cut, and the body says so", account.total, shown)
+            out += [*([""] if kept else []),
+                    f"The agent's message was {account.total} characters; the first {shown} are "
+                    f"shown."]
+    if account.passes:
+        shown_passes = account.passes[-AGENT_PASSES_SHOWN:]
+        earlier = account.earlier + len(account.passes) - len(shown_passes)
+        out += ["", _PASSES_LABEL, ""]
+        if earlier:
+            out.append(f"{earlier} earlier passes are not shown." if earlier > 1
+                       else "1 earlier pass is not shown.")
+        out += [_pass_row(p) for p in shown_passes]
+    return out
+
+
+def _read_account(rows: list[str]) -> tuple[int, int, _Account] | None:
+    """The section a body carries — `(start, end, parts)`, `rows[start:end]` being the section —
+    or `None` when it carries none (a pull request opened before it existed).
+
+    Only what `_account_lines` writes is read back. Agent text cannot forge the label, the count or
+    the cut line, because every agent row starts with `>`; and the executor's rows and the pass
+    rows are told apart by position, the label between them."""
+    start = next((i for i, row in enumerate(rows) if row == AGENT_ACCOUNT_HEADING), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(rows))
+                if rows[i].startswith(("## ", _COST_LINE))), len(rows))
+    while end > start + 1 and not rows[end - 1].strip():
+        end -= 1
+    body = rows[start + 1:end]
+    label = next((i for i, row in enumerate(body) if row == _PASSES_LABEL), len(body))
+    own, later = body[:label], body[label + 1:]
+    quote = [row for row in own if row.startswith(">")]
+    cut = next((m for m in map(_CUT.match, own) if m), None)
+    recorded = _NOT_RECORDED not in own
+    account = _Account(quote=quote if recorded else None,
+                       total=int(cut.group(1)) if cut else _quote_chars(quote))
+    for row in later:
+        if (m := _EARLIER.match(row)):
+            account.earlier = int(m.group(1))
+        elif (m := _PASS_ROW.match(row)):
+            try:
+                account.passes.append(PassAccount(kind=m["kind"], words=m["words"],
+                                                  head=m["head"] or ""))
+            except ValueError:  # not a row this platform wrote: left out, never guessed at
+                continue
+    return start, end, account
 
 
 def _measured_from(ws: Workspace, base: str) -> str:
