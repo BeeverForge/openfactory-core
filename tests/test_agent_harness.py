@@ -444,6 +444,53 @@ def test_kimi_degrades_to_raw_output_when_the_stream_is_unrecognized():
     assert res.harness == "kimi"
 
 
+#: Captured from kimi-code 0.31.1 against a local stub (review of #783): a tool call, its result,
+#: the reply, then the `session.resume_hint` meta line `writeResumeHint` prints after EVERY
+#: prompt-mode turn — with a `content` of its own, which a reader of "the last content" takes for
+#: the answer.
+KIMI_REAL_STREAM = "\n".join([
+    '{"role":"assistant","content":"Looking first.","tool_calls":[{"type":"function","id":"call_1",'
+    '"function":{"name":"Glob","arguments":"{\\"pattern\\":\\"*\\"}"}}]}',
+    '{"role":"tool","tool_call_id":"call_1","content":"a.txt"}',
+    '{"role":"assistant","content":"57"}',
+    '{"role":"meta","type":"session.resume_hint","session_id":"session_c0c4",'
+    '"command":"kimi -r session_c0c4","content":"To resume this session: kimi -r session_c0c4"}',
+])
+
+
+def test_kimi_reply_is_the_assistant_s_last_message_not_the_resume_hint():
+    """`box prove` read the hint as the model's answer and was refused with the wrong remedy."""
+    from openfactory.adapters.agent.kimi import KimiAdapter
+
+    assert KimiAdapter().smoke_reply(KIMI_REAL_STREAM) == "57"
+
+
+def test_kimi_run_reads_its_answer_handle_and_actions_from_the_real_stream():
+    from openfactory.adapters.agent.kimi import KimiAdapter
+
+    sb = _FakeSandbox(run_out=KIMI_REAL_STREAM)
+    res = KimiAdapter().ask(sandbox=sb, workspace=_ws(), prompt="what is 20+37?")
+    assert res.summary == "57"
+    assert res.resume_handle == "session_c0c4"
+    assert res.actions == ["Glob"]
+
+
+def test_kimi_lists_every_tool_call_of_one_assistant_message():
+    """One assistant line can carry several calls; each is an action, not only the first."""
+    from openfactory.adapters.agent.kimi import KimiAdapter
+
+    stream = (
+        '{"role":"assistant","content":"","tool_calls":['
+        '{"type":"function","id":"c1","function":{"name":"Read","arguments":"{}"}},'
+        '{"type":"function","id":"c2","function":{"name":"Grep","arguments":"{}"}}]}\n'
+        '{"role":"assistant","content":"done"}'
+    )
+    res = KimiAdapter().execute(sandbox=_FakeSandbox(run_out=stream), workspace=_ws(),
+                                context=_ctx())
+    assert res.actions == ["Read", "Grep"]
+    assert res.summary == "done"
+
+
 def test_kimi_is_registered_but_carries_no_cost_claim():
     """Wired into the seam; NOT proven. Cost stays unknown so it can never quietly win or lose an
     A/B on a number nobody measured."""
