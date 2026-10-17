@@ -117,7 +117,27 @@ touched by the fast-forward itself, and only when it is safe:
 - **an unrelated edit of yours** — the merge lands and your edit stays;
 - **an edit over the same lines** — the merge is refused, in git's own words, on the card. Your
   file is exactly as you left it and the pull request stays open;
-- **a base you have checked out somewhere else** — refused for the same reason, by name.
+- **a base you have checked out somewhere else** — refused for the same reason, by name;
+- **a card's branch you have out yourself** — a tree you made to review the pull request, or
+  your own checkout. Git lets a branch be out in one working tree only, so the job that needs it
+  (an adjust, a repair, a resumed attempt, a re-review) waits for you instead, and the card names
+  the path and the command that frees it. `resume` checks again. What you were told to keep stays
+  yours:
+  - when the job continues the pull request, the branch is kept: commit what is there, then
+    `git -C <repo> worktree remove <path>`;
+  - when the job builds the branch again (a fresh start), the card gives
+    `git -C <path> switch -c <a branch of yours>`, which keeps your commits on a branch of your own
+    and frees the card's branch in one command;
+  - a review tree you deleted with `rm -rf` still holds the branch, because git keeps its
+    registration; the card says the directory is not there, and `git -C <repo> worktree remove
+    <path>` frees it. On a fresh start it first gives `git -C <repo> branch <a branch of yours>
+    <branch>`, because what you committed there is on the card's branch, which the job builds
+    again. If the directory is on a disk that is not mounted, mount it and resume instead.
+
+  Nothing the job did not create is removed, and the job never runs `git worktree prune` in your
+  repository. A tree of the job's own that you locked is left as it is, at the start of a job and
+  at its end; on a fresh start the card also gives `git -C <repo> worktree move <path> <a path of
+  yours>`, because the job needs that path back.
 
 ## What this door does not do
 

@@ -1,6 +1,8 @@
-from openfactory.adapters.sandbox.base import SandboxAdapter, Workspace
+from openfactory.adapters.sandbox.base import BranchHeldElsewhere, SandboxAdapter, Workspace
 
-__all__ = ["ContainerSandbox", "SandboxAdapter", "Workspace", "WorktreeSandbox"]
+__all__ = [
+    "BranchHeldElsewhere", "ContainerSandbox", "SandboxAdapter", "Workspace", "WorktreeSandbox",
+]
 
 _LAZY = {
     'ContainerSandbox': 'openfactory.adapters.sandbox.container',

@@ -2397,7 +2397,22 @@ def _run_adjust(inp: AdjustInput, run_id: str | None = None) -> RunResult:
         words, held = _the_review_comments(inp)
         if held is not None:
             return held
-        return _run_ci_repair(repair, run_id, ci_log=words)
+        result = _run_ci_repair(repair, run_id, ci_log=words)
+        from openfactory.techlead import TREE
+
+        if result.state == JobState.ON_HOLD and result.hold_cause == TREE:
+            # THE NOTE ABOVE SAID WHAT THIS PASS CARRIES, AND NO AGENT RAN (#623): the card's
+            # branch is out in another working tree, which stops the pass at `prepare`, after the
+            # note. Said on the pull request too, so "pass N carries …" does not stand alone, and
+            # the resumed pass's note under the same number reads as the one that ran. Not the
+            # card's sentence: it carries the person's local paths, and on a hosted forge the
+            # pull request may be public (review of 83973c2).
+            _say_on_the_pull_request(
+                _forge_for(ProjectRegistry().get(inp.project)), inp.pr_url,
+                f"Adjust pass {inp.attempt} did not run, so no agent saw these comments: the "
+                f"card's branch is checked out in another working tree. The card says which one "
+                f"and how to free it; the pass runs on resume.")
+        return result
     return _run_ci_repair(repair, run_id, ci_log=(inp.instruction or "").strip())
 
 

@@ -61,6 +61,43 @@ class Workspace(BaseModel):
         return self.base_commit or self.base_branch
 
 
+class BranchHeldElsewhere(RuntimeError):
+    """`prepare` refused because the card's branch is checked out in a working tree that is not
+    the box's own (#623): a person's review tree, or their repository's own checkout.
+
+    Git lets a branch be out in one working tree only, and the box would otherwise fail on git's
+    sentence, which names no remedy, changes with git's version (2.34.1 "is already checked out
+    at", 2.43.0 "is already used by worktree at") and locale, and on the `-b` door names no path
+    at all ("a branch named … already exists"). The message is one sentence naming the branch, the
+    path and what frees it.
+
+    IN THE PORT MODULE, because the machine catches it whatever the box is, as `GatesNotListed`
+    sits in the forge's. A `RuntimeError`, so a caller that does not catch it (`box prove`,
+    onboarding, conformance) reports it the way it reported git's sentence before.
+
+    `path` is the holder's path as git lists it, `main` says the holder is the repository's own
+    checkout (git cannot remove that one), and `locked` that it was locked with
+    `git worktree lock`. Whether its directory is there is said in the message only: nothing reads
+    it as a field (review of 83973c2)."""
+
+    def __init__(self, message: str, *, branch: str, path: str, main: bool = False,
+                 locked: bool = False) -> None:
+        super().__init__(message)
+        self.branch, self.path, self.main, self.locked = branch, path, main, locked
+
+    def __reduce__(self):
+        # `pickle` rebuilds an exception as `cls(*self.args)`, and the keyword-only fields are not
+        # in `args`: measured on Python 3.12, 2026-10-17, `TypeError: __init__() missing 1
+        # required keyword-only argument: 'branch'`. So the fields travel with it.
+        return (_rebuild_branch_held,
+                (str(self), self.branch, self.path, self.main, self.locked))
+
+
+def _rebuild_branch_held(message: str, branch: str, path: str, main: bool,
+                         locked: bool) -> BranchHeldElsewhere:
+    return BranchHeldElsewhere(message, branch=branch, path=path, main=main, locked=locked)
+
+
 @runtime_checkable
 class SandboxAdapter(Protocol):
     def prepare(
@@ -81,7 +118,12 @@ class SandboxAdapter(Protocol):
         agents read that checkout and a ticket can ask one to print `.git/config`. On a private
         repository the fetch therefore failed for want of a password, and both adapters
         misreported it: the container said "couldn't find remote ref" about a branch sitting on
-        the forge, and the worktree silently started from base and force-pushed over the PR."""
+        the forge, and the worktree silently started from base and force-pushed over the PR.
+
+        IT MAY RAISE `BranchHeldElsewhere` (#623): a box that checks the branch out in the
+        repository it was given (the worktree box) refuses a branch another working tree has out,
+        naming that tree, before it writes anything. A box that clones (the container) cannot meet
+        that refusal and never raises it."""
         ...
 
     def harness_path(self, name: str) -> str:

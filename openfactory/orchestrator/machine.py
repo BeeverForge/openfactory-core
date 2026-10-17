@@ -22,7 +22,7 @@ from openfactory.adapters.forge.base import display_name as forge_display_name
 from openfactory.adapters.notify.base import Level, NullNotifier
 from openfactory.adapters.notify.base import Notifier as NotifierT
 from openfactory.adapters.reviewer.base import ReviewerAdapter, ReviewInput
-from openfactory.adapters.sandbox.base import SandboxAdapter, Workspace
+from openfactory.adapters.sandbox.base import BranchHeldElsewhere, SandboxAdapter, Workspace
 from openfactory.adapters.tracker.base import TrackerAdapter
 from openfactory.contracts import (
     AgentRunMetric,
@@ -66,6 +66,7 @@ from openfactory.policy.census import inventory_command, inventory_of
 from openfactory.policy.census import vanished as census_vanished
 from openfactory.policy.protected import violations as protected_violations
 from openfactory.techlead import voice as tl_voice
+from openfactory.techlead.classify import TREE
 
 _SETUP_TIMEOUT = 1800
 #: The census ENUMERATES; it does not build. `_SETUP_TIMEOUT` is sized for `dotnet restore`
@@ -1016,13 +1017,21 @@ class JobRunner:
         self._set_state(ticket, JobState.PREPARING)
         if resuming:
             self._emit(ticket, "note", "▶ resuming a paused attempt — restoring partial work")
-        ws = self.sandbox.prepare(
-            repo_path=self.repo_path, base_branch=base, branch=branch,
-            checkout_existing=resuming,
-            # the same authenticated remote `publish_branch` pushes to — a resume fetches the
-            # preserved branch from the FORGE, and the worker's cache origin carries no token
-            remote_url=self.forge.push_remote(),
-        )
+        try:
+            ws = self.sandbox.prepare(
+                repo_path=self.repo_path, base_branch=base, branch=branch,
+                checkout_existing=resuming,
+                # the same authenticated remote `publish_branch` pushes to — a resume fetches the
+                # preserved branch from the FORGE, and the worker's cache origin carries no token
+                remote_url=self.forge.push_remote(),
+            )
+        except BranchHeldElsewhere as exc:
+            # A PERSON HAS THE BRANCH OUT (#623), and only they can free it. No pull request is
+            # open here (an open one went back to the watch at `_already_delivered`), so a resume
+            # re-runs this, and `prepare` asks again. The handle travels: the paused attempt's
+            # session is still the one to continue once the tree is freed (ADR-0013 D1).
+            return self._hold(ticket, owner, str(exc), JobState.ON_HOLD, branch=branch,
+                              hold_cause=TREE, resume_handle=resume_handle)
         try:
             try:
                 # `at_base` is `not resuming` and not `True`: a resume restores the paused
@@ -1652,13 +1661,22 @@ class JobRunner:
                 # verdict still describes the code (#179).
                 merge_refused=True, code_changed=False)
         self._set_state(ticket, JobState.REPAIRING)
-        ws = self.sandbox.prepare(
-            repo_path=self.repo_path, base_branch=base, branch=branch, checkout_existing=True,
-            # THE OPEN PR'S BRANCH LIVES ON THE FORGE, not in the worker's cache — and the cache
-            # keeps a deliberately tokenless origin, so without this a repair on a private
-            # repository cannot reach the very branch it exists to repair (fx-mono#1, 2026-08-04)
-            remote_url=self.forge.push_remote(),
-        )
+        try:
+            ws = self.sandbox.prepare(
+                repo_path=self.repo_path, base_branch=base, branch=branch, checkout_existing=True,
+                # THE OPEN PR'S BRANCH LIVES ON THE FORGE, not in the worker's cache — and the
+                # cache keeps a deliberately tokenless origin, so without this a repair on a
+                # private repository cannot reach the very branch it exists to repair (fx-mono#1,
+                # 2026-08-04)
+                remote_url=self.forge.push_remote(),
+            )
+        except BranchHeldElsewhere as exc:
+            # A PERSON HAS THE BRANCH OUT (#623): no agent ran and nothing was written. The marks
+            # of the empty-comment hold above, for its reason: the pull request is as it was, and
+            # the reviewer's verdict still describes it.
+            return self._hold(ticket, owner, str(exc), JobState.ON_HOLD, branch=branch,
+                              pr_url=pr_url, merge_refused=True, code_changed=False,
+                              hold_cause=TREE)
         try:
             # WHAT THE REVIEWER READ, MEASURED BEFORE THIS PASS CAN TOUCH IT (#179). Every exit
             # below goes through `as_left`, including the ones that give up before the agent
@@ -1968,11 +1986,18 @@ class JobRunner:
                 ticket_id=ticket.id, state=JobState.PR_OPEN, branch=branch, code_changed=False,
                 note="this deployment has no reviewer — nothing re-read the pull request",
             )
-        ws = self.sandbox.prepare(
-            repo_path=self.repo_path, base_branch=base, branch=branch, checkout_existing=True,
-            # the open PR's branch lives on the forge, and the cache keeps a tokenless origin
-            remote_url=self.forge.push_remote(),
-        )
+        try:
+            ws = self.sandbox.prepare(
+                repo_path=self.repo_path, base_branch=base, branch=branch, checkout_existing=True,
+                # the open PR's branch lives on the forge, and the cache keeps a tokenless origin
+                remote_url=self.forge.push_remote(),
+            )
+        except BranchHeldElsewhere as exc:
+            # A PERSON HAS THE BRANCH OUT (#623): nothing was read, and the verdict that stands
+            # still describes the pull request, as `repair_ci`'s hold says.
+            return self._hold(ticket, self._owner_of(ticket_ref), str(exc), JobState.ON_HOLD,
+                              branch=branch, pr_url=pr_url, merge_refused=True,
+                              code_changed=False, hold_cause=TREE)
         try:
             diff = self._pr_diff(ws, base)
             if diff is None:

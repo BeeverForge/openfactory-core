@@ -56,6 +56,11 @@ POLICY, PROJECT = "policy", "project"
 #:
 #: It arrives with a local forge (the merge writes the person's own tree) and is not local-only: a
 #: hosted deployment whose worker shares a checkout can reach it too.
+#:
+#: SECOND SHAPE (#623): the card's branch checked out in another working tree, a review tree or
+#: the person's own checkout. The worktree box refuses it by name (`branch_held`) and the machine
+#: declares the hold TREE; git's own sentence, which still reaches a park through the race window,
+#: is matched too. Its remedy is to free the branch, not to commit or stash (`why.tree-held`).
 TREE = "tree"
 
 #: #184's merge watch: a check that blocks the pull request and no change to the code settles —
@@ -103,6 +108,14 @@ _DECLARED: dict[str, str] = {
 #: Where the failure happened, because it decides what a retry COSTS. A box that died during setup
 #: has burned no agent tokens; one that died mid-execution has, and re-running it pays again.
 SETUP, AGENT, UNPLACED = "setup", "agent", "unplaced"
+
+#: A card's branch checked out in another working tree (#623): git's two wordings (2.34.1 "is
+#: already checked out at", 2.43.0 "is already used by worktree at", measured 2026-10-17), and the
+#: worktree box's own sentence (`branch_held`). One pattern, read by the rule below AND by
+#: `remedy_for`, so the class and the sentence the park says cannot disagree.
+_BRANCH_HELD = re.compile(
+    r"is already (?:checked out at|used by worktree at)|"
+    r"is checked out in (?:another working tree|your repository)", re.I)
 
 _RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # ---- transient: time alone fixes these -----------------------------------------------------
@@ -183,6 +196,9 @@ _RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
     # GIT'S OWN WORDS, matched as git writes them. The two shapes are the whole of it: something
     # the merge would write is dirty, and something is half-done in the tree. Both are cleared by
     # the person in one command, and both are then `resume`.
+    # FIRST OF THE TREE RULES: the box's own sentence also says "is checked out in", which the
+    # half-done rule below matches, and the remedy differs (free the branch, not commit or stash).
+    (TREE, _BRANCH_HELD, "another tree holds the branch"),
     (TREE, re.compile(
         r"your local changes to the following files would be overwritten|"
         r"please commit your changes or stash them|"
@@ -420,11 +436,17 @@ def remedy_for(verdict: Verdict, *, already_tried: int = 0, already_spent: int =
         # THE SENTENCE IS THE REMEDY HERE, more than anywhere else on this list: the person is
         # standing in the repository, the fix is one command, and the note above already carries
         # git's own words naming the file. So this says what to do and gets out of the way.
+        #
+        # A BRANCH ANOTHER TREE HOLDS (#623) is not an edit to commit or stash: the note names the
+        # tree and the command that frees it. Replay: only the sentence changes, and both arms
+        # escalate with the same verbs, so the workflow issues the same commands — the class
+        # itself was `unknown` for this note before, which escalates too.
+        why = "why.tree-held" if _BRANCH_HELD.search(verdict.detail_source or "") else "why.tree"
         return Remedy(
             action="escalate",
-            reason=voice.say(voice.REMEDY, "why.tree", language),
+            reason=voice.say(voice.REMEDY, why, language),
             say=voice.say(voice.REMEDY, "escalate.say", language,
-                          why=voice.say(voice.REMEDY, "why.tree", language),
+                          why=voice.say(voice.REMEDY, why, language),
                           ways_out=voice.pick(voice.WAYS_OUT, language)),
             teaches_the_verbs=True)
 
