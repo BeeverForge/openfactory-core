@@ -115,7 +115,58 @@ def test_a_probe_that_fails_still_removes_its_tags():
 
     one_live_preview.probe_the_s1_build(daemon)
 
-    assert daemon.ran[-2][:3] == ["docker", "image", "rm"]
+    failed = next(i for i, call in enumerate(daemon.ran) if "openfactory-s1-probe-web" in call)
+    assert ["docker", "image", "rm", "-f", "openfactory-s1-probe-api",
+            "openfactory-s1-probe-web"] in daemon.ran[failed + 1:]
+
+
+def test_the_probe_runs_once_for_every_module_that_asks(monkeypatch):
+    """Each module binds the fixture, and pytest gives each binding its own session cache: the
+    probe is held here, so three modules cost one pull and two builds, not three of each — and the
+    bases it brought are the same set whichever module asked first."""
+    ran = []
+    monkeypatch.setattr(one_live_preview, "_PROBED", None)
+    monkeypatch.setattr(one_live_preview, "probe_the_s1_build",
+                        lambda: ran.append(1) or Probe(ok=True, brought=frozenset({"postgres:16"})))
+
+    first = one_live_preview.the_s1_product_builds_here()
+    again = one_live_preview.the_s1_product_builds_here()
+
+    assert len(ran) == 1
+    assert again is first and again.brought == {"postgres:16"}
+
+
+def test_a_failed_probe_is_not_asked_again_either(monkeypatch):
+    ran = []
+    monkeypatch.setattr(one_live_preview, "_PROBED", None)
+    monkeypatch.setattr(one_live_preview, "probe_the_s1_build",
+                        lambda: ran.append(1) or Probe(ok=False, why="`postgres:16` …"))
+
+    one_live_preview.the_s1_product_builds_here()
+    one_live_preview.the_s1_product_builds_here()
+
+    assert len(ran) == 1
+
+
+def test_a_machine_without_docker_skips_the_live_tests(monkeypatch):
+    monkeypatch.delenv("TEST_REQUIRE_DOCKER", raising=False)
+    monkeypatch.setattr(one_live_preview.shutil, "which", lambda name: None)
+
+    assert one_live_preview._docker_and_compose() is False
+
+
+def test_where_docker_is_required_a_missing_daemon_runs_the_live_tests_to_fail(monkeypatch):
+    """The cheap guard is a `skipif` at import, which cannot fail: under the switch it lets the
+    tests run, and the build probe then fails them with its sentence — so CI losing the daemon
+    is a red run, not three silent skips. What is collected does not change."""
+    monkeypatch.setenv("TEST_REQUIRE_DOCKER", "1")
+    monkeypatch.setattr(one_live_preview.shutil, "which", lambda name: None)
+
+    assert one_live_preview._docker_and_compose() is True
+    probe = one_live_preview.probe_the_s1_build(
+        lambda argv, *, env, timeout: (_ for _ in ()).throw(FileNotFoundError("docker")))
+    with pytest.raises(pytest.fail.Exception, match="docker could not be run"):
+        required(probe)
 
 
 def test_a_docker_that_cannot_be_run_is_a_failed_probe_not_a_crash():

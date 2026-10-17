@@ -12,8 +12,9 @@ AND THEY ASK THE MACHINE WHAT THEY NEED (#358). A daemon that answers is not a d
 build S1: a laptop behind a registry it cannot reach, or a runner past Docker Hub's pull limit,
 failed all three with a traceback. The cheap question — does a daemon answer — stays in each
 module's `skipif` and runs at import; the expensive one — can S1's images be pulled and built
-here — is `s1_product_builds`, asked once per session at run time, which skips with a sentence
-naming what was missing (fails, where `TEST_REQUIRE_DOCKER` says docker is required).
+here — is `s1_product_builds`, asked once per process at run time, which skips with a sentence
+naming what was missing. Where `TEST_REQUIRE_DOCKER` says docker is required (CI's integration
+job), neither skips: a missing daemon or an image that cannot be built fails the live tests.
 """
 
 from __future__ import annotations
@@ -38,7 +39,13 @@ PROBE_TIMEOUT = 600
 
 
 def _docker_and_compose() -> bool:
-    """A daemon answers and the compose plugin is usable — asked at import, so it stays cheap."""
+    """A daemon answers and the compose plugin is usable — asked at import, so it stays cheap.
+
+    WHERE `TEST_REQUIRE_DOCKER` IS SET it answers yes regardless. A `skipif` at import can only
+    skip, and CI losing its daemon would then be the live tests skipping in silence; instead they
+    run, and `s1_product_builds` fails them with its sentence. What is collected is the same."""
+    if os.environ.get("TEST_REQUIRE_DOCKER"):
+        return True
     if not shutil.which("docker"):
         return False
     try:
@@ -165,10 +172,23 @@ def required(probe: Probe) -> Probe:
     pytest.skip(probe.why)
 
 
+#: The probe's answer for this process, once asked (`the_s1_product_builds_here`).
+_PROBED: Probe | None = None
+
+
+def the_s1_product_builds_here() -> Probe:
+    """The probe, run on the first request of the process and reused after. Held HERE because
+    each live module binds `s1_product_builds` to find it, and pytest gives every binding a cache of
+    its own: a session fixture alone ran the probe once per module, three pulls and six builds."""
+    global _PROBED
+    if _PROBED is None:
+        with one_at_a_time():  # in turn with the live tests, which share the daemon
+            _PROBED = probe_the_s1_build()
+    return _PROBED
+
+
 @pytest.fixture(scope="session")
 def s1_product_builds() -> Probe:
-    """Asked once per session, at run time — never at import, where it would cost a build on
-    every collection — and in turn with the live tests, which share the daemon."""
-    with one_at_a_time():
-        probe = probe_the_s1_build()
-    return required(probe)
+    """Asked at run time — never at import, where it would cost a build on every collection —
+    and once per process; each module that requests it still skips or fails with the sentence."""
+    return required(the_s1_product_builds_here())
