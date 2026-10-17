@@ -32,6 +32,7 @@ the refusal (local forge), and the platform's own leftover is still cleared.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -173,12 +174,13 @@ def test_a_fresh_job_whose_branch_is_held_is_refused_before_the_branch_is_delete
 # ── the sentence says what to do ─────────────────────────────────────────────────────────────────
 
 def test_the_sentence_names_the_path_the_remedy_and_resume(held):
-    """Criterion 2: the path, the command that frees it, the other way out, and `resume`."""
+    """Criterion 2: the path, the command that frees it, the other way out, and `resume`. The
+    command is shell-quoted, so a review tree whose path holds a space pastes as one argument."""
     repo, review, box = held
     with pytest.raises(RuntimeError) as caught:
         _keep(box, repo)
     said = str(caught.value)
-    assert f"git worktree remove {review.resolve()}" in said, said
+    assert f"git worktree remove {shlex.quote(str(review.resolve()))}`" in said, said
     assert "switch" in said, said
     assert "resume" in said, said
 
@@ -209,7 +211,7 @@ def test_a_locked_review_tree_is_told_to_unlock_first(held):
     with pytest.raises(RuntimeError) as caught:
         _keep(box, repo)
     said = str(caught.value)
-    path = review.resolve()
+    path = shlex.quote(str(review.resolve()))
     unlock, remove = f"git worktree unlock {path}", f"git worktree remove {path}"
     assert unlock in said and remove in said, said
     assert said.index(unlock) < said.index(remove), said

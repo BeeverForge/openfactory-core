@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -66,6 +67,33 @@ def no_such_base(base_branch: str, where: str) -> str:
     return (f"{where} has no branch {base_branch!r}, which this job was asked to start from (the "
             f"card's `base_branch`, or the manifest's) — it does not start from another base "
             f"instead. Push that branch, or name a base {where} has.")
+
+
+def branch_held(branch: str, path: str, *, main: bool, locked: bool) -> str:
+    """The refusal for a card's branch somebody else has out (#623): one sentence naming the
+    branch, the working tree that holds it, and what frees it.
+
+    BUILT FROM WHAT THE PORCELAIN SAID, NEVER FROM GIT'S PROSE, which changes with the version
+    (2.34.1 "is already checked out at", 2.43.0 "is already used by worktree at") and the locale.
+    English, like every hold note: notes are classified and hashed, and the channel line is the
+    translated one.
+
+    `main`: the holder is the repository's own checkout, which `git worktree remove` refuses
+    (`is a main working tree`), so the remedy is to switch it away. `locked`: a locked tree is
+    refused by `remove` (`cannot remove a locked working tree`, git 2.43.0), so the unlock comes
+    first. The path is shell-quoted where it is a command, so a path with a space pastes whole."""
+    where = shlex.quote(path)
+    if main:
+        return (f"{branch} is checked out in your repository at {path}, and git lets a branch be "
+                f"checked out in only one place, so this job did not start, and nothing in that "
+                f"checkout was touched. Switch that checkout to another branch "
+                f"(`git -C {where} switch <another branch>`), then resume.")
+    unlock = f"`git worktree unlock {where}`, then " if locked else ""
+    return (f"{branch} is checked out in another working tree, at {path}, and git lets a branch "
+            f"be checked out in only one place, so this job did not start, and nothing in that "
+            f"tree was touched. Free it with {unlock}`git worktree remove {where}` (commit or "
+            f"stash anything there first), or switch that checkout to another branch, then "
+            f"resume.")
 
 
 def _branch_exists(repo_path, branch: str) -> bool:
