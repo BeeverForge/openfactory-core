@@ -77,7 +77,7 @@ class BranchHeldElsewhere(RuntimeError):
 
     `path` is the holder's path as git lists it, `main` says the holder is the repository's own
     checkout (git cannot remove that one), `locked` that it was locked with `git worktree lock`,
-    `gone` that its directory no longer exists (git still counts the branch as out there)."""
+    `gone` that its directory is not there (git still counts the branch as out there)."""
 
     def __init__(self, message: str, *, branch: str, path: str, main: bool = False,
                  locked: bool = False, gone: bool = False) -> None:

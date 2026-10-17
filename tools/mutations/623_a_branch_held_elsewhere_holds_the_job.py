@@ -45,7 +45,9 @@ MUTATIONS = [
      "person's remote-tracking ref has already moved", BOX,
      "        held = _holder(repo_path, branch)\n"
      "        if held is not None:\n"
-     "            raise _branch_held_elsewhere(branch, held)\n"
+     "            raise _branch_held_elsewhere(branch, held, repo_path=repo_path, "
+     "rebuilt=rebuilt,\n"
+     "                                         ours=wt)\n"
      "        # WHEN THE REMOTE IS THIS REPOSITORY",
      "        # WHEN THE REMOTE IS THIS REPOSITORY"),
 
@@ -66,7 +68,9 @@ MUTATIONS = [
      "            # passed on.\n"
      "            held = _holder(repo_path, branch)\n"
      "            if held is not None:\n"
-     "                raise _branch_held_elsewhere(branch, held)\n",
+     "                raise _branch_held_elsewhere(branch, held, repo_path=repo_path, "
+     "rebuilt=rebuilt,\n"
+     "                                             ours=wt)\n",
      "            # passed on.\n"),
 
     ("a bare `locked` line (a lock with no reason) is not read, so the person is told to remove a "
@@ -81,8 +85,41 @@ MUTATIONS = [
      "    if False:\n"),
 
     ("a locked review tree is told to remove it, which git refuses before an unlock", BOX,
-     '    unlock = f"`git worktree unlock {where}`, then " if locked else ""\n',
+     '    unlock = f"`{git} worktree unlock {where}`, then " if locked else ""\n',
      '    unlock = ""\n'),
+
+    # ── review of 268c726: what the person was told to keep survives ───────────────────────────
+    ("the box's own tree a person locked is removed anyway, and the rmtree deletes what they kept",
+     BOX,
+     "                if tree.locked:\n",
+     "                if False:\n"),
+
+    ("every door is read as the one that keeps the branch, so a fresh or hosted job tells the "
+     "person to commit onto a branch it then builds again", BOX,
+     "        rebuilt = not (checkout_existing and _is_this_repo(remote_url, repo_path))\n",
+     "        rebuilt = False\n"),
+
+    ("the person's own checkout on a rebuild door is told to switch away, which leaves its "
+     "commits on the branch the job deletes", BOX,
+     "        if rebuilt:\n"
+     '            return (f"{head} {again}move that checkout',
+     "        if False:\n"
+     '            return (f"{head} {again}move that checkout'),
+
+    ("a tree whose directory is not there is told to commit or stash in it", BOX,
+     "    gone = not tree.main and not Path(tree.path).exists()\n",
+     "    gone = False\n"),
+
+    ("the commands lose `-C <repo>`, and pasted outside the repository they answer \"is not a "
+     "working tree\"", BOX,
+     '    git = f"git -C {shlex.quote(repo)}" if repo else "git"\n',
+     '    git = "git"\n'),
+
+    ("an address pass a tree held leaves \"pass N carries …\" standing alone on the pull request",
+     "openfactory/runtime/temporal/activities.py",
+     "        if result.state == JobState.ON_HOLD and result.hold_cause == TREE:\n",
+     "        if False:\n",
+     "tests/test_a_reviewers_comments_reach_the_pass.py"),
 
     ("`run` lets the refusal escape instead of holding", MACHINE,
      "        except BranchHeldElsewhere as exc:\n"

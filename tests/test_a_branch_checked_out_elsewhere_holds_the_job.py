@@ -206,7 +206,7 @@ def test_the_persons_own_checkout_is_told_to_switch_not_to_be_removed(tmp_path):
         assert words not in said.lower(), f"git's own sentence reached the person: {said!r}"
     assert str(repo.resolve()) in said, said
     assert "switch" in said, said
-    assert "git worktree remove" not in said, said
+    assert "worktree remove" not in said, said  # in any spelling, `-C <repo>` or not
 
     assert caught.value.main is True
 
@@ -501,7 +501,7 @@ def test_a_review_tree_deleted_by_hand_says_the_directory_is_gone(held, locked):
     with pytest.raises(RuntimeError) as caught:
         _keep(box, repo)
     said = str(caught.value)
-    assert "directory is gone" in said, said
+    assert "directory is not there" in said, said
     assert "commit or stash" not in said, said
     for command in _commands(said):
         _run_as_written(command)

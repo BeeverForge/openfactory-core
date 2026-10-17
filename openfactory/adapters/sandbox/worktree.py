@@ -101,9 +101,9 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
     but the local forge's continuing one), so a commit left on it would be on no branch afterwards.
     There the remedy is `git -C <tree> switch -c <a branch of yours>`, which keeps what is there on
     a branch of theirs and frees the card's branch in one command, in a locked tree too (2.34.1 and
-    2.43.0, measured). `gone`: the tree's directory was deleted by hand, and git still counts the
-    branch as out there; nothing is left to lose, and `remove` frees it. `ours`: the box's own
-    tree from an earlier pass, which a person locked; the box leaves it as it is."""
+    2.43.0, measured). `gone`: the tree's directory is not there (deleted by hand, or on a disk
+    not mounted), and git still counts the branch as out there; `remove` frees it. `ours`: the
+    box's own tree from an earlier pass, which a person locked; the box leaves it as it is."""
     where = shlex.quote(path)
     git = f"git -C {shlex.quote(repo)}" if repo else "git"
     unlock = f"`{git} worktree unlock {where}`, then " if locked else ""
@@ -114,8 +114,9 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
     once = "git lets a branch be checked out in only one place, so this job did not start"
     if gone:
         return (f"{branch} is checked out in another working tree, at {path}, whose directory is "
-                f"gone: git still counts the branch as out there, and {once}. Nothing is left "
-                f"there to lose: free it with {remove}, then resume.")
+                f"not there (deleted, or on a disk that is not mounted): git still counts the "
+                f"branch as out there, and {once}. Nothing in it can be reached to lose: free it "
+                f"with {remove}, then resume.")
     if main:
         head = (f"{branch} is checked out in your repository at {path}, and {once}, and nothing in "
                 f"that checkout was touched.")
@@ -179,9 +180,9 @@ def _holder(repo_path, branch: str) -> gitworktrees.WorkingTree | None:
 
 def _branch_held_elsewhere(branch: str, tree: gitworktrees.WorkingTree, *, repo_path,
                            rebuilt: bool, ours: Path) -> BranchHeldElsewhere:
-    # `gone` from git's `prunable` OR from the filesystem: a locked tree whose directory is gone
-    # is listed `locked` and never `prunable` (2.34.1 and 2.43.0, measured)
-    gone = not tree.main and (tree.prunable or not Path(tree.path).exists())
+    # asked of the filesystem, not of git's `prunable`, which a locked tree whose directory is gone
+    # never carries (listed `locked` only, 2.34.1 and 2.43.0, measured)
+    gone = not tree.main and not Path(tree.path).exists()
     return BranchHeldElsewhere(
         branch_held(branch, tree.path, main=tree.main, locked=tree.locked, repo=str(repo_path),
                     gone=gone, rebuilt=rebuilt, ours=_same_dir(tree.path, ours)),

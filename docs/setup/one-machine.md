@@ -119,11 +119,21 @@ touched by the fast-forward itself, and only when it is safe:
   file is exactly as you left it and the pull request stays open;
 - **a base you have checked out somewhere else** — refused for the same reason, by name;
 - **a card's branch you have out yourself** — a tree you made to review the pull request, or
-  your own checkout. Git lets a branch be out in one working tree only, so the job that continues
-  it (an adjust, a repair, a resumed attempt, a re-review) waits for you instead: the card names
-  the path and the command that frees it (`git worktree remove <path>`, or switch that checkout to
-  another branch), and `resume` checks again. Nothing the job did not create is removed, and it
-  never runs `git worktree prune` in your repository.
+  your own checkout. Git lets a branch be out in one working tree only, so the job that needs it
+  (an adjust, a repair, a resumed attempt, a re-review) waits for you instead, and the card names
+  the path and the command that frees it. `resume` checks again. What you were told to keep stays
+  yours:
+  - when the job continues the pull request, the branch is kept: commit what is there, then
+    `git -C <repo> worktree remove <path>`;
+  - when the job builds the branch again (a fresh start), the card gives
+    `git -C <path> switch -c <a branch of yours>`, which keeps your commits on a branch of your own
+    and frees the card's branch in one command;
+  - a review tree you deleted with `rm -rf` still holds the branch, because git keeps its
+    registration; the card says the directory is gone, and `git -C <repo> worktree remove <path>`
+    frees it.
+
+  Nothing the job did not create is removed, a tree of the job's own that you locked is left as it
+  is, and the job never runs `git worktree prune` in your repository.
 
 ## What this door does not do
 
