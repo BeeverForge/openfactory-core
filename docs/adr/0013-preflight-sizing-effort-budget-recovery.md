@@ -65,6 +65,14 @@ tracker — titled with the plan-suffix convention already in use (`Plan 92a —
 body (objective, acceptance criteria, out-of-scope, explicit ordering/dependency note),
 comments on the original linking the children, and closes the original as an epic.
 
+**Amended (2026-10-17, #624):** the children were built from the sizer's output alone, so every
+section of the parent other than its objective and criteria — its Scope, its Context, anything
+else its author wrote — was gone once the parent closed. Each child now also carries those
+sections, as written and one heading level down, under `## From the parent card (#N)`, bounded by
+the tracker row's `body_limit` (`activities.CARD_BODY_LIMIT` for a row that declares none) and cut
+with a line linking the parent when they do not fit. The job's brief and the reviewer's prompt
+render them (`Ticket.from_parent`). The decision stands; this is what a child's body holds.
+
 **Conservative default:** children land in **Backlog + a notification** — the operator
 drags them to TO-DO in the order they want (sequencing is a *decision*, so it stays human
 by default). A manifest flag (`split_autorun: true`) can later drop the first child

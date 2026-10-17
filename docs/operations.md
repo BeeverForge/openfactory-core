@@ -456,7 +456,8 @@ cohesive, independent, testable outcome? (File count is *not* a criterion.) Then
 
 - **fit** → runs normally (plan → code → validate → review → PR).
 - **split** → the ticket is **decomposed autonomously** into `Plan Na` / `Plan Nb` children
-  (full acceptance criteria, ordered), which go **straight to TO-DO in order**; the parent is
+  (full acceptance criteria, ordered, and the parent's other sections — its scope, its context —
+  under `From the parent card (#N)`), which go **straight to TO-DO in order**; the parent is
   closed. Single-line strict runs them one at a time, each on the prior child's merge — so a
   dependency between them is safe with no `depends_on`. (`split_to_todo: false` keeps children
   in Backlog for manual sequencing.)
