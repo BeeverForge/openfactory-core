@@ -102,8 +102,11 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
     There the remedy is `git -C <tree> switch -c <a branch of yours>`, which keeps what is there on
     a branch of theirs and frees the card's branch in one command, in a locked tree too (2.34.1 and
     2.43.0, measured). `gone`: the tree's directory is not there (deleted by hand, or on a disk
-    not mounted), and git still counts the branch as out there; `remove` frees it. `ours`: the
-    box's own tree from an earlier pass, which a person locked; the box leaves it as it is."""
+    not mounted), and git still counts the branch as out there; `remove` frees it, after a mount
+    (a removed registration orphans the tree when the disk comes back) and, on a rebuild door,
+    after `git branch` keeps what was committed there. `ours`: the box's own tree from an earlier
+    pass, which a person locked; the box leaves it as it is, and on a rebuild door it is moved off
+    the box's path too, or `worktree add` meets it there."""
     where = shlex.quote(path)
     git = f"git -C {shlex.quote(repo)}" if repo else "git"
     unlock = f"`{git} worktree unlock {where}`, then " if locked else ""
@@ -113,10 +116,16 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
              f"would not be in the job: ")
     once = "git lets a branch be checked out in only one place, so this job did not start"
     if gone:
-        return (f"{branch} is checked out in another working tree, at {path}, whose directory is "
-                f"not there (deleted, or on a disk that is not mounted): git still counts the "
-                f"branch as out there, and {once}. Nothing in it can be reached to lose: free it "
-                f"with {remove}, then resume.")
+        head = (f"{branch} is checked out in another working tree, at {path}, whose directory is "
+                f"not there: git still counts the branch as out there, and {once}. If it is on a "
+                f"disk that is not mounted, mount it and resume.")
+        if rebuilt:
+            # a commit made there is on the branch, which outlived the directory; `branch -D`
+            # would drop it (review of 83973c2)
+            return (f"{head} Otherwise keep any commit made there with "
+                    f"`{git} branch <a branch of yours> {branch}`, then free it with {remove}, "
+                    f"then resume.")
+        return f"{head} Otherwise free it with {remove}, then resume."
     if main:
         head = (f"{branch} is checked out in your repository at {path}, and {once}, and nothing in "
                 f"that checkout was touched.")
@@ -129,6 +138,12 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
              if ours else "")
     head = (f"{branch} is checked out in another working tree, at {path}{whose}, and {once}, and "
             f"nothing in that tree was touched.")
+    if rebuilt and ours:
+        # the tree still stands at the box's own path after `switch -c`, and `worktree add` there
+        # fails with git's `already exists` (review of 83973c2): the path is freed too
+        return (f"{head} {again}free it with {switch_new}, then {unlock}"
+                f"`{git} worktree move {where} <a path of yours>`, which keeps what is there on a "
+                f"branch and in a directory of yours, then resume.")
     if rebuilt:
         return (f"{head} {again}free it with {switch_new}, which keeps what is there on a branch "
                 f"of yours, then resume. With nothing there to keep, {remove} frees it too.")
@@ -182,11 +197,14 @@ def _branch_held_elsewhere(branch: str, tree: gitworktrees.WorkingTree, *, repo_
                            rebuilt: bool, ours: Path) -> BranchHeldElsewhere:
     # asked of the filesystem, not of git's `prunable`, which a locked tree whose directory is gone
     # never carries (listed `locked` only, 2.34.1 and 2.43.0, measured)
-    gone = not tree.main and not Path(tree.path).exists()
+    try:
+        gone = not tree.main and not Path(tree.path).exists()
+    except OSError:  # under a directory the box cannot search: not looked at is not "not there"
+        gone = False
     return BranchHeldElsewhere(
         branch_held(branch, tree.path, main=tree.main, locked=tree.locked, repo=str(repo_path),
                     gone=gone, rebuilt=rebuilt, ours=_same_dir(tree.path, ours)),
-        branch=branch, path=tree.path, main=tree.main, locked=tree.locked, gone=gone)
+        branch=branch, path=tree.path, main=tree.main, locked=tree.locked)
 
 # A job clones/pushes over git and talks to GitHub — it never needs AWS. But a Fargate
 # task inherits the ECS task-role credentials (chiefly via
@@ -752,5 +770,12 @@ class WorktreeSandbox(SandboxAdapter):
                 ["git", "-C", str(self._repo_root), "worktree", "remove", "--force",
                  str(workspace.path)]
             )
-        if workspace.path.exists():
+        # A LOCK IS A PERSON'S "KEEP THIS" (#623, review of 83973c2): the platform never locks a
+        # tree, one `--force` refuses a locked one, and the `rmtree` deleted it anyway.
+        locked = self._repo_root is not None and any(
+            t.locked and _same_dir(t.path, workspace.path)
+            for t in (_working_trees(self._repo_root) or []))
+        if locked:
+            log.warning("the box's own tree %s is locked — left as it is", workspace.path)
+        elif workspace.path.exists():
             shutil.rmtree(workspace.path, ignore_errors=True)

@@ -121,6 +121,46 @@ MUTATIONS = [
      "        if False:\n",
      "tests/test_a_reviewers_comments_reach_the_pass.py"),
 
+    # ── review of 83973c2: the same rule, where last round's fixes did not reach ───────────────
+    ("the box's own locked tree on a rebuild door is told only `switch -c`, and the resume meets "
+     "the tree at the box's own path", BOX,
+     "    if rebuilt and ours:\n",
+     "    if False:\n"),
+
+    ("a deleted tree on a rebuild door is told only to remove it, and the resume drops what was "
+     "committed there", BOX,
+     "        if rebuilt:\n"
+     "            # a commit made there is on the branch",
+     "        if False:\n"
+     "            # a commit made there is on the branch"),
+
+    ("`cleanup` deletes the box's own tree a person locked", BOX,
+     "        elif workspace.path.exists():\n",
+     "        if workspace.path.exists():\n"),
+
+    ("the second porcelain read is worded for the other door", BOX,
+     "                raise _branch_held_elsewhere(branch, held, repo_path=repo_path, "
+     "rebuilt=rebuilt,\n"
+     "                                             ours=wt)\n",
+     "                raise _branch_held_elsewhere(branch, held, repo_path=repo_path, "
+     "rebuilt=not rebuilt,\n"
+     "                                             ours=wt)\n"),
+
+    ("a hold the agent itself reached is followed by \"no agent saw these comments\"",
+     "openfactory/runtime/temporal/activities.py",
+     "        if result.state == JobState.ON_HOLD and result.hold_cause == TREE:\n",
+     "        if result.state == JobState.ON_HOLD:\n",
+     "tests/test_a_reviewers_comments_reach_the_pass.py"),
+
+    ("a directory the box cannot search reads as \"not there\", and the hold is a traceback", BOX,
+     "    except OSError:  # under a directory the box cannot search",
+     "    except FileNotFoundError:  # under a directory the box cannot search"),
+
+    ("a TREE hold without the machine's mark resumes into a fresh job", WORKFLOW,
+     "        passed.merge_refused = True\n",
+     "",
+     WORKFLOW_TEST),
+
     ("`run` lets the refusal escape instead of holding", MACHINE,
      "        except BranchHeldElsewhere as exc:\n"
      "            # A PERSON HAS THE BRANCH OUT (#623), and only they can free it.",

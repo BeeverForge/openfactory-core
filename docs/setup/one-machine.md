@@ -129,11 +129,15 @@ touched by the fast-forward itself, and only when it is safe:
     `git -C <path> switch -c <a branch of yours>`, which keeps your commits on a branch of your own
     and frees the card's branch in one command;
   - a review tree you deleted with `rm -rf` still holds the branch, because git keeps its
-    registration; the card says the directory is gone, and `git -C <repo> worktree remove <path>`
-    frees it.
+    registration; the card says the directory is not there, and `git -C <repo> worktree remove
+    <path>` frees it. On a fresh start it first gives `git -C <repo> branch <a branch of yours>
+    <branch>`, because what you committed there is on the card's branch, which the job builds
+    again. If the directory is on a disk that is not mounted, mount it and resume instead.
 
-  Nothing the job did not create is removed, a tree of the job's own that you locked is left as it
-  is, and the job never runs `git worktree prune` in your repository.
+  Nothing the job did not create is removed, and the job never runs `git worktree prune` in your
+  repository. A tree of the job's own that you locked is left as it is, at the start of a job and
+  at its end; on a fresh start the card also gives `git -C <repo> worktree move <path> <a path of
+  yours>`, because the job needs that path back.
 
 ## What this door does not do
 

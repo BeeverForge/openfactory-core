@@ -76,27 +76,26 @@ class BranchHeldElsewhere(RuntimeError):
     onboarding, conformance) reports it the way it reported git's sentence before.
 
     `path` is the holder's path as git lists it, `main` says the holder is the repository's own
-    checkout (git cannot remove that one), `locked` that it was locked with `git worktree lock`,
-    `gone` that its directory is not there (git still counts the branch as out there)."""
+    checkout (git cannot remove that one), and `locked` that it was locked with
+    `git worktree lock`. Whether its directory is there is said in the message only: nothing reads
+    it as a field (review of 83973c2)."""
 
     def __init__(self, message: str, *, branch: str, path: str, main: bool = False,
-                 locked: bool = False, gone: bool = False) -> None:
+                 locked: bool = False) -> None:
         super().__init__(message)
         self.branch, self.path, self.main, self.locked = branch, path, main, locked
-        self.gone = gone
 
     def __reduce__(self):
         # `pickle` rebuilds an exception as `cls(*self.args)`, and the keyword-only fields are not
         # in `args`: measured on Python 3.12, 2026-10-17, `TypeError: __init__() missing 1
         # required keyword-only argument: 'branch'`. So the fields travel with it.
         return (_rebuild_branch_held,
-                (str(self), self.branch, self.path, self.main, self.locked, self.gone))
+                (str(self), self.branch, self.path, self.main, self.locked))
 
 
-def _rebuild_branch_held(message: str, branch: str, path: str, main: bool, locked: bool,
-                         gone: bool = False) -> BranchHeldElsewhere:
-    return BranchHeldElsewhere(message, branch=branch, path=path, main=main, locked=locked,
-                               gone=gone)
+def _rebuild_branch_held(message: str, branch: str, path: str, main: bool,
+                         locked: bool) -> BranchHeldElsewhere:
+    return BranchHeldElsewhere(message, branch=branch, path=path, main=main, locked=locked)
 
 
 @runtime_checkable
