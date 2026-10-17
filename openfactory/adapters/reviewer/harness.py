@@ -24,6 +24,7 @@ import json
 from openfactory.adapters.reviewer.base import (
     ACCEPTANCE_SHAPE,
     EVIDENCE_RULE,
+    WRITTEN_ANSWER_RULE,
     ReviewerAdapter,
     ReviewInput,
 )
@@ -69,7 +70,7 @@ def build_review_prompt(ri: ReviewInput) -> str:
         for v in ri.validations
     ) or "(none)"
     parts = [
-        _INSTRUCTIONS + " " + EVIDENCE_RULE,
+        _INSTRUCTIONS + " " + EVIDENCE_RULE + " " + WRITTEN_ANSWER_RULE,
         f"\n# Ticket {t.id}: {t.title}\n## Objective\n{t.objective}",
         f"\n## Acceptance criteria\n{crits}",
         f"\n## Platform validation results\n{vals}",

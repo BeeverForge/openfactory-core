@@ -205,18 +205,19 @@ def test_every_platform_row_after_a_quote_is_separated_by_a_blank_row():
     the passes label, the `Cost:` line — into the agent's quote."""
     markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
 
-    result = _result(account="x" * 5000)
-    if hasattr(run_contract, "PassAccount"):
-        result.agent_passes = [run_contract.PassAccount(kind="gate repair 1", words="fixed it",
-                                                        head="0" * 40)]
-    body = JobRunner._pr_body(_bare(), spine._sizing_ticket_id("#3"), result)
-    rows = body.splitlines()
-    for i, row in enumerate(rows[1:], 1):
-        if row and not row.startswith(">") and rows[i - 1].startswith(">"):
-            raise AssertionError(f"{row!r} follows a quoted row directly")
-    html = markdown_it.MarkdownIt("commonmark").render(body)
-    outside = re.sub(r"<blockquote>.*?</blockquote>", "", html, flags=re.S)
-    assert "Later passes" in outside and "Cost: $" in outside
+    for account in ("x" * 5000, "short, so no cut line stands between the quote and the label"):
+        result = _result(account=account)
+        if hasattr(run_contract, "PassAccount"):
+            result.agent_passes = [run_contract.PassAccount(kind="gate repair 1",
+                                                            words="fixed it", head="0" * 40)]
+        body = JobRunner._pr_body(_bare(), spine._sizing_ticket_id("#3"), result)
+        rows = body.splitlines()
+        for i, row in enumerate(rows[1:], 1):
+            if row and not row.startswith(">") and rows[i - 1].startswith(">"):
+                raise AssertionError(f"{row!r} follows a quoted row directly")
+        html = markdown_it.MarkdownIt("commonmark").render(body)
+        outside = re.sub(r"<blockquote>.*?</blockquote>", "", html, flags=re.S)
+        assert "Later passes" in outside and "Cost: $" in outside
 
 
 def test_a_mention_the_agent_writes_notifies_nobody(repo: Path, tmp_path: Path):

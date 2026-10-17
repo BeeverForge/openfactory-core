@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from openfactory.adapters.sandbox.base import SandboxAdapter, Workspace
 from openfactory.contracts import ReviewResult, Ticket, ValidationResult
+from openfactory.contracts.run import AGENT_ACCOUNT_HEADING
 
 #: HOW A CRITERION IS PASSED, said to every reviewer the same way (#447). The platform checks the
 #: citation against the gates that ran (`review/evidence.py`) — so the rule the model is given and
@@ -29,6 +30,21 @@ EVIDENCE_RULE = (
     "test:e2e — frontend/e2e/home.spec.ts`). The platform confirms every `gate:` citation against "
     "the gates that actually ran; a criterion it cannot confirm is reported as not verified, "
     "whatever the decision says."
+)
+
+#: WHERE A WRITTEN ANSWER IS, said to every reviewer the same way (#627). A criterion that asks the
+#: implementing agent to REPORT something — "say which root causes you found" — is answered in the
+#: agent's final message, which the pull request publishes under `AGENT_ACCOUNT_HEADING` and which
+#: this reviewer is deliberately not shown (ADR-0001 D-5). Judged against the diff, such a criterion
+#: was marked failed because the diff lacked the answer, and could never be satisfied. It follows
+#: `EVIDENCE_RULE`'s path instead: `unknown`, and the change reads NOT VERIFIED, so a person reads
+#: the answer at the merge. The rule carries no agent text.
+WRITTEN_ANSWER_RULE = (
+    "You judge the change, not the implementing agent's account of it. A criterion that asks the "
+    "agent to report, state or explain something in writing is answered in the pull request under "
+    f"`{AGENT_ACCOUNT_HEADING}`, which you are not shown: mark it `unknown`, say in `evidence` "
+    f"that it is answered under `{AGENT_ACCOUNT_HEADING}` for a person to read, leave "
+    "`would_verify` empty, and never `failed` because the diff does not contain the answer."
 )
 
 #: The acceptance entry every reviewer returns, with the field the rule above asks for.
