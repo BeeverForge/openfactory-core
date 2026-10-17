@@ -13,7 +13,12 @@ WHAT IS PROVEN, and it is D3's table row by row:
   · a base nobody has checked out moves without touching any tree, dirty or not;
   · a base checked out in a linked worktree is refused — *checked out* is decided over
     `git worktree list`, never `HEAD` alone;
-  · nothing else in the person's repository is written: no remote, no config, no hook.
+  · nothing else in the person's repository is written: no remote, no config, no hook;
+  · bringing a job branch up to date never touches their tree (#622): they stay on their branch,
+    their uncommitted and staged changes stay as they were, a head anybody has out — here or in a
+    linked worktree — is refused, a worktree registration of theirs is never pruned, their
+    `rebase.updateRefs` moves none of their branches, their `commit.gpgSign` does not fail the
+    rebase, and the rebased commits keep their author and name the bot as committer.
 """
 
 from __future__ import annotations
@@ -247,6 +252,7 @@ def test_the_base_moving_under_it_is_BEHIND_and_not_a_refusal(forge, pr, repo):
     assert forge.mergeable_state(pr=pr) == "behind"
 
     assert forge.update_branch(pr=pr) is True
+    assert _current(repo) == "main", "the person was left on the job's branch (#622)"
     assert forge.mergeable_state(pr=pr) == "clean"
     forge.merge_pr(pr=pr)
     assert forge.pr_status(pr=pr) == "merged"
@@ -256,6 +262,143 @@ def test_a_head_somebody_has_checked_out_is_not_rebased_under_them(forge, pr, re
     _git(repo, "commit", "-q", "--allow-empty", "-m", "somebody else's work")
     _git(repo, "checkout", "-q", "openfactory/1")
     assert forge.update_branch(pr=pr) is False
+
+
+def test_a_head_checked_out_in_a_LINKED_WORKTREE_is_not_rebased_either(forge, pr, repo, tmp_path):
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "somebody else's work")
+    _git(repo, "worktree", "add", "-q", str(tmp_path / "linked"), "openfactory/1")
+    before = _head(repo, "openfactory/1")
+    assert forge.update_branch(pr=pr) is False
+    assert _head(repo, "openfactory/1") == before
+
+
+# ── bringing a job branch up to date, outside the person's tree (#622) ──────────────────────────
+
+def _current(repo) -> str:
+    return _git(repo, "symbolic-ref", "--short", "HEAD").stdout.strip()
+
+
+def _move_main(repo, files=None) -> None:
+    """A commit on `main`, which the person has out, so the pull request is `behind`."""
+    for name, text in (files or {"other.py": "print('theirs')\n"}).items():
+        (repo / name).write_text(text)
+        _git(repo, "add", name)
+    _git(repo, "commit", "-qm", "somebody else's work")
+
+
+def _rebased(repo) -> bool:
+    return _git(repo, "merge-base", "--is-ancestor", "main", "openfactory/1").returncode == 0
+
+
+def test_a_CLEAN_tree_stays_on_its_branch_while_the_head_is_brought_up_to_date(forge, pr, repo):
+    """THE BUG. `rebase --onto <base> <merge-base> <head>` checks `<head>` out first, so the
+    person was left on `openfactory/1` afterwards — measured on git 2.43."""
+    _move_main(repo)
+    assert forge.update_branch(pr=pr) is True
+    assert _current(repo) == "main", "the person was switched onto the job's branch"
+    assert _rebased(repo)
+    assert forge.mergeable_state(pr=pr) == "clean"
+    assert _git(repo, "status", "--porcelain").stdout == "", "the tree was written"
+
+    from openfactory.credentials import bot_identity
+
+    committer = _git(repo, "log", "-1", "--format=%an|%cn", "openfactory/1").stdout.strip()
+    assert committer == f"A Person|{bot_identity().name}", (
+        "the author must be kept and the rebase committed as the bot")
+
+
+def test_an_UNCOMMITTED_change_is_no_reason_to_stay_behind_and_is_left_alone(forge, pr, repo):
+    """Before the fix the rebase exited 1 here — it had to check the head out over their edit —
+    and the pull request stayed `behind` for as long as they kept working."""
+    _move_main(repo)
+    (repo / "README.md").write_text("# myapp\n\nmy unstaged edit\n")
+    (repo / "notes.txt").write_text("untracked\n")
+    (repo / "other.py").write_text("print('staged')\n")
+    _git(repo, "add", "other.py")
+    staged = _git(repo, "diff", "--cached").stdout
+
+    assert forge.update_branch(pr=pr) is True
+    assert _rebased(repo)
+    assert _current(repo) == "main"
+    assert (repo / "README.md").read_text() == "# myapp\n\nmy unstaged edit\n"
+    assert (repo / "notes.txt").read_text() == "untracked\n"
+    assert _git(repo, "diff", "--cached").stdout == staged, "the index was written"
+
+
+def _a_stale_worktree_of_theirs(repo, tmp_path):
+    """A linked worktree whose directory is missing right now — an unmounted disk, a moved
+    folder. `git worktree prune` would drop its registration, and it is not ours to drop."""
+    _git(repo, "branch", "theirs", "main")
+    away = tmp_path / "away"
+    _git(repo, "worktree", "add", "-q", str(away), "theirs")
+    import shutil
+
+    shutil.rmtree(away)
+    return away
+
+
+def _registered(repo) -> list[str]:
+    return [line.split(" ", 1)[1] for line in
+            _git(repo, "worktree", "list", "--porcelain").stdout.splitlines()
+            if line.startswith("worktree ")]
+
+
+def test_nothing_is_left_behind_and_nothing_of_theirs_is_pruned(forge, pr, repo, tmp_path):
+    away = _a_stale_worktree_of_theirs(repo, tmp_path)
+    before = _registered(repo)
+    assert str(away) in before, "the setup must leave a stale registration"
+    _move_main(repo)
+
+    assert forge.update_branch(pr=pr) is True
+    assert _registered(repo) == before, "a scratch tree is still registered, or theirs was pruned"
+
+
+def test_a_CONFLICT_moves_nothing_and_leaves_nothing_behind(forge, pr, repo, tmp_path):
+    away = _a_stale_worktree_of_theirs(repo, tmp_path)
+    before = _registered(repo)
+    _move_main(repo, {"app.py": "print('three')\n"})       # the job changed the same line
+    head = _head(repo, "openfactory/1")
+    files = {p.name: p.read_bytes() for p in repo.iterdir() if p.is_file()}
+
+    assert forge.update_branch(pr=pr) is False
+    assert _head(repo, "openfactory/1") == head, "a conflicted rebase moved the head"
+    assert _current(repo) == "main"
+    assert {p.name: p.read_bytes() for p in repo.iterdir() if p.is_file()} == files
+    assert _registered(repo) == before, "a scratch tree is still registered, or theirs was pruned"
+    assert str(away) in _registered(repo)
+
+
+def test_their_commit_gpgSign_is_no_reason_to_stay_behind(forge, pr, repo):
+    """Their config applies here too, and the rebase commits as the bot: gpg looks for the bot's
+    key, finds none, and the rebase fails — measured on git 2.43 with a real key for the person:
+    `gpg: skipped "<bot>": No secret key`. `gpg.program` is `false` so that no gpg is needed to
+    prove it: any signing attempt fails."""
+    _move_main(repo)                           # before the config, or this commit fails instead
+    assert forge.mergeable_state(pr=pr) == "behind", "the setup must leave something to rebase"
+    _git(repo, "config", "commit.gpgSign", "true")
+    _git(repo, "config", "gpg.program", "false")
+
+    assert forge.update_branch(pr=pr) is True
+    assert _rebased(repo)
+    assert _current(repo) == "main"
+
+
+def test_their_rebase_updateRefs_moves_none_of_their_branches(forge, repo):
+    """The person's config applies to a rebase the factory runs in their repository, and
+    `rebase.updateRefs` moves every branch that points into the rebased range."""
+    _git(repo, "checkout", "-q", "openfactory/1")
+    _git(repo, "branch", "mine")                           # inside merge-base..head
+    (repo / "README.md").write_text("# myapp, twice\n")
+    _git(repo, "commit", "-qam", "the factory's second change")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "config", "rebase.updateRefs", "true")
+    pr = forge.open_pr(head="openfactory/1", base="main", title="t", body="b")
+    mine = _head(repo, "mine")
+    _move_main(repo)
+
+    assert forge.update_branch(pr=pr) is True
+    assert _rebased(repo)
+    assert _head(repo, "mine") == mine, "a branch of theirs was moved by the factory's rebase"
 
 
 def test_the_merge_is_idempotent(forge, pr):
