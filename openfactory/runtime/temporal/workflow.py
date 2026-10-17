@@ -157,6 +157,7 @@ with workflow.unsafe.imports_passed_through():
         release_passes_spent_note,
     )
     from openfactory.techlead import CODE as CAUSE_CODE
+    from openfactory.techlead import TREE as CAUSE_TREE
     from openfactory.techlead import classify, remedy_for
 
     # THE LIFECYCLE'S OWN PHRASEBOOK (#160). Eleven sentences were welded into this file, half of
@@ -1032,6 +1033,14 @@ class JobWorkflow:
         # Replay-safe for the reason `_merge_wait` states below: it is workflow state, not a
         # command, so a worker replaying this job's history rebuilds it by running the same code.
         self._refused_merge: RunResult | None = None
+        # THE PASS A WORKING TREE HELD, kept so a resume runs it again (#623). A person's adjust or
+        # re-review found the card's branch checked out in another working tree, and the job
+        # parked; the resume must run the SAME pass, whose `prepare` asks again. It is state and
+        # not a re-sent answer because a gate's seal is single-use (`_gate_sealed`): the person's
+        # answer put back into `_gate` would be refused as already acted on. Set only under the
+        # marker `a-tree-in-the-way-holds-the-pass`, so a history from before it never has one,
+        # and consuming it needs no marker of its own.
+        self._held_pass: dict | None = None
         # How many `adjust` passes this job has already spent. Per JOB, like `_remedied`: every
         # pass is a paid agent run holding the single-slot floor, so an uncapped adjust is a
         # human-driven infinite loop with the 14-day deadline as its only backstop.
@@ -1928,6 +1937,15 @@ class JobWorkflow:
             # the old sequence, and SAYS SO on the path where it cannot hear (`cannot_hear`).
             heard = (workflow.patched("the-gate-is-heard-on-every-path")
                      and (self._merge_wait or {}).get("gate_live") is not False)
+            if self._held_pass is not None:
+                # THE PASS A WORKING TREE HELD, RUN AGAIN ON RESUME (#623), at the place a stored
+                # answer is, and before it: after the checks are read and before anything is done
+                # about them. No seal is asked for: it was checked when the person answered.
+                held, self._held_pass = self._held_pass, None
+                answered = await self._answer_merge_gate(params, result, pr_url, held=held)
+                if answered is not None:
+                    return answered
+                continue
             if heard and self._gate is not None:
                 answered = await self._answer_merge_gate(params, result, pr_url)
                 if answered is not None:
@@ -2235,21 +2253,29 @@ class JobWorkflow:
         return ""
 
     async def _answer_merge_gate(self, params: JobParams, result: RunResult,
-                                 pr_url: str) -> RunResult | None:
+                                 pr_url: str, held: dict | None = None) -> RunResult | None:
         """Act on the human's answer. `None` means carry on watching the PR (#68).
 
         THE ANSWER IS CONSUMED FIRST, whatever happens next. A gate left set would re-fire on the
-        next iteration and merge twice, or spend a second adjust pass nobody asked for."""
-        gate, self._gate = self._gate, None
-        if not gate:
-            return None
-        # ONLY THE PANEL'S ANSWER IS ACTED ON (`gate_seal`). One sent straight to the engine is
-        # consumed and dropped, and the watch carries on as if nobody had answered.
-        if workflow.patched("signed-gates") and not await self._gate_sealed(
-                "human_merge_gate",
-                [gate.get("answer") or "", gate.get("instruction") or "", gate.get("by") or ""],
-                gate.get("seal") or ""):
-            return None
+        next iteration and merge twice, or spend a second adjust pass nobody asked for.
+
+        `held` is an answer already consumed and sealed, whose pass a working tree held (#623):
+        it is acted on again WITHOUT the seal check, because a seal is single-use and this one was
+        spent when the person answered. The stored `_gate` is left for the next look."""
+        if held is not None:
+            gate = held
+        else:
+            gate, self._gate = self._gate, None
+            if not gate:
+                return None
+            # ONLY THE PANEL'S ANSWER IS ACTED ON (`gate_seal`). One sent straight to the engine
+            # is consumed and dropped, and the watch carries on as if nobody had answered.
+            if workflow.patched("signed-gates") and not await self._gate_sealed(
+                    "human_merge_gate",
+                    [gate.get("answer") or "", gate.get("instruction") or "",
+                     gate.get("by") or ""],
+                    gate.get("seal") or ""):
+                return None
         answer, who = gate.get("answer"), gate.get("by") or "somebody"
 
         if answer == "merge":
@@ -2389,6 +2415,9 @@ class JobWorkflow:
                 retry_policy=(_RETRY_REATTACHING
                               if params.traits().idempotent else _ONCE),
             )
+            if self._a_tree_holds_the_pass(read, result, gate):
+                self._review_passes -= 1  # nothing was read: the pass is not spent
+                return read
             # IT REPLACES THE STALE VERDICT, it does not sit beside it: two verdicts about two
             # diffs on one screen is the ambiguity #149 was opened to kill. `_reviewed_again` is
             # the one place that swaps a verdict, so the swap cannot drift between the paths.
@@ -2448,6 +2477,9 @@ class JobWorkflow:
         # act on the instruction (#178) is the commonest way to get here having changed nothing,
         # and it must not cost the person the verdict they came to the gate to read.
         self._the_reviewed_code_is_still_here(passed)
+        if self._a_tree_holds_the_pass(passed, result, gate):
+            self._adjust_passes -= 1  # no agent ran: the pass is not spent
+            return passed
         # …AND A PASS THAT REWROTE THE PULL REQUEST ENDS THE WAY THE FIRST ONE DID (#413, #448):
         # the card's door records `adjusted`, the live preview is rebuilt from the new head, and
         # the requester hears that this pass is theirs to try. PATCHED: a new command on a path
@@ -2457,6 +2489,28 @@ class JobWorkflow:
             await self._the_pass_is_ready(params, pr_url, who,
                                           str(gate.get("instruction") or ""))
         return None  # the pass pushed to the same PR; keep watching, the gate re-opens
+
+    def _a_tree_holds_the_pass(self, passed: RunResult, result: RunResult, gate: dict) -> bool:
+        """Whether a person's pass stopped because the card's branch is checked out in another
+        working tree (#623), and if so, keep it to run again on resume.
+
+        THE HOLD IS RETURNED, NOT DROPPED. The pass came back `ON_HOLD` with `hold_cause` TREE,
+        and the gate re-opened over it as if it had run: the person read a fresh gate, pressed
+        resume on nothing, and the branch was never asked about again. Returned, the watch ends on
+        it and the job parks like any hold, naming the tree and the command that frees it. The
+        mark `merge_refused` sends the resume back into this watch (the `hold-resumes-into-merge`
+        arm), where `_held_pass` runs the same pass again, and its `prepare` asks again.
+
+        PATCHED, asked only on such a hold: returning here ends a watch where a job already past
+        this point recorded the gate re-opening (TMPRL1100), and a job that never meets one
+        records no marker."""
+        if not (passed.state == JobState.ON_HOLD and passed.hold_cause == CAUSE_TREE
+                and workflow.patched("a-tree-in-the-way-holds-the-pass")):
+            return False
+        passed.merge_refused = True
+        self._held_pass = dict(gate)
+        self._refused_merge = result
+        return True
 
     async def _the_pass_is_ready(self, params: JobParams, pr_url: str, who: str,
                                  instruction: str) -> None:
@@ -3228,6 +3282,8 @@ class JobWorkflow:
                         resume_into_merge, self._refused_merge = self._refused_merge, None
                         result = None
                         continue
+                    # a held pass is run again only inside the watch it was held in (#623)
+                    self._held_pass = None
                     # Resolve the picked option into text the resumed agent gets, so it proceeds
                     # with that choice instead of re-asking (durable, auditable — the decision was
                     # also recorded on the ticket when the human/bot answered).
