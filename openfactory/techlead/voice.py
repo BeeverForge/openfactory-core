@@ -178,6 +178,13 @@ REMEDY: dict[str, dict[str, str]] = {
               "merge you have open, and nothing of yours is lost either way",
         "pt-BR": "sua própria cópia de trabalho está no caminho — faça commit ou stash do que está "
                  "lá, ou termine o merge aberto; nada do que é seu se perde de qualquer forma"},
+    "why.tree-held": {
+        "en": "the card's branch is checked out in another working tree, and git lets it be out "
+              "in only one: the note above names that tree and the command that frees it, and "
+              "nothing in it was touched",
+        "pt-BR": "a branch do card está em uso em outra árvore de trabalho, e o git só permite "
+                 "uma: a nota acima diz qual é essa árvore e o comando que a libera, e nada nela "
+                 "foi tocado"},
     "why.gate": {
         "en": "the pull request is held by a check no change to the code settles — the note above "
               "names it and says what to do on the forge; running the job again lands in the same "
