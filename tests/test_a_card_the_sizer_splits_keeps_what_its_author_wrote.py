@@ -289,3 +289,59 @@ def test_a_card_read_before_this_change_still_validates():
     old = {"id": "#1", "title": "t", "objective": "o", "repo": "acme"}
     assert Ticket.model_validate(old).id == "#1"
     assert getattr(Ticket.model_validate(old), "from_parent", None) is None
+
+
+# ── review of 83256a1: the edges of the bound ───────────────────────────────────────────────────
+
+def test_a_child_whose_own_part_nearly_fills_the_limit_is_not_pushed_over_it():
+    """The carried header and the cut line cost ~360 characters. When the sizer's own part fits the
+    limit but leaves less than that, the child was written over the limit — 579 characters at a
+    limit of 222, a child main would have created (review of 83256a1). With no room to carry
+    anything, the child is what it was before #624."""
+    child = {"title": "f", "objective": "o", "criteria": ["c"]}
+    bare = acts._child_body(child, "#1", 1, 2)
+    carried = ("", [("Scope", "word " * 200)])
+    for limit in (len(bare), len(bare) + 100, len(bare) + 300):
+        body = acts._child_body(child, "#1", 1, 2, carried=carried, limit=limit, parent_url="u")
+        assert len(body) <= limit, (limit, len(body))
+
+
+@pytest.mark.parametrize(("text", "closer"), [
+    ("```\n~~~\n" + "x\n" * 50, "```"),            # a tilde line inside a backtick fence
+    ("````\n```\n" + "x\n" * 50, "````"),          # three backticks inside a four-backtick fence
+    ("~~~~~\n```\n~~~\n" + "x\n" * 50, "~~~~~"),   # shorter closers inside a long tilde fence
+], ids=["tilde-inside-backticks", "three-inside-four", "short-closers-inside-long-tildes"])
+def test_a_fence_the_cut_leaves_open_is_closed_by_its_own_marker(text, closer):
+    """Counting fence lines by parity left the cut line inside code when the fence held a line of
+    the other kind, and closed a four-backtick fence with three (review of 83256a1). A closer is the
+    opener's character, at least as many times."""
+    kept = acts._markdown_within(text, 20)
+    assert len(kept) <= 20, kept
+    assert kept.splitlines()[-1] == closer, kept
+
+
+def test_a_closer_that_would_cross_the_budget_gives_a_line_back():
+    kept = acts._markdown_within("```\n" + "a" * 10 + "\n" + "b" * 10, 16)
+    assert len(kept) <= 16 and kept.endswith("```"), kept
+
+
+def test_one_line_longer_than_the_budget_is_cut_at_a_word():
+    assert acts._markdown_within("word " * 100, 23) == "word word word word"
+
+
+def test_the_parents_front_matter_is_not_carried_as_prose(board):
+    tracker = board()
+    _parent, kids = _split(tracker, "---\nbase_branch: dev\n---\nprose above the headings\n\n"
+                                    "## Objective\no\n\n## Acceptance criteria\n- c")
+    for kid in kids:
+        assert "base_branch" not in kid.raw, kid.raw
+        assert "prose above the headings" in (kid.from_parent or "")
+
+
+def test_an_empty_parent_section_is_not_carried_as_an_empty_heading(board):
+    tracker = board()
+    _parent, kids = _split(tracker, "## Objective\no\n\n## Scope\n\n## Housekeeping\nh\n\n"
+                                    "## Acceptance criteria\n- c")
+    for kid in kids:
+        assert "### Housekeeping" in kid.raw.splitlines()
+        assert "### Scope" not in kid.raw.splitlines(), kid.raw

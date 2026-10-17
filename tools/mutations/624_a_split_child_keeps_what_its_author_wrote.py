@@ -85,13 +85,46 @@ MUTATIONS = [
      'where = f"{parent_ref}: {parent_url}" if parent_url else parent_ref',
      "where = parent_ref"),
 
+    # re-pinned 2026-10-17: the closer is the opener's own marker, `_open_fence` (review of 83256a1)
     ("a fence the cut left open is not closed", ACT,
-     "        kept = \"\\n\".join([*lines, *(fences[-1:] if len(fences) % 2 else [])]).rstrip()",
+     "        kept = \"\\n\".join([*lines, *([opener] if (opener := _open_fence(lines)) else [])])"
+     ".rstrip()",
      "        kept = \"\\n\".join(lines).rstrip()"),
 
     ("the split ignores the row's own limit", ACT,
      'limit = getattr(tracker, "body_limit", None) or CARD_BODY_LIMIT',
      "limit = CARD_BODY_LIMIT"),
+
+    # ── the edges of the bound (review of 83256a1) ───────────────────────────────────────────────
+    ("a child with no room to carry is written over the limit anyway", ACT,
+     "    if budget <= 0:\n        # NO ROOM",
+     "    if False:\n        # NO ROOM"),
+
+    ("any fence line closes the open fence, of either kind", ACT,
+     "        elif marker[0] == opener[0] and len(marker) >= len(opener) and not rest.strip():",
+     "        elif not rest.strip():"),
+
+    ("a shorter fence closes a longer one", ACT,
+     "        elif marker[0] == opener[0] and len(marker) >= len(opener) and not rest.strip():",
+     "        elif marker[0] == opener[0] and not rest.strip():"),
+
+    ("the closer may push the kept text over the budget", ACT,
+     "        if len(kept) <= budget:\n            return kept\n        lines.pop()",
+     "        return kept"),
+
+    ("one line longer than the budget is cut mid-word", ACT,
+     '                lines.append(head.rsplit(" ", 1)[0] if " " in head else head)',
+     "                lines.append(head)"),
+
+    ("the parent's front matter is carried as prose", PARSE,
+     "    parser has a name for it, because the parent is closed and the child is all anybody "
+     "reads.\"\"\"\n    _fm, md = _split_front_matter(body or \"\")",
+     "    parser has a name for it, because the parent is closed and the child is all anybody "
+     "reads.\"\"\"\n    md = body or \"\""),
+
+    ("an empty parent section is carried as an empty heading", ACT,
+     '*(f"### {heading}\\n{text}" for heading, text in sections if text)])',
+     '*(f"### {heading}\\n{text}" for heading, text in sections)])'),
 
     ("the cut is not logged", ACT,
      '        "OPENFACTORY_SPLIT_CARRIED_CUT %s — kept %d of %d characters',

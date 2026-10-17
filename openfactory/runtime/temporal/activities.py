@@ -1120,7 +1120,9 @@ def _child_body(child: dict, parent_ref: str, order: int, total: int, *,
     #
     # BOUNDED BY THE TRACKER'S `limit`: only the carried block is cut, at a line boundary, with an
     # open code fence closed and a line that says where the rest is. The sizer's own part is never
-    # cut — if it alone exceeds the limit the create fails as it did before this change.
+    # cut: when it leaves no room for the header and the cut line, nothing is carried and the
+    # body is the one written before this change — and if it alone exceeds the limit, the create
+    # fails as it did then.
     from openfactory.adapters.tracker.parse import FROM_THE_PARENT
 
     focus = str(child.get("title", "")).strip()
@@ -1146,7 +1148,17 @@ def _child_body(child: dict, parent_ref: str, order: int, total: int, *,
     where = f"{parent_ref}: {parent_url}" if parent_url else parent_ref
     cut_line = (f"\n\n_The parent card's sections are cut here, to keep this card within the "
                 f"tracker's limit of {limit} characters; the rest is on {where}._")
-    kept = _markdown_within(block, limit - len(own) - len(lead) - len(cut_line) - len(tail))
+    budget = limit - len(own) - len(lead) - len(cut_line) - len(tail)
+    if budget <= 0:
+        # NO ROOM FOR EVEN THE HEADER AND THE CUT LINE (~360 characters): writing them pushed a
+        # child main would have created over the limit — 579 characters at a limit of 222 (review
+        # of 83256a1). The child is then what it was before #624, and the cut is still logged.
+        activity.logger.warning(
+            "OPENFACTORY_SPLIT_CARRIED_CUT %s — kept 0 of %d characters of %s's sections: the "
+            "sizer's own part leaves no room under the tracker's limit of %d characters",
+            title or parent_ref, len(block), parent_ref, limit)
+        return own + tail
+    kept = _markdown_within(block, budget)
     activity.logger.warning(
         "OPENFACTORY_SPLIT_CARRIED_CUT %s — kept %d of %d characters of %s's sections, to stay "
         "within the tracker's limit of %d characters; the rest is on the parent",
@@ -1160,8 +1172,12 @@ def _markdown_within(text: str, budget: int) -> str:
 
     NOT `_clipped`, which collapses whitespace and would flatten the markdown into one line. A
     fence left open swallows everything after it — the cut line and the "Auto-split from" line
-    would render as code — so it is closed with its own marker (four backticks are closed by four),
-    and lines are given back until the closed text fits."""
+    would render as code — so it is closed, and lines are given back until the closed text fits.
+
+    THE OPENER IS TRACKED, NOT THE PARITY OF FENCE LINES. Counting them left a backtick fence
+    holding a `~~~` line open, and closed a four-backtick fence with three (review of 83256a1). As
+    CommonMark reads it: a fence closes on a line of the opener's character, at least as long,
+    with nothing after it; the closer written is the opener's own marker."""
     lines: list[str] = []
     used = 0
     for line in text.splitlines():
@@ -1174,13 +1190,26 @@ def _markdown_within(text: str, budget: int) -> str:
         lines.append(line)
         used += cost
     while lines:
-        fences = [m.group(1) for m in (_re_module.match(r"\s*(`{3,}|~{3,})", ln) for ln in lines)
-                  if m]
-        kept = "\n".join([*lines, *(fences[-1:] if len(fences) % 2 else [])]).rstrip()
+        kept = "\n".join([*lines, *([opener] if (opener := _open_fence(lines)) else [])]).rstrip()
         if len(kept) <= budget:
             return kept
         lines.pop()
     return ""
+
+
+def _open_fence(lines: list[str]) -> str:
+    """The marker of the code fence `lines` leave open (`"````"`, `"~~~"`), or `""`."""
+    opener = ""
+    for line in lines:
+        found = _re_module.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
+        if not found:
+            continue
+        marker, rest = found.groups()
+        if not opener:
+            opener = marker
+        elif marker[0] == opener[0] and len(marker) >= len(opener) and not rest.strip():
+            opener = ""
+    return opener
 
 
 def _children_safe(tracker, parent_ref: str) -> list[str]:
