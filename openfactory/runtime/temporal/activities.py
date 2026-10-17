@@ -821,6 +821,14 @@ def _parse_verdict(text: str) -> PreflightVerdict | None:
 # spelling lives in `contracts/refs.py` since 2026-09-19, because the delivery sweep reads it too.
 _SPLIT_CHILD_MARK = SPLIT_CHILD_MARK
 
+#: THE BODY LIMIT OF A TRACKER ROW THAT DECLARES NONE (#624) — the smallest any shipped row
+#: declares, because a row nobody measured should get the most cautious bound: Jira Cloud's 32,767
+#: characters for a description (`JiraTracker.body_limit`, cited there). A row says its own with a
+#: `body_limit` attribute, asked through `getattr` and never added to the port: a new member of a
+#: `runtime_checkable` Protocol fails every row a stranger shipped (measured in #150,
+#: `catalog.py`). Read only by the split, the one writer whose body grows with a parent's.
+CARD_BODY_LIMIT = 32_767
+
 
 def _pf_emit(sink, project: str, issue: str, kind: str, message: str, **data) -> None:
     """Stream one pre-flight/split event as an `OPENFACTORY_EVENT:` line on the worker's stdout
@@ -1096,18 +1104,83 @@ def _child_title(parent_title: str, i: int, parent_ref: str) -> str:
     return f"{base} {tag}"
 
 
-def _child_body(child: dict, parent_ref: str, order: int, total: int) -> str:
+def _child_body(child: dict, parent_ref: str, order: int, total: int, *,
+                carried: tuple[str, list[tuple[str, str]]] = ("", []),
+                limit: int = CARD_BODY_LIMIT, parent_url: str = "", title: str = "") -> str:
     # The LLM's specific framing moves to the body (the title is deterministic) so the card
     # still shows WHAT this child covers — as a Focus line, plus the full objective/criteria.
+    #
+    # …AND WHAT THE PARENT'S AUTHOR WROTE BESIDE THEM (#624). The child was built from the sizer's
+    # output alone, and the parent is closed as not planned, so its Scope, its Context and every
+    # other section a person wrote reached neither the job nor the reviewer (field run, card 79 →
+    # 98: the Scope said where each ingredient grows, and no child said it). `carried` is
+    # `parse.carried_sections` of the parent: it goes under `## From the parent card (#N)`, each
+    # section demoted to `### ` so the parser never reads the parent's Scope as this card's own.
+    # Nothing carried → the body is byte-identical to the one written before.
+    #
+    # BOUNDED BY THE TRACKER'S `limit`: only the carried block is cut, at a line boundary, with an
+    # open code fence closed and a line that says where the rest is. The sizer's own part is never
+    # cut — if it alone exceeds the limit the create fails as it did before this change.
+    from openfactory.adapters.tracker.parse import FROM_THE_PARENT
+
     focus = str(child.get("title", "")).strip()
     head = f"**Focus:** {focus}\n\n" if focus else ""
     crits = ("\n".join(f"- {c}" for c in (child.get("criteria") or []))
              or "- (define before running)")
     ordering = (f"\n\n## Out of scope\n- Everything covered by the sibling sub-tickets of "
                 f"{parent_ref} (this is part {order}/{total}; run in order).")
-    return (f"{head}## Objective\n{child.get('objective', '')}\n\n"
-            f"## Acceptance criteria\n{crits}{ordering}\n\n"
-            f"_Auto-split from {parent_ref} by the pre-flight sizer (ADR-0013)._")
+    own = (f"{head}## Objective\n{child.get('objective', '')}\n\n"
+           f"## Acceptance criteria\n{crits}{ordering}")
+    tail = f"\n\n_Auto-split from {parent_ref} by the pre-flight sizer (ADR-0013)._"
+    preamble, sections = carried
+    block = "\n\n".join([*([preamble] if preamble.strip() else []),
+                          *(f"### {heading}\n{text}" for heading, text in sections if text)])
+    if not block:
+        return own + tail
+    lead = (f"\n\n## {FROM_THE_PARENT} ({parent_ref})\n"
+            "_What the parent card said beyond its objective and acceptance criteria, carried as "
+            "its author wrote it. This card delivers only its own criteria above; the rest is its "
+            "sibling cards'._\n\n")
+    if len(own) + len(lead) + len(block) + len(tail) <= limit:
+        return own + lead + block + tail
+    where = f"{parent_ref}: {parent_url}" if parent_url else parent_ref
+    cut_line = (f"\n\n_The parent card's sections are cut here, to keep this card within the "
+                f"tracker's limit of {limit} characters; the rest is on {where}._")
+    kept = _markdown_within(block, limit - len(own) - len(lead) - len(cut_line) - len(tail))
+    activity.logger.warning(
+        "OPENFACTORY_SPLIT_CARRIED_CUT %s — kept %d of %d characters of %s's sections, to stay "
+        "within the tracker's limit of %d characters; the rest is on the parent",
+        title or parent_ref, len(kept), len(block), parent_ref, limit)
+    return own + lead + kept + cut_line + tail
+
+
+def _markdown_within(text: str, budget: int) -> str:
+    """`text` cut to at most `budget` characters at a LINE boundary (a word boundary when one line
+    is longer than the whole budget), with a code fence the kept part opened closed again.
+
+    NOT `_clipped`, which collapses whitespace and would flatten the markdown into one line. A
+    fence left open swallows everything after it — the cut line and the "Auto-split from" line
+    would render as code — so it is closed with its own marker (four backticks are closed by four),
+    and lines are given back until the closed text fits."""
+    lines: list[str] = []
+    used = 0
+    for line in text.splitlines():
+        cost = len(line) + (1 if lines else 0)
+        if used + cost > budget:
+            if not lines and budget > 0:
+                head = line[:budget]
+                lines.append(head.rsplit(" ", 1)[0] if " " in head else head)
+            break
+        lines.append(line)
+        used += cost
+    while lines:
+        fences = [m.group(1) for m in (_re_module.match(r"\s*(`{3,}|~{3,})", ln) for ln in lines)
+                  if m]
+        kept = "\n".join([*lines, *(fences[-1:] if len(fences) % 2 else [])]).rstrip()
+        if len(kept) <= budget:
+            return kept
+        lines.pop()
+    return ""
 
 
 def _children_safe(tracker, parent_ref: str) -> list[str]:
@@ -1184,6 +1257,11 @@ def _do_split(inp: SplitInput) -> str:
     titles make find-or-create reuse an existing child. Together they killed the '8 re-runs →
     30 duplicate Plan 92x issues' bug.
 
+    Each child carries the sizer's objective and criteria for it AND the parent's other sections
+    as its author wrote them, under `## From the parent card (#N)`, cut to the tracker's
+    `body_limit` with a link to the parent when they do not fit (#624, `_child_body`). A child
+    `find_ticket` reuses keeps the body it was born with.
+
     Children go straight to TO-DO in ORDER (ADR-0013 D3, owner decision — keep the flow
     autonomous). Single-line strict makes this dependency-safe: the poller picks them one at a
     time in board order (creation order = 92a before 92b), and holds the floor until each MERGES
@@ -1240,6 +1318,19 @@ def _do_split(inp: SplitInput) -> str:
                  f"resuming an interrupted split ({len(existing)} of {n} already created)")
 
     parent = tracker.get_ticket(parent_ref)
+    # WHAT EACH CHILD CARRIES OF ITS PARENT (#624), read once: the sections its author wrote beside
+    # the objective and the criteria the sizer rewrote, the tracker's own body limit, and the link
+    # a cut line points at. `raw == ""` (a double that does not fill it) carries nothing.
+    from openfactory.adapters.tracker.parse import carried_sections
+
+    carried = carried_sections(getattr(parent, "raw", "") or "")
+    limit = getattr(tracker, "body_limit", None) or CARD_BODY_LIMIT
+    try:
+        parent_url = tracker.ticket_url(parent_ref) or ""
+    except Exception as exc:  # noqa: BLE001 — a missing link is not worth failing a split
+        activity.logger.warning("could not read the link of %s (%s) — a cut line in its children "
+                                "names the card without one", parent_ref, str(exc)[:120])
+        parent_url = ""
     board = _board_beside(project, tracker)
     # A CHILD IS NEVER BORN IN A QUEUE NOBODY SENT IT TO (#543). A deployment that keeps a split's
     # children in the backlog (`split_to_todo: false`) has said a person sequences them — and on a
@@ -1279,7 +1370,8 @@ def _do_split(inp: SplitInput) -> str:
         # of duplicating it (idempotent split). The LLM framing goes in the body.
         title = _child_title(parent.title, i, parent_ref)
         ref = tracker.find_ticket(title=title) or tracker.create_ticket(
-            title=title, body=_child_body(child, parent_ref, i + 1, n))
+            title=title, body=_child_body(child, parent_ref, i + 1, n, carried=carried,
+                                          limit=limit, parent_url=parent_url, title=title))
         refs.append(ref)
         _link_safe(tracker, parent_ref, ref)  # native parent→child (traceability + decision idem)
         queued = False

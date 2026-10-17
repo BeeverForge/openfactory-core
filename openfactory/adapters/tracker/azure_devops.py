@@ -156,6 +156,13 @@ class AzureBoardsTracker:
     #: recycle bin answers the way an unreachable one does.
     observes = frozenset({"closed", "reopened", "promoted", "reordered"})
 
+    #: THE LONGEST DESCRIPTION AZURE BOARDS ACCEPTS, in characters (#624; read by the split through
+    #: `getattr`). Microsoft's "Work tracking, process, and project limits" lists "Long text field |
+    #: 1M characters" for Azure DevOps Services and Server 2022 (learn.microsoft.com/azure/devops/
+    #: organizations/settings/work/object-limits, updated 2026-09-23, read 2026-10-17). The body is
+    #: written as markdown (`multilineFieldsFormat`), so its characters are the ones counted.
+    body_limit = 1_000_000
+
     def __init__(self, *, organization: str, project: str, token: str | None = None,
                  work_item_type: str = "Issue", state_map: dict[str, str] | None = None,
                  options: dict | None = None, client: AzureDevOpsClient | None = None,

@@ -166,6 +166,14 @@ class JiraTracker:
     #: answers 404 the way one the credential cannot see does.
     observes = frozenset({"closed", "reopened", "promoted", "reordered"})
 
+    #: THE LONGEST DESCRIPTION JIRA CLOUD ACCEPTS, in characters (#624; read by the split through
+    #: `getattr`, and the smallest a shipped row declares, so it is also `activities.
+    #: CARD_BODY_LIMIT`). Atlassian's KB on the migration error "the entered text is too long (it
+    #: exceeds the allowed limit of 32,767 characters)": "it's not possible to bypass the 32,767
+    #: character limit for both description and comments" on Cloud (support.atlassian.com/
+    #: atlassian-cloud/kb/commentbodycharacterlimitexceededexception-…, read 2026-10-17).
+    body_limit = 32_767
+
     def __init__(self, *, site: str, project_key: str, email: str, token: str | None = None,
                  status_map: dict[str, str] | None = None, issue_type: str = "Task",
                  not_delivered_resolution: str = "", not_delivered_status: str = "",
