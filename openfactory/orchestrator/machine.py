@@ -1409,12 +1409,12 @@ class JobRunner:
                 ticket, "note", f"agent finished: {agent_result.summary[:200]}",
                 cost_usd=agent_result.cost_usd, role="executor",
             )
-            self._count(agent_result, "executor")
             # WHAT THE AGENT SAYS IT DID, WHOLE (#627): the note above keeps its 200-character cut
             # for the journal, and the pull request carries the message itself, as the agent's
             # claim. `summary` is capped at ~1000 characters with no marker; `final_text` is not.
             account = final_text(agent_result)
             passes: list[PassAccount] = []
+            self._count(agent_result, "executor")
             if agent_result.pause_reason:
                 return self._paused(
                     ticket, agent_result.pause_reason, agent_result.retry_at, branch=branch,
