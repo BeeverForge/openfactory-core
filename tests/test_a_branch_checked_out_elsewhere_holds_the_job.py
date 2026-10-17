@@ -32,6 +32,7 @@ the refusal (local forge), and the platform's own leftover is still cleared.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -59,6 +60,13 @@ def _commit(repo: Path, name: str, text: str, message: str) -> None:
     _git(repo, "add", "-A")
     _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false",
          "commit", "-q", "-m", message)
+
+
+def _git_in(repo: Path, verb: str, path: Path) -> str:
+    """`git -C <repo> worktree <verb> <path>`, quoted as the sentence quotes it: every command
+    names the repository, so it works from wherever the person's shell is."""
+    return (f"git -C {shlex.quote(str(repo))} worktree {verb} "
+            f"{shlex.quote(str(Path(path).resolve()))}")
 
 
 def _registered(repo: Path) -> list[str]:
@@ -180,7 +188,7 @@ def test_the_sentence_names_the_path_the_remedy_and_resume(held):
     with pytest.raises(RuntimeError) as caught:
         _keep(box, repo)
     said = str(caught.value)
-    assert f"git worktree remove {shlex.quote(str(review.resolve()))}`" in said, said
+    assert f"{_git_in(repo, 'remove', review)}`" in said, said
     assert "switch" in said, said
     assert "resume" in said, said
 
@@ -211,8 +219,7 @@ def test_a_locked_review_tree_is_told_to_unlock_first(held):
     with pytest.raises(RuntimeError) as caught:
         _keep(box, repo)
     said = str(caught.value)
-    path = shlex.quote(str(review.resolve()))
-    unlock, remove = f"git worktree unlock {path}", f"git worktree remove {path}"
+    unlock, remove = _git_in(repo, "unlock", review), _git_in(repo, "remove", review)
     assert unlock in said and remove in said, said
     assert said.index(unlock) < said.index(remove), said
 
@@ -236,7 +243,8 @@ def test_the_sentence_is_the_same_whatever_git_s_own_wording(held, monkeypatch):
 
     from openfactory.adapters.sandbox.worktree import branch_held
 
-    assert said == branch_held(BRANCH, str(review.resolve()), main=False, locked=False)
+    assert said == branch_held(BRANCH, str(review.resolve()), main=False, locked=False,
+                               repo=str(repo))
 
 
 # ── nothing that is not the platform's is touched ────────────────────────────────────────────────
@@ -360,7 +368,7 @@ def test_a_lock_without_a_reason_is_told_to_unlock_first(held):
     _git(repo, "worktree", "lock", str(review))
     with pytest.raises(RuntimeError) as caught:
         _keep(box, repo)
-    assert f"git worktree unlock {shlex.quote(str(review.resolve()))}" in str(caught.value)
+    assert _git_in(repo, "unlock", review) in str(caught.value)
     assert caught.value.locked is True
 
 
@@ -386,3 +394,134 @@ def test_a_branch_checked_out_between_the_read_and_the_add_is_named_too(tmp_path
     from openfactory.adapters.sandbox.base import BranchHeldElsewhere
     assert isinstance(caught.value, BranchHeldElsewhere), str(caught.value)
     assert caught.value.path == str(review.resolve())
+
+
+# ── follow the sentence, then resume: what it told the person to keep is still there ────────────
+#
+# Review of 268c726. The sentence said "commit or stash anything there first", then remove the
+# tree, then resume. Only the local forge's continuing door keeps the local branch: every other
+# door runs `branch -D` and builds it again, from the base or from the forge, so a commit made
+# where the sentence said ended up on no branch. These tests run the command the sentence gives,
+# word for word, and then resume.
+
+def _commands(said: str) -> list[str]:
+    """Every command the sentence gives, in order, as it is written between backticks."""
+    return re.findall(r"`(git [^`]+)`", said)
+
+
+def _run_as_written(command: str, name: str = "keep-mine") -> None:
+    argv = shlex.split(command.replace("<a branch of yours>", name))
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+    assert p.returncode == 0, f"{command}: {p.stderr}"
+
+
+def _is_on(repo: Path, sha: str, branch: str) -> bool:
+    return subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", sha, branch],
+                          capture_output=True).returncode == 0
+
+
+def test_on_the_continuing_local_door_a_commit_made_where_it_says_reaches_the_job(held):
+    """The local forge's continuing door keeps the branch: commit there, remove the tree as told,
+    resume, and the commit is in the job's tree."""
+    repo, review, box = held
+    _commit(review, "notes.txt", "what I noticed reviewing\n", "mine")
+    mine = _sha(review, "HEAD")
+    with pytest.raises(RuntimeError) as caught:
+        _keep(box, repo)
+    said = str(caught.value)
+    assert "commit" in said, said
+    _run_as_written(next(c for c in _commands(said) if "worktree remove" in c))
+    ws = _keep(box, repo)
+    assert _is_on(ws.path, mine, "HEAD"), "the commit the sentence asked for is not in the job"
+
+
+def _follow_the_switch_then_resume(repo: Path, review: Path, go) -> None:
+    """Commit in the review tree, run the `switch -c` the refusal gives, resume: the commit is on
+    the person's own branch, and the job starts."""
+    _commit(review, "notes.txt", "what I noticed reviewing\n", "mine")
+    mine = _sha(review, "HEAD")
+    with pytest.raises(RuntimeError) as caught:
+        go()
+    said = str(caught.value)
+    assert "commit or stash anything there first" not in said, said
+    (switch,) = [c for c in _commands(said) if "switch -c" in c]
+    _run_as_written(switch)
+    go()
+    assert _is_on(repo, mine, "keep-mine"), "the person's commit is on no branch of theirs"
+
+
+def test_on_a_fresh_door_what_the_person_follows_keeps_their_commit(held):
+    """A fresh job builds the branch again from the base. The sentence must not send the person's
+    commit onto it: it gives `switch -c`, which keeps the commit on a branch of theirs and frees
+    the card's branch in one command, in a locked tree too (2.34.1 and 2.43.0, measured)."""
+    repo, review, box = held
+    _follow_the_switch_then_resume(repo, review, lambda: box.prepare(
+        repo_path=repo, base_branch="main", branch=BRANCH, checkout_existing=False))
+
+
+def test_on_a_hosted_continuing_door_what_the_person_follows_keeps_their_commit(hosted):
+    """The hosted forge's continuing door builds the branch again from the forge's copy, so a
+    commit made in the person's clone and not pushed would be left on no branch."""
+    repo, review, remote, box = hosted
+    _follow_the_switch_then_resume(repo, review, lambda: box.prepare(
+        repo_path=repo, base_branch="main", branch=BRANCH, checkout_existing=True,
+        remote_url=remote))
+
+
+def test_the_persons_own_checkout_on_a_fresh_door_is_told_to_switch_to_a_new_branch(tmp_path):
+    """The person's own checkout, on a door that builds the branch again: `switch <another
+    branch>` would leave their commits on the branch the job then deletes."""
+    repo = _repository(tmp_path / "myapp")
+    _git(repo, "switch", "-q", BRANCH)
+    _commit(repo, "notes.txt", "mine\n", "mine")
+    mine = _sha(repo, "HEAD")
+    box = WorktreeSandbox(root=tmp_path / "boxes")
+    go = lambda: box.prepare(repo_path=repo, base_branch="main", branch=BRANCH,  # noqa: E731
+                             checkout_existing=False)
+    with pytest.raises(RuntimeError) as caught:
+        go()
+    (switch,) = [c for c in _commands(str(caught.value)) if "switch -c" in c]
+    _run_as_written(switch)
+    go()
+    assert _is_on(repo, mine, "keep-mine")
+
+
+# ── a tree whose directory is gone, and the box's own tree when a person locked it ─────────────
+
+@pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
+def test_a_review_tree_deleted_by_hand_says_the_directory_is_gone(held, locked):
+    """`rm -rf` of a review tree leaves git's registration, and git still refuses the branch. The
+    porcelain says `prunable gitdir file points to non-existent location`, or only `locked` for a
+    locked one (2.34.1 and 2.43.0, measured). There is nothing in it to commit or stash: the
+    sentence says the directory is gone, and the command it gives frees the branch."""
+    repo, review, box = held
+    if locked:
+        _git(repo, "worktree", "lock", str(review))
+    shutil.rmtree(review)
+    with pytest.raises(RuntimeError) as caught:
+        _keep(box, repo)
+    said = str(caught.value)
+    assert "directory is gone" in said, said
+    assert "commit or stash" not in said, said
+    for command in _commands(said):
+        _run_as_written(command)
+    _keep(box, repo)
+
+
+def test_the_box_s_own_tree_a_person_locked_is_left_with_what_is_in_it(tmp_path):
+    """The platform never locks a tree, so a lock on the box's own tree is a person's "keep this".
+    One `--force` does not remove a locked tree (rc 128, 2.34.1 and 2.43.0), and the `rmtree` after
+    it deleted the directory anyway, then said nothing in it was touched."""
+    repo = _repository(tmp_path / "myapp")
+    box = WorktreeSandbox(root=tmp_path / "boxes")
+    ws = _keep(box, repo)
+    (ws.path / "kept.txt").write_text("keep this\n")
+    _git(repo, "worktree", "lock", "--reason", "keep this", str(ws.path))
+    with pytest.raises(RuntimeError) as caught:
+        _keep(box, repo)
+    from openfactory.adapters.sandbox.base import BranchHeldElsewhere
+    assert isinstance(caught.value, BranchHeldElsewhere), str(caught.value)
+    assert (ws.path / "kept.txt").read_text() == "keep this\n"
+    said = str(caught.value)
+    assert "the job's own" in said, said
+    assert _git_in(repo, "unlock", ws.path) in said, said
