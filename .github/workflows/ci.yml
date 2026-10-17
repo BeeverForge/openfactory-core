@@ -76,6 +76,9 @@ jobs:
       - run: make test-integration
         env:
           TEST_IDS: ${{ runner.temp }}/openfactory-test-ids/ran-integration.txt
+          # docker is here: a live preview test that cannot build S1 fails rather than skips, so
+          # a lost registry or a pull limit is a red run, never a green one over nothing (#358)
+          TEST_REQUIRE_DOCKER: "1"
       # after the parallel run, in a process of its own: these assert their own CPU time
       - run: make test-alone
         env:

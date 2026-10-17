@@ -36,7 +36,8 @@ import httpx
 import pytest
 
 from openfactory import preview
-from tests.one_live_preview import TheCard, one_at_a_time
+from tests import one_live_preview
+from tests.one_live_preview import TheCard, _docker_and_compose, explained, one_at_a_time
 
 ROOT =Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).parent / "fixtures" / "preview" / "s1" / "tree"
@@ -45,19 +46,6 @@ BRANCH = "openfactory/12"
 SPAN = (42000, 42999)
 #: The base images S1 builds from or pulls — removed afterwards only if this run brought them.
 BASES = ("node:20-slim", "python:3.12-slim", "postgres:16")
-
-
-def _docker_and_compose() -> bool:
-    if not shutil.which("docker"):
-        return False
-    try:
-        daemon = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"],
-                                capture_output=True, timeout=20)
-        plugin = subprocess.run(["docker", "compose", "version", "--short"], capture_output=True,
-                                timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return daemon.returncode == 0 and plugin.returncode == 0
 
 
 pytestmark = [
@@ -70,9 +58,14 @@ pytestmark = [
 ]
 
 
+#: the session's build probe, here for pytest to find (`one_live_preview`)
+s1_product_builds = one_live_preview.s1_product_builds
+
+
 @pytest.fixture(autouse=True)
-def _the_daemon_is_taken_in_turns():
-    """The live preview tests share `openfactory-pv-acme-12` on one daemon (`one_live_preview`)."""
+def _the_daemon_is_taken_in_turns(s1_product_builds):
+    """The live preview tests share `openfactory-pv-acme-12` on one daemon (`one_live_preview`),
+    and run only where S1 can be built (`s1_product_builds`, asked before the lock is taken)."""
     with one_at_a_time():
         yield
 
@@ -175,7 +168,8 @@ def _from_web(cp: str, url: str) -> str:
     return (done.stdout or done.stderr).strip()
 
 
-def test_s1_opens_at_its_preview_host_through_a_host_process_panel(tmp_path, monkeypatch):
+def test_s1_opens_at_its_preview_host_through_a_host_process_panel(tmp_path, monkeypatch,
+                                                                   s1_product_builds):
     pytest.importorskip("temporalio")
     from temporalio.testing import ActivityEnvironment
 
@@ -252,7 +246,9 @@ def test_s1_opens_at_its_preview_host_through_a_host_process_panel(tmp_path, mon
                  "OPENFACTORY_PANEL_TOKEN": "", "OPENFACTORY_PANEL_TOKENS": "",
                  "OPENFACTORY_PRODUCT_TOKENS": ""}
     (root / "home").mkdir()
-    before = set(_run("docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}").split())
+    # what the session's build probe pulled was brought by a run too: not counted as already here
+    before = set(_run("docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}").split()) \
+        - s1_product_builds.brought
     step = PreviewStepInput(project="acme", unit="12", runtime="compose", started_by="Ana",
                             start_timeout_minutes=15)
     cp = preview.compose_project("acme", "12")
@@ -270,7 +266,7 @@ def test_s1_opens_at_its_preview_host_through_a_host_process_panel(tmp_path, mon
         assert planned.plan.loopback_ports == derived, "the ports are the names'"
         up = act(activities.preview_up, PreviewUpInput(step=step, plan=planned.plan))
         live = preview.latest("acme", "12")
-        assert up.ok, f"{up.why}\n{(Path(live.log_dir) / 'build.log').read_text()[-2000:]}"
+        assert up.ok, explained(up.why, live.log_dir)
         # said on the card, once, through the project's tracker — and only there
         ((ref, said),) = card.said
         assert ref == "12" and said.startswith("Preview up: ") and "/p/acme/preview/12" in said

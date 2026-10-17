@@ -130,6 +130,10 @@ other repositories — the proof and the pickup gate are per repository
 ([ONBOARDING §5](../ONBOARDING.md)). `box status --json` prints the same answer as a versioned
 document (`openfactory.box-status/1`): the proof's `digest`, its `toolchain` pins one per entry,
 its `state` (`valid`, `expired`, `failed`, `unproven`) and the remedy, with the same exit code.
+The proof is pinned to the commands — `setup:`, `validate:`, the toolchain — and records that
+they ran green when it was taken; it is not re-run per ticket. A suite that goes red afterwards
+(a machine that lost its registry, a test added since) fails in the job's gate, not in the proof:
+a valid proof is not a green suite, and `box prove` again is how to find out.
 
 ---
 

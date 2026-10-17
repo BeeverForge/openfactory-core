@@ -23,24 +23,12 @@ from pathlib import Path
 import pytest
 
 from openfactory import preview
-from tests.one_live_preview import TheCard, one_at_a_time
+from tests import one_live_preview
+from tests.one_live_preview import TheCard, _docker_and_compose, explained, one_at_a_time
 
 FIXTURE = Path(__file__).parent / "fixtures" / "preview" / "s1" / "tree"
 PR = "https://forge.local/acme/pull/12"
 BRANCH = "openfactory/12"
-
-
-def _docker_and_compose() -> bool:
-    if not shutil.which("docker"):
-        return False
-    try:
-        daemon = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"],
-                                capture_output=True, timeout=20)
-        plugin = subprocess.run(["docker", "compose", "version", "--short"], capture_output=True,
-                                timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return daemon.returncode == 0 and plugin.returncode == 0
 
 
 pytestmark = [
@@ -53,9 +41,14 @@ pytestmark = [
 ]
 
 
+#: the session's build probe, here for pytest to find (`one_live_preview`)
+s1_product_builds = one_live_preview.s1_product_builds
+
+
 @pytest.fixture(autouse=True)
-def _the_daemon_is_taken_in_turns():
-    """The live preview tests share `openfactory-pv-acme-12` on one daemon (`one_live_preview`)."""
+def _the_daemon_is_taken_in_turns(s1_product_builds):
+    """The live preview tests share `openfactory-pv-acme-12` on one daemon (`one_live_preview`),
+    and run only where S1 can be built (`s1_product_builds`, asked before the lock is taken)."""
     with one_at_a_time():
         yield
 
@@ -152,7 +145,7 @@ def test_an_offered_card_is_started_watched_and_ended_on_a_real_daemon(tmp_path,
         assert planned.ok, planned.why
         up = act(activities.preview_up, PreviewUpInput(step=step, plan=planned.plan))
         live = preview.latest("acme", "12")
-        assert up.ok, f"{up.why}\n{(Path(live.log_dir) / 'build.log').read_text()[-2000:]}"
+        assert up.ok, explained(up.why, live.log_dir)
         # said on the card, once, through the project's tracker — and only there
         ((ref, said),) = card.said
         assert ref == "12" and said.startswith("Preview up: ") and "/p/acme/preview/12" in said
