@@ -3282,7 +3282,10 @@ class JobWorkflow:
                         resume_into_merge, self._refused_merge = self._refused_merge, None
                         result = None
                         continue
-                    # a held pass is run again only inside the watch it was held in (#623)
+                    # a held pass is run again only inside the watch it was held in (#623).
+                    # A DEFENCE, unreachable under the new marker: `_held_pass` is set
+                    # only beside `_refused_merge` and the mark, so such a resume takes the
+                    # arm above. It keeps a history without that arm from carrying one.
                     self._held_pass = None
                     # Resolve the picked option into text the resumed agent gets, so it proceeds
                     # with that choice instead of re-asking (durable, auditable — the decision was

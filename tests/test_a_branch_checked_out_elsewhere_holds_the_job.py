@@ -133,7 +133,7 @@ def test_a_branch_checked_out_in_a_second_worktree_is_refused_naming_that_worktr
         _keep(box, repo)
     said = str(caught.value)
     for words in GITS_WORDS:
-        assert words not in said, f"git's own sentence reached the person: {said!r}"
+        assert words not in said.lower(), f"git's own sentence reached the person: {said!r}"
     assert str(review.resolve()) in said, said
 
     from openfactory.adapters.sandbox.base import BranchHeldElsewhere
@@ -153,7 +153,7 @@ def test_on_a_hosted_forge_the_held_branch_is_named_too_not_a_branch_that_alread
                     remote_url=origin)
     said = str(caught.value)
     for words in GITS_WORDS:
-        assert words not in said, f"git's own sentence reached the person: {said!r}"
+        assert words not in said.lower(), f"git's own sentence reached the person: {said!r}"
     assert str(review.resolve()) in said, said
 
 
@@ -166,7 +166,7 @@ def test_a_fresh_job_whose_branch_is_held_is_refused_before_the_branch_is_delete
         box.prepare(repo_path=repo, base_branch="main", branch=BRANCH, checkout_existing=False)
     said = str(caught.value)
     for words in GITS_WORDS:
-        assert words not in said, f"git's own sentence reached the person: {said!r}"
+        assert words not in said.lower(), f"git's own sentence reached the person: {said!r}"
     assert str(review.resolve()) in said, said
     assert _sha(repo, f"refs/heads/{BRANCH}") == before
 
@@ -195,7 +195,7 @@ def test_the_persons_own_checkout_is_told_to_switch_not_to_be_removed(tmp_path):
         _keep(box, repo)
     said = str(caught.value)
     for words in GITS_WORDS:
-        assert words not in said, f"git's own sentence reached the person: {said!r}"
+        assert words not in said.lower(), f"git's own sentence reached the person: {said!r}"
     assert str(repo.resolve()) in said, said
     assert "switch" in said, said
     assert "git worktree remove" not in said, said
@@ -231,7 +231,7 @@ def test_the_sentence_is_the_same_whatever_git_s_own_wording(held, monkeypatch):
         _keep(box, repo)
     said = str(caught.value)
     for words in GITS_WORDS:
-        assert words not in said, f"git's own sentence reached the person: {said!r}"
+        assert words not in said.lower(), f"git's own sentence reached the person: {said!r}"
     assert "fatal" not in said and "já" not in said, said
 
     from openfactory.adapters.sandbox.worktree import branch_held
@@ -351,3 +351,38 @@ def test_a_holder_git_cannot_be_asked_about_does_not_read_as_free(held, monkeypa
     assert "worktree add failed" in str(caught.value)
     assert _sha(repo, f"refs/heads/{BRANCH}") == before
     assert str(review.resolve()) in _registered(repo)
+
+
+def test_a_lock_without_a_reason_is_told_to_unlock_first(held):
+    """`git worktree lock` with no `--reason` prints a bare `locked` line (2.34.1 and 2.43.0,
+    measured 2026-10-17), and `remove` refuses that tree as it refuses one locked with a reason."""
+    repo, review, box = held
+    _git(repo, "worktree", "lock", str(review))
+    with pytest.raises(RuntimeError) as caught:
+        _keep(box, repo)
+    assert f"git worktree unlock {shlex.quote(str(review.resolve()))}" in str(caught.value)
+    assert caught.value.locked is True
+
+
+def test_a_branch_checked_out_between_the_read_and_the_add_is_named_too(tmp_path, monkeypatch):
+    """The race window: free at the first read, held by the time `worktree add` runs. The
+    porcelain is asked again after git refuses, so the person still reads the tree's name and not
+    git's sentence (review of 24e59fe: without the second read, all of this file stayed green)."""
+    repo = _repository(tmp_path / "myapp")
+    review = tmp_path / "review tree"
+    box = WorktreeSandbox(root=tmp_path / "boxes")
+    real, calls = worktree_box._holder, []
+
+    def late(repo_path, branch):
+        calls.append(branch)
+        if len(calls) == 1:
+            _git(repo, "worktree", "add", "-q", str(review), BRANCH)
+            return None
+        return real(repo_path, branch)
+
+    monkeypatch.setattr(worktree_box, "_holder", late)
+    with pytest.raises(RuntimeError) as caught:
+        _keep(box, repo)
+    from openfactory.adapters.sandbox.base import BranchHeldElsewhere
+    assert isinstance(caught.value, BranchHeldElsewhere), str(caught.value)
+    assert caught.value.path == str(review.resolve())

@@ -263,6 +263,21 @@ async def test_a_re_review_held_by_a_tree_parks_and_resume_reads_again(env):
         await _discard(h)
 
 
+async def test_a_held_re_review_is_not_charged(env):
+    """Nothing was read, so the re-review is not spent: three held ones would otherwise answer
+    "3 re-reviews already spent" about a pull request nobody re-read (review of 24e59fe)."""
+    _HELD_FOR[0] = 1
+    async with Worker(env.client, task_queue=gate.TQ, workflows=[JobWorkflow], activities=MOCKS):
+        h = await gate._start(env.client)
+        await _at_the_gate(h)
+        await answer_merge_gate(h, "review", "", "ana")
+        await _parked(h, env, calls=_READS, n=1)
+        await _resume(h)
+        await _at_the_gate(h, after=2, of=_READS)
+        assert [r.attempt for r in _READS] == [1, 1], [r.attempt for r in _READS]
+        await _discard(h)
+
+
 # ── replay ──────────────────────────────────────────────────────────────────────────────────────
 
 async def test_a_job_recorded_before_the_marker_replays(env, monkeypatch):

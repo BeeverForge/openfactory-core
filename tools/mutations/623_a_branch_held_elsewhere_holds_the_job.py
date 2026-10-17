@@ -61,6 +61,20 @@ MUTATIONS = [
      "        self._clear_our_own(repo_path, wt)\n"
      '        _run(["git", "-C", str(repo_path), "worktree", "prune"])\n'),
 
+    ("the porcelain is not asked again after git refuses the add, so a branch taken in the "
+     "window between the read and the add fails the job with git's sentence", BOX,
+     "            # passed on.\n"
+     "            held = _holder(repo_path, branch)\n"
+     "            if held is not None:\n"
+     "                raise _branch_held_elsewhere(branch, held)\n",
+     "            # passed on.\n"),
+
+    ("a bare `locked` line (a lock with no reason) is not read, so the person is told to remove a "
+     "tree git refuses to remove",
+     "openfactory/adapters/gitworktrees.py",
+     '        elif line == "locked" or line.startswith("locked "):\n',
+     '        elif line.startswith("locked "):\n'),
+
     ("the person's own checkout is told `git worktree remove`, which git refuses on a main tree",
      BOX,
      "    if main:\n",
@@ -117,6 +131,11 @@ MUTATIONS = [
     ("the held pass is never run again on resume, so the gate reopens without asking", WORKFLOW,
      "            if self._held_pass is not None:\n",
      "            if False:\n",
+     WORKFLOW_TEST),
+
+    ("a held re-review is charged though nothing was read", WORKFLOW,
+     "                self._review_passes -= 1  # nothing was read: the pass is not spent\n",
+     "",
      WORKFLOW_TEST),
 
     ("a held adjust is charged though no agent ran", WORKFLOW,
