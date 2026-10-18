@@ -72,6 +72,13 @@ class GitHubIssuesTracker(TrackerAdapter):
     #: issue answers `gh` the way an unreachable one does, and an absence is not a failed read.
     observes = frozenset({"closed", "reopened", "promoted", "reordered"})
 
+    #: THE LONGEST BODY GITHUB ACCEPTS, in characters (#624; read by the split through `getattr`,
+    #: `activities.CARD_BODY_LIMIT`). GitHub does not document it; its API refuses a longer issue,
+    #: pull request or comment body with "body is too long (maximum is 65536 characters)", as
+    #: reported in golang/go#45998 (2021) and w3c/webref#245. Not measured here: no scratch
+    #: repository was at hand on 2026-10-17.
+    body_limit = 65_536
+
     def __init__(
         self,
         repo: str,

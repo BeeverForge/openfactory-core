@@ -485,6 +485,11 @@ class TrackerAdapter(Protocol):
         is (GitHub: the board's Backlog) — sequencing to TO-DO stays a human decision by
         default.
 
+        A row MAY declare a `body_limit` class attribute, the longest body its vendor accepts in
+        characters; the splitter bounds what a child carries of its parent by it (#624). It is not
+        a member of this Protocol, so a row that declares none still satisfies it, and is bounded
+        by `activities.CARD_BODY_LIMIT`.
+
         `repo` FILES IT IN ANOTHER REPOSITORY OF THE SAME PRODUCT (#265 §6.2): a product spans
         several, and a card of the back end that lives in the front end's repository is worked in
         the wrong tree and previewed as the wrong one's. `""` is this tracker's own place, which is

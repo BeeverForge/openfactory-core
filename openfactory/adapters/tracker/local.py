@@ -95,6 +95,10 @@ class LocalTracker:
     #: gone (`get_ticket` raises `KeyError`), and a close keeps its reason (`closed_reason`).
     observes = frozenset({"closed", "reopened", "removed", "promoted", "reordered"})
 
+    # NO `body_limit` (#624): SQLite stores a `TEXT` of any length this board will meet, so this
+    # row declares none and a split bounds its children by `activities.CARD_BODY_LIMIT`, the most
+    # cautious limit a shipped row declares.
+
     def __init__(self, project: str, *, db_path=None, token=None, token_provider=None) -> None:
         self.project = (project or "").strip()
         self._db = db_path
