@@ -131,8 +131,9 @@ MUTATIONS = [
      'f"[{link[1]}]({link[2]})"'),
     ("a markdown link after `]( ` is wrapped as a bare link, and its address leaves the page",
      MACHINE,
-     r'\]\(([ \t]*(?:https?://|www\.)[^\s()<>`\\]*[ \t]*)\)")',
-     r'\]\(((?:https?://|www\.)[^\s()<>`\\]*)\)")'),
+     # re-pinned after review round 5 (39183a4) added the angle form: the leading spaces only
+     r'\]\(([ \t]*(?:(?:https?://',
+     r'\]\(((?:(?:https?://'),
     ("a cut may open a markdown link, whose raw destination then shows a name", MACHINE,
      "            if link.start() < cut < link.end():\n                cut = link.start()\n",
      "            if False:\n                cut = link.start()\n"),
@@ -163,6 +164,10 @@ MUTATIONS = [
     ("a cut row may underline the agent's row above it", MACHINE,
      "        if cut > 2 and not _AN_UNDERLINE.match(row[2:cut]):\n",
      "        if cut > 2:\n"),
+    # ── review round 5 on 39183a4: the angle form, and the refusals that keep a name raw ───────
+    ("an angle-bracketed address is escaped, and the link and its address leave the page", MACHINE,
+     '''r"|<(?:https?://|www\\.)[^\\n<>`\\\\]*>)[ \\t]*)\\)")\n''',
+     '''r")[ \\t]*)\\)")\n'''),
     # ── bounded, and the cut says so ───────────────────────────────────────────────────────────
     ("the bound is measured on the text before quoting", MACHINE,
      "        if used + 1 + len(row) <= room:\n            kept.append(row)\n"

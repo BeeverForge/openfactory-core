@@ -351,6 +351,19 @@ def test_a_markdown_link_the_agent_writes_goes_where_it_wrote(said: str, href: s
     assert re.findall(r'<a href="([^"]*)"', html) == [href], html
 
 
+@pytest.mark.parametrize(("said", "href"), [
+    ("[t](<https://x.test/a_b>)", "https://x.test/a_b"),
+    ("[t](<https://medium.com/@octocat/a (b)>)", "https://medium.com/@octocat/a%20(b)"),
+])
+def test_a_markdown_link_with_an_angle_bracketed_address_goes_where_it_wrote(said: str, href: str):
+    """Review on 39183a4, measured on GitHub: the angle form CommonMark defines for an address with
+    spaces or parentheses fell through to the escaping, `[t](\\<`https://x.test/a_b`>)`, which
+    rendered `t` with no link and the address nowhere on the page."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert re.findall(r'<a href="([^"]*)"', html) == [href], html
+
+
 def test_a_cut_never_leaves_a_link_open_with_its_name_outside_a_span():
     """A link's destination is kept raw, `@octocat` included: a cut inside it would leave the
     destination as text, and the name in it read."""

@@ -501,11 +501,16 @@ _A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\]*[^\s`<>\\.,;:!?'\"
 #: written, with the spaces CommonMark allows around it. In the destination a wrapped `@octocat`
 #: went into the href as `%60@octocat%60` and a `#12` rewritten `card 12` broke the link; the
 #: bare-link split cut `[https://…](https://…)` in two, and after `]( ` it took the address off
-#: the page (review on 3c6d12c, measured on GitHub). A destination with a backtick, a backslash,
-#: `<` or a parenthesis is left to `_plain`, as before; and not after `]`, where it may be a label.
-_A_LINK = re.compile(r"(?<!\])\[([^\[\]\n]*)\]\(([ \t]*(?:https?://|www\.)[^\s()<>`\\]*[ \t]*)\)")
+#: the page (review on 3c6d12c, measured on GitHub). A bare destination with a backtick, a
+#: backslash, `<` or a parenthesis is left to `_plain`, as before; and not after `]`, where it may
+#: be a label.
+#: The angle form, `[t](<https://…>)`, is CommonMark's for an address with spaces or parentheses:
+#: escaped, it rendered `t` with no link and the address nowhere (review on 39183a4, on GitHub).
+_A_LINK = re.compile(r"(?<!\])\[([^\[\]\n]*)\]\(([ \t]*(?:(?:https?://|www\.)[^\s()<>`\\]*"
+                     r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*)\)")
 #: The same link in a quote row, which a cut must not open: its destination is raw, `@` included.
-_A_LINK_IN_ROW = re.compile(r"\[[^\[\]]*\]\([ \t]*(?:https?://|www\.)[^\s()<>`\\]*[ \t]*\)")
+_A_LINK_IN_ROW = re.compile(r"\[[^\[\]]*\]\([ \t]*(?:(?:https?://|www\.)[^\s()<>`\\]*"
+                            r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*\)")
 #: A line that would define a reference link: its `[` is escaped, so it shows as text, its address
 #: as a bare link's code. Parsed, the definition renders nothing, and its address, in a span, was
 #: on the page nowhere (review on 3c6d12c, measured on GitHub).
@@ -526,13 +531,14 @@ def _neutralised(text: str) -> str:
     too, so no line of the agent's renders as a section heading, and so are the emphasis markers,
     so its `Worker.__init__` reads as it wrote it. A bare link is put in a span of the platform's,
     verbatim, before anything is rewritten: an escape or a `card` inside it would change where it
-    goes. A markdown link to an address, `[text](https://…)`, keeps its destination as written,
-    `@` and `#N` included, which the reader is not shown and GitHub notifies nobody from; its text
-    is neutralised like the rest. A reference definition, `[1]: https://…`, shows as text, its
-    address as a bare link's code: parsed, it renders nothing. The price is that the agent's
-    inline code, fences and HTML read literally, backticks included, and a bare link shows as code
-    and is not a link — this is its claim, quoted, not a document rendered on its behalf; its `-`,
-    `+` and numbered lists and its markdown links to an address still render."""
+    goes. A markdown link to an address, `[text](https://…)` or `[text](<https://…>)`, keeps its
+    destination as written, `@` and `#N` included, which the reader is not shown and GitHub
+    notifies nobody from; its text is neutralised like the rest. A reference definition,
+    `[1]: https://…`, shows as text, its address as a bare link's code: parsed, it renders
+    nothing. The price is that the agent's inline code, fences and HTML read literally, backticks
+    included, and a bare link shows as code and is not a link — this is its claim, quoted, not a
+    document rendered on its behalf; its `-`, `+` and numbered lists and its markdown links to an
+    address still render."""
     out, pos = [], 0
     for link in _A_LINK.finditer(text):
         out += [_plain(text[pos:link.start()]), f"[{_plain(link[1])}]({link[2]})"]
