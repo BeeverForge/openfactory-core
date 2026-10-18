@@ -30,6 +30,7 @@ EXPLAIN = "openfactory/orchestrator/explain.py"
 DOCTOR = "openfactory/doctor.py"
 BOX_PROVE = "openfactory/box_prove.py"
 MACHINE = "openfactory/orchestrator/machine.py"
+OPERATOR = "openfactory/orchestrator/operator_guidelines.py"
 
 SETTING = "tests/test_the_operator_sets_the_prompt_budget.py"
 PRIORITY = "tests/test_the_projects_own_rules_are_the_last_left_out.py"
@@ -200,5 +201,80 @@ MUTATIONS = [
      MACHINE,
      "                            operator_root=self._operator_guidelines_root(),\n",
      "",
+     PRIORITY),
+
+    # ── review of 3cd65e4: the surfaces ask the job's box, the whole project tier is first, and
+    # the details the first plan left unheld ─────────────────────────────────────────────────────
+    ("explain pins the operator tier: with the job leaving operator standards out, explain names "
+     "the project's own guideline as left out",
+     EXPLAIN,
+     "                                        operator_root=deployment_root(default_sandbox()))",
+     "                                        operator_root=None)",
+     PRIORITY),
+
+    ("doctor builds a bare box, which on the container box answers no mount and pins the tier",
+     OPERATOR,
+     "        box = build_sandbox(kind, **box_knobs())\n",
+     "        box = build_sandbox(kind)\n",
+     PRIORITY),
+
+    ("doctor does not ask the box at all",
+     DOCTOR,
+     "    return deployment_root(kind)\n",
+     "    return None\n",
+     PRIORITY),
+
+    ("box prove builds its proof box without the operator directory the job's box mounts",
+     BOX_PROVE,
+     "    knobs.update(operator_guidelines.box_knobs())\n",
+     "",
+     PRIORITY),
+
+    ("the job's own box is built without the operator directory",
+     "openfactory/factory.py",
+     "    knobs.update(operator_guidelines.box_knobs())\n",
+     "",
+     PRIORITY),
+
+    ("a component's guidelines are filled after the operator tier: the #359 inversion for the "
+     "other half of the project tier",
+     BASE,
+     '    if source == "docs.guidelines" or source.startswith("components."):\n',
+     '    if source == "docs.guidelines":\n',
+     PRIORITY),
+
+    ("a profile's additions are filled before the operator tier",
+     BASE,
+     '    return {CONSTRAINTS: 1, "operator": 2, "profile": 3}.get(source, 4)\n',
+     '    return {CONSTRAINTS: 1, "operator": 3, "profile": 2}.get(source, 4)\n',
+     PRIORITY),
+
+    ("a digit that is not ASCII reaches `int()`: `²` raises a bare ValueError, not the sentence",
+     CONTEXT,
+     "    if raw.isascii() and raw.isdigit() and int(raw) > 0:\n",
+     "    if raw.isdigit() and int(raw) > 0:\n",
+     SETTING),
+
+    ("a framework document a profile replaces becomes droppable, as if it were the project's",
+     CONTEXT,
+     "                at = None if layer == FRAMEWORK else substitute\n",
+     "                at = substitute\n"),
+
+    ("the one log line per brief that leaves documents out is gone",
+     BASE,
+     "    if fit.left_out:\n",
+     "    if False:\n"),
+
+    ("a cut line no longer says where the rest is: an operator document, named by a bare "
+     "filename, opens nowhere",
+     BASE,
+     '        rest = f"; the rest is at `{_one_line(d.open_at, 400)}`" if d.open_at else ""\n',
+     '        rest = ""\n',
+     NAMED),
+
+    ("explain names a left-out document by the name its tier gives it, not where it opens",
+     EXPLAIN,
+     '                    path=f"`{doc.open_at}`")',
+     '                    path=f"`{doc.path}`")',
      PRIORITY),
 ]
