@@ -820,6 +820,112 @@ def test_the_interview_the_installer_builds_completes_with_no_terminal(install_r
     assert dest.exists(), f"init reported success and wrote no file: {result.output}"
 
 
+# ── the next command is the installer's to give (#652) ─────────────────────────────────────────
+#
+# Through the installer `init` closed with `then: \`docker compose --env-file /out/.env.compose up
+# -d --build\`` — a path that exists only inside the CLI container and a build an installation from
+# published images cannot do — a few lines above the installer's own, correct command (v0.5.0,
+# v0.6.0-rc.1, rc.2). The replays below hand the real CLI exactly the environment the installer's
+# `docker run` carried, so what the installer declares is what `init` sees.
+
+def _init_environment_the_installer_builds(run) -> dict[str, str]:
+    """The `-e K=V` pairs off the REAL argv of the installer's `init` run, before the image."""
+    for argv in run["runs"]:
+        if "init" in argv:
+            image = next(i for i, word in enumerate(argv) if "openfactory-cli:" in word)
+            pairs = [argv[i + 1] for i in range(image) if argv[i] == "-e"]
+            return dict(pair.split("=", 1) for pair in pairs)
+    raise AssertionError(f"the installer never ran `init`: {run['argv']}")
+
+
+def _replay_the_installers_init(run, tmp_path, monkeypatch, *extra: str):
+    """The installer's `init`, against the real CLI: its flags, its environment, and the mount as
+    the working directory (the image's `WORKDIR /out`)."""
+    from typer.testing import CliRunner
+
+    from openfactory.cli import app
+
+    e2e = (ROOT / "scripts" / "e2e-in-container.sh").read_text()
+    vendor = [w for w in e2e.split("set -- \"$@\" --", 1)[1].split("\n\n")[0]
+              .replace("\\\n", " ").split() if w]
+    flags = [f for f in _init_flags_the_installer_builds(run)
+             if not f.startswith("/out") and f != "--out"]
+    mount = tmp_path / "out"
+    mount.mkdir()
+    monkeypatch.chdir(mount)
+    env = {**_init_environment_the_installer_builds(run),
+           "OPENFACTORY_WORK_DIR": str(tmp_path / "work")}
+    return CliRunner().invoke(app, ["init", "--out", str(mount / ".env.compose"), *flags, *extra,
+                                    *vendor], env=env)
+
+
+@needs_a_posix_shell
+def test_the_init_the_installer_runs_names_no_next_command_of_its_own(
+        install_run, tmp_path, monkeypatch):
+    """The installer starts the stack itself, or under `--no-run` prints how to: `init` saying it
+    too, from inside the container, is a second command and the wrong one."""
+    result = _replay_the_installers_init(install_run, tmp_path, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert not [ln for ln in lines if ln.strip().startswith("then:")], result.output
+    assert not [ln for ln in lines if "docker compose" in ln], result.output
+
+
+@needs_a_posix_shell
+def test_the_installers_init_on_the_local_runtime_names_no_next_command_either(
+        install_run, tmp_path, monkeypatch):
+    """`install.sh -- --runtime local` reaches `init` (a later `--runtime` wins), and its closing
+    line named the container's `/out` file too. Whoever runs `init` through the installer, the
+    installer owns the next step."""
+    result = _replay_the_installers_init(install_run, tmp_path, monkeypatch, "--runtime", "local")
+
+    assert result.exit_code == 0, result.output
+    assert not [ln for ln in result.output.splitlines() if ln.strip().startswith("then:")], (
+        result.output)
+
+
+@needs_a_posix_shell
+def test_a_fresh_install_shows_one_next_command(tmp_path, monkeypatch):
+    """The transcript a person reads after a `--no-run` install: the installer's own output and the
+    `init` it ran. One command starts the factory, and it is the one that runs from the host."""
+    binaries, target = tmp_path / "bin", tmp_path / "target"
+    binaries.mkdir()
+    target.mkdir()
+    log = tmp_path / "argv.log"
+    for name, body in (("docker", _DOCKER_STUB), ("curl", _CURL_STUB)):
+        stub = binaries / name
+        stub.write_text(body)
+        stub.chmod(0o755)
+
+    import socket as socketlib
+
+    socket_home = _socket_dir()
+    socket_path = socket_home / "docker.sock"
+    try:
+        with socketlib.socket(socketlib.AF_UNIX, socketlib.SOCK_STREAM) as sock:
+            sock.bind(str(socket_path))
+            done = subprocess.run(
+                ["sh", str(INSTALLER), "--version", "v9.9.9", "--dir", str(target), "--no-run"],
+                cwd=tmp_path, capture_output=True, text=True, timeout=180,
+                env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}",
+                     "ARGV_LOG": str(log), "URL_LOG": str(tmp_path / "url.log"),
+                     "FAKE_SOCKET": str(socket_path)})
+    finally:
+        shutil.rmtree(socket_home, ignore_errors=True)
+    assert done.returncode == 0, f"the install did not finish:\n{done.stdout}{done.stderr}"
+    runs = [line.split() for line in log.read_text().splitlines() if line.startswith("run ")]
+    run = {"runs": [argv for argv in runs if "--entrypoint" not in argv], "argv": runs}
+
+    replayed = _replay_the_installers_init(run, tmp_path, monkeypatch)
+    assert replayed.exit_code == 0, replayed.output
+
+    starts = [ln.strip() for ln in (done.stdout + replayed.output).splitlines()
+              if "docker compose" in ln and "up -d" in ln
+              and not any(word in ln for word in ("logs", "exec", "down"))]
+    assert starts == [f"cd {target} && docker compose --env-file .env.compose up -d"], starts
+
+
 @needs_a_posix_shell
 def test_that_guard_would_have_caught_the_v0_2_0_defect(install_run, tmp_path):
     """Verify the verifier. Drop `--runtime` from the flags and the same call must refuse — and

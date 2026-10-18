@@ -969,6 +969,12 @@ def init_deployment(
     `openfactory project init` and `openfactory env read`, which read your repository rather than
     interrogate you — this command exists because the deployment's own environment was the last
     thing with no such step.
+
+    THE CLOSING LINE IS A COMMAND THE READER CAN RUN. Run by the installer, `init` prints
+    none, on either runtime: the installer starts the stack or prints how to. By hand it names the
+    file from the working directory when the file lies inside it, otherwise as it was passed, and
+    adds `--build` only where the `docker-compose.yml` here builds the worker from a Dockerfile
+    here — a checkout, never an installation from published images.
     """
     import os
     import stat
@@ -1200,6 +1206,12 @@ def init_deployment(
         typer.echo("\nwhat is still yours to do:")
         for i, line in enumerate(remaining, 1):
             typer.echo(f"  {i}. {line}")
+    # RUN BY THE INSTALLER, THE NEXT COMMAND IS THE INSTALLER'S (#652), on either runtime: it starts
+    # the stack itself, or under `--no-run` prints how to. Said here too, it was a second command,
+    # and from inside the CLI container the wrong one — through the installer v0.5.0, v0.6.0-rc.1
+    # and rc.2 all closed with `then: docker compose --env-file /out/.env.compose up -d --build`.
+    if (os.environ.get("OPENFACTORY_INSTALLER") or "").strip():
+        return
     if answers.runtime == "local":
         # THE NEXT COMMAND IS THE ONE THAT STARTS IT. `docker compose --env-file …` is the other
         # runtime's, and printing it here sent a person who had just said "this machine" to
@@ -1207,7 +1219,48 @@ def init_deployment(
         typer.echo(f"\nthen: `openfactory up` — the engine, the worker and the panel, here. "
                    f"({dest} is read by all three.)")
     else:
-        typer.echo(f"\nthen: `docker compose --env-file {dest} up -d --build`")
+        build = " --build" if _builds_from_this_checkout(Path.cwd()) else ""
+        typer.echo(f"\nthen: `docker compose --env-file {_named_as_passed(out)} up -d{build}`")
+
+
+def _named_as_passed(out: str) -> str:
+    """The environment file as the person can name it: from the working directory when it lies
+    inside it — where `docker compose` reads `docker-compose.yml` — and otherwise as they typed it.
+
+    THE README's BY-HAND PATH IS WHY THE FIRST HALF EXISTS: `docker run -v "$PWD:/out" … init --out
+    /out/.env.compose` passes a container path, and the image's working directory IS the mount, so
+    relative to it the file is `.env.compose` on both sides. Both sides RESOLVED: `Path.cwd()`
+    already is, and on macOS the temporary directories sit behind `/private`."""
+    try:
+        return str(Path(out).expanduser().resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return out
+
+
+def _builds_from_this_checkout(project_dir: Path) -> bool:
+    """Whether the `docker-compose.yml` here builds the worker from a Dockerfile that is here.
+
+    An installation from published images has the compose file and no `docker/` (none of the
+    three files the installer downloads is under it), so `--build` there fails on a Dockerfile it
+    cannot find — what every fresh install from v0.5.0 to v0.6.0-rc.2 was told to run (#650). A
+    checkout has both, and keeps it.
+
+    A file that cannot be read or parsed answers "no", which is not the same as "there is no
+    build", and is acceptable only because the answer decides a hint: nothing is written or
+    refused on it."""
+    import yaml
+
+    try:
+        compose = yaml.safe_load((project_dir / "docker-compose.yml").read_text(encoding="utf-8"))
+        build = compose["services"]["worker"]["build"]
+    except (OSError, UnicodeDecodeError, yaml.YAMLError, KeyError, TypeError):
+        return False
+    if isinstance(build, str):
+        build = {"context": build}
+    if not isinstance(build, dict):
+        return False
+    context = project_dir / str(build.get("context", "."))
+    return (context / str(build.get("dockerfile", "Dockerfile"))).is_file()
 
 
 def _conformance_kinds() -> str:

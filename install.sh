@@ -521,6 +521,13 @@ _cli() {
     #  <image> <command>
     set -- -e "OPENFACTORY_VERSION=${VERSION}" "$@"
     set -- -e "OPENFACTORY_WORK_DIR=${WORK_DIR}" "$@"
+    # THE NEXT COMMAND IS THIS SCRIPT'S (#652). `init` closed with its own `then: docker compose
+    # --env-file /out/.env.compose up -d --build` — a path only this container has and a build an
+    # installation from published images cannot do — above the command this script prints or runs.
+    # Told it runs under the installer, `init` names no next command. AN ENVIRONMENT VARIABLE AND
+    # NOT A FLAG: `--version` can select an older CLI image, which refuses an unknown option (the
+    # `-t` defect above) and ignores an unknown variable.
+    set -- -e "OPENFACTORY_INSTALLER=1" "$@"
     # BOUND AT THE SAME PATH ON BOTH SIDES, for the reason `docker-compose.yml` binds it that way:
     # a path this container invents means nothing to the machine that has to honour it. Without the
     # mount, `preflight` checked whether `/home/<you>/.local/share/openfactory/work` was writable
@@ -635,6 +642,9 @@ run_init() {
     # IT GOES BEFORE `$INIT_ARGS` SO IT CAN BE OVERRIDDEN: a later `--runtime` wins (measured
     # against the published v0.2.0 image), so `install.sh -- --runtime local` still reaches a
     # person who knows what they are doing.
+    #
+    # `init` NAMES NO NEXT COMMAND HERE: `_cli` tells it this script runs it, because this script
+    # owns that step — `start_the_stack`, or under `--no-run` the line `main` prints (#652).
     #
     # `$INIT_ARGS` IS DELIBERATELY UNQUOTED: it is a list of separate flags, not one argument.
     # shellcheck disable=SC2086
