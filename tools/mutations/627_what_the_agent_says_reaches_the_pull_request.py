@@ -180,6 +180,16 @@ MUTATIONS = [
     ("a cut may open a spaced markdown link, whose raw destination then shows a name", MACHINE,
      r'_A_LINK_IN_ROW = re.compile(r"\[[^\[\]]*\]\([ \t]*(?:(?:',
      r'_A_LINK_IN_ROW = re.compile(r"\[[^\[\]]*\]\((?:(?:'),
+    ("a markdown link with a space before its `)` is wrapped, and goes somewhere else", MACHINE,
+     r'r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*)\)")',
+     r'r"|<(?:https?://|www\.)[^\n<>`\\]*>))\)")'),
+    ("a reference the agent defines after a list marker parses, and its address is nowhere",
+     MACHINE,
+     r'_A_DEFINITION = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+)*)\[',
+     r'_A_DEFINITION = re.compile(r"^([ \t]*)\['),
+    ("an indented reference the agent defines parses, and its address is nowhere", MACHINE,
+     r'_A_DEFINITION = re.compile(r"^([ \t]*(?:',
+     r'_A_DEFINITION = re.compile(r"^((?:'),
     # ── bounded, and the cut says so ───────────────────────────────────────────────────────────
     ("the bound is measured on the text before quoting", MACHINE,
      "        if used + 1 + len(row) <= room:\n            kept.append(row)\n"

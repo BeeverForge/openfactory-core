@@ -340,12 +340,14 @@ def test_a_markdown_link_with_parentheses_in_its_address_still_links_where_it_wr
     ("[section](https://example.com/page#12)", "https://example.com/page#12"),
     ("[https://x.test/a_b](https://x.test/a_b)", "https://x.test/a_b"),
     ("see [the docs]( https://x.test/a_b) here", "https://x.test/a_b"),
+    ("[d]( https://medium.com/@octocat/post_a )", "https://medium.com/@octocat/post_a"),
 ])
 def test_a_markdown_link_the_agent_writes_goes_where_it_wrote(said: str, href: str):
     """Review on 3c6d12c, measured on GitHub: an `@` wrapped in the destination gave
     `href=".../%60@octocat%60/post_a"`, a `#12` rewritten `card 12` gave no link at all, and a link
     whose text is an address lost its link to the bare-link split, as one after `]( ` lost its
-    address from the page."""
+    address from the page. A space before the `)` too: without it the link is no link and its
+    address is wrapped (review on 39183a4, a cut that survived)."""
     markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
     html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
     assert re.findall(r'<a href="([^"]*)"', html) == [href], html
@@ -427,6 +429,16 @@ def test_a_reference_link_the_agent_defines_still_shows_its_address():
     assert "https://x.test/runs/a_b" in re.sub(r'href="[^"]*"', "", html), html
 
 
+
+@pytest.mark.parametrize("said", ["See [the run][1].\n\n- [1]: https://x.test/runs/a_b",
+                                  "See [the run][1].\n\n   [1]: https://x.test/runs/a_b",
+                                  "See [the run][1].\n\n1. [1]: https://x.test/runs/a_b"])
+def test_a_reference_the_agent_defines_in_a_list_or_indented_still_shows_its_address(said: str):
+    """Review on 39183a4: a definition after a list marker or an indent parses as one too, and its
+    address renders nowhere; no test held the escape there (a cut of either survived)."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert "https://x.test/runs/a_b" in re.sub(r'href="[^"]*"', "", html), html
 @pytest.mark.parametrize("said", ["see https://x.test/a`@someone` here", "https://x.test/a\\`@someone"])
 def test_a_backtick_in_a_link_the_agent_writes_never_closes_its_span(said: str):
     """Review on 3c6d12c: a bare link's span admitting the agent's backtick survived every test.
