@@ -9,8 +9,9 @@ Two claims, held by the three tests in the plan's `TEST` file (C1 by two of them
     nothing but creates one schedule fewer is red too.
     Run again, when every schedule exists, it updates each one and the poller to the
     `--every-minutes` it was given; held by a fake engine on which every create is refused.
-  - C2. Every `if __name__ == "__main__"` block in the package is its module's last top-level
-    statement. Held by parsing each module, so it covers modules other than schedule.py.
+  - C2. Every `if __name__ == "__main__"` block in the package, alone or joined with `and`, is
+    its module's last top-level statement. Held by parsing each module, so it covers modules
+    other than schedule.py.
 
 The first cut is the defect as it was on c0a50f3, and it is run against each test on its own, so
 the report shows that both see it.
@@ -46,6 +47,12 @@ MUTATIONS = [
     ("another module gets a statement after its __main__ block", STARTER,
      'if __name__ == "__main__":\n    asyncio.run(main())\n',
      'if __name__ == "__main__":\n    asyncio.run(main())\n\n\ndef _late():\n    ...\n',
+     C2),
+
+    ("a statement after host.py's __main__ block, whose test is joined with `and`",
+     "openfactory/runtime/host.py",
+     "grace=float(sys.argv[3]))\n",
+     "grace=float(sys.argv[3]))\n\n\ndef _late():\n    ...\n",
      C2),
 
     ("a second run leaves the existing poller as it was", SCHED,

@@ -146,10 +146,21 @@ def test_running_the_module_again_updates_every_schedule_it_created_at_the_inter
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
-    """`if __name__ == "__main__":`, read from the parsed test, in either operand order."""
-    if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
+    """`if __name__ == "__main__":`, read from the parsed test, in either operand order, alone or
+    as one operand of an `and` (`host.py` gates its reaper with
+    `if __name__ == "__main__" and len(sys.argv) >= 4 and ...`; with the bare comparison only,
+    a statement after that block stayed green)."""
+    if not isinstance(node, ast.If):
         return False
-    test = node.test
+    if isinstance(node.test, ast.BoolOp) and isinstance(node.test.op, ast.And):
+        return any(_is_main_test(operand) for operand in node.test.values)
+    return _is_main_test(node.test)
+
+
+def _is_main_test(test: ast.expr) -> bool:
+    """`__name__ == "__main__"`, in either operand order."""
+    if not isinstance(test, ast.Compare):
+        return False
     if len(test.ops) != 1 or not isinstance(test.ops[0], ast.Eq):
         return False
     sides = [test.left, *test.comparators]
