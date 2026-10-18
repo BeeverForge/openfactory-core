@@ -95,6 +95,12 @@ MUTATIONS = [
     ("the agent's escaped backticks are read as the platform's spans", MACHINE,
      '        if row[i] == "\\\\":\n            i += 2\n',
      '        if row[i] == "\\\\":\n            i += 1\n'),
+    ("the cut line counts the escapes as characters the agent wrote", MACHINE,
+     "sum(_seen(row[2:]) for row in rows)",
+     "sum(len(row[2:]) for row in rows)"),
+    ("a cut may split an escape", MACHINE,
+     "        if i > cut:\n            cut -= 1\n",
+     "        if False:\n            cut -= 1\n"),
     # ── bounded, and the cut says so ───────────────────────────────────────────────────────────
     ("the bound is measured on the text before quoting", MACHINE,
      "        if used + 1 + len(row) <= room:\n            kept.append(row)\n"

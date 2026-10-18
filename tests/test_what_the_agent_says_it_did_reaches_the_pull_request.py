@@ -318,6 +318,27 @@ def test_a_cut_reads_the_platforms_spans_past_the_agents_escaped_backticks():
     assert "@someone" not in re.sub(r"<code>.*?</code>", "", html, flags=re.S), html
 
 
+def test_the_cut_line_counts_the_characters_the_agent_wrote_not_the_escapes():
+    """Review on 35a1cc0: a message of 1,920 characters was published as "was 2880 characters",
+    every escape counted as one the agent wrote. Both numbers count what the reader sees."""
+    said = "`x` " * 480
+    lines = machine._account_lines(machine._account_of(_result(account=said)))
+    kept = [r for r in lines if r.startswith("> ")]
+    seen = len(kept[0][2:].replace("\\`", "`"))
+    assert f"The agent's message was 1920 characters; the first {seen} are shown." in lines, lines
+
+
+def test_a_cut_never_splits_an_escape_and_still_says_it_cut():
+    """A cut between an escape's backslash and the character it escapes would show a stray `\\`
+    the agent did not write — and, counted as the reader sees it, leave the count unchanged, so
+    the line saying the message was cut went missing."""
+    said = "a" * 1997 + "`"
+    lines = machine._account_lines(machine._account_of(_result(account=said)))
+    (row,) = [r for r in lines if r.startswith("> ")]
+    assert not row.endswith("\\"), row
+    assert "The agent's message was 1998 characters; the first 1997 are shown." in lines, lines
+
+
 def test_a_cut_never_leaves_a_wrapped_name_outside_its_span():
     """Found by review on 9882b73: the cut row ended `` `@octoca `` with the span protection
     removed, and no test noticed."""

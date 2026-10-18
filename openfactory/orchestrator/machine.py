@@ -524,15 +524,29 @@ def _quoted(text: str) -> list[str]:
     return [f"> {_neutralised(line)}" if line.strip() else ">" for line in text.splitlines()]
 
 
+def _seen(text: str) -> int:
+    """How many characters a reader sees of neutralised agent text: an escape is one, and the
+    platform's span backticks — the unescaped ones (`_spans`) — none."""
+    seen, i = 0, 0
+    while i < len(text):
+        if text[i] != "`":
+            seen += 1
+        i += 2 if text[i] == "\\" else 1
+    return seen
+
+
 def _quote_chars(rows: list[str]) -> int:
-    """How many characters of the message `rows` show — what the cut line counts in."""
-    return len("\n".join(row[2:] for row in rows))
+    """How many characters of the message `rows` show — what the cut line counts in: what the
+    reader sees, so counting the source instead published a message of 1,920 characters as 2,880
+    (review on 35a1cc0). The bound itself is on the source: that is what a forge limits."""
+    return len(rows) - 1 + sum(_seen(row[2:]) for row in rows) if rows else 0
 
 
 def _cut_quote(rows: list[str], room: int) -> list[str]:
     """The leading quote rows that fit in `room` characters as rendered, prefixes and newlines
     counted. The row that crosses the bound is cut, never inside a code span — a span cut open
-    would leave the name the wrapping hid outside it."""
+    would leave the name the wrapping hid outside it — and never inside an escape, whose lone
+    backslash the agent did not write and the cut line would not count as lost."""
     kept: list[str] = []
     used = -1  # no newline before the first row
     for row in rows:
@@ -541,6 +555,11 @@ def _cut_quote(rows: list[str], room: int) -> list[str]:
             used += 1 + len(row)
             continue
         cut = room - used - 1
+        i = 2
+        while i < cut:  # nor between an escape's backslash and what it escapes
+            i += 2 if row[i] == "\\" else 1
+        if i > cut:
+            cut -= 1
         for start, end in _spans(row):
             if start < cut < end:
                 cut = start
