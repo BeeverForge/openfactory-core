@@ -376,6 +376,47 @@ def test_a_cut_never_leaves_a_link_open_with_its_name_outside_a_span():
     assert "@octocat" not in re.sub(r'href="[^"]*"', "", html), html
 
 
+def _names_read(html: str) -> list[str]:
+    """The `@names` a reader sees: outside every code span and every attribute."""
+    text = re.sub(r'(href|title|src|alt)="[^"]*"', "",
+                  re.sub(r"<code>.*?</code>", "", html, flags=re.S))
+    return re.findall(r"(?<![A-Za-z0-9])@[A-Za-z0-9]+", text)
+
+
+@pytest.mark.parametrize("said", ["[t](https://x.test/a)(@octocat)",
+                                  "[t](https://x.test/a`b) `@octocat` x"])
+def test_text_after_a_markdown_link_is_never_kept_raw_as_its_destination(said: str):
+    """Review on 39183a4: a link's destination is kept raw, `@` included, so where the link ends
+    is what keeps a name out of view. A destination that ran on through `(`, `)` or a backtick
+    took the agent's next words, name and all, raw (15 quote shapes in 3,000 fuzzed messages)."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert _names_read(html) == [], html
+
+
+def test_a_cut_never_opens_a_spaced_markdown_link():
+    """Review on 39183a4: a cut that does not know a link may open `]( ` leaves the link open and
+    its raw destination as text, the name in it read (26 cut shapes in 3,000 fuzzed messages)."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    said = "a" * 1960 + " [p]( https://medium.com/@octocat/post_a ) done"
+    q = machine._quoted(said)
+    lines = machine._account_lines(machine._Account(quote=q, total=machine._quote_chars(q)))
+    assert any("characters; the first" in r for r in lines), lines
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(lines[3:]))
+    assert _names_read(html) == [], lines
+
+
+@pytest.mark.parametrize("said", ["[]](https://x.test/@octocat)",
+                                  "[a]](https://x.test/@octocat/b) c"])
+def test_a_bracket_before_a_link_never_takes_a_name_into_its_raw_destination(said: str):
+    """Review on 39183a4: a link text that may span `[` or `]` reaches back to a bracket that
+    opens no link, and keeps a destination raw that CommonMark does not read as one, so the name
+    in it shows (39 quote shapes in 3,000 fuzzed messages; shrunk to `[]](http://@o)`)."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert _names_read(html) == [], html
+
+
 def test_a_reference_link_the_agent_defines_still_shows_its_address():
     """Review on 3c6d12c, measured on GitHub: `[1]: `https://…`` parsed as a definition with a
     backticked address, which renders nothing, and the agent's `[the run][1]` read "the run" with

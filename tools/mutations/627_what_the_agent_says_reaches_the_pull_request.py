@@ -168,6 +168,18 @@ MUTATIONS = [
     ("an angle-bracketed address is escaped, and the link and its address leave the page", MACHINE,
      '''r"|<(?:https?://|www\\.)[^\\n<>`\\\\]*>)[ \\t]*)\\)")\n''',
      '''r")[ \\t]*)\\)")\n'''),
+    # a destination is kept raw, `@` included: what the link regexes refuse keeps a name in view
+    ("a markdown link's raw destination runs on through `(`, `)`, taking the agent's next name",
+     MACHINE,
+     r'\]\(([ \t]*(?:(?:https?://|www\.)[^\s()<>`\\]*"',
+     r'\]\(([ \t]*(?:(?:https?://|www\.)[^\s<>`\\]*"'),
+    ("a markdown link's text reaches back past a bracket, and a name stays raw in what is no link",
+     MACHINE,
+     r'_A_LINK = re.compile(r"(?<!\])\[([^\[\]\n]*)\]\(',
+     r'_A_LINK = re.compile(r"(?<!\])\[([^\n]*?)\]\('),
+    ("a cut may open a spaced markdown link, whose raw destination then shows a name", MACHINE,
+     r'_A_LINK_IN_ROW = re.compile(r"\[[^\[\]]*\]\([ \t]*(?:(?:',
+     r'_A_LINK_IN_ROW = re.compile(r"\[[^\[\]]*\]\((?:(?:'),
     # ── bounded, and the cut says so ───────────────────────────────────────────────────────────
     ("the bound is measured on the text before quoting", MACHINE,
      "        if used + 1 + len(row) <= room:\n            kept.append(row)\n"
