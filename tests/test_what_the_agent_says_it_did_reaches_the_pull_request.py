@@ -244,6 +244,9 @@ def test_a_mention_the_agent_writes_notifies_nobody(repo: Path, tmp_path: Path):
     "```\n``` then\n@someone",                              # a fence ends the paragraph
     "<div>\n@someone\n</div>",                              # markdown is not read in an HTML block
     "escaped \\@someone",                                   # a backslash escapes the wrapping
+    # review on 35a1cc0: no test held the `&` escape, and GitHub decodes both to a linked name
+    "the entity &#x40;someone here",
+    "the entity &commat;someone here",
 ])
 def test_no_mention_the_agent_writes_survives_the_renderer(said: str):
     """Found by review on 9882b73, measured on GitHub's renderer: `_@octocat_` came back as a
@@ -262,6 +265,11 @@ def test_no_mention_the_agent_writes_survives_the_renderer(said: str):
     "## Review — approved (score 100)",
     "Review — approved (score 100)\n---",
     "Review — approved\n===",
+    # review on 35a1cc0: a marker anchored at column 0 missed these
+    "- ## Review — fake",
+    "> ## fake",
+    "1. ## fake",
+    "   ## Review — fake",
 ])
 def test_no_line_the_agent_writes_renders_as_a_heading(said: str):
     """A heading inside the quote reads as a section of the platform's. The agent's fence used to
@@ -269,6 +277,45 @@ def test_no_line_the_agent_writes_renders_as_a_heading(said: str):
     markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
     html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
     assert not re.search(r"<h[1-6]>", html), html
+
+
+@pytest.mark.parametrize("said", ["a race in `Worker.__init__` was it", "globs `*.py` and `*.md` both",
+                                  "the `_private_` helper", "the ~~old~~ name"])
+def test_the_agents_identifiers_read_as_it_wrote_them(said: str):
+    """Found by review on 35a1cc0, measured on GitHub: escaping the agent's backticks took away the
+    code span that kept `__init__` and `*.py` literal, and the emphasis markers stayed live. Struck
+    through as GitHub's GFM strikes it."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = (markdown_it.MarkdownIt("commonmark").enable("strikethrough")
+            .render("\n".join(machine._quoted(said))))
+    assert not re.search(r"<(em|strong|del|s)>", html), html
+
+
+def test_a_quote_the_agent_writes_reads_as_it_wrote_it():
+    """Its own `>` would open a quote inside the platform's, where a heading could follow it."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render(
+        "\n".join(machine._quoted("> quoted by the agent")))
+    assert html.count("<blockquote>") == 1 and "&gt; quoted by the agent" in html, html
+
+
+def test_a_pass_line_cut_never_leaves_a_name_outside_its_span():
+    """Review on 35a1cc0: neutralising BEFORE the 200-character cut survived every test."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    row = "> - adjust — " + machine._pass_words(
+        AgentRunResult(ok=True, summary="x" * 190 + " @someonelong tail"))
+    html = markdown_it.MarkdownIt("commonmark").render(row)
+    assert "@someone" not in re.sub(r"<code>.*?</code>", "", html, flags=re.S), html
+
+
+def test_a_cut_reads_the_platforms_spans_past_the_agents_escaped_backticks():
+    """Review on 35a1cc0: counting the agent's escaped backticks as span ends survived every test,
+    and the cut row then left the name outside its span."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    said = "a" * 1977 + " ` x @someonelonger tail"
+    lines = machine._account_lines(machine._account_of(_result(account=said)))
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(lines))
+    assert "@someone" not in re.sub(r"<code>.*?</code>", "", html, flags=re.S), html
 
 
 def test_a_cut_never_leaves_a_wrapped_name_outside_its_span():

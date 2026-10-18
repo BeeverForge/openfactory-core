@@ -474,11 +474,16 @@ _A_HANDLE = re.compile(r"(?<![A-Za-z0-9])@([A-Za-z0-9](?:[\w.@-]*\w)?)")
 #: What could make the agent's text anything but text around the platform's spans: a backtick (a
 #: code span or fence of its own, which pairs with the wrapping), a backslash (which escapes the
 #: wrapping's backtick), `<` (an HTML block, inside which markdown — the wrapping — is not read)
-#: and `&` (an entity, `&#64;`, which decodes to a name after the wrapping was decided).
-_MARKUP = re.compile(r"([\\`<&])")
+#: and `&` (an entity, `&#x40;`, which decodes to a name after the wrapping was decided). And the
+#: emphasis markers `*`, `_` and `~`: with its backticks escaped, the agent's `Worker.__init__` and
+#: `*.py` lost the code span that kept them literal (review on 35a1cc0, measured on GitHub).
+_MARKUP = re.compile(r"([\\`<&*_~])")
 #: …and what would make one of its lines a HEADING, posing as a section of the platform's: an ATX
-#: `#`, or a line of only `=` or `-` under another (setext). Escaped where it opens the line.
-_A_HEADING = re.compile(r"^(\s{0,3})(#|[=-](?=[=-]*\s*$))", re.MULTILINE)
+#: `#`, a line of only `=` or `-` under another (setext), or a `>` of its own that a heading could
+#: follow. Escaped where it opens the line — after the indent, list markers and `>`s that can
+#: come before it, since `- ## x`, `1. ## x` and `> # x` render a heading too (review on 35a1cc0).
+_A_HEADING = re.compile(r"^(\s{0,3}(?:(?:[-+]|\d{1,9}[.)])\s+|>\s*)*)(#|>|[=-](?=[=-]*\s*$))",
+                        re.MULTILINE)
 
 
 def _neutralised(text: str) -> str:
@@ -491,9 +496,10 @@ def _neutralised(text: str) -> str:
     predict how CommonMark pairs backticks across a paragraph, where a fence or an HTML block
     begins, and how an entity decodes: review on 9882b73 found two shapes GitHub linked, and fuzzing
     the paragraph-level repair against CommonMark kept finding more. A heading marker is escaped
-    too, so no line of the agent's renders as a section heading. The price is that the agent's
-    inline code, fences and HTML read literally, backticks included — this is its claim, quoted,
-    not a document rendered on its behalf."""
+    too, so no line of the agent's renders as a section heading, and so are the emphasis markers,
+    so its `Worker.__init__` reads as it wrote it. The price is that the agent's inline code,
+    fences and HTML read literally, backticks included — this is its claim, quoted, not a
+    document rendered on its behalf; its lists and links still render."""
     text = _A_HEADING.sub(r"\1\\\2", _MARKUP.sub(r"\\\1", without_mentions(text)))
     return _A_HANDLE.sub(lambda m: f"`{m.group(0)}`", text)
 

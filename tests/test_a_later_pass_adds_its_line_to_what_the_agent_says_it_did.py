@@ -154,8 +154,9 @@ def test_a_ci_repair_that_pushed_adds_its_line(repo: Path, tmp_path: Path):
 
     runner.repair_ci("#9", "CI failed: test_x", pr_url=PR)
 
+    # `_` is escaped in the source (review on 35a1cc0) and renders as the agent wrote it
     assert _pass_rows(forge.opened["body"]) == [
-        f"> - CI repair · `{_pushed(tmp_path)[:12]}` — made test_x pass"]
+        f"> - CI repair · `{_pushed(tmp_path)[:12]}` — made test\\_x pass"]
 
 
 def test_the_same_pass_republished_twice_adds_its_line_once(repo: Path, tmp_path: Path):
@@ -242,7 +243,7 @@ def test_each_gate_repair_after_an_adjust_has_its_line(repo: Path, tmp_path: Pat
     rows = _pass_rows(forge.opened["body"])
     assert len(rows) == 2 and rows[0].startswith("> - adjust · `"), rows
     assert rows[1].startswith("> - adjust gate repair 1 · `") and rows[1].endswith(
-        "WRITE adjust_ok.txt F"), rows
+        "WRITE adjust\\_ok.txt F"), rows
 
 
 def test_a_pass_line_is_its_own_words_on_one_line_cut_at_200_characters(
