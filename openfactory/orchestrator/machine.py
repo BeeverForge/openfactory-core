@@ -495,12 +495,26 @@ _AN_UNDERLINE = re.compile(r"[ \t]*[=-]+\s*$")
 #: the address (`test%5C_a.py`, review on be48a54). Not a markdown link's destination, where
 #: CommonMark reads the escapes; and ending before trailing punctuation, as the autolinker does.
 _A_URL = re.compile(r"(?<!\]\()(?<![\w/])((?:https?://|www\.)[^\s`<>\\]*[^\s`<>\\.,;:!?'\")\]])")
+#: A markdown link to an address, whole: its text is neutralised, its destination kept as
+#: written, with the spaces CommonMark allows around it. In the destination a wrapped `@octocat`
+#: went into the href as `%60@octocat%60` and a `#12` rewritten `card 12` broke the link; the
+#: bare-link split cut `[https://…](https://…)` in two, and after `]( ` it took the address off
+#: the page (review on 3c6d12c, measured on GitHub). A destination with a backtick, a backslash,
+#: `<` or a parenthesis is left to `_plain`, as before; and not after `]`, where it may be a label.
+_A_LINK = re.compile(r"(?<!\])\[([^\[\]\n]*)\]\(([ \t]*(?:https?://|www\.)[^\s()<>`\\]*[ \t]*)\)")
+#: The same link in a quote row, which a cut must not open: its destination is raw, `@` included.
+_A_LINK_IN_ROW = re.compile(r"\[[^\[\]]*\]\([ \t]*(?:https?://|www\.)[^\s()<>`\\]*[ \t]*\)")
+#: A line that would define a reference link: its `[` is escaped, so it shows as text, its address
+#: as a bare link's code. Parsed, the definition renders nothing, and its address, in a span, was
+#: on the page nowhere (review on 3c6d12c, measured on GitHub).
+_A_DEFINITION = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+)*)\[(?=[^\]]*\]:)", re.MULTILINE)
 
 
 def _neutralised(text: str) -> str:
-    """Agent text as the pull request may carry it: every `#<number>` is `card <number>` whatever
-    the forge (`without_mentions`), and every `@name` is put in a code span, which GitHub renders
-    literally and notifies nobody from — measured on its renderer (#627, the pull request body).
+    """Agent text as the pull request may carry it: every `#<number>` it shows is `card <number>`
+    whatever the forge (`without_mentions`), and every `@name` it shows is put in a code span,
+    which GitHub renders literally and notifies nobody from — measured on its renderer (#627, the
+    pull request body).
 
     THE AGENT'S OWN MARKUP IS ESCAPED FIRST, so the platform's spans are the only code spans in it
     and each opens and closes on its own line. Wrapping around the agent's markdown instead had to
@@ -510,14 +524,28 @@ def _neutralised(text: str) -> str:
     too, so no line of the agent's renders as a section heading, and so are the emphasis markers,
     so its `Worker.__init__` reads as it wrote it. A bare link is put in a span of the platform's,
     verbatim, before anything is rewritten: an escape or a `card` inside it would change where it
-    goes. The price is that the agent's inline code, fences and HTML read literally, backticks
-    included, and a bare link shows as code — this is its claim, quoted, not a document rendered
-    on its behalf; its `-`, `+` and numbered lists and its markdown links still render."""
+    goes. A markdown link to an address, `[text](https://…)`, keeps its destination as written,
+    `@` and `#N` included, which the reader is not shown and GitHub notifies nobody from; its text
+    is neutralised like the rest. A reference definition, `[1]: https://…`, shows as text, its
+    address as a bare link's code: parsed, it renders nothing. The price is that the agent's
+    inline code, fences and HTML read literally, backticks included, and a bare link shows as code
+    and is not a link — this is its claim, quoted, not a document rendered on its behalf; its `-`,
+    `+` and numbered lists and its markdown links to an address still render."""
+    out, pos = [], 0
+    for link in _A_LINK.finditer(text):
+        out += [_plain(text[pos:link.start()]), f"[{_plain(link[1])}]({link[2]})"]
+        pos = link.end()
+    out.append(_plain(text[pos:]))
+    return _A_DEFINITION.sub(r"\1\\[", _A_HEADING.sub(r"\1\\\2", "".join(out)))
+
+
+def _plain(text: str) -> str:
+    """Agent text outside a markdown link's destination, every line's start aside: each bare link
+    in a platform span, verbatim; around them, `#N` rewritten, the markup escaped, names wrapped."""
     pieces = _A_URL.split(text)
-    text = "".join(f"`{piece}`" if k % 2 else _A_HANDLE.sub(
+    return "".join(f"`{piece}`" if k % 2 else _A_HANDLE.sub(
         lambda m: f"`{m.group(0)}`", _MARKUP.sub(r"\\\1", without_mentions(piece)))
         for k, piece in enumerate(pieces))
-    return _A_HEADING.sub(r"\1\\\2", text)
 
 
 def _spans(row: str) -> list[tuple[int, int]]:
@@ -577,6 +605,9 @@ def _cut_quote(rows: list[str], room: int) -> list[str]:
             i += 2 if row[i] == "\\" else 1
         if i > cut:
             cut -= 1
+        for link in _A_LINK_IN_ROW.finditer(row):  # nor inside a link, whose destination is raw
+            if link.start() < cut < link.end():
+                cut = link.start()
         for start, end in _spans(row):
             if start < cut < end:
                 cut = start

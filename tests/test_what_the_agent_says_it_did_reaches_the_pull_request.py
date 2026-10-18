@@ -248,6 +248,7 @@ def test_a_mention_the_agent_writes_notifies_nobody(repo: Path, tmp_path: Path):
     "the entity &#x40;someone here",
     "the entity &commat;someone here",
     "see https://x.test/@someone/a_b here",                  # a name inside a link the agent writes
+    "[@someone](https://x.test/u_v) wrote it",               # a name in a markdown link's text
 ])
 def test_no_mention_the_agent_writes_survives_the_renderer(said: str):
     """Found by review on 9882b73, measured on GitHub's renderer: `_@octocat_` came back as a
@@ -322,6 +323,54 @@ def test_a_markdown_link_the_agent_writes_still_links_where_it_wrote():
     html = markdown_it.MarkdownIt("commonmark").render(
         "\n".join(machine._quoted("[the file](https://x.test/tests/test_a_b.py)")))
     assert '<a href="https://x.test/tests/test_a_b.py">the file</a>' in html, html
+
+
+def test_a_markdown_link_with_parentheses_in_its_address_still_links_where_it_wrote():
+    """Such a destination is not taken out whole: it is escaped, which CommonMark reads, and never
+    wrapped as a bare link, which would cut it at the first `)`."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render(
+        "\n".join(machine._quoted("[Foo](https://en.wikipedia.org/wiki/Foo_(bar))")))
+    assert re.findall(r'<a href="([^"]*)"', html) == ["https://en.wikipedia.org/wiki/Foo_(bar)"], html
+
+
+@pytest.mark.parametrize(("said", "href"), [
+    ("[profile](https://medium.com/@octocat/post_a)", "https://medium.com/@octocat/post_a"),
+    ("[pkg](https://www.npmjs.com/package/@types/node)", "https://www.npmjs.com/package/@types/node"),
+    ("[section](https://example.com/page#12)", "https://example.com/page#12"),
+    ("[https://x.test/a_b](https://x.test/a_b)", "https://x.test/a_b"),
+    ("see [the docs]( https://x.test/a_b) here", "https://x.test/a_b"),
+])
+def test_a_markdown_link_the_agent_writes_goes_where_it_wrote(said: str, href: str):
+    """Review on 3c6d12c, measured on GitHub: an `@` wrapped in the destination gave
+    `href=".../%60@octocat%60/post_a"`, a `#12` rewritten `card 12` gave no link at all, and a link
+    whose text is an address lost its link to the bare-link split, as one after `]( ` lost its
+    address from the page."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert re.findall(r'<a href="([^"]*)"', html) == [href], html
+
+
+def test_a_cut_never_leaves_a_link_open_with_its_name_outside_a_span():
+    """A link's destination is kept raw, `@octocat` included: a cut inside it would leave the
+    destination as text, and the name in it read."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    said = "a" * 1960 + " [p](https://medium.com/@octocat/post_a) done"
+    q = machine._quoted(said)
+    lines = machine._account_lines(machine._Account(quote=q, total=machine._quote_chars(q)))
+    html = re.sub(r"<code>.*?</code>", "",
+                  markdown_it.MarkdownIt("commonmark").render("\n".join(lines[1:])))
+    assert "@octocat" not in re.sub(r'href="[^"]*"', "", html), html
+
+
+def test_a_reference_link_the_agent_defines_still_shows_its_address():
+    """Review on 3c6d12c, measured on GitHub: `[1]: `https://…`` parsed as a definition with a
+    backticked address, which renders nothing, and the agent's `[the run][1]` read "the run" with
+    its address nowhere on the page."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render(
+        "\n".join(machine._quoted("See [the run][1].\n\n[1]: https://x.test/runs/a_b")))
+    assert "https://x.test/runs/a_b" in re.sub(r'href="[^"]*"', "", html), html
 
 
 def test_a_cut_never_leaves_an_indented_underline_under_the_agents_list_item():
