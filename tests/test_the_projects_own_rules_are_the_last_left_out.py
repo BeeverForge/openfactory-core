@@ -347,3 +347,40 @@ def test_the_jobs_box_is_built_with_the_operator_directory(tmp_path, monkeypatch
                          "1", sandbox="container", image="img", review=False)
 
     assert handed and handed[0].get("guidelines") == str(operator), handed
+
+
+# ── the helpers' error paths (second review of #364) ─────────────────────────────────────────────
+
+def test_a_configured_directory_that_is_not_there_is_not_mounted(tmp_path):
+    """`box_knobs` is the one reader for the job, `box prove` and `doctor`: a configured directory
+    that is not on disk is no knob, or `docker run -v` would create it on the host."""
+    assert og.box_knobs({og.ENV_VAR: str(tmp_path / "missing")}) == {}
+
+
+def test_a_box_that_cannot_be_built_here_pins_the_tier(tmp_path, monkeypatch):
+    """A box this machine cannot build (a remote box, an add-on not installed) answers no root, so
+    the tier stays pinned: `explain` and `doctor` print their report, not a traceback."""
+    monkeypatch.setenv(og.ENV_VAR, str(_six_operator_documents(tmp_path)))
+
+    assert og.deployment_root("no-such-box") is None
+
+
+def test_explain_on_the_default_box_names_an_operator_document_at_the_mount(tmp_path, monkeypatch):
+    """With no OPENFACTORY_SANDBOX the deployment runs the container box, which opens the
+    operator directory at its mount: explain names a left-out standard there, as the prompt does.
+    The two tests above set the worktree box, so asking "worktree" instead of the default box
+    passed them while naming the host path the prompt never gives."""
+    import yaml
+
+    from openfactory.adapters.sandbox.container import GUIDELINES_MOUNT
+    from openfactory.orchestrator import explain as ex
+
+    monkeypatch.setenv(og.ENV_VAR, str(_six_operator_documents(tmp_path)))
+    monkeypatch.delenv("OPENFACTORY_SANDBOX", raising=False)
+    monkeypatch.setenv(ctx.ENV_VAR_PROMPT_BUDGET, "20000")
+    repo = tmp_path / "repo"
+    _write(repo, {".openfactory/project.yaml": yaml.safe_dump({"version": 1})})
+
+    left = [x for x in ex.explain(str(repo)).splitlines() if "left out" in x]
+
+    assert left and all(f"`{GUIDELINES_MOUNT}/standard-" in x for x in left), left

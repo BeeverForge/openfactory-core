@@ -21,7 +21,8 @@ The cuts fall into five groups:
     value, and onboarding's first round blaming the harness for it;
   * THE SURFACES: `explain` saying "inlined in full" again, `doctor` and `box prove` dropping the
     budget from their line, and the job runner, `box prove`'s fit, `explain` and `doctor` not
-    asking the box the job builds where the operator tier opens.
+    asking the box the job builds where the operator tier opens, and the helpers they share
+    mounting a directory that is not there or raising on a box this machine cannot build.
 """
 
 TEST = "tests/test_a_jobs_prompt_is_held_to_one_budget.py"
@@ -283,5 +284,25 @@ MUTATIONS = [
      BOX_PROVE,
      "                                 operator_root=guidelines_root(box, gather()))",
      "                                 operator_root=None)",
+     PRIORITY),
+
+    ("a configured directory that is not on disk is handed to the box as its knob",
+     OPERATOR,
+     '    return {"guidelines": str(directory)} if directory is not None and directory.is_dir() else {}\n',
+     '    return {"guidelines": str(directory)} if directory is not None else {}\n',
+     PRIORITY),
+
+    ("a box this machine cannot build raises out of `deployment_root` instead of pinning the tier",
+     OPERATOR,
+     '        _log.debug("could not build the %r box to ask where it opens %s (%s)", kind, tier.dir, exc)\n'
+     "        return None\n",
+     '        _log.debug("could not build the %r box to ask where it opens %s (%s)", kind, tier.dir, exc)\n'
+     "        raise\n",
+     PRIORITY),
+
+    ("explain asks the worktree box, not the deployment's default box, where the operator tier opens",
+     EXPLAIN,
+     "operator_root=deployment_root(default_sandbox()))",
+     'operator_root=deployment_root("worktree"))',
      PRIORITY),
 ]
