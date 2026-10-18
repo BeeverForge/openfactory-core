@@ -10,7 +10,8 @@ Now each pull request carries its line as a FRAGMENT, `changes/<issue>.<type>.md
 `scripts/release_notes.py` does the rest. This file runs it offline, with fake inputs:
 
   check     a pull request adds or edits a fragment, or carries the label `no-release-note`;
-            every fragment is well formed; a final version is declared only with its notes
+            every fragment is well formed, and none ends with its own reference; a final
+            version is declared only with its notes
   assemble  the version's section goes to the top of CHANGELOG.md, the fragments it used are
             removed, and what it prints is what the release page carries
   page      a final's page reads CHANGELOG.md, a candidate's the fragments, and neither ever
@@ -158,6 +159,63 @@ def test_a_fragment_may_carry_sub_items_paragraphs_and_a_command(tree):
     done = _check(tree, [("A", "changes/531.upgrade.md")])
 
     assert done.returncode == 0, done.stderr
+
+
+@pytest.mark.parametrize("name, text, reference", [
+    pytest.param("654.fix.md", "A line (#654).", "(#654)", id="issue-with-period"),
+    pytest.param("654.fix.md", "A line (#654)", "(#654)", id="issue-bare"),
+    pytest.param("654.fix.md", "A line (#654).\r", "(#654)", id="issue-crlf"),
+    pytest.param("GHSA-abcd-efgh-ijkm.security.md", "A line (GHSA-abcd-efgh-ijkm).",
+                 "(GHSA-abcd-efgh-ijkm)", id="ghsa-with-period"),
+    pytest.param("GHSA-abcd-efgh-ijkm.security.md", "A line (GHSA-abcd-efgh-ijkm)",
+                 "(GHSA-abcd-efgh-ijkm)", id="ghsa-bare"),
+])
+def test_a_fragment_that_ends_with_its_own_reference_is_refused_and_told_to_drop_it(
+        tree, name, text, reference):
+    """The assembly adds the reference from the file name: one the text carries reads twice, as
+    0.6.0's notes read "(#654) (#654)" (#659)."""
+    _fragment(tree, name, text)
+
+    done = _check(tree, [("A", f"changes/{name}")])
+
+    assert done.returncode == 1, done.stdout
+    assert f"changes/{name}" in done.stderr and reference in done.stderr, done.stderr
+    assert "drop it, the assembly adds it from the file name" in done.stderr, done.stderr
+
+
+@pytest.mark.parametrize("text", [
+    pytest.param("Covers (#654):\n- Jira", id="colon-before-sub-items"),
+    pytest.param("**Lead (#654).**\n- one detail", id="bold-lead-line"),
+    pytest.param("Lead (#654).  \n- one detail", id="trailing-spaces-after-the-lead-line"),
+])
+def test_a_lead_line_that_ends_with_its_own_reference_is_refused_even_with_sub_items_below(
+        tree, text):
+    """The reference closes the FIRST line of the item, so that is where it would read twice."""
+    _fragment(tree, "654.fix.md", text)
+
+    done = _check(tree, [("A", "changes/654.fix.md")])
+
+    assert done.returncode == 1, done.stdout
+    assert "changes/654.fix.md" in done.stderr and "(#654)" in done.stderr, done.stderr
+
+
+@pytest.mark.parametrize("name, text, reference", [
+    pytest.param("654.fix.md", "Follows the fix of (#653).", "(#654)", id="another-number"),
+    pytest.param("654.fix.md", "Closes what (#654) left open, and more.", "(#654)",
+                 id="own-number-mid-text"),
+    pytest.param("GHSA-abcd-efgh-ijkm.security.md", "A line that cites (#654).",
+                 "(GHSA-abcd-efgh-ijkm)", id="ghsa-citing-an-issue"),
+])
+def test_a_fragment_that_cites_another_number_or_its_own_before_its_end_still_passes(
+        tree, name, text, reference):
+    _fragment(tree, name, text)
+
+    done = _check(tree, [("A", f"changes/{name}")])
+
+    assert done.returncode == 0, done.stderr
+    notes = _run(tree, "preview", "0.7.0")
+    assert notes.returncode == 0, notes.stderr
+    assert f"- {text[:-1]} {reference}.\n" in notes.stdout, "it does not close once with its own"
 
 
 def test_a_final_version_is_declared_only_with_its_notes(tree):
@@ -311,6 +369,17 @@ def test_a_candidate_page_leaves_a_broken_fragment_out_and_says_so_in_the_run(tr
     assert "::warning::changes/601.fixes.md" in done.stderr, done.stderr
 
 
+def test_a_candidate_page_leaves_out_a_fragment_that_ends_with_its_own_reference(tree):
+    _fragment(tree, "600.fix.md", "A good line.")
+    _fragment(tree, "654.fix.md", "A line (#654).")
+
+    done = _run(tree, "page", "v0.8.0-rc.1")
+
+    assert done.returncode == 0 and "A good line (#600)." in done.stdout, done.stdout
+    assert "(#654)" not in done.stdout, "the page printed the line that reads its number twice"
+    assert "::warning::changes/654.fix.md" in done.stderr, done.stderr
+
+
 def _page_from(tree: Path, tag: str, *, with_notes: bool = True) -> subprocess.CompletedProcess:
     """The page as the release job writes it, from a checkout whose root is `tree`."""
     (tree / "scripts").mkdir(exist_ok=True)
@@ -400,6 +469,8 @@ def _pull_request(tmp_path: Path, files: dict[str, str]) -> Path:
     ({"changes/531.fix.md": "A line.\n", "openfactory/x.py": "x = 1\n"}, [], True),
     ({"openfactory/x.py": "x = 1\n"}, [], False),
     ({"docs/x.md": "words\n"}, [LABEL], True),
+    ({"changes/654.fix.md": "A line (#654).\n", "openfactory/x.py": "x = 1\n"}, [], False),
+    ({"changes/654.fix.md": "A line (#654).\n", "openfactory/x.py": "x = 1\n"}, [LABEL], False),
 ])
 def test_the_workflow_step_reads_the_pull_request_s_own_files_and_labels(
         tmp_path, files, labels, passes):

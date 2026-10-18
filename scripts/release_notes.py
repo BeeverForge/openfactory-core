@@ -22,7 +22,8 @@ A FRAGMENT is a file `changes/<ref>.<type>.md`:
           security fix uses its advisory's id (`GHSA-xxxx-xxxx-xxxx`)
   <type>  the group of the notes a reader looks in, one of `TYPES` below
   text    the line, in Markdown, as somebody installing the release should read it, WITHOUT its
-          number: the assembly adds `(#<ref>)` from the file name, so it cannot be wrong
+          number: the assembly adds `(#<ref>)` from the file name, so it cannot be wrong, and
+          `check` refuses a text that ends with it, which would read twice
 
 ONE SENTENCE PER LINE, AND THAT IS A RULE, NOT A STYLE. The notes are published on the release
 page, which renders a newline inside a paragraph as a line break (`scripts/release-page-body.sh`
@@ -129,6 +130,16 @@ def _wrapped_line(text: str) -> int | None:
     return None
 
 
+def _ends_with_its_reference(text: str, reference: str) -> bool:
+    """Whether the text closes with `(<reference>)`, which the assembly adds from the file name.
+
+    The FIRST line is checked as well as the end: `_item` closes the first line with the
+    reference, so a lead line that ends with it reads twice even with sub-items below. A final
+    full stop or colon, and the emphasis around them, are where `_item` would put it too."""
+    closing = re.compile(rf"\({re.escape(reference)}\)[*_]*[.:]?[*_]*$")
+    return any(closing.search(line) for line in (text.splitlines()[0].rstrip(), text.rstrip()))
+
+
 def read_fragments() -> tuple[list[Fragment], list[str]]:
     """Every fragment in `changes/`, and a sentence for each file there that is not one."""
     fragments: list[Fragment] = []
@@ -158,7 +169,13 @@ def read_fragments() -> tuple[list[Fragment], list[str]]:
                             f"release page shows a line break inside a paragraph as a break; a "
                             f"new line is a `- ` sub-item, a blank line or a code fence")
             continue
-        fragments.append(Fragment(path, named["ref"], named["type"], text))
+        fragment = Fragment(path, named["ref"], named["type"], text)
+        if _ends_with_its_reference(text, fragment.reference):
+            problems.append(f"{shown}: the text ends with its own reference, "
+                            f"`({fragment.reference})`; drop it, the assembly adds it from the "
+                            f"file name")
+            continue
+        fragments.append(fragment)
     return fragments, problems
 
 

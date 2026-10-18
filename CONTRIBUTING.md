@@ -226,7 +226,8 @@ release page; nobody rewrites them later. For example, `changes/531.fix.md`:
   `limitation` (what does not work yet, and the workaround).
 - **One sentence or paragraph per line, however long**: the release page shows a line break inside
   a paragraph as a break. A `- ` line under it is a sub-item.
-- **No number in the text**: the assembly adds `(#531)` from the file name.
+- **No number in the text**: the assembly adds `(#531)` from the file name, and the check refuses
+  a line that ends with its own, which would read twice.
 - **A pull request that changes only documents or tests carries no fragment**: ask for the label
   `no-release-note` instead.
 

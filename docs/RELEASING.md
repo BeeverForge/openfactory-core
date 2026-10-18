@@ -171,7 +171,7 @@ code it describes, and the release only assembles the lines, by a command.
 - The text is the line in Markdown, as somebody installing the release should read it, **one
   sentence or paragraph per line** (a release page shows a line break inside a paragraph as a
   break), with `- ` sub-items for detail. It does not carry its number: the assembly adds
-  `(#<issue>)` from the file name.
+  `(#<issue>)` from the file name, and the check refuses a fragment that ends with its own.
 - One pull request may carry several fragments, of different types or for different issues.
 
 **The check `release-note`** (`.github/workflows/release-note.yml`) runs on every pull request, and
