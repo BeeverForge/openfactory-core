@@ -7,11 +7,12 @@ Built against the REAL `codex exec --help` surface (verified 2026-07-26), not fr
     -m, --model <MODEL>                  model selection
     -C, --cd <DIR>                       working root
     -s, --sandbox <read-only|workspace-write|danger-full-access>
+                                         `exec` only, not global: `exec resume` refuses it (0.146.0)
         --dangerously-bypass-approvals-and-sandbox   (for externally-sandboxed environments)
         --json                           JSONL event stream on stdout
     -o, --output-last-message <FILE>     the agent's final message, written to a file
         --skip-git-repo-check            allow running outside a git repo
-    -c, --config <key=value>             TOML config override
+    -c, --config <key=value>             TOML config override (global, so `exec resume` takes it)
         --ignore-user-config             do not load `$CODEX_HOME/config.toml`; auth still uses
                                          `CODEX_HOME` (global, so `exec resume` takes it too)
 
@@ -22,7 +23,15 @@ orchestrator probes for them with `hasattr` and degrades — a turn-capped Codex
 human instead of self-healing. That is a real capability gap, stated rather than faked.
 
 WHAT IS AND ISN'T PROVEN HERE
-- The command construction is exact — every flag above came from `--help`.
+- The command construction is exact — every flag above came from `--help`, and
+  `tests/test_a_resumed_codex_job_is_handed_only_flags_exec_resume_takes.py` holds each command
+  to the options its subcommand takes in the pinned version.
+- A RESUMED session is handed its sandbox as `-c sandbox_mode="<mode>"`, never `-s` (#636).
+  It is not left to "the sandbox the session stored": a resume re-derives its sandbox from the
+  invocation (`thread_resume_params_from_config`, read at rust-v0.146.0 and rust-v0.157.1), and
+  measured on both versions on 2026-10-17 with no credential, a resume with no sandbox option
+  recorded `read-only` in the session's rollout where the first run had `workspace-write`; with
+  the `-c` it recorded `workspace-write`. `codex exec resume … -s workspace-write` exits 2.
 - The final message comes from `--output-last-message`, a file whose contract is "the last
   message", so `summary` does not depend on any event schema.
 - The `--json` event schema was OBSERVED from real runs against codex-cli 0.145.0, not guessed:
@@ -105,6 +114,7 @@ class CodexAdapter:
         # to write OUTSIDE its workspace or reach the network. The job box is an ephemeral,
         # credential-less, isolated Fargate task — the "externally sandboxed" case the flag's own
         # help text names — so it is legitimate there. It is never the default.
+        # The default reaches a RESUMED session too, as a `-c sandbox_mode` override (see `_cli`).
         self.full_access = (
             full_access if full_access is not None
             else os.environ.get("OPENFACTORY_CODEX_FULL_ACCESS", "").lower() in ("1", "true", "yes")
@@ -177,7 +187,7 @@ class CodexAdapter:
         return self._run(sandbox, workspace, prompt, "repair", model=self.model,
                          project=context.ticket.repo)
 
-    # ---- command construction (exact, from `codex exec --help`) --------------------------------
+    # ---- command construction (exact, from `codex exec --help` and `codex exec resume --help`) ---
 
     def smoke_command(self, *, harness: str, prompt: str) -> str:
         """The smallest real call this harness can be asked to make (#129).
@@ -225,8 +235,21 @@ class CodexAdapter:
             # plugins, and every role was started with them. Not read; the login still is.
             IGNORE_USER_CONFIG,
         ]
+        # A RESUMED SESSION IS HANDED ITS SANDBOX BY `-c`, NOT `-s` (#636). `-s/--sandbox` is an
+        # option of `exec` alone — `mark_exec_global_args` makes only the model and the two bypass
+        # flags global — so `codex exec resume … -s workspace-write` exited 2 with "unexpected
+        # argument '-s' found", and every paused job died at the CLI. `-c` is global on the root,
+        # so `exec resume` takes it. Leaving the sandbox out is not "the one the session stored":
+        # a resume re-derives it from the invocation (`thread_resume_params_from_config`), which
+        # with no flag and `--ignore-user-config` is the bare default, so it is said again. Read in
+        # `codex-rs/exec/src/{cli,lib}.rs` at rust-v0.146.0 (the pinned `HARNESS_CODEX`) and
+        # rust-v0.157.1, and measured on both 2026-10-17: the old resume exits 2; this one parses,
+        # and the session's rollout records `workspace-write` for it — `read-only` for a resume
+        # of the same session with no sandbox option at all.
         if self.full_access:
             cmd += ["--dangerously-bypass-approvals-and-sandbox"]
+        elif resume_session:
+            cmd += ["-c", shlex.quote(f'sandbox_mode="{sandbox_mode}"')]
         else:
             cmd += ["-s", sandbox_mode]
         if model:
