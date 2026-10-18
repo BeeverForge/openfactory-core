@@ -36,8 +36,12 @@ def _ensure_functions() -> set[str]:
 
 
 #: Entry points inside schedule.py that are themselves proven reachable — `ensure_all` by the
-#: worker-boot assertion below, `main` by the module being runnable. Reachability is transitive, so
-#: a call from one of these is a real call; a call from another `ensure_*` would not be.
+#: worker-boot assertion below, `main` by the module being runnable, which
+#: `test_the_schedule_module_run_as_documented_creates_every_schedule_it_names.py` proves by
+#: running it under `__main__`. That half was unproven until #744: the block sat above the
+#: functions `main` calls, and the module run as a script died with NameError after the poller.
+#: Reachability is transitive, so a call from one of these is a real call; a call from another
+#: `ensure_*` would not be.
 _REACHABLE_ENTRY_POINTS = ("ensure_all", "main")
 
 
