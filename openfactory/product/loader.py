@@ -113,9 +113,12 @@ def parse_docs_manifest(text: str) -> tuple[ProductDocs | None, str]:
     reader above and by a preview, which reads the file from its own base checkout (never through
     a link out of it) and must not become a second definition of what the file means."""
     try:
-        data = yaml.safe_load(text) or {}
+        data, refused = _safe_load(text)
     except yaml.YAMLError as exc:
         return None, f"{DOCS_MANIFEST} is not valid YAML: {str(exc)[:200]}"
+    if refused:
+        return None, refused
+    data = data or {}
     if not isinstance(data, dict):
         return None, f"{DOCS_MANIFEST} must be a mapping, not {type(data).__name__}"
     try:
@@ -124,6 +127,42 @@ def parse_docs_manifest(text: str) -> tuple[ProductDocs | None, str]:
         first = exc.errors()[0] if exc.errors() else {}
         field = ".".join(str(p) for p in first.get("loc", ())) or "?"
         return None, f"{DOCS_MANIFEST} is invalid at {field!r}: {first.get('msg', 'unknown')}"
+
+
+#: the one tag a key of the file can carry and still be a field name. YAML tags every key, and a
+#: number, `on`/`yes` (YAML 1.1 reads both as true), `~`, a date, or a list or mapping written as a
+#: key (`? [a, b]`) is a key no field of `ProductDocs` can have.
+_A_STRING = "tag:yaml.org,2002:str"
+
+
+def _safe_load(text: str) -> tuple[object, str]:
+    """`yaml.safe_load(text)` as `(data, "")`, unless a key of the top-level mapping is not a
+    string: then `(None, the sentence naming that key as the file spells it, and its line)`.
+
+    THE KEYS ARE READ BEFORE ANYTHING IS BUILT FROM THEM (#819). `ProductDocs(**data)` raised
+    `TypeError: keywords must be strings` for `1: x` or `on: push`, and nothing caught it, so a
+    typo in a hand-written file crashed the caller instead of turning the module off. A list or a
+    mapping as a key never got that far: the loader refused it as unhashable, naming a position
+    and no key (both measured on PyYAML 6.0.3, 2026-10-18). Read from the composed nodes, every
+    shape of key gets one sentence, before either can happen. The steps are `yaml.safe_load`'s
+    own (`get_single_node`, then `construct_document`), with the check between them."""
+    loader = yaml.SafeLoader(text)
+    try:
+        root = loader.get_single_node()
+        if isinstance(root, yaml.MappingNode):
+            # `<<` lifts another mapping's keys to this level, so they are merged before they are
+            # read: `<<: {1: x}` crashed the same way. Construction merges again and finds nothing.
+            loader.flatten_mapping(root)
+            for key, _ in root.value:
+                if key.tag != _A_STRING:
+                    written = " ".join(text[key.start_mark.index:key.end_mark.index].split())
+                    shape = key.tag.replace("tag:yaml.org,2002:", "!!")
+                    return None, (f"{DOCS_MANIFEST} is invalid at {written!r} "
+                                  f"(line {key.start_mark.line + 1}): a key must be a string, "
+                                  f"not {shape}")
+        return (loader.construct_document(root) if root is not None else None), ""
+    finally:
+        loader.dispose()
 
 
 def _source_claim(project) -> str | None:

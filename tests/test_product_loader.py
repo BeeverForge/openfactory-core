@@ -148,6 +148,8 @@ def test_a_docs_repo_with_no_manifest_reports_the_missing_file(tmp_path, monkeyp
     ("product: [unclosed\n", "not valid YAML"),
     ("just a string\n", "must be a mapping"),
     ("sources: [a/b]\n", "invalid at 'product'"),
+    # a key YAML reads as a bool crashed the caller with a TypeError (#819)
+    ("on: push\nproduct: books\n", "invalid at 'on' (line 1): a key must be a string"),
 ])
 def test_a_malformed_manifest_names_the_problem_instead_of_raising(tmp_path, monkeypatch,
                                                                    body, expect):
