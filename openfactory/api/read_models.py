@@ -464,3 +464,39 @@ class ActionRow(ReadModel):
 
 class ActionsRead(RootModel[list[ActionRow]]):
     """`/api/actions` — the catalogue of what this deployment can be asked to do."""
+
+
+# ── the deployment ──────────────────────────────────────────────────────────────────────────────
+
+class ImageRead(ReadModel):
+    """The image a process runs from: the digest its deployment names (`OPENFACTORY_IMAGE_DIGEST`),
+    and the stamp the image wrote at build time — the hash of its code and when it was built."""
+
+    digest: str | None = None
+    code: str | None = None
+    built_at: str | None = None
+
+
+class EngineAddressRead(ReadModel):
+    """The kind of address the engine is reached at (`view.ADDRESS_KINDS`), never the address."""
+
+    address_kind: str | None = None
+
+
+class AddonRow(ReadModel):
+    """One add-on row installed into the deployment: who ships it, and what it provides."""
+
+    distribution: str | None = None
+    version: str | None = None
+    axis: str | None = None
+    kind: str | None = None
+
+
+class VersionRead(ReadModel):
+    """`/api/v1/version` — which version this deployment runs, and what is installed into it.
+    `image` is null outside an image; `address_kind` is null on an install with no engine client."""
+
+    version: str | None = None
+    image: ImageRead | None = None
+    engine: EngineAddressRead | None = None
+    addons: list[AddonRow] | None = None

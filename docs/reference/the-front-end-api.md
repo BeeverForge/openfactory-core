@@ -162,6 +162,7 @@ means any credential the deployment issued.
 | GET | `/api/v1/product/{project}/documents` | product | the product's documents as their ingestion found them |
 | GET | `/api/v1/product/{project}/search` | product | one product's published knowledge, searched with `q` and `limit`, in the product owner's ranking — a blank `q` finds nothing, a `q` past its declared length is a 400, and a project with no product role is the same 404 an unknown project is |
 | GET | `/api/v1/temporal/jobs` | floor | the jobs, live, from the durable engine |
+| GET | `/api/v1/version` | floor | which version this deployment runs, and every add-on installed into it (below) |
 | GET | `/api/v1/whoami` | every credential | who this credential is, and which areas it may act in |
 | GET | `/api/whoami` | every credential | deprecated alias of `/api/v1/whoami` |
 <!-- routes:end -->
@@ -197,6 +198,51 @@ be added, and none is removed, renamed or given another type. A change that woul
 a new version, served beside the old one, and the old one then follows the same course as the
 aliases: marked `deprecated: true` in the description, announced in the release notes, and
 answered for at least one more minor release.
+
+**The version.** `GET /api/v1/version` answers which version the deployment runs, for a credential
+like any read of the floor — which add-ons a deployment carries is a fact about the deployment:
+
+```json
+{"version": "0.7.0", "image": {"digest": "sha256:…", "code": "3f9a1c0e2b7d", "built_at": "2026-10-19T08:00:00Z"},
+ "engine": {"address_kind": "remote"},
+ "addons": [{"distribution": "openfactory-acme", "version": "1.2.0", "axis": "forge", "kind": "acme"}]}
+```
+
+`image` is `null` outside an image. Its `digest` is the one the deployment names in
+`OPENFACTORY_IMAGE_DIGEST`, since an image cannot carry its own; `code` and `built_at` are the stamp
+the image wrote when it was built. `address_kind` is the kind of address the engine is reached at,
+never the address: `cloud`, `local` (this machine), `remote` (another host), `undeclared` or
+`unreadable`, and `null` on an install without the engine's client library. `addons` has one row
+per add-on row installed, read from the packages' metadata without loading them.
+
+### Outside `/api/`: what a supervisor asks
+
+Two routes answer **without a credential**, with the default front end on or off, so a container's
+healthcheck, an orchestrator's probe or a load balancer can ask them. The panel serves both on its
+own port; the worker, which serves no other HTTP, answers both on `OPENFACTORY_HEALTH_PORT` when it
+is set (the compose file sets it, and its healthchecks ask both processes through
+`python -m openfactory.observability.health --port <port>`).
+
+<!-- probes:start -->
+| method | path | answers |
+|---|---|---|
+| GET | `/healthz` | `200 {"alive": true}` while the process serves. It reads nothing, so it never fails for somebody else's outage |
+| GET | `/readyz` | `200` when the durable engine answers, the registry reads and the identity provider can admit; otherwise `503`, naming each check that failed |
+<!-- probes:end -->
+
+A `503` from `/readyz` names each failing check and says one sentence about it; the cause is in the
+process's log, never in the body, because nobody identified the caller:
+
+```json
+{"ready": false,
+ "checks": {"engine": {"ok": false, "detail": "the durable engine did not answer"},
+            "registry": {"ok": true}, "identity": {"ok": true}},
+ "failing": ["engine"]}
+```
+
+It answers within five seconds whatever a check is waiting on, and the engine is asked at most once
+every five seconds however many supervisors ask, so readiness is never load on an engine that is
+already struggling.
 
 ## 4. Streams
 

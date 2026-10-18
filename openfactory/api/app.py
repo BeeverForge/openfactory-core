@@ -44,11 +44,13 @@ from starlette.routing import compile_path
 
 from openfactory import __version__, actions, doors
 from openfactory.api import read_models
+from openfactory.api.project_route import AboutItsProject
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.floor import reading as _floor_reading
 from openfactory.floor.reading import INTAKE_TTL_S as _INTAKE_TTL_S
 from openfactory.identity import oidc as _sso
 from openfactory.identity.base import REGISTER_PATH as _REGISTER_PATH
+from openfactory.observability import health
 from openfactory.paths import events_file, project_log_dir
 from openfactory.registry import ProjectRegistry
 from openfactory.runtime.temporal.vocabulary import EngineUnreachable
@@ -108,6 +110,13 @@ async def _the_engine_did_not_answer(request: Request, exc: EngineUnreachable) -
     log.warning("%s %s: durable engine unreachable: %s", request.method, request.url.path, exc)
     return JSONResponse({"detail": f"durable engine unreachable: {str(exc)[:150]}"},
                         status_code=503)
+
+
+# EVERY ROUTE IS BUILT WITH THIS CLASS, AND IT HAS TO BE SET BEFORE THE FIRST ONE (#681): a route
+# whose path takes `{project}` runs its handler inside `logs.about(...)`, so each JSON log line it
+# writes says the project, and the product it belongs to. Routes that name no project are built
+# exactly as FastAPI builds them.
+app.router.route_class = AboutItsProject
 
 # ── SOMEBODY ELSE'S DASHBOARD ───────────────────────────────────────────────────────────────────
 #
@@ -4176,6 +4185,39 @@ def product_page(project: str) -> Response:
     scoped. Serving different HTML per scope would put an authorization decision in a file that is
     handed out unauthenticated."""
     return _page()
+
+
+# ── what a supervisor asks (#681) ───────────────────────────────────────────────────────────────
+#
+# OUTSIDE `/api/`, so the gate never stands in front of them: a supervisor asks whether the process
+# is alive and whether it can work without a credential, and is told nothing a stranger may not
+# know (`observability/health.py`). NOT PAGES either, so they answer with the default front end
+# off. The version is a fact about the deployment and is asked under `/api/`, like the rest.
+
+@app.get(health.LIVE_PATH)
+async def healthz() -> JSONResponse:
+    """`{"alive": true}` while this process serves — read from nothing, so it answers while the
+    event loop does, and only then. On the loop on purpose: a sync handler would wait for a free
+    thread, and a liveness probe must not fail because every thread is busy."""
+    status, body = await health.answer(health.LIVE_PATH)
+    return JSONResponse(body, status_code=status, headers=_NO_CACHE)
+
+
+@app.get(health.READY_PATH)
+async def readyz() -> JSONResponse:
+    """Whether this panel can work right now: 200, or 503 naming each check that failed —
+    `{"ready": false, "checks": {"engine": {"ok": false, "detail": "…"}, …}, "failing": [...]}`.
+    Bounded by `health.DEADLINE_S`, and the engine is asked at most once per
+    `health.ENGINE_TTL_S` whoever asks."""
+    status, body = await health.answer(health.READY_PATH)
+    return JSONResponse(body, status_code=status, headers=_NO_CACHE)
+
+
+@app.get(health.VERSION_PATH, **_reads(read_models.VersionRead))
+def deployment_version() -> dict:
+    """Which version this deployment runs: the package, the image, the kind of address the engine
+    is reached at, and every add-on installed, with its distribution, version, axis and kind."""
+    return health.version()
 
 
 def _token_pool_from_env() -> dict:

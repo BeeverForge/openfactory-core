@@ -136,7 +136,7 @@ def _load() -> dict[str, dict[str, Callable[..., Any]]]:
         _cache = {}
         return _cache
     for point in points:
-        axis, _, kind = point.name.partition(".")
+        axis, kind = _axis_and_kind(point.name)
         if not axis or not kind:
             log.warning("ignoring add-on entry point %r — the name must be `<axis>.<kind>`, e.g. "
                         "`forge.gitlab`", point.name)
@@ -153,6 +153,39 @@ def _load() -> dict[str, dict[str, Callable[..., Any]]]:
         found.setdefault(axis, {})[kind] = builder
     _cache = found
     return _cache
+
+
+def _axis_and_kind(name: str) -> tuple[str, str]:
+    """`forge.gitlab` → `("forge", "gitlab")`; either is `""` for a name that is not
+    `<axis>.<kind>`. ONE READING OF A NAME, for the rows that are loaded and the rows listed."""
+    axis, _, kind = name.partition(".")
+    return axis, kind
+
+
+def installed() -> list[dict[str, str]]:
+    """Every add-on row installed into this deployment (#681): the distribution that declares it,
+    that distribution's version, and the axis and kind the row provides — one row per entry point,
+    sorted, READ FROM THE METADATA AND NEVER LOADED. Which add-ons a deployment carries is a fact
+    a supervisor compares across deployments; importing a stranger's code to state it would make
+    the answer as fragile as the code. A name that is not `<axis>.<kind>` is no row (`_load`
+    ignores it too), and a metadata store that cannot be read lists nothing and says why."""
+    try:
+        from importlib.metadata import entry_points
+
+        points = entry_points(group=GROUP)
+    except Exception:  # noqa: BLE001 — a broken metadata store must not take the answer down
+        log.warning("could not read the %s entry points", GROUP, exc_info=True)
+        return []
+    rows = []
+    for point in points:
+        axis, kind = _axis_and_kind(point.name)
+        if not axis or not kind:
+            continue
+        dist = getattr(point, "dist", None)
+        rows.append({"distribution": str(getattr(dist, "name", "") or ""),
+                     "version": str(getattr(dist, "version", "") or ""),
+                     "axis": axis, "kind": kind})
+    return sorted(rows, key=lambda r: (r["axis"], r["kind"], r["distribution"]))
 
 
 def reset_cache() -> None:

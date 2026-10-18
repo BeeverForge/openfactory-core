@@ -112,6 +112,7 @@ from openfactory.runtime.temporal.connection import (
     namespace,
 )
 from openfactory.runtime.temporal.conversation import ConversationWorkflow
+from openfactory.runtime.temporal.interceptors import AboutItsProject
 from openfactory.runtime.temporal.poller import PollWorkflow
 from openfactory.runtime.temporal.vocabulary import WORKER_ROLE
 from openfactory.runtime.temporal.workflow import (
@@ -299,6 +300,13 @@ def start_channel_listeners(projects) -> list:
 
 async def main() -> None:
     load_dotenv()  # bot credentials + Claude token for the activities
+    # WHETHER THIS WORKER IS ALIVE AND CAN WORK, asked without a credential (#681). It serves no
+    # HTTP of its own, so `OPENFACTORY_HEALTH_PORT` makes it answer `/healthz` and `/readyz` — on
+    # THIS loop, so a worker whose loop is stuck does not answer — before anything below can take
+    # long: the toolbox's first copy and the wait for the engine are exactly when a supervisor asks.
+    from openfactory.observability import health
+
+    _health = await health.listen()  # noqa: F841 — held: it serves for as long as the worker runs
     # Secrets Manager delivers the bot App key as CONTENT; light forge reads on the
     # worker (check_pr_merged, the board poll) need it as a file for token minting.
     from openfactory.runtime.boxed_job import materialize_app_key
@@ -389,6 +397,9 @@ async def main() -> None:
                    # `openfactory doctor`'s question: does this worker accept the key there?
                    GateKeyProbeWorkflow],
         activities=WORKER_ACTIVITIES,
+        # EVERY ACTIVITY WHOSE INPUT NAMES A PROJECT LOGS ABOUT IT (#681): with JSON log lines,
+        # each record a job, a check or a sweep writes says the project and its product.
+        interceptors=[AboutItsProject()],
         # Audit fix (2026-07-23): =1 serialized EVERY activity behind the hours-long run_job —
         # proven in prod: #424's deploy-watch check queued 49 MINUTES (schedule-to-start) behind
         # #425's run_job, so its Slack "deploy success" arrived ~43 min late; polls and narration

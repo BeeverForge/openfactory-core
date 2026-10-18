@@ -315,6 +315,35 @@ def ui_base() -> str:
     return ""
 
 
+#: What `address_kind` answers — the KIND of address the engine is reached at, never the address.
+ADDRESS_KINDS = ("undeclared", "unreadable", "cloud", "local", "remote")
+
+
+def address_kind() -> str:
+    """Which kind of address this deployment reaches its engine at (#681): `cloud` for a Temporal
+    Cloud endpoint (`_CLOUD_HOSTS`, the rule `ui_base` reads), `local` for this machine, `remote`
+    for any other host, `undeclared` when nobody said and `unreadable` for a value that names no
+    host. The address itself is the deployment's; the kind is what a supervisor compares."""
+    declared = ENGINE.declared()
+    if not declared:
+        return "undeclared"
+    if any(host in declared for host in _CLOUD_HOSTS):
+        return "cloud"
+    try:
+        ENGINE.where(declared)
+    except ValueError:
+        return "unreadable"
+    return "remote" if ENGINE.elsewhere(declared) else "local"
+
+
+@_bounded_read("a health check")
+async def check_health(client: Client) -> bool:
+    """Whether the engine answers right now: its own health check, the cheapest call it serves,
+    bounded like every read (#681). A pooled client says nothing about the engine — it outlives
+    the engine going away — so readiness asks this, never `connect()` alone."""
+    return await client.service_client.check_health()
+
+
 def job_id(project: str, issue: str) -> str:
     return f"{_WF_ID_PREFIX}{project}-{issue}"
 

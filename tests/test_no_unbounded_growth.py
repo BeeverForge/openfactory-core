@@ -154,6 +154,10 @@ def test_the_declared_exemptions_still_exist():
 #: Every module-level dict that gets written by key, and what bounds it. A cache with no bound in
 #: a process that never restarts is a slow leak; a cache bounded "by nature" must say by what.
 _CACHES = {
+    # #681 — each readiness check's last verdict, so the log says a change once, not every poll
+    ("openfactory/observability/health.py", "_LAST"):
+        "one per check in `health.CHECKS` — the engine, the registry and the identity provider; "
+        "bounded by the code, never by traffic",
     # review of #611 — the unreadable values of OPENFACTORY_DEFAULT_FRONT_END this process has said,
     # so a typo is one warning, not one per page request
     ("openfactory/api/app.py", "_SAID_NEITHER"):

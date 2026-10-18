@@ -505,6 +505,20 @@ def _a_job_list_does_not_outlive_its_test() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _a_readiness_answer_does_not_outlive_its_test() -> None:
+    """Clear `openfactory/observability/health.py`'s kept engine answer and the verdicts its log
+    already said (#681) — the floor's memos' shape, one module over, and the same leak: a route
+    sweep that asks `/readyz` against one test's engine double would otherwise answer the next
+    test's readiness for `ENGINE_TTL_S` of wall clock. A tree without the module (a red-first run
+    against an older `openfactory/`) has nothing to clear, and says nothing here."""
+    try:
+        from openfactory.observability import health as _health
+    except ImportError:
+        return
+    _health.forget()
+
+
+@pytest.fixture(autouse=True)
 def _an_engine_client_does_not_outlive_its_test() -> None:
     """Clear `openfactory/runtime/temporal/view.py::_CLIENTS` — the pool the panel's read side now
     holds one client per engine target in (GitHub issue #134).
