@@ -115,9 +115,11 @@ whole final message, quoted and labelled as its claim — no gate checked it and
 not shown it — bounded at 2,000 characters as written in the body, with a line saying when it
 was cut (both lengths counted in the quote as the reader sees it, so a `#N` counts as `card N`).
 Its code, fences, HTML, emphasis and headings show literally, as it wrote them; its `-`, `+` and
-numbered lists and its markdown links still render, and a bare link shows as code, verbatim, so
-it still goes where the agent wrote. An indented code block shows the escapes. Each `@name` is
-put in a code span so nobody is notified, and each `#N` reads `card N`. Each later pass that
+numbered lists render, and so does a markdown link to an address, `[text](https://…)`, which goes
+where the agent wrote: its address is kept as written. A bare link shows as code, verbatim, and
+is not a link; a reference definition, `[1]: https://…`, shows as text with its address as code.
+An indented code block shows the escapes. Each `@name` it shows is put in a code span so nobody
+is notified, and each `#N` it shows reads `card N`. Each later pass that
 pushes (a recovery, a gate, suppression or review repair, an adjust, a CI repair) adds one line
 beneath it: its kind, the commit it pushed, and its own words cut at 200 characters; the latest
 ten are listed and the rest counted. On a forge that limits a description's length (Azure Repos),
