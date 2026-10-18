@@ -487,3 +487,56 @@ def test_box_prove_hands_the_sizer_the_projects_resolved_profile(tmp_path: Path,
     for measure, kw in seen.items():
         assert kw.get("profile") is not None, f"box prove ran {measure} with no profile"
         assert kw["profile"].name == "prototype", measure
+
+
+# ── the budget, and what it leaves out, said the same way on both surfaces (#364) ───────────────
+
+def _a_fit_that_leaves_documents_out(tmp_path: Path, monkeypatch):
+    """A real fit: twelve records of 7,000 bytes under a 40,000-byte budget, so some are kept,
+    the rest are named, and one longer record is cut."""
+    from openfactory.adapters.agent.base import fit_documents
+    from openfactory.contracts import Ticket
+    from openfactory.orchestrator.context import build_context
+
+    monkeypatch.delenv(og.ENV_VAR, raising=False)
+    monkeypatch.setenv("OPENFACTORY_PROMPT_BUDGET", "40000")
+    (tmp_path / "adr").mkdir()
+    for i in range(12):
+        (tmp_path / "adr" / f"{i:04d}-r.md").write_text("r" * 7_000)
+    (tmp_path / "adr" / "0099-long.md").write_text("l" * 9_000)
+    manifest = Manifest(docs={"constraints": "adr/*.md"})
+    fit = fit_documents(build_context(manifest, tmp_path,
+                                      Ticket(id="", title="", objective="", repo=""),
+                                      knowledge_map=""))
+    assert fit.left_out and fit.truncated, "the fixture must leave some out and cut one"
+    return inlined_document_bytes(manifest, tmp_path), fit
+
+
+def _says_the_budget(message: str, fit) -> None:
+    documents = len(fit.kept) + len(fit.left_out)
+    assert f"{fit.budget:,} bytes" in message and "OPENFACTORY_PROMPT_BUDGET" in message, message
+    assert f"{len(fit.kept)} of {documents} documents" in message, message
+    assert f"names the other {len(fit.left_out)}" in message, message
+
+
+def test_doctor_says_how_many_documents_the_budget_leaves_out(tmp_path: Path, monkeypatch):
+    from openfactory.orchestrator.context import inlined_document_summary
+
+    per_role, fit = _a_fit_that_leaves_documents_out(tmp_path, monkeypatch)
+
+    f = _doctor_documents((per_role, "", fit))
+
+    assert f.ok, "a budget that leaves documents out and names them is not a failure"
+    assert f.message == inlined_document_summary(per_role, fit)
+    _says_the_budget(f.message, fit)
+
+
+def test_box_prove_says_the_same_sentence(tmp_path: Path, monkeypatch):
+    from openfactory.orchestrator.context import inlined_document_summary
+
+    per_role, fit = _a_fit_that_leaves_documents_out(tmp_path, monkeypatch)
+
+    f = _box_prove_documents((per_role, "", fit))
+
+    assert f.message == inlined_document_summary(per_role, fit)
+    _says_the_budget(f.message, fit)
