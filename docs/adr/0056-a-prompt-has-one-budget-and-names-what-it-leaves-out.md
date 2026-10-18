@@ -112,7 +112,19 @@ the boundary the manifest already holds for harness, model and box
 
 What each budget keeps on the corpus measured above (the same probe, after this change):
 
-<!-- filled in by the measurement in task 26 -->
+| budget | records inlined (of 57) | guidelines inlined (of 10) | named as left out | named as cut | `budgeted_bytes` |
+|---|---|---|---|---|---|
+| 96,000 | 7 (`README.md`, 0056 down to 0052, 0047) | 4 | 56 | 8 | 94,571 |
+| **160,000** | **15 (`README.md`, 0056 down to 0043)** | **4** | **48** | **16** | **159,668** |
+| 256,000 | 29 (`README.md`, 0056 down to 0030, and 0016) | 4 | 34 | 24 | 254,026 |
+| `off` | 57 | 10 | 0 | 38 | 491,725 |
+
+Measured on this branch with this record in `docs/adr/`, so there are 57 records against the 56
+above. The four guidelines kept under every budget are the framework's two, which are pinned,
+and the project's own two, which are filled first. The six operator documents are filled after
+the records, so all six are left out and named. Two quirks of the measurement: `docs/adr/README.md`
+sorts after the numbered records, so it counts as the newest. ADR-0016 is kept at 256,000 bytes
+because the fill tries a smaller record after a larger one does not fit.
 
 ### How the budget is filled
 

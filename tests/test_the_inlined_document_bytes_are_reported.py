@@ -176,8 +176,12 @@ class _CapturesThePrompt:
 
 def _corpus(tmp_path: Path, monkeypatch, *, documents: int) -> Manifest:
     """A project whose declared documents inline exactly `documents` bytes, framework baseline
-    included — ADRs of plain ASCII, each under the truncation cap, so bytes are characters."""
+    included — ADRs of plain ASCII, each under the truncation cap, so bytes are characters.
+
+    NO PROMPT BUDGET: these tests are about DELIVERY, the line `stage_prompt` refuses at, and a
+    budget below the corpus would shrink the prompt and pass them for the wrong reason (#364)."""
     monkeypatch.delenv(og.ENV_VAR, raising=False)
+    monkeypatch.setenv("OPENFACTORY_PROMPT_BUDGET", "off")
     remaining = documents - sum(inlined_document_bytes(Manifest(), tmp_path).values())
     (tmp_path / "adr").mkdir()
     for i in range(0, remaining, 7_000):
