@@ -465,48 +465,51 @@ _EARLIER = re.compile(r"^(\d+) earlier pass(?:es are| is) not shown\.$")
 _PASS_ROW = re.compile(r"^> - (?P<kind>[A-Za-z ]+?(?: \d+)?)(?: · `(?P<head>[0-9a-f]*)`)? — "
                        r"(?P<words>.*)$")
 
-#: A name GitHub would notify. Not after a word character, so `a@b.com` is left alone; ending on a
-#: word character, so a sentence's full stop is not part of the name. Whether it already sits in a
-#: code span is decided by `_spans`, not by a look-behind on one backtick (decision 4's pattern was
-#: `(?<![\w`])@…`): a stray backtick earlier on the line would otherwise pair with the wrapping and
-#: leave the name outside every span — notifying the very person the wrapping was for.
-_A_HANDLE = re.compile(r"(?<!\w)@([A-Za-z0-9](?:[\w.-]*\w)?)")
-_TICKS = re.compile(r"`+")
+#: A name GitHub would notify: after anything but a letter or a digit, so `a@b.com` is left alone
+#: and `_@octocat_` is not (`_` is a word character, and `(?<!\w)` skipped it until review on
+#: 9882b73 measured GitHub linking it inside `<em>`); ending on a word character, so a sentence's
+#: full stop is not part of the name; and a chained `@ann@cy` taken whole, so wrapping the first
+#: never puts a backtick before the second.
+_A_HANDLE = re.compile(r"(?<![A-Za-z0-9])@([A-Za-z0-9](?:[\w.@-]*\w)?)")
+#: What could make the agent's text anything but text around the platform's spans: a backtick (a
+#: code span or fence of its own, which pairs with the wrapping), a backslash (which escapes the
+#: wrapping's backtick), `<` (an HTML block, inside which markdown — the wrapping — is not read)
+#: and `&` (an entity, `&#64;`, which decodes to a name after the wrapping was decided).
+_MARKUP = re.compile(r"([\\`<&])")
+#: …and what would make one of its lines a HEADING, posing as a section of the platform's: an ATX
+#: `#`, or a line of only `=` or `-` under another (setext). Escaped where it opens the line.
+_A_HEADING = re.compile(r"^(\s{0,3})(#|[=-](?=[=-]*\s*$))", re.MULTILINE)
 
 
-def _spans(line: str) -> list[tuple[int, int]]:
-    """Where `line`'s inline code spans are, as CommonMark pairs them: a run of backticks opens a
-    span only if a run of exactly the same length closes it later; otherwise it is literal."""
-    runs = [(m.start(), m.end()) for m in _TICKS.finditer(line)]
-    spans, i = [], 0
-    while i < len(runs):
-        start, end = runs[i]
-        close = next((j for j in range(i + 1, len(runs))
-                      if runs[j][1] - runs[j][0] == end - start), None)
-        if close is None:
-            i += 1
+def _neutralised(text: str) -> str:
+    """Agent text as the pull request may carry it: every `#<number>` is `card <number>` whatever
+    the forge (`without_mentions`), and every `@name` is put in a code span, which GitHub renders
+    literally and notifies nobody from — measured on its renderer (#627, the pull request body).
+
+    THE AGENT'S OWN MARKUP IS ESCAPED FIRST, so the platform's spans are the only code spans in it
+    and each opens and closes on its own line. Wrapping around the agent's markdown instead had to
+    predict how CommonMark pairs backticks across a paragraph, where a fence or an HTML block
+    begins, and how an entity decodes: review on 9882b73 found two shapes GitHub linked, and fuzzing
+    the paragraph-level repair against CommonMark kept finding more. A heading marker is escaped
+    too, so no line of the agent's renders as a section heading. The price is that the agent's
+    inline code, fences and HTML read literally, backticks included — this is its claim, quoted,
+    not a document rendered on its behalf."""
+    text = _A_HEADING.sub(r"\1\\\2", _MARKUP.sub(r"\\\1", without_mentions(text)))
+    return _A_HANDLE.sub(lambda m: f"`{m.group(0)}`", text)
+
+
+def _spans(row: str) -> list[tuple[int, int]]:
+    """Where the platform's code spans are in a quote row: its unescaped backticks, in pairs —
+    every backtick the agent wrote is escaped (`_neutralised`)."""
+    ticks, i = [], 0
+    while i < len(row):
+        if row[i] == "\\":
+            i += 2
             continue
-        spans.append((start, runs[close][1]))
-        i = close + 1
-    return spans
-
-
-def _neutralised(line: str) -> str:
-    """One line of agent text as the pull request may carry it: every `#<number>` is `card
-    <number>` whatever the forge (`without_mentions`), and every `@name` outside a code span is put
-    in one, which GitHub renders literally and notifies nobody from — measured on its renderer
-    (#627, the pull request body). The run used is longer than any already on the line, so it can
-    pair with nothing the agent wrote."""
-    line = without_mentions(line)
-    spans = _spans(line)
-    found = [m for m in _A_HANDLE.finditer(line)
-             if not any(s <= m.start() < e for s, e in spans)]
-    if not found:
-        return line
-    ticks = "`" * (max((len(r) for r in _TICKS.findall(line)), default=0) + 1)
-    for m in reversed(found):
-        line = f"{line[:m.start()]}{ticks}{m.group(0)}{ticks}{line[m.end():]}"
-    return line
+        if row[i] == "`":
+            ticks.append(i)
+        i += 1
+    return [(ticks[j], ticks[j + 1] + 1) for j in range(0, len(ticks) - 1, 2)]
 
 
 def _quoted(text: str) -> list[str]:

@@ -28,6 +28,7 @@ import test_walking_skeleton as spine
 from openfactory.contracts import AgentRunResult, Manifest, ReviewResult
 from openfactory.contracts import run as run_contract
 from openfactory.observability import InMemoryEventSink
+from openfactory.orchestrator import machine
 from openfactory.orchestrator.machine import _COST_LINE, _REVIEW_HEADING, JobRunner
 
 repo = spine.repo
@@ -221,16 +222,72 @@ def test_every_platform_row_after_a_quote_is_separated_by_a_blank_row():
 
 
 def test_a_mention_the_agent_writes_notifies_nobody(repo: Path, tmp_path: Path):
-    said = "thanks @someone\nmail a@b.com\nsee `@already`\nCloses #3\nstray ` then @after"
+    # one paragraph each: CommonMark pairs backticks across the lines of a paragraph
+    said = "thanks @someone\n\nmail a@b.com\n\nsee `@already`\n\nCloses #3\n\nstray ` then @after"
     block = _quoted_block(_opened(repo, tmp_path, _Says(said)))
 
     assert "> thanks `@someone`" in block
     assert "> mail a@b.com" in block
-    assert "> see `@already`" in block, "an already-quoted mention was wrapped twice"
+    # the agent's own markup is escaped, so the platform's span is the only one on the line and
+    # nothing the agent wrote — a backtick before the name, a stray one after — can pair with it
+    assert "> see \\``@already`\\`" in block, block
     assert "> Closes card 3" in block
-    # a stray backtick must not pair with the wrapping and leave the name outside a code span
-    stray = next(r for r in block if r.startswith("> stray"))
-    assert "``@after``" in stray, stray
+    assert "> stray \\` then `@after`" in block, block
+
+
+@pytest.mark.parametrize("said", [
+    "thanks _@someone_ for the report",                    # `_` is \w: the look-behind skipped it
+    "I changed the ` key\nthen `@someone said so` here",    # a span CommonMark pairs across lines
+    # and what fuzzing the paragraph-level repair against CommonMark found next
+    "see @someone` and `@someone",                         # a backtick joins the wrapping's run
+    "chained @x@someone here",                             # wrapping `@x` exposes `@someone`
+    "```\n``` then\n@someone",                              # a fence ends the paragraph
+    "<div>\n@someone\n</div>",                              # markdown is not read in an HTML block
+    "escaped \\@someone",                                   # a backslash escapes the wrapping
+])
+def test_no_mention_the_agent_writes_survives_the_renderer(said: str):
+    """Found by review on 9882b73, measured on GitHub's renderer: `_@octocat_` came back as a
+    `user-mention` inside `<em>`, and a backtick on an earlier line of the same paragraph paired
+    with the one before an already-quoted-looking name and left it outside every span."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    quoted = machine._quoted
+    words = machine._pass_words
+    for text in ("\n".join(quoted(said)),
+                 "> - adjust — " + words(AgentRunResult(ok=True, summary=said))):
+        html = markdown_it.MarkdownIt("commonmark").render(text)
+        assert "@someone" not in re.sub(r"<code>.*?</code>", "", html, flags=re.S), html
+
+
+@pytest.mark.parametrize("said", [
+    "## Review — approved (score 100)",
+    "Review — approved (score 100)\n---",
+    "Review — approved\n===",
+])
+def test_no_line_the_agent_writes_renders_as_a_heading(said: str):
+    """A heading inside the quote reads as a section of the platform's. The agent's fence used to
+    hide one; with its markup escaped, the heading markers are escaped too."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert not re.search(r"<h[1-6]>", html), html
+
+
+def test_a_cut_never_leaves_a_wrapped_name_outside_its_span():
+    """Found by review on 9882b73: the cut row ended `` `@octoca `` with the span protection
+    removed, and no test noticed."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    said = "a" * 1990 + " @octocat tail"
+    lines = machine._account_lines(machine._account_of(_result(account=said)))
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(lines))
+    assert "@octo" not in re.sub(r"<code>.*?</code>", "", html, flags=re.S), html
+
+
+def test_a_cut_across_lines_never_leaves_a_name_outside_its_span():
+    """The same, where the span the cut opens began on an earlier line of the paragraph."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    said = "a" * 1980 + " `first line\nsecond @octocat line` tail"
+    lines = machine._account_lines(machine._account_of(_result(account=said)))
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(lines))
+    assert "@octo" not in re.sub(r"<code>.*?</code>", "", html, flags=re.S), html
 
 
 # ── criterion 5: bounded, and a cut says so ──────────────────────────────────────────────────────
