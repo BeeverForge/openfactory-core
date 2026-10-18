@@ -193,6 +193,20 @@ def test_the_executors_account_is_cut_only_after_the_older_passes_are_gone():
     assert cut and f"was {len(message)} characters" in cut, cut
 
 
+def test_a_limited_forge_keeps_the_longest_block_that_fits():
+    """Found by review on 9882b73: cutting the executor's block to nothing passed every test, where
+    the Azure table keeps 1,537 characters of it."""
+    from openfactory.orchestrator import machine
+
+    said = "b" * 1500
+    rows = machine._fit_to_forge(["x" * 1000, ""], machine._account_of(_result(said, passes=[])),
+                                 ["", "Cost: $0.0100"], (2000, len))
+    assert len("\n".join(rows)) <= 2000
+    kept = [r for r in rows if r.startswith("> ")]
+    assert kept and len(kept[0]) > 2, "the block was cut to nothing"
+    assert len("\n".join(rows)) >= 2000 - 2, "a longer block would still have fitted"
+
+
 def test_the_limit_is_counted_in_the_forges_own_unit():
     message = "😀" * 900
     result = _result(message, passes=_passes(1, words="ok"))

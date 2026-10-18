@@ -161,6 +161,11 @@ MUTATIONS = [
      "    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:\n",
      "    if limit is None:\n",
      FITS),
+    # review round 1 on 9882b73: this cut survived every test
+    ("a limited forge keeps no executor text where some would fit", MACHINE,
+     "                    rows = composed(acct, lo)\n",
+     "                    rows = composed(acct, 0)\n",
+     FITS),
     ("a body too long without the section is not said by name", MACHINE,
      "                    log.warning(\n"
      '                        "OPENFACTORY_PR_BODY_OVER_LIMIT',
