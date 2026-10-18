@@ -357,6 +357,13 @@ def test_a_configured_directory_that_is_not_there_is_not_mounted(tmp_path):
     assert og.box_knobs({og.ENV_VAR: str(tmp_path / "missing")}) == {}
 
 
+def test_a_configured_path_that_is_a_file_is_not_mounted(tmp_path):
+    """A configured guidelines path that is a file, not a directory, is no knob either."""
+    f = tmp_path / "standards.md"
+    f.write_text("# not a directory\n")
+    assert og.box_knobs({og.ENV_VAR: str(f)}) == {}
+
+
 def test_a_box_that_cannot_be_built_here_pins_the_tier(tmp_path, monkeypatch):
     """A box this machine cannot build (a remote box, an add-on not installed) answers no root, so
     the tier stays pinned: `explain` and `doctor` print their report, not a traceback."""

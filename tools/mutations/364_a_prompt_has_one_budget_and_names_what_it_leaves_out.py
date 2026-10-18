@@ -22,7 +22,8 @@ The cuts fall into five groups:
   * THE SURFACES: `explain` saying "inlined in full" again, `doctor` and `box prove` dropping the
     budget from their line, and the job runner, `box prove`'s fit, `explain` and `doctor` not
     asking the box the job builds where the operator tier opens, and the helpers they share
-    mounting a directory that is not there or raising on a box this machine cannot build.
+    mounting a directory that is not there, or a file where a directory is configured, or raising
+    on a box this machine cannot build.
 """
 
 TEST = "tests/test_a_jobs_prompt_is_held_to_one_budget.py"
@@ -304,5 +305,11 @@ MUTATIONS = [
      EXPLAIN,
      "operator_root=deployment_root(default_sandbox()))",
      'operator_root=deployment_root("worktree"))',
+     PRIORITY),
+
+    ("a configured path that is a file, not a directory, is handed to the box as its knob",
+     OPERATOR,
+     '    return {"guidelines": str(directory)} if directory is not None and directory.is_dir() else {}\n',
+     '    return {"guidelines": str(directory)} if directory is not None and directory.exists() else {}\n',
      PRIORITY),
 ]
