@@ -101,6 +101,9 @@ MUTATIONS = [
     ("a cut may split an escape", MACHINE,
      "        if i > cut:\n            cut -= 1\n",
      "        if False:\n            cut -= 1\n"),
+    ("a cut row may underline the agent's row above it", MACHINE,
+     "        if cut > 2 and not _AN_UNDERLINE.match(row[2:cut]):\n",
+     "        if cut > 2:\n"),
     # ── bounded, and the cut says so ───────────────────────────────────────────────────────────
     ("the bound is measured on the text before quoting", MACHINE,
      "        if used + 1 + len(row) <= room:\n            kept.append(row)\n"

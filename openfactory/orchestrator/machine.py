@@ -484,6 +484,9 @@ _MARKUP = re.compile(r"([\\`<&*_~])")
 #: come before it, since `- ## x`, `1. ## x` and `> # x` render a heading too (review on 35a1cc0).
 _A_HEADING = re.compile(r"^(\s{0,3}(?:(?:[-+]|\d{1,9}[.)])\s+|>\s*)*)(#|>|[=-](?=[=-]*\s*$))",
                         re.MULTILINE)
+#: A row the cut shortened to only `=` or `-` underlines the agent's line above it (setext): the
+#: escape above saw the whole row, which was not one.
+_AN_UNDERLINE = re.compile(r"\s{0,3}[=-]+\s*$")
 
 
 def _neutralised(text: str) -> str:
@@ -546,7 +549,8 @@ def _cut_quote(rows: list[str], room: int) -> list[str]:
     """The leading quote rows that fit in `room` characters as rendered, prefixes and newlines
     counted. The row that crosses the bound is cut, never inside a code span — a span cut open
     would leave the name the wrapping hid outside it — and never inside an escape, whose lone
-    backslash the agent did not write and the cut line would not count as lost."""
+    backslash the agent did not write and the cut line would not count as lost. A cut row that
+    would underline the row above it is left out."""
     kept: list[str] = []
     used = -1  # no newline before the first row
     for row in rows:
@@ -563,7 +567,7 @@ def _cut_quote(rows: list[str], room: int) -> list[str]:
         for start, end in _spans(row):
             if start < cut < end:
                 cut = start
-        if cut > 2:
+        if cut > 2 and not _AN_UNDERLINE.match(row[2:cut]):
             kept.append(row[:cut])
         break
     return kept

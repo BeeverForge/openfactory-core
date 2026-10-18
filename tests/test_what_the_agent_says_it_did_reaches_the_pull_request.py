@@ -339,6 +339,18 @@ def test_a_cut_never_splits_an_escape_and_still_says_it_cut():
     assert "The agent's message was 1998 characters; the first 1997 are shown." in lines, lines
 
 
+@pytest.mark.parametrize(("pad", "tail"), [(1990, "=" * 9 + "x" * 5), (1994, "- e@x.com and more")])
+def test_a_cut_never_leaves_an_underline_that_makes_a_heading(pad: int, tail: str):
+    """Found fuzzing round 2: a row the cut shortens to `=====` or `-` underlines the agent's line
+    above it, which then renders as a heading — the whole row was escaped only where it was one."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    said = "a" * pad + "\n" + tail
+    lines = machine._account_lines(machine._account_of(_result(account=said)))
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(lines[1:]))
+    assert not re.search(r"<h[1-6]>", html), html
+    assert any("characters; the first" in r for r in lines), lines
+
+
 def test_a_cut_never_leaves_a_wrapped_name_outside_its_span():
     """Found by review on 9882b73: the cut row ended `` `@octoca `` with the span protection
     removed, and no test noticed."""
