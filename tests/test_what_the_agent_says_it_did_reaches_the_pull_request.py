@@ -347,7 +347,7 @@ def test_the_cut_line_counts_names_newlines_and_escapes_as_the_reader_sees_them(
     kept = [r for r in lines if r.startswith(">")]
     seen = (len("\n".join(kept)) - 2 * len(kept) + sum(r == ">" for r in kept)
             - sum(r.count("\\") for r in kept) - sum(r.count("`") for r in kept))
-    assert (f"The agent's message was {total} characters; the first {seen} are shown."
+    assert (f"The agent's message, as quoted, was {total} characters; the first {seen} are shown."
             in lines), lines
 
 
@@ -377,7 +377,7 @@ def test_the_cut_line_counts_the_characters_the_agent_wrote_not_the_escapes():
     lines = machine._account_lines(machine._account_of(_result(account=said)))
     kept = [r for r in lines if r.startswith("> ")]
     seen = len(kept[0][2:].replace("\\`", "`"))
-    assert f"The agent's message was 1920 characters; the first {seen} are shown." in lines, lines
+    assert f"The agent's message, as quoted, was 1920 characters; the first {seen} are shown." in lines, lines
 
 
 def test_a_cut_never_splits_an_escape_and_still_says_it_cut():
@@ -388,7 +388,7 @@ def test_a_cut_never_splits_an_escape_and_still_says_it_cut():
     lines = machine._account_lines(machine._account_of(_result(account=said)))
     (row,) = [r for r in lines if r.startswith("> ")]
     assert not row.endswith("\\"), row
-    assert "The agent's message was 1998 characters; the first 1997 are shown." in lines, lines
+    assert "The agent's message, as quoted, was 1998 characters; the first 1997 are shown." in lines, lines
 
 
 @pytest.mark.parametrize(("pad", "tail"), [(1990, "=" * 9 + "x" * 5), (1994, "- e@x.com and more")])
@@ -433,7 +433,7 @@ def test_a_longer_account_is_cut_with_a_line_saying_so(repo: Path, tmp_path: Pat
     section = _section(body)
     cut = [r for r in section if "5000 characters" in r]
     shown = len("\n".join(block)) - 2
-    assert cut == [f"The agent's message was 5000 characters; the first {shown} are shown."], cut
+    assert cut == [f"The agent's message, as quoted, was 5000 characters; the first {shown} are shown."], cut
     assert any("account" in r.getMessage() and "5000" in r.getMessage() for r in caplog.records)
 
 

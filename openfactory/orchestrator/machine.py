@@ -460,7 +460,8 @@ _NOT_RECORDED = ("The account of the pass that opened this pull request was not 
                  "opened before this section existed.")
 _PASSES_LABEL = ("Later passes, oldest first — each is that pass's own words, cut at "
                  f"{AGENT_PASS_WORDS_MAX} characters:")
-_CUT = re.compile(r"^The agent's message was (\d+) characters; the first (\d+) are shown\.$")
+_CUT = re.compile(r"^The agent's message, as quoted, was (\d+) characters; the first (\d+) are "
+                  r"shown\.$")
 _EARLIER = re.compile(r"^(\d+) earlier pass(?:es are| is) not shown\.$")
 _PASS_ROW = re.compile(r"^> - (?P<kind>[A-Za-z ]+?(?: \d+)?)(?: · `(?P<head>[0-9a-f]*)`)? — "
                        r"(?P<words>.*)$")
@@ -558,9 +559,9 @@ def _quote_chars(rows: list[str]) -> int:
 
 
 def _cut_quote(rows: list[str], room: int) -> list[str]:
-    """The leading quote rows that fit in `room` characters as rendered, prefixes and newlines
-    counted. The row that crosses the bound is cut, never inside a code span — a span cut open
-    would leave the name the wrapping hid outside it — and never inside an escape, whose lone
+    """The leading quote rows that fit in `room` characters as written in the body, prefixes and
+    newlines counted. The row that crosses the bound is cut, never inside a code span — a span cut
+    open would leave the name the wrapping hid outside it — and never inside an escape, whose lone
     backslash the agent did not write and the cut line would not count as lost. A cut row that
     would underline the row above it is left out."""
     kept: list[str] = []
@@ -628,10 +629,10 @@ def _account_lines(account: _Account, *, room: int = AGENT_ACCOUNT_MAX) -> list[
     """The pull request's `AGENT_ACCOUNT_HEADING` section — the ONE place it is composed (#187's
     rule), when the pull request is opened and whenever a later pass adds its line.
 
-    The executor's block is cut to `room` characters as rendered (decision 3), with a platform
-    line giving both lengths; then the latest `AGENT_PASSES_SHOWN` pass lines, and a count of the
-    rest. "Wrote nothing" and "not recorded" are platform lines, never an empty quote: they are
-    different facts (docs/engineering-lessons.md, lesson 2)."""
+    The executor's block is cut to `room` characters as written in the body (decision 3), with a
+    platform line giving both lengths; then the latest `AGENT_PASSES_SHOWN` pass lines, and a count
+    of the rest. "Wrote nothing" and "not recorded" are platform lines, never an empty quote: they
+    are different facts (docs/engineering-lessons.md, lesson 2)."""
     out = [AGENT_ACCOUNT_HEADING, _CLAIM, ""]
     if account.quote is None:
         out.append(_NOT_RECORDED)
@@ -643,8 +644,8 @@ def _account_lines(account: _Account, *, room: int = AGENT_ACCOUNT_MAX) -> list[
         shown = _quote_chars(kept)
         if shown < account.total:
             out += [*([""] if kept else []),
-                    f"The agent's message was {account.total} characters; the first {shown} are "
-                    f"shown."]
+                    f"The agent's message, as quoted, was {account.total} characters; the first "
+                    f"{shown} are shown."]
     if account.passes:
         shown_passes = account.passes[-AGENT_PASSES_SHOWN:]
         earlier = account.earlier + len(account.passes) - len(shown_passes)

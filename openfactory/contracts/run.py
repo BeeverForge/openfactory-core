@@ -156,8 +156,9 @@ class HandedBack(BaseModel):
 #: reader that amends it on every later pass must agree, and a copy that drifts fails silently —
 #: the amendment never lands. The heading is never translated: it is parsed.
 AGENT_ACCOUNT_HEADING = "## What the agent says it did"
-#: The executor's quoted block, counted AS RENDERED — after neutralising, with every `> ` prefix —
-#: because a message of short lines would otherwise roughly double in size.
+#: The executor's quoted block, counted AS WRITTEN IN THE BODY — after neutralising, escapes
+#: included, with every `> ` prefix — because a message of short lines would otherwise roughly
+#: double in size. The cut line counts differently, as the reader sees the quote.
 AGENT_ACCOUNT_MAX = 2000
 #: One later pass's own words, flattened to one line: the cut the `agent finished:` note uses.
 AGENT_PASS_WORDS_MAX = 200
