@@ -264,6 +264,41 @@ def test_box_prove_builds_its_box_with_the_operator_directory_the_job_mounts(tmp
     assert handed and handed[0].get("guidelines") == str(operator), handed
 
 
+def test_box_proves_fit_leaves_out_what_its_box_can_open(tmp_path, monkeypatch):
+    """`box prove`'s fit asks ITS box where the operator directory opens: a box that answers a root
+    lets the budget leave operator standards out, named at that root. Building the box with the
+    knob (the test above) is half of it; under `operator_root=None` the fit pinned the operator
+    tier on every box and reported the project's own guidelines left out where the job leaves the
+    operator's out (second review of #364: that cut survived 358 tests)."""
+    from types import SimpleNamespace
+
+    from openfactory import box_prove
+    from openfactory.adapters.sandbox import registry as sandboxes
+
+    monkeypatch.setenv(og.ENV_VAR, str(_six_operator_documents(tmp_path)))
+    monkeypatch.setenv(ctx.ENV_VAR_PROMPT_BUDGET, "20000")
+
+    class _Box:
+        def prepare(self, **_kw):
+            return SimpleNamespace(path=str(tmp_path))
+
+        def cleanup(self, **_kw):
+            pass
+
+        def guidelines_path(self, _host_dir):
+            return "/opt/openfactory-guidelines"
+
+    monkeypatch.setattr(sandboxes, "installed_box_traits",
+                        lambda _kind: SimpleNamespace(honours_image=True))
+    monkeypatch.setattr(sandboxes, "build_sandbox", lambda *_a, **_kw: _Box())
+    with box_prove.box_probes(SimpleNamespace(name="acme", box=None), "img", repo_path=tmp_path,
+                              manifest=Manifest(), key="acme", sandbox="container") as probes:
+        _per_role, _note, fit = probes.inlined_documents()
+
+    assert fit is not None and fit.left_out, "the box's root was not asked: the tier stayed pinned"
+    assert {d.source for d in fit.left_out} == {ctx.OPERATOR}
+    assert all(d.open_at.startswith("/opt/openfactory-guidelines/") for d in fit.left_out)
+
 def test_explain_names_a_left_out_operator_document_where_the_box_opens_it(tmp_path, monkeypatch):
     """The fate says where to open it: the operator root the box answered, not the bare filename
     the operator tier addresses its documents by."""

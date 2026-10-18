@@ -20,7 +20,8 @@ The cuts fall into five groups:
     away from what the documents state, and the job and the doctor no longer refusing a malformed
     value, and onboarding's first round blaming the harness for it;
   * THE SURFACES: `explain` saying "inlined in full" again, `doctor` and `box prove` dropping the
-    budget from their line, and the job runner not asking its box where the operator tier opens.
+    budget from their line, and the job runner, `box prove`'s fit, `explain` and `doctor` not
+    asking the box the job builds where the operator tier opens.
 """
 
 TEST = "tests/test_a_jobs_prompt_is_held_to_one_budget.py"
@@ -276,5 +277,11 @@ MUTATIONS = [
      EXPLAIN,
      '                    path=f"`{doc.open_at}`")',
      '                    path=f"`{doc.path}`")',
+     PRIORITY),
+
+    ("box prove's fit never asks its box where the operator directory opens: the tier is pinned",
+     BOX_PROVE,
+     "                                 operator_root=guidelines_root(box, gather()))",
+     "                                 operator_root=None)",
      PRIORITY),
 ]
