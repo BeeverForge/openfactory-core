@@ -3310,12 +3310,26 @@
               }
             ],
             "title": "Still In"
+          },
+          "refusals": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusals"
           }
         },
         "additionalProperties": true,
         "type": "object",
         "title": "ActionRow",
-        "description": "One catalogued action. `still_in` names the old route an action not yet moved into the layer\nstill lives behind; `available` is its absence."
+        "description": "One catalogued action. `still_in` names the old route an action not yet moved into the layer\nstill lives behind; `available` is its absence. `refusals` is every reason a refusal of the row\nmay carry in `data[\"reason\"]`."
       },
       "ActionsRead": {
         "items": {

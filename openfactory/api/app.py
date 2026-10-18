@@ -3499,7 +3499,10 @@ def list_actions() -> list[dict]:
          # only the proposable few are ever offered as a choice — and empty means nobody said,
          # not that the row is interchangeable with its neighbours.
          "params": s.described, "choose_when": s.choose_when or None,
-         "available": not s.pending, "still_in": s.pending or None}
+         "available": not s.pending, "still_in": s.pending or None,
+         # WHY IT CAN SAY NO (#678, part 3): every refusal of this row carries one of these in
+         # `data["reason"]`, so a program branches on a word it was told to expect.
+         "refusals": list(actions.reasons(s.name))}
         for s in actions.CATALOG.values()
     ]
 

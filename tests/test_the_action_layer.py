@@ -1667,3 +1667,228 @@ def test_the_panel_offers_somewhere_to_ASK_the_tech_lead():
         "the platform's OWN questions (parks, needs-action) must render inside the chat with "
         "their executable options — proactive, like Slack; Slack is only a transport")
     assert "badge" in html, "an impediment waiting on a human must be visible from the closed fab"
+
+
+# ── 5. refusal reasons — declared in the catalogue, emitted by a code path (#678, part 3) ───────
+#
+# A REASON IS READ OFF THE SOURCE, not off a run. Driving every refusal of seventy-odd rows would
+# need a fixture for every outage each one names; the refusals are `refused(...)` calls with a
+# named code, so the call graph of a runner inside `catalog.py` is the honest list of what it can
+# say. Both directions are guarded, because each one fails a reader differently: an undeclared
+# reason is a refusal a program was told cannot happen, and a declared one nothing emits is a
+# branch a front end writes for a case that does not exist.
+
+_CATALOG_SOURCE = Path(catalog.__file__)
+_LAYER_SOURCE = Path(actions.__file__)
+
+
+def _reason_of(call: ast.Call) -> str:
+    """The reason a `refused(...)` call stamps: its `reason=`, else its code — resolved through
+    `base`, so a constant renamed there cannot leave a guard comparing yesterday's strings."""
+    said = next((k.value for k in call.keywords if k.arg == "reason"), None)
+    node = said if said is not None else (call.args[0] if call.args else None)
+    if isinstance(node, ast.Name) and isinstance(getattr(base, node.id, None), str):
+        return getattr(base, node.id)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise AssertionError(f"line {call.lineno}: a refusal's reason must be a named constant of "
+                         f"`actions.base` or a literal, so it can be declared — got "
+                         f"{ast.unparse(node) if node is not None else 'nothing'}")
+
+
+def _refusals_in(tree: ast.AST) -> set[str]:
+    return {_reason_of(n) for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "refused"}
+
+
+def _catalog_functions() -> dict[str, ast.AST]:
+    tree = ast.parse(_CATALOG_SOURCE.read_text())
+    return {n.name: n for n in tree.body
+            if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+
+
+def _reachable_from(runner: str, functions: dict[str, ast.AST]) -> set[str]:
+    """Every function of `catalog.py` a runner can reach — by a call, or by handing it on (a
+    callback passed to the door is a code path too). Bounded by the module: the walk visits each
+    function once."""
+    seen: set[str] = set()
+    todo = [runner]
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in functions:
+            continue
+        seen.add(name)
+        todo += [n.id for n in ast.walk(functions[name]) if isinstance(n, ast.Name)]
+    return seen
+
+
+def _emitted_by(runner: str) -> tuple[set[str], bool]:
+    """`(reasons, relays)` — what a runner's code paths refuse with, and whether one of them hands
+    back the outcome of another row through `perform`."""
+    functions = _catalog_functions()
+    reached = _reachable_from(runner, functions)
+    reasons: set[str] = set()
+    relays = False
+    for name in reached:
+        reasons |= _refusals_in(functions[name])
+        relays |= any(isinstance(n, ast.Attribute) and n.attr == "perform"
+                      for n in ast.walk(functions[name]))
+    return reasons, relays
+
+
+def test_every_refusal_in_the_catalogue_is_inside_a_function_the_guards_can_walk():
+    """The guards below read reasons off the runners' call graphs, so a `refused(...)` outside a
+    module-level function — in a class, at import time — would be a refusal no row declares and
+    no guard sees."""
+    tree = ast.parse(_CATALOG_SOURCE.read_text())
+    every = _refusals_in(tree)
+    walked: set[str] = set()
+    for node in _catalog_functions().values():
+        walked |= _refusals_in(node)
+    counted = sum(1 for n in ast.walk(tree)
+                  if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "refused")
+    inside = sum(1 for f in _catalog_functions().values() for n in ast.walk(f)
+                 if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "refused")
+    assert every == walked and counted == inside
+
+
+@pytest.mark.parametrize("name", list(actions.names()))
+def test_a_row_emits_no_reason_it_does_not_declare(name):
+    spec = catalog.CATALOG[name]
+    emitted, _ = _emitted_by(spec.run.__name__)
+
+    undeclared = emitted - set(spec.refuses)
+    assert not undeclared, (f"{name} can refuse with {sorted(undeclared)} and does not declare "
+                            f"it — add it to the row's `refuses`")
+
+
+@pytest.mark.parametrize("name", list(actions.names()))
+def test_a_row_declares_no_reason_that_nothing_emits(name):
+    spec = catalog.CATALOG[name]
+    emitted, _ = _emitted_by(spec.run.__name__)
+
+    stale = set(spec.refuses) - emitted
+    assert not stale, (f"{name} declares {sorted(stale)} and no code path of its runner refuses "
+                       f"with it — drop it from the row's `refuses`")
+
+
+@pytest.mark.parametrize("name", list(actions.names()))
+def test_a_row_that_hands_back_another_rows_outcome_declares_which(name):
+    """`ask` performs the row a sentence or a staged proposal names, and returns that row's
+    refusal as its own — reason included. The rows it can reach are what a person could have
+    typed: the operator grammar and the floor's matcher."""
+    from openfactory.actions.floor_intents import FLOOR_ROWS
+    from openfactory.contracts.commands import ACTION_OF
+
+    spec = catalog.CATALOG[name]
+    _, relays = _emitted_by(spec.run.__name__)
+    typeable = (set(FLOOR_ROWS.values()) | set(ACTION_OF.values())) & set(catalog.CATALOG)
+
+    assert set(spec.relays) == (typeable if relays else set())
+
+
+def test_perform_emits_every_reason_it_declares_and_declares_every_one_it_emits():
+    """`perform` refuses around every row — a missing parameter, a credential scoped away, an
+    engine that did not answer — and those reasons are part of every row's list."""
+    tree = ast.parse(_LAYER_SOURCE.read_text())
+    perform = next(n for n in ast.walk(tree)
+                   if isinstance(n, ast.AsyncFunctionDef) and n.name == "perform")
+
+    assert _refusals_in(perform) == set(base.AROUND_EVERY_ROW) | {base.UNKNOWN_ACTION}
+
+
+def test_every_reason_is_in_the_vocabulary():
+    for name in actions.names():
+        unknown = set(actions.reasons(name)) - base.REASONS
+        assert not unknown, f"{name} declares {sorted(unknown)}, which `base.REASONS` lacks"
+
+
+def test_a_rows_reasons_are_what_perform_adds_its_own_and_what_it_relays():
+    merge = actions.reasons("merge")
+    assert base.NOT_ADMIN in merge and base.BAD_REF in merge
+    assert set(catalog.CATALOG["merge"].refuses) <= set(merge)
+
+    # a read-only row with no ticket cannot be refused for either
+    status = actions.reasons("product_status")
+    assert base.NOT_ADMIN not in status and base.BAD_REF not in status
+
+    ask = actions.reasons("ask")
+    assert set(merge) <= set(ask), "ask hands back merge's refusal, so it can say merge's reasons"
+
+
+def test_the_catalogue_lists_each_rows_refusal_reasons(client):
+    listed = {row["name"]: row["refusals"] for row in client.get("/api/actions").json()}
+
+    assert listed == {name: list(actions.reasons(name)) for name in actions.names()}
+
+
+@pytest.mark.parametrize("call,reason", [
+    ({"name": "teleport"}, "unknown_action"),
+    ({"name": "skip", "project": "demo", "issue": "1", "choise": "B"}, "bad_parameters"),
+    ({"name": "skip", "project": "demo"}, "bad_parameters"),
+    ({"name": "skip", "project": "demo", "issue": "../x"}, "bad_ref"),
+    ({"name": "skip", "project": "demo", "issue": "1", "by": "U9"}, "not_admin"),
+    ({"name": "product_status", "project": "demo", "by": "scoped"}, "out_of_scope"),
+])
+async def test_perform_says_why_it_refused_in_a_word_a_program_reads(call, reason, spy):
+    call = dict(call)
+    who = call.pop("by", "")
+    by = (actions.Actor(id="U9", via="slack") if who == "U9" else
+          actions.Actor(id="ba", via="panel", admin=True, scopes=frozenset({actions.FLOOR}))
+          if who == "scoped" else actions.SYSTEM)
+
+    out = await actions.perform(call.pop("name"), by=by, **call)
+
+    assert out.ok is False and out.data["reason"] == reason and spy == []
+
+
+async def test_a_runner_that_raises_or_reports_nothing_says_so_in_its_reason(monkeypatch):
+    from openfactory.runtime.temporal.vocabulary import EngineUnreachable
+
+    async def boom(**_kw):
+        raise RuntimeError("nope")
+
+    async def down(**_kw):
+        raise EngineUnreachable("the engine did not answer")
+
+    async def forgets(**_kw):
+        return None
+
+    for runner, reason in ((boom, "raised"), (down, "engine_unreachable"),
+                           (forgets, "reported_nothing")):
+        monkeypatch.setattr(catalog, "CATALOG", {
+            "skip": dataclasses.replace(catalog.CATALOG["skip"], run=runner)})
+        out = await actions.perform("skip", by=actions.SYSTEM, project="demo", issue="1")
+        assert out.data["reason"] == reason
+        assert reason in actions.reasons("skip")
+
+
+async def test_a_rows_own_refusal_carries_its_code_as_its_reason(monkeypatch):
+    """The reason a runner states without a finer word is its code — so the field is never
+    absent, and a program that only knows the eight codes can already read every refusal."""
+    out = await actions.perform("card_close", by=actions.SYSTEM, project="nowhere-at-all",
+                                issue="1", reason="   ")
+
+    assert out.ok is False and out.data["reason"] == out.code
+    assert out.data["reason"] in actions.reasons("card_close")
+
+
+def test_refused_stamps_a_reason_and_refuses_one_outside_the_vocabulary():
+    assert base.refused(base.CONFLICT, "busy").data["reason"] == base.CONFLICT
+    assert base.refused(base.DENIED, "no", reason=base.NOT_ADMIN).data["reason"] == "not_admin"
+    with pytest.raises(ValueError):
+        base.refused(base.DENIED, "no", reason="because")
+
+
+async def test_an_undeclared_reason_at_run_time_is_logged_not_hidden(monkeypatch, caplog):
+    async def off_the_list(**_kw):
+        return base.refused(base.DENIED, "no", reason=base.NOT_ADMIN)
+
+    monkeypatch.setattr(catalog, "CATALOG", {
+        "product_status": dataclasses.replace(catalog.CATALOG["product_status"],
+                                              run=off_the_list)})
+    with caplog.at_level("ERROR"):
+        out = await actions.perform("product_status", by=actions.SYSTEM, project="demo")
+
+    assert out.data["reason"] == "not_admin"  # the answer is the row's, unaltered
+    assert "undeclared" in caplog.text

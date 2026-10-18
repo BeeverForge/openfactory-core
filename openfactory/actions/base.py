@@ -53,6 +53,43 @@ UNIMPLEMENTED = "unimplemented"
 CODES = frozenset({OK, INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED, UNIMPLEMENTED})
 
 
+# ── why, in a word a program reads (#678, part 3) ────────────────────────────────────────────────
+#
+# A CODE IS WHAT A FRONT END MAPS; A REASON IS WHAT A PROGRAM BRANCHES ON. They are the same word
+# wherever nothing finer was said — a row's own refusal states its code as its reason — and they
+# part where one code covers answers a caller must tell apart: `denied` is both "this credential is
+# scoped away from that area" and "you are not an admin", and only one of them is fixed by asking
+# an admin. Every refusing Outcome carries one in `data["reason"]`, and every row declares in the
+# catalogue which it can say (`ActionSpec.refuses`, `actions.reasons`).
+
+#: `perform` was asked for a name no row has. Not any row's reason: there is no row to declare it.
+UNKNOWN_ACTION = "unknown_action"
+#: a required parameter is missing, or one the row does not take was passed
+BAD_PARAMETERS = "bad_parameters"
+#: the ticket ref is not one any tracker could issue
+BAD_REF = "bad_ref"
+#: the credential is scoped away from the area the row belongs to
+OUT_OF_SCOPE = "out_of_scope"
+#: the row needs an admin and the actor is not one
+NOT_ADMIN = "not_admin"
+#: the durable engine did not answer in time
+ENGINE_UNREACHABLE = "engine_unreachable"
+#: the row's implementation raised
+RAISED = "raised"
+#: the row's implementation returned something that is not an Outcome
+REPORTED_NOTHING = "reported_nothing"
+
+#: What `perform` itself may refuse ANY row with, before or around its runner — in the order it
+#: checks them. `actions.reasons` narrows it per row: `bad_ref` only for a row that takes an
+#: `issue`, `not_admin` only for one that `needs_admin`.
+AROUND_EVERY_ROW = (BAD_PARAMETERS, BAD_REF, OUT_OF_SCOPE, NOT_ADMIN, ENGINE_UNREACHABLE, RAISED,
+                    REPORTED_NOTHING)
+
+#: Every reason a refusal may carry. Closed, like `CODES`, so a typo is an error at the refusal
+#: rather than a word no program was told to expect.
+REASONS = frozenset(CODES - {OK}) | {UNKNOWN_ACTION, *AROUND_EVERY_ROW}
+
+
 # ── where an action lives, and where a credential may go ─────────────────────────────────────────
 #
 # TWO AREAS TODAY, and the split is the one the product owner drew: *"if the person wants to write
@@ -164,13 +201,20 @@ def done(message: str, **data: object) -> Outcome:
     return Outcome(ok=True, message=message, data=data, code=OK)
 
 
-def refused(code: str, message: str, **data: object) -> Outcome:
+def refused(code: str, message: str, *, reason: str = "", **data: object) -> Outcome:
     """It did not work, and this is why — in a word a front end can map and a sentence a human can
     read. Both are required: the word alone gives an operator nothing, and the sentence alone makes
-    every front end parse prose to decide a status."""
+    every front end parse prose to decide a status.
+
+    `reason` lands in `data["reason"]`, and is `code` when nothing finer is said — so a refusal
+    never lacks one. It must be one of `REASONS`, and one the row declares (`ActionSpec.refuses`).
+    """
     if code not in CODES or code == OK:
         raise ValueError(f"unknown outcome code {code!r} — one of {sorted(CODES - {OK})}")
-    return Outcome(ok=False, message=message, data=data, code=code)
+    why = reason or code
+    if why not in REASONS:
+        raise ValueError(f"unknown refusal reason {why!r} — one of {sorted(REASONS)}")
+    return Outcome(ok=False, message=message, data={**data, "reason": why}, code=code)
 
 
 # ── the table ────────────────────────────────────────────────────────────────────────────────────
@@ -306,6 +350,15 @@ class ActionSpec:
     #: override rather than a copy: a row that agrees says nothing, so the diff of this field is a
     #: list of the rows that are unusual.
     params: Mapping[str, str] = MappingProxyType({})
+    #: WHAT THIS ROW'S OWN CODE PATHS REFUSE WITH — the reasons its runner can put in
+    #: `data["reason"]`. Written on the row rather than discovered, because it is a promise to
+    #: whoever reads `/api/actions`; `tests/test_the_action_layer.py` reads the runner's source and
+    #: fails when the two disagree in either direction. What `perform` adds around every row is
+    #: not repeated here: `actions.reasons` is the whole list.
+    refuses: tuple[str, ...] = ()
+    #: THE ROWS WHOSE OUTCOME THIS ONE HANDS BACK AS ITS OWN, reason included — `ask` performs the
+    #: row a sentence names. Their reasons are this row's too.
+    relays: tuple[str, ...] = ()
 
     def prose_for(self, param: str) -> str:
         """What to put in `param`, or `""` when nobody has said (#172).

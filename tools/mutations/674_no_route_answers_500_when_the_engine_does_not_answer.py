@@ -41,8 +41,8 @@ MUTATIONS = [
     ("an action reads the engine's silence as its own failure", ACTIONS,
      "    except EngineUnreachable as exc:\n", "    except ZeroDivisionError as exc:\n"),
     ("the action's refusal is FAILED, a 500", ACTIONS,
-     '        return refused(UNAVAILABLE, f"could not {key}: {exc}")',
-     '        return refused(FAILED, f"could not {key}: {exc}")'),
+     '        return refused(UNAVAILABLE, f"could not {key}: {exc}", reason=ENGINE_UNREACHABLE)',
+     '        return refused(FAILED, f"could not {key}: {exc}", reason=ENGINE_UNREACHABLE)'),
 
     # 3. one exception
     ("the reads raise an exception of their own that nobody catches", VIEW,

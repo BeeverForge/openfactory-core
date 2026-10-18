@@ -45,19 +45,29 @@ import logging
 import re
 
 from openfactory.actions.base import (
+    AROUND_EVERY_ROW,
+    BAD_PARAMETERS,
+    BAD_REF,
     CODES,
     CONFLICT,
     DENIED,
+    ENGINE_UNREACHABLE,
     FAILED,
     FLOOR,
     INVALID,
+    NOT_ADMIN,
     NOT_FOUND,
     OK,
+    OUT_OF_SCOPE,
     PRODUCT,
+    RAISED,
+    REASONS,
+    REPORTED_NOTHING,
     SCOPES,
     SYSTEM,
     UNAVAILABLE,
     UNIMPLEMENTED,
+    UNKNOWN_ACTION,
     ActionSpec,
     Actor,
     Outcome,
@@ -70,9 +80,9 @@ log = logging.getLogger("openfactory.actions")
 
 __all__ = [
     "CATALOG", "CODES", "CONFLICT", "DENIED", "FAILED", "FLOOR", "INVALID", "NOT_FOUND", "OK",
-    "PRODUCT", "SCOPES", "SYSTEM", "UNAVAILABLE", "UNIMPLEMENTED", "ActionSpec", "Actor",
-    "Outcome", "done", "names", "not_moved_yet", "perform", "proposable", "refused",
-    "run_staged", "spec",
+    "PRODUCT", "REASONS", "SCOPES", "SYSTEM", "UNAVAILABLE", "UNIMPLEMENTED", "ActionSpec",
+    "Actor", "Outcome", "done", "names", "not_moved_yet", "perform", "proposable", "reasons",
+    "refused", "run_staged", "spec",
 ]
 
 
@@ -142,6 +152,31 @@ def names() -> tuple[str, ...]:
 
 def spec(name: str) -> ActionSpec | None:
     return _catalog().get((name or "").strip().lower())
+
+
+def reasons(name: str) -> tuple[str, ...]:
+    """Every reason a refusal of `name` may carry in `data["reason"]` — what `perform` checks
+    around the row, what the row's own code paths refuse with, and what the rows it hands back
+    can say — in that order, each once. `()` for a name no row has.
+
+    DERIVED HERE, NOT WRITTEN ON EACH ROW, for `perform`'s part: it is `perform`'s code that says
+    them, so a copy of `not_admin` on every row would be one chance per row to forget the one
+    that turns `needs_admin` off."""
+    out: list[str] = []
+    todo = [(name or "").strip().lower()]
+    seen: set[str] = set()
+    while todo:  # bounded: each row is visited once, and the catalogue is finite
+        key = todo.pop(0)
+        found = _catalog().get(key)
+        if found is None or key in seen:
+            continue
+        seen.add(key)
+        around = [r for r in AROUND_EVERY_ROW
+                  if (r != BAD_REF or "issue" in found.parameters)
+                  and (r != NOT_ADMIN or found.needs_admin)]
+        out += [r for r in (*around, *found.refuses) if r not in out]
+        todo += list(found.relays)
+    return tuple(out)
 
 
 #: What a proposal may CARRY. It was `{project, issue}` — a ticket and nothing else — because the
@@ -232,16 +267,17 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
         return refused(
             NOT_FOUND,
             f"there is no action called {name!r} — this deployment does: " + ", ".join(names()),
+            reason=UNKNOWN_ACTION,
         )
 
     problem = _check_params(found, params)
     if problem:
-        return refused(INVALID, problem)
+        return refused(INVALID, problem, reason=BAD_PARAMETERS)
 
     if "issue" in params:
         ref, bad = _clean_ref(str(params["issue"]))
         if bad:
-            return refused(INVALID, bad)
+            return refused(INVALID, bad, reason=BAD_REF)
         params["issue"] = ref
 
     # SCOPE BEFORE ADMIN, because they answer different questions and the order is the point: a
@@ -255,6 +291,7 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
             f"this credential is scoped to {', '.join(sorted(by.scopes or ())) or 'nothing'} and "
             f"{key} belongs to the {found.scope}. Nothing was done — ask somebody whose "
             f"credential covers the {found.scope}.",
+            reason=OUT_OF_SCOPE,
         )
 
     if found.needs_admin and not by.admin:
@@ -262,6 +299,7 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
         return refused(
             DENIED,
             f"{by} is not allowed to {key} — ask somebody listed as an admin for this project.",
+            reason=NOT_ADMIN,
         )
 
     from openfactory.runtime.temporal.vocabulary import EngineUnreachable
@@ -272,17 +310,24 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
         # NOT A FAILURE OF THE ACTION, a state of the deployment (#674): the engine did not answer
         # in time. FAILED is a 500 and a traceback; this is the panel's 503 and one line.
         log.warning("action %s by %s: the engine did not answer (%s)", key, by, exc)
-        return refused(UNAVAILABLE, f"could not {key}: {exc}")
+        return refused(UNAVAILABLE, f"could not {key}: {exc}", reason=ENGINE_UNREACHABLE)
     except Exception as exc:  # noqa: BLE001 — an action must never take its caller down
         log.exception("action %s raised for %s", key, by)
-        return refused(FAILED, f"could not {key}: {_why(exc)}")
+        return refused(FAILED, f"could not {key}: {_why(exc)}", reason=RAISED)
     if not isinstance(outcome, Outcome):  # an action that returns None is a silent success (F5)
         log.error("action %s returned %r, not an Outcome", key, type(outcome).__name__)
         return refused(
             FAILED,
             f"'{key}' did not report what it did — treat this as a failure and check the logs "
             f"before assuming it happened.",
+            reason=REPORTED_NOTHING,
         )
+    if not outcome.ok and outcome.data.get("reason") not in reasons(key):
+        # THE ANSWER STANDS — it is the row's, and rewriting it here would hide the very word the
+        # caller needs to report. The guards in `tests/test_the_action_layer.py` read every
+        # row's refusals off its source; this is for the one they could not see.
+        log.error("action %s refused with an undeclared reason %r — it declares %s", key,
+                  outcome.data.get("reason"), ", ".join(reasons(key)))
     log.info("action=%s by=%s ok=%s code=%s params=%s", key, by, outcome.ok,
              outcome.code or "-", _loggable(params))
     return outcome
