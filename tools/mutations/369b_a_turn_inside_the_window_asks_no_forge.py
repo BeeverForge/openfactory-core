@@ -11,8 +11,9 @@ same ask inside `fresh_for` seconds, its served tree still there, starts no git 
 Rows 1-7 are the window itself: it opens; a stamp from the future opens none; it is kept per branch
 asked for; it is withdrawn before the master is touched and written only after a sync that served;
 a deleted served tree is brought back inside it; and what the cone left out is read back from it.
-Row 8 is the operator's setting. Row 9 keeps the window out of the system layer's refresh, which
-publishes the map right after a merge; row 10 is the product role's path passing the setting in.
+Row 8 is a root where no stamp can be written, which loses the window and nothing else. Row 9 is
+the operator's setting. Row 10 keeps the window out of the system layer's refresh, which publishes
+the map right after a merge; row 11 is the product role's path passing the setting in.
 """
 
 TEST = "tests/test_a_source_brought_up_inside_the_window_asks_no_forge.py"
@@ -52,6 +53,13 @@ MUTATIONS = [
     ("the window forgets what the cone left out", CACHE,
      "        self.left_out, self.partial = left_out, partial\n",
      "        self.left_out, self.partial = [], partial\n"),
+
+    ("a root where no stamp can be written fails the sync instead of only losing the window",
+     CACHE,
+     "        except OSError as exc:\n"
+     "            with contextlib.suppress(OSError):\n",
+     "        except ZeroDivisionError as exc:\n"
+     "            with contextlib.suppress(OSError):\n"),
 
     ("the operator's window is ignored", SOURCES,
      "    raw = (os.environ.get(\"OPENFACTORY_SOURCES_FRESH_SECONDS\") or \"\").strip()\n",

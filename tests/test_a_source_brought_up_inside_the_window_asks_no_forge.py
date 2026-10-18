@@ -14,7 +14,8 @@ What is pinned, against real git over `file://` and a clock the test holds (no s
   3. a window is never left behind by a sync that did not finish, or that failed;
   4. a stamp from the future (a clock that went back, a skewed volume) opens no window;
   5. a window of zero asks every time, and the window is kept per branch asked for;
-  6. a served tree that is gone is brought up again, window or not;
+  6. a served tree that is gone is brought up again, window or not, and a root where no stamp
+     can be written serves the source and only loses the window;
   7. the window is the operator's, `OPENFACTORY_SOURCES_FRESH_SECONDS`.
 """
 
@@ -221,6 +222,30 @@ def test_a_served_tree_that_is_gone_is_brought_up_again_inside_the_window(tmp_pa
     _, again = _sync(tmp_path, clock, T0 + 1, url)
 
     assert again is not None and (again / "lib" / "core.py").read_text() == "ANSWER = 1\n"
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root writes through a read-only directory, so nothing is refused")
+def test_a_root_where_no_window_can_be_written_still_serves_and_asks_the_forge_next_time(
+        tmp_path, origin, clock, git_calls):
+    """A full or read-only volume costs the window, never the source: the sync serves, and the
+    next turn asks the forge as it did before there was a window."""
+    url = f"file://{origin}"
+    fresh = tmp_path / "cache" / repo_cache._FRESH_DIRNAME
+    fresh.mkdir(parents=True)
+    fresh.chmod(0o500)
+    try:
+        _, served = _sync(tmp_path, clock, T0, url)
+        assert served is not None and (served / "lib" / "core.py").is_file()
+        git_calls.clear()
+
+        _, again = _sync(tmp_path, clock, T0 + 1, url)
+    finally:
+        fresh.chmod(0o700)
+
+    assert again == served
+    assert git_calls.get("ls-remote") == 1, git_calls
+    assert list(fresh.iterdir()) == [], "a half-written stamp was left behind"
 
 
 # ── the window is the operator's ───────────────────────────────────────────────────────────────
