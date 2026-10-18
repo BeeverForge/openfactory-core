@@ -299,6 +299,7 @@ def test_box_proves_fit_leaves_out_what_its_box_can_open(tmp_path, monkeypatch):
     assert {d.source for d in fit.left_out} == {ctx.OPERATOR}
     assert all(d.open_at.startswith("/opt/openfactory-guidelines/") for d in fit.left_out)
 
+
 def test_explain_names_a_left_out_operator_document_where_the_box_opens_it(tmp_path, monkeypatch):
     """The fate says where to open it: the operator root the box answered, not the bare filename
     the operator tier addresses its documents by."""
@@ -375,8 +376,10 @@ def test_a_box_that_cannot_be_built_here_pins_the_tier(tmp_path, monkeypatch):
 def test_explain_on_the_default_box_names_an_operator_document_at_the_mount(tmp_path, monkeypatch):
     """With no OPENFACTORY_SANDBOX the deployment runs the container box, which opens the
     operator directory at its mount: explain names a left-out standard there, as the prompt does.
-    The two tests above set the worktree box, so asking "worktree" instead of the default box
-    passed them while naming the host path the prompt never gives."""
+    `test_explain_gives_an_operator_document_the_fate_the_job_gives_it` and
+    `test_explain_names_a_left_out_operator_document_where_the_box_opens_it` set the worktree box,
+    so asking "worktree" instead of the default box passed them while naming the host path the
+    prompt never gives."""
     import yaml
 
     from openfactory.adapters.sandbox.container import GUIDELINES_MOUNT
