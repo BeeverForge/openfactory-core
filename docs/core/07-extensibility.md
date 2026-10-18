@@ -41,9 +41,10 @@ is history. The state of the tree is measured, not remembered, and it is this:
   on a deployment is a supply chain, not an extension point) and an unknown kind still refuses
   by name.
 - **Every registry consults the loader.** The axes that consult the loader today: `board`,
-  `board_setup`, `box`, `box_runner`, `channel`, `ci`, `credential`, `embed`, `event`,
-  `extract`, `forge`, `harness`, `identity`, `metrics`, `notifier`, `preview`, `role`,
-  `session_store`, `token_pool` and `tracker` — spelled exactly so in the entry-point name.
+  `board_setup`, `box`, `box_runner`, `channel`, `ci`, `credential`, `credential_store`,
+  `embed`, `event`, `extract`, `forge`, `harness`, `identity`, `metrics`, `notifier`,
+  `preview`, `role`, `session_store`, `token_pool` and `tracker` — spelled exactly so in the
+  entry-point name.
   `openfactory/plugins.py::AXES` is the published list;
   `tests/test_a_stranger_can_add_an_adapter.py` DERIVES the registries from
   the tree (every module that asks the loader) and holds the set they ask for equal to it, and
@@ -139,6 +140,16 @@ still carry a credential the caller holds for another purpose; a row must read i
 its own — the shipped Jira and Azure rows do exactly this, and the `board_setup` axis, added
 the same day so `init` stops naming the vendor whose board it creates, takes only the token the
 tracker axis resolved for its kind.*
+
+*Since 2026-10-18 WHERE a stored secret comes from is an axis too — `credential_store.<kind>`
+returns a `CredentialStore` with two methods, `resolve(name)` (the secret, read now, or `None`)
+and `describe(name)` (where it is looked for and whether it is there, never the value). It is
+born with two, both in the open tree: `env`, the process environment, and `file`, a directory of
+mounted secret files. A reference names its store (`file:acme-jira`, `acme:<entry>` for a
+stranger's), and a deployment names the store its own credentials are asked of first
+(`OPENFACTORY_CREDENTIAL_STORE`). The `credential` axis above says how a vendor turns what it holds
+into a token; this one says where a held secret is read from, and every credential the core reads
+asks it (`tests/test_every_stored_credential_is_read_through_the_store.py`).*
 
 **The code is small; the commitment is not.** Adopting in-process as *the* extension model
 closes the door on providers written in C# or Go, and on plugging one in without a
