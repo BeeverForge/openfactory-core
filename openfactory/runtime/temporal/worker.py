@@ -300,13 +300,6 @@ def start_channel_listeners(projects) -> list:
 
 async def main() -> None:
     load_dotenv()  # bot credentials + Claude token for the activities
-    # WHETHER THIS WORKER IS ALIVE AND CAN WORK, asked without a credential (#681). It serves no
-    # HTTP of its own, so `OPENFACTORY_HEALTH_PORT` makes it answer `/healthz` and `/readyz` — on
-    # THIS loop, so a worker whose loop is stuck does not answer — before anything below can take
-    # long: the toolbox's first copy and the wait for the engine are exactly when a supervisor asks.
-    from openfactory.observability import health
-
-    _health = await health.listen()  # noqa: F841 — held: it serves for as long as the worker runs
     # Secrets Manager delivers the bot App key as CONTENT; light forge reads on the
     # worker (check_pr_merged, the board poll) need it as a file for token minting.
     from openfactory.runtime.boxed_job import materialize_app_key
@@ -347,6 +340,18 @@ async def main() -> None:
                   "only the panel will listen until it is fixed", str(exc)[:200])
         projects = []
     _channels = start_channel_listeners(projects)  # noqa: F841 — held: they own the listeners
+    # WHETHER THIS WORKER IS ALIVE AND CAN WORK, asked without a credential (#681). It serves no
+    # HTTP of its own, so `OPENFACTORY_HEALTH_PORT` makes it answer `/healthz` and `/readyz` — on
+    # THIS loop, so a worker whose loop is stuck does not answer. OPENED HERE, AFTER THE STEPS
+    # ABOVE AND NOT BEFORE THEM: they run on this loop and hold it (the toolbox's first copy is
+    # ~800 MB), and a listener opened before them accepted connections and answered nothing, so a
+    # liveness probe read a booting worker as a hung one (review of #818, measured). From here on
+    # the loop awaits, so the port answers while the worker waits for its engine, and `/readyz`
+    # says whether the engine answers. A supervisor gives a first boot time to copy — the compose
+    # file's `start_period`; nothing answers on the port until then.
+    from openfactory.observability import health, logs
+
+    _health = await health.listen()  # noqa: F841 — held: it serves for as long as the worker runs
     # WAITED FOR, BOUNDED (#135): started beside its engine, this dialled before the engine had
     # bound its port, died on the refusal, and took the set down. `connect_at_birth` says why the
     # wait is the worker's and why it asks the socket rather than the client's error text.
@@ -409,7 +414,10 @@ async def main() -> None:
         # notify_*, scan_*) interleave with a running job — the panel and Slack stay real-time.
         max_concurrent_activities=8,
     )
-    print(f"openfactory worker up · {address()} · ns={namespace()} · queue={TASK_QUEUE}")
+    # Printed for a person, as it always was — or, with JSON log lines, logged, so stdout carries
+    # JSON too: a container's log is stdout and stderr together (review of #818).
+    logs.announce(log, f"openfactory worker up · {address()} · ns={namespace()} · "
+                       f"queue={TASK_QUEUE}")
     await worker.run()
 
 
@@ -430,7 +438,7 @@ async def born() -> None:
     try:
         await main()
     except EngineNotListening as exc:
-        raise SystemExit(f"worker: {exc}") from None
+        raise logs.exiting(log, f"worker: {exc}") from None
 
 
 if __name__ == "__main__":

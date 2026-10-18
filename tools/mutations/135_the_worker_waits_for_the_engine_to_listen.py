@@ -40,7 +40,10 @@ MUTATIONS = [
      "    client = await connect()"),
 
     ("the refusal reaches the person as a traceback again", WORKER,
-     "    except EngineNotListening as exc:\n        raise SystemExit(f\"worker: {exc}\") from None",
+     # RE-PINNED 2026-10-18 (#681): the sentence is raised through `logs.exiting`, which logs it
+     # as a JSON line when the log is JSON and is the same `SystemExit` otherwise. Same cut.
+     "    except EngineNotListening as exc:\n"
+     "        raise logs.exiting(log, f\"worker: {exc}\") from None",
      "    except EngineNotListening:\n        raise"),
 
     ("`openfactory worker` keeps the old door", CLI,

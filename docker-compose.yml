@@ -284,13 +284,15 @@ services:
     # READY, NOT MERELY RUNNING (#681). A worker that cannot reach the engine, read the registry or
     # build the identity provider used to stay "running" with nothing waiting on it any the wiser.
     # It serves no HTTP of its own, so OPENFACTORY_HEALTH_PORT below makes it answer /readyz, and
-    # the probe asks it there; a 503 names the check that failed, in `docker inspect`.
+    # the probe asks it there, from inside the container; a 503 names the check that failed, in
+    # `docker inspect`. FIVE MINUTES TO START: the port opens once the boot's own steps are done,
+    # and a first boot copies the harness toolbox (~800 MB) into its volume before that.
     healthcheck:
       test: ["CMD", "python", "-m", "openfactory.observability.health", "--port", "8788"]
       interval: 15s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 5m
     # EVERY ROW OF .env.compose REACHES THE WORKER. The `environment:` list below cannot do that
     # job alone and it is structural, not an omission to patch: the registry NAMES per-project
     # credentials (`token_env: ACME_ADO_PAT`), so the variable a client invents can never appear
@@ -330,8 +332,8 @@ services:
       OPENFACTORY_REGISTRY: /var/lib/openfactory/registry.yaml
       # What `openfactory doctor` calls this container on its own line (#532).
       OPENFACTORY_ROLE: worker
-      # Where the worker answers /healthz and /readyz — the port its healthcheck above asks, inside
-      # the container and published nowhere (#681).
+      # Where the worker answers /healthz and /readyz — the port its healthcheck above asks, on the
+      # container's own loopback (OPENFACTORY_HEALTH_HOST unset) and published nowhere (#681).
       OPENFACTORY_HEALTH_PORT: "8788"
       # The board this platform can hold itself (ADR-0049 D5). BOTH halves point at it:
       # the worker polls it and the panel serves it, from the state volume they share.

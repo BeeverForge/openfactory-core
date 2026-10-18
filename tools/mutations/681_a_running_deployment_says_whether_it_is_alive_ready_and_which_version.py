@@ -8,19 +8,26 @@ The claims, each a row:
   1. liveness reads nothing;
   2. readiness answers 503 naming each failing check, with a sentence and never the cause, and
      needs no credential;
-  3. readiness is bounded, keeps the engine's answer for its window — no longer — and shares one
-     check between callers;
+  3. readiness is bounded by a deadline that follows the engine's own, keeps every check's answer
+     for its window — no longer, and not an answer whose question lost its slot — and shares one
+     question per check between callers;
+  3b. readiness costs nobody else anything (review of #818): no check takes a thread of the
+     default executor the gate uses, none blocks the event loop, none is blamed for another, and
+     the product's registry read for a log line is off the loop too;
   4. each check fails for its own dependency: a pooled client is not an engine that answers, an
      undeclared engine and a missing client library are said as such, the registry is read, and
      the identity check is the gate's own decision;
-  5. the worker answers the same on its own port, only when asked, and opens it before it waits;
+  5. the worker answers the same on its own port, only when asked, on loopback unless the
+     deployment says otherwise, echoing nothing it was sent, and opens it once its boot's own steps
+     are done and before it waits for the engine;
   6. every process the compose file starts is health-checked by `/readyz` on its own port, and the
      probe fails on anything but a 200;
   7. the version route answers the package's version, the image, the engine's address kind and
      every add-on row, unloaded, behind the floor's credential;
   8. JSON lines: chosen only by the setting, with the four fields, a traceback on one line, the
      letters kept, the deployment named, and the project and product a record concerns — from
-     every panel route and every worker activity that names one.
+     every panel route and every worker activity that names one; the lines a process prints for a
+     person and the sentence it ends with follow the format; a failure's cause is logged once.
 """
 
 READY = "tests/test_a_running_deployment_says_whether_it_is_alive_and_ready.py"
@@ -53,34 +60,59 @@ MUTATIONS = [
      '        return (200 if said["ready"] else 503), said',
      "        return 200, said"),
     ("the body carries the cause instead of the check's sentence", HEALTH,
-     "        said, cause = exc.said or SAID[name], exc.cause",
-     "        said, cause = exc.cause, exc.cause"),
+     "            said, cause = exc.said or SAID[name], exc.cause",
+     "            said, cause = exc.cause, exc.cause"),
     ("readiness is moved under the gate", HEALTH,
      'READY_PATH = "/readyz"', 'READY_PATH = "/api/readyz"'),
 
-    # 3. bounded, kind to the engine
+    # 3. bounded, kept for the window, one question at a time
     ("a check that hangs holds the answer", HEALTH,
-     "        await asyncio.wait_for(CHECKS[name](), DEADLINE_S)",
-     "        await CHECKS[name]()"),
-    ("the engine is asked on every call", HEALTH,
-     "    if memo is None or _clock() - memo[0] >= ENGINE_TTL_S:",
-     "    if True:"),
-    ("the engine's answer is kept past its window", HEALTH,
-     "    if memo is None or _clock() - memo[0] >= ENGINE_TTL_S:",
-     "    if memo is None or _clock() - memo[0] >= ENGINE_TTL_S * 1000:"),
-    ("callers that ask together each ask the engine", HEALTH,
-     "        memo = await _engine_read.shared(_ask_the_engine)",
-     "        memo = await _ask_the_engine(None)"),
+     "        _when, said, cause = await asyncio.wait_for(_SLOTS[name].kept_or_asked(name), bound)",
+     "        _when, said, cause = await _SLOTS[name].kept_or_asked(name)"),
+    ("the deadline ignores the engine's own", HEALTH,
+     "    return 2 * read_deadline() + 1.0", "    return DEADLINE_S"),
+    ("every check is asked on every call", HEALTH,
+     "        if kept is not None and _clock() - kept[0] < WINDOW_S:\n            return kept",
+     "        if False:\n            return kept"),
+    ("a check's answer is kept past its window", HEALTH,
+     "        if kept is not None and _clock() - kept[0] < WINDOW_S:",
+     "        if kept is not None and _clock() - kept[0] < WINDOW_S * 1000:"),
+    ("callers that ask together each ask every dependency", HEALTH,
+     "        return await self.read.shared(lambda flight: self._ask(name, flight))",
+     "        return await self._ask(name, None)"),
+    ("an answer whose question lost its slot is kept", HEALTH,
+     "        if self.read.holds(flight):\n            self.kept = answer",
+     "        if True:\n            self.kept = answer"),
+
+    # 3b. readiness costs nobody else anything (review of #818)
+    ("the registry check takes a thread of the gate's executor", HEALTH,
+     "    await _off_the_loop(_registry_reads)", "    await asyncio.to_thread(_registry_reads)"),
+    ("the identity check takes a thread of the gate's executor", HEALTH,
+     "    await _off_the_loop(_identity_admits)", "    await asyncio.to_thread(_identity_admits)"),
+    ("the registry is read on the event loop", HEALTH,
+     "    await _off_the_loop(_registry_reads)", "    _registry_reads()"),
+    ("the identity provider is asked on the event loop", HEALTH,
+     "    await _off_the_loop(_identity_admits)", "    _identity_admits()"),
+    ("a log line's product is read from the registry on the event loop", LOGGING,
+     "    return await asyncio.to_thread(concerning, project, product)",
+     "    return concerning(project, product)", LOGS),
 
     # 4. each check, against its own dependency
     ("a pooled client is taken for an engine that answers", HEALTH,
-     '        if await view.check_health(client):\n            return "", ""\n',
-     '        return "", ""\n'),
+     "        answered = await view.check_health(await view.connect())",
+     "        answered = bool(await view.connect())"),
     ("an engine nobody declared is said to have not answered", HEALTH,
-     '        return (SAID["engine"] if ENGINE.declared() else ENGINE_UNDECLARED), error',
-     '        return SAID["engine"], error'),
+     '        raise NotReady("no engine address is declared", said=ENGINE_UNDECLARED)',
+     '        raise NotReady("no engine address is declared")'),
     ("a missing client library is not said as an install", HEALTH,
-     "        if error == CLIENT_MISSING:\n            return CLIENT_MISSING, error\n", ""),
+     '        raise NotReady(why, said=CLIENT_MISSING if why == CLIENT_MISSING else "") from exc',
+     "        raise NotReady(why) from exc"),
+    ("the engine check warns on every poll, as the floor's probe does", HEALTH,
+     '        raise NotReady(f"{type(exc).__name__}: {str(exc)[:200]}") from exc',
+     '        log.warning("the engine did not answer (%s)", exc)\n'
+     '        raise NotReady(f"{type(exc).__name__}: {str(exc)[:200]}") from exc'),
+    ("the cause is logged on every poll", HEALTH,
+     "    elif not ok and before is not False:", "    elif not ok:"),
     ("the engine's health check is not bounded", VIEW,
      '@_bounded_read("a health check")\n', ""),
     ("the registry is opened and never read", HEALTH,
@@ -101,6 +133,19 @@ MUTATIONS = [
     ("the worker never opens its listener", WORKER,
      "    _health = await health.listen()  # noqa: F841 — held: it serves for as long as the worker"
      " runs\n", ""),
+    ("the worker opens its listener before its boot's own steps", WORKER,
+     "    load_dotenv()  # bot credentials + Claude token for the activities\n",
+     "    load_dotenv()  # bot credentials + Claude token for the activities\n"
+     "    from openfactory.observability import health as _early\n"
+     "    _first = await _early.listen()  # noqa: F841\n"),
+    ("the worker answers every interface unless told otherwise", HEALTH,
+     '    return (os.environ.get(HOST_VARIABLE) or "").strip() or LOOPBACK',
+     '    return (os.environ.get(HOST_VARIABLE) or "").strip() or "0.0.0.0"'),
+    ("the deployment's host is ignored", HEALTH,
+     "    host = host or host_asked()", "    host = host or LOOPBACK"),
+    ("the worker's 404 echoes what it was sent", HEALTH,
+     """    return 404, {"detail": f"only {' and '.join(PATHS)} are answered here"}""",
+     """    return 404, {"detail": f"nothing is served at {path}"}"""),
 
     # 6. the healthchecks
     ("the worker's healthcheck asks another port than it answers on", COMPOSE,
@@ -183,4 +228,16 @@ MUTATIONS = [
      '    product = getattr(value, "product", None)', "    product = None", LOGS),
     ("the worker is built without its interceptor", WORKER,
      "        interceptors=[AboutItsProject()],\n", "", LOGS),
+    ("a line for a person is printed past the format", LOGGING,
+     "    if structured():\n        logger.info(line)", "    if False:\n        logger.info(line)",
+     LOGS),
+    ("the worker prints its line itself again", WORKER,
+     '    logs.announce(log, f"openfactory worker up · {address()} · ns={namespace()} · "\n',
+     '    print(f"openfactory worker up · {address()} · ns={namespace()} · "\n', LOGS),
+    ("serve echoes its line itself again", "openfactory/cli.py",
+     '    logs.announce(log, f"panel: http://{host}:{port}")',
+     '    typer.echo(f"panel: http://{host}:{port}")', LOGS),
+    ("a worker that cannot start ends in a plain line", LOGGING,
+     "    if structured():\n        logger.error(sentence)",
+     "    if False:\n        logger.error(sentence)", LOGS),
 ]

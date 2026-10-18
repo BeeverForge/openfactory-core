@@ -11,13 +11,18 @@ THE RULES THIS FILE HOLDS:
   · `/readyz` answers 200 when every check in `health.CHECKS` passes and 503 otherwise, naming each
     check that failed and no other — the checks are read from that table, so one added tomorrow is
     held here without anybody listing it; it needs no credential; it answers within
-    `health.DEADLINE_S` whatever a check waits on; and the engine is asked at most once per
-    `health.ENGINE_TTL_S`, by one caller at a time;
+    `health.deadline()` whatever a check waits on, and that deadline follows the engine's own;
+    every check is asked at most once per `health.WINDOW_S`, by one caller at a time; and the cause
+    of a failure is logged once per change, by any logger, and never sent;
+  · READINESS COSTS NOBODY ELSE ANYTHING (review of #818): a check that is slow or hangs holds no
+    thread the gate needs, never blocks the event loop, and is never reported as another check;
   · each check fails for its own dependency: the engine that does not answer (and a pooled client
     is not an answer), the registry that cannot be read, and the identity provider that cannot
     admit — which is the gate's own decision, so the two are held to the same verdicts;
-  · the panel and the worker serve the same answers, and every process the compose file starts
-    from this repository is health-checked by `/readyz` on the port it answers on.
+  · the panel and the worker serve the same answers — the worker on this machine's loopback
+    unless the deployment says otherwise, once its boot's own steps are done — and every process
+    the compose file starts from this repository is health-checked by `/readyz` on the port it
+    answers on.
 
 WHAT IS DOUBLED, AND ONLY THAT: the engine's client (a double that answers or does not), and the
 identity provider where a case needs a state the built-in rows cannot be put in. The routes, the
@@ -29,8 +34,11 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import concurrent.futures
 import inspect
 import json
+import logging
+import threading
 import time
 from pathlib import Path
 
@@ -51,6 +59,8 @@ class _Service:
 
     async def check_health(self, **_kw):
         self._engine.asked += 1
+        if self._engine.held is not None:
+            await self._engine.held.wait()
         if self._engine.delay:
             await asyncio.sleep(self._engine.delay)
         if isinstance(self._engine.answer, BaseException):
@@ -66,6 +76,11 @@ class _Engine:
         self.answer: object = True
         self.asked = 0
         self.delay = 0.0
+        self.connect_delay = 0.0
+        #: what a connect raises — a stopped engine refuses it
+        self.refused: BaseException | None = None
+        #: an `asyncio.Event` the health check waits on — an engine that never answers
+        self.held: asyncio.Event | None = None
         self.service_client = _Service(self)
 
 
@@ -76,6 +91,10 @@ def engine(monkeypatch):
     double = _Engine()
 
     async def _connect():
+        if double.connect_delay:
+            await asyncio.sleep(double.connect_delay)
+        if double.refused is not None:
+            raise double.refused
         return double
 
     monkeypatch.setenv("TEMPORAL_ADDRESS", "localhost:7233")
@@ -109,7 +128,7 @@ def _panel() -> TestClient:
 #: What breaks each check's OWN dependency, by the name `health.CHECKS` gives it. A check added to
 #: the table without a way to break it here fails `test_every_check_is_broken_here`.
 def _break_engine(monkeypatch, engine, _registry):
-    engine.answer = ConnectionError("connection refused")
+    engine.refused = ConnectionError("connection refused by 10.0.0.7:7233")
 
 
 def _break_registry(monkeypatch, _engine, registry):
@@ -194,22 +213,41 @@ def test_readiness_needs_no_credential(deployment, monkeypatch):
     assert client.get(health.READY_PATH).status_code == 200
 
 
-def test_the_cause_reaches_the_log_once_and_never_the_body(deployment, engine, monkeypatch,
-                                                           caplog):
-    """The body goes to a caller nobody identified; the cause is the operator's, in the log — once
-    when the check starts failing and once when it answers again, not on every poll."""
-    engine.answer = ConnectionError("refused by 10.0.0.7:7233")
-    monkeypatch.setattr(health, "ENGINE_TTL_S", 0.0)
-    client = _panel()
+@pytest.mark.parametrize("broken", sorted(health.CHECKS))
+async def test_a_failure_is_logged_once_by_anybody_and_never_sent(deployment, engine,
+                                                                  monkeypatch, caplog, broken):
+    """The body goes to a caller nobody identified; the cause is the operator's, in the log — ONE
+    warning when the check starts failing, from ANY logger, however many supervisors' polls fall
+    in new windows (review of #818: four polls of a stopped engine logged four warnings, from the
+    floor's probe the engine check reused)."""
+    clock = [1000.0]
+    monkeypatch.setattr(health, "_clock", lambda: clock[0])
+    BREAK[broken](monkeypatch, engine, deployment)
 
-    with caplog.at_level("INFO", logger="openfactory.health"):
-        said = [client.get(health.READY_PATH).text for _ in range(3)]
-        engine.answer = True
-        client.get(health.READY_PATH)
+    with caplog.at_level(logging.INFO):
+        said = []
+        for _ in range(4):
+            said.append(json.dumps(await health.ready()))
+            clock[0] += health.WINDOW_S
 
+    warned = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warned) == 1 and "NOT_READY" in warned[0].getMessage(), [
+        (r.name, r.getMessage()) for r in warned]
     assert not any("10.0.0.7" in body for body in said), said
-    failed = [r for r in caplog.records if "NOT_READY" in r.getMessage()]
-    assert len(failed) == 1 and "10.0.0.7" in failed[0].getMessage(), caplog.text
+
+
+async def test_a_check_that_answers_again_is_said_once(deployment, engine, monkeypatch, caplog):
+    clock = [1000.0]
+    monkeypatch.setattr(health, "_clock", lambda: clock[0])
+    BREAK["engine"](monkeypatch, engine, deployment)
+    await health.ready()
+
+    engine.refused = None
+    with caplog.at_level(logging.INFO, logger="openfactory.health"):
+        for _ in range(3):
+            clock[0] += health.WINDOW_S
+            assert (await health.ready())["ready"] is True
+
     assert sum("answers again" in r.getMessage() for r in caplog.records) == 1, caplog.text
 
 
@@ -218,30 +256,44 @@ def test_the_cause_reaches_the_log_once_and_never_the_body(deployment, engine, m
 @pytest.mark.parametrize("slow", sorted(health.CHECKS))
 async def test_a_check_that_hangs_is_named_within_the_deadline(deployment, monkeypatch, slow):
     async def hangs():
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
 
-    monkeypatch.setattr(health, "DEADLINE_S", 0.2)
+    monkeypatch.setattr(health, "deadline", lambda: 1.5)
     monkeypatch.setitem(health.CHECKS, slow, hangs)
 
     started = time.monotonic()
     body = await health.ready()
 
-    assert time.monotonic() - started < 2.0, "readiness waited on a check past its deadline"
+    assert time.monotonic() - started < 6.0, "readiness waited on a check past its deadline"
     assert body["failing"] == [slow], body
     assert body["checks"][slow]["detail"].startswith(health.SAID[slow]), body
 
 
-async def test_the_engines_answer_is_kept_for_its_window(deployment, engine, monkeypatch):
+def _counted(monkeypatch, *, delay: float = 0.0) -> dict[str, int]:
+    """Every check in `CHECKS`, wrapped to count the questions its dependency is asked."""
+    asked = dict.fromkeys(health.CHECKS, 0)
+    for name, check in list(health.CHECKS.items()):
+        async def counted(name=name, check=check):
+            asked[name] += 1
+            if delay:
+                await asyncio.sleep(delay)
+            await check()
+        monkeypatch.setitem(health.CHECKS, name, counted)
+    return asked
+
+
+async def test_every_checks_answer_is_kept_for_its_window(deployment, monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(health, "_clock", lambda: clock[0])
+    asked = _counted(monkeypatch)
 
     for _ in range(5):
         assert (await health.ready())["ready"] is True
-    assert engine.asked == 1, "asked again inside the window"
+    assert asked == dict.fromkeys(health.CHECKS, 1), f"asked again inside the window: {asked}"
 
-    clock[0] += health.ENGINE_TTL_S
+    clock[0] += health.WINDOW_S
     await health.ready()
-    assert engine.asked == 2, "not asked again once the window passed"
+    assert asked == dict.fromkeys(health.CHECKS, 2), f"not asked once the window passed: {asked}"
 
 
 async def test_a_kept_failure_clears_when_the_window_passes(deployment, engine, monkeypatch):
@@ -252,23 +304,129 @@ async def test_a_kept_failure_clears_when_the_window_passes(deployment, engine, 
     assert (await health.ready())["failing"] == ["engine"]
     engine.answer = True
     assert (await health.ready())["failing"] == ["engine"], "the window keeps the answer"
-    clock[0] += health.ENGINE_TTL_S
+    clock[0] += health.WINDOW_S
     assert (await health.ready())["ready"] is True
 
 
-async def test_supervisors_that_ask_together_share_one_check(deployment, engine):
-    engine.delay = 0.05
+async def test_supervisors_that_ask_together_share_one_question_per_check(deployment,
+                                                                          monkeypatch):
+    asked = _counted(monkeypatch, delay=0.05)
 
     answers = await asyncio.gather(*(health.ready() for _ in range(6)))
 
-    assert all(a["ready"] for a in answers) and engine.asked == 1, engine.asked
+    assert all(a["ready"] for a in answers)
+    assert asked == dict.fromkeys(health.CHECKS, 1), asked
 
 
-def test_the_window_and_the_deadline_are_a_few_seconds():
-    """A window long enough to hide an outage, or a deadline past a healthcheck's own timeout,
-    would each be a probe that lies."""
-    assert 1.0 <= health.ENGINE_TTL_S <= 10.0
-    assert 1.0 <= health.DEADLINE_S <= 9.0
+async def test_an_answer_whose_question_lost_its_slot_is_not_kept(deployment, engine,
+                                                                  monkeypatch):
+    """`forget` takes the slot from under a question in flight; an answer begun before it must not
+    serve the window after it."""
+    clock = [1000.0]
+    monkeypatch.setattr(health, "_clock", lambda: clock[0])
+    engine.delay = 0.1
+
+    first = asyncio.create_task(health.ready())
+    await asyncio.sleep(0.02)
+    health.forget()
+    await first
+    engine.delay = 0.0
+    await health.ready()
+
+    assert engine.asked == 2, "the answer of a question that lost its slot was kept"
+
+
+def test_the_window_is_a_few_seconds_and_the_deadline_makes_room_for_the_engine(monkeypatch):
+    """A window long enough to hide an outage is a probe that lies; so is a deadline shorter than
+    the engine's own two bounded steps, a connect and a health check (review of #818)."""
+    from openfactory.runtime.temporal import view
+
+    assert 1.0 <= health.WINDOW_S <= 10.0
+    for said in (None, "0.5", "3", "10"):
+        if said is None:
+            monkeypatch.delenv("OPENFACTORY_ENGINE_DEADLINE", raising=False)
+        else:
+            monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", said)
+        assert health.deadline() > 2 * view.read_deadline(), (said, health.deadline())
+
+
+async def test_a_slow_engine_inside_its_own_deadline_is_ready(deployment, engine, monkeypatch):
+    """Whatever the fallback, the deployment's engine deadline is what readiness waits for."""
+    monkeypatch.setattr(health, "DEADLINE_S", 0.4)
+    monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", "1.5")
+    engine.connect_delay = engine.delay = 0.3
+
+    assert (await health.ready())["ready"] is True
+
+
+# ── readiness costs nobody else anything (review of #818) ───────────────────────────────────────
+
+#: What makes each check's OWN dependency stop answering until it is released, by the name
+#: `health.CHECKS` gives it — a registry on a mount that stopped, a people store that does not
+#: answer, an engine that never answers. Each returns `(entered, release)`. A check added without
+#: a way to hang it here fails `test_every_check_can_be_hung_here`.
+def _hang_engine(monkeypatch, engine):
+    engine.held = asyncio.Event()
+    return (lambda: engine.asked), engine.held.set
+
+
+def _hanging(monkeypatch, attribute):
+    entered, gate = [], threading.Event()
+
+    def hangs():
+        entered.append(threading.current_thread().name)
+        gate.wait(10)   # bounded, so a check that blocks the loop ends the case rather than it
+
+    monkeypatch.setattr(health, attribute, hangs)
+    return (lambda: len(entered)), gate.set
+
+
+HANG = {
+    "engine": _hang_engine,
+    "registry": lambda monkeypatch, _engine: _hanging(monkeypatch, "_registry_reads"),
+    "identity": lambda monkeypatch, _engine: _hanging(monkeypatch, "_identity_admits"),
+}
+
+
+def test_every_check_can_be_hung_here():
+    assert set(HANG) == set(health.CHECKS)
+
+
+@pytest.mark.parametrize("hung", sorted(health.CHECKS))
+async def test_a_hung_check_starves_no_request_and_blames_no_other_check(deployment, engine,
+                                                                         monkeypatch, hung):
+    """The review's probe, made deterministic. The executor the gate's verdict hops to is given ONE
+    thread; twenty unauthenticated `/readyz` arrive while one check's dependency hangs; an
+    operator's request must still be answered at once, each `/readyz` must name the hung check and
+    no other, within the deadline, and the dependency must have been asked once — by one question,
+    on a thread that is not the gate's. A check that blocked the event loop instead would hold
+    every one of those answers for as long as it hangs."""
+    import httpx
+
+    from openfactory.api.app import app
+
+    monkeypatch.setenv("OPENFACTORY_PANEL_TOKEN", "the-operator")
+    monkeypatch.setattr(health, "deadline", lambda: 1.5)
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=1))
+    entered, release = HANG[hung](monkeypatch, engine)
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://panel", timeout=10) as client:
+            polls = [asyncio.create_task(client.get(health.READY_PATH)) for _ in range(20)]
+            await asyncio.sleep(0.05)
+            operator = await asyncio.wait_for(
+                client.get("/api/whoami", headers={"Authorization": "Bearer the-operator"}), 3.0)
+            answers = await asyncio.wait_for(asyncio.gather(*polls), 6.0)
+    finally:
+        release()
+
+    assert operator.status_code == 200, operator.text
+    assert time.monotonic() - started < 8.0, "the loop was held while a dependency hung"
+    for answer in answers:
+        assert answer.status_code == 503 and answer.json()["failing"] == [hung], answer.json()
+    assert entered() == 1, f"the hung dependency was asked {entered()} times"
 
 
 # ── each check, against its own dependency ──────────────────────────────────────────────────────
@@ -291,13 +449,8 @@ async def test_an_engine_whose_service_is_not_serving_is_not_ready(deployment, e
     assert (await _engine_said())["ok"] is False
 
 
-async def test_an_engine_that_cannot_be_connected_to_is_not_ready(deployment, monkeypatch):
-    from openfactory.runtime.temporal import view
-
-    async def _refused():
-        raise ConnectionError("connection refused")
-
-    monkeypatch.setattr(view, "connect", _refused)
+async def test_an_engine_that_cannot_be_connected_to_is_not_ready(deployment, engine):
+    engine.refused = ConnectionError("connection refused")
 
     assert await _engine_said() == {"ok": False, "detail": health.SAID["engine"]}
 
@@ -310,23 +463,37 @@ async def test_an_engine_nobody_declared_is_said_as_such(deployment, monkeypatch
     assert await _engine_said() == {"ok": False, "detail": health.ENGINE_UNDECLARED}
 
 
-async def test_an_install_without_the_engines_client_says_what_to_install(deployment, monkeypatch):
-    from openfactory.floor import reading
+@pytest.mark.parametrize(("missing", "said"), [("temporalio", "install"),
+                                                ("openfactory.something_else", "engine")])
+async def test_an_install_without_the_engines_client_says_what_to_install(deployment, monkeypatch,
+                                                                         missing, said):
+    """The install sentence only when the client library is what is missing (`host`'s rule): the
+    engine's reader is made unimportable for want of `missing`, as an install without the
+    `runtime` extra makes it."""
+    import builtins
+
     from openfactory.runtime.host import CLIENT_MISSING
 
-    async def _no_client(_client):
-        return None, False, "", CLIENT_MISSING
+    real = builtins.__import__
 
-    monkeypatch.setattr(reading, "_engine", _no_client)
+    def _without(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "openfactory.runtime.temporal" and "view" in (fromlist or ()):
+            raise ModuleNotFoundError(f"No module named {missing!r}", name=missing)
+        return real(name, globals, locals, fromlist, level)
 
-    assert await _engine_said() == {"ok": False, "detail": CLIENT_MISSING}
+    with monkeypatch.context() as patched:
+        patched.setattr(builtins, "__import__", _without)
+        said_now = await _engine_said()
+
+    expected = CLIENT_MISSING if said == "install" else health.SAID["engine"]
+    assert said_now == {"ok": False, "detail": expected}
 
 
 async def test_an_engine_that_does_not_answer_in_time_is_not_ready(deployment, engine,
                                                                   monkeypatch):
     """The health check is bounded like every read of the engine (`view._within`)."""
     monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", "0.05")
-    engine.delay = 1.0
+    engine.delay = 0.5   # inside readiness's own deadline (1.1 s here), past the engine's
 
     assert (await _engine_said())["ok"] is False
 
@@ -481,12 +648,35 @@ async def test_the_worker_answers_what_the_panel_answers(worker_port, engine, mo
 
 
 @pytest.mark.parametrize(("request_", "status"), [
-    (b"GET /metrics HTTP/1.1\r\nHost: x\r\n\r\n", 404),
+    (b"GET /metrics-of-acme HTTP/1.1\r\nHost: x\r\n\r\n", 404),
     (b"POST /readyz HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n", 405),
     (b"not http at all\r\n\r\n", 400),
 ])
-async def test_the_worker_answers_nothing_else(worker_port, request_, status):
-    assert (await _get(worker_port, request_))[0] == status
+async def test_the_worker_answers_nothing_else_and_echoes_nothing(worker_port, request_, status):
+    got, body = await _get(worker_port, request_)
+
+    assert got == status
+    assert "acme" not in json.dumps(body), body
+
+
+async def test_the_worker_answers_on_loopback_unless_the_deployment_says_otherwise(monkeypatch):
+    """Readiness is asked without a credential, so it is answered beyond this machine only where
+    the deployment says so — `openfactory serve`'s own default (review of #818)."""
+    monkeypatch.delenv(health.HOST_VARIABLE, raising=False)
+    server = await health.listen(0)
+    try:
+        bound = {sock.getsockname()[0] for sock in server.sockets}
+    finally:
+        server.close()
+    assert bound == {health.LOOPBACK}, bound
+
+    monkeypatch.setenv(health.HOST_VARIABLE, "0.0.0.0")
+    server = await health.listen(0)
+    try:
+        bound = {sock.getsockname()[0] for sock in server.sockets}
+    finally:
+        server.close()
+    assert bound == {"0.0.0.0"}, bound
 
 
 async def test_the_worker_listens_only_when_a_port_is_asked(monkeypatch, caplog):
@@ -511,9 +701,16 @@ async def test_a_port_that_is_taken_is_said_and_the_worker_goes_on(caplog):
     assert "nothing can ask it whether it is ready" in caplog.text
 
 
-def test_the_worker_starts_its_listener_before_it_waits_for_anything():
-    """Reachability, read off `main`: the listener is opened, and before the wait for the engine
-    and the toolbox's first copy — exactly when a supervisor asks."""
+#: The steps of the worker's boot that run on its loop and hold it — the app key, the registry's
+#: seed, the toolbox's first copy (~800 MB), the registry read and the channels' start.
+BLOCKING_BOOT = ("materialize_app_key", "seed_registry", "populate_toolbox", "list",
+                 "start_channel_listeners")
+
+
+def test_the_worker_opens_its_listener_once_its_loop_is_free_and_before_it_waits():
+    """Reachability, read off `main`: the listener is opened AFTER every step that holds the loop
+    — a listener opened before them accepted connections and answered nothing (review of #818) —
+    and BEFORE the wait for the engine, which only awaits, so a supervisor is answered then."""
     from openfactory.runtime.temporal import worker
 
     tree = ast.parse(inspect.getsource(worker.main))
@@ -525,7 +722,7 @@ def test_the_worker_starts_its_listener_before_it_waits_for_anything():
         assert lines, f"`main` never calls {name}"
         return min(lines)
 
-    assert first("listen") < first("populate_toolbox") < first("connect_at_birth")
+    assert max(first(step) for step in BLOCKING_BOOT) < first("listen") < first("connect_at_birth")
 
 
 # ── the healthcheck a container runs ────────────────────────────────────────────────────────────
@@ -561,10 +758,18 @@ def test_every_process_the_compose_file_starts_is_health_checked_by_readyz():
             f"{name}'s healthcheck asks port {asked.port}, and it answers on {_answers_on(svc)}")
 
 
-def test_a_healthchecks_timeout_outlasts_the_readiness_deadline():
+def test_a_healthchecks_timeout_outlasts_the_readiness_deadline(monkeypatch):
+    """Under the compose file's own environment, which leaves the engine's deadline at its
+    default."""
     for name, svc in _compose_services().items():
+        environment = svc.get("environment") or {}
+        if "OPENFACTORY_ENGINE_DEADLINE" in environment:
+            monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE",
+                               str(environment["OPENFACTORY_ENGINE_DEADLINE"]))
+        else:
+            monkeypatch.delenv("OPENFACTORY_ENGINE_DEADLINE", raising=False)
         timeout = str(svc["healthcheck"]["timeout"])
-        assert timeout.endswith("s") and float(timeout[:-1]) > health.DEADLINE_S, (name, timeout)
+        assert timeout.endswith("s") and float(timeout[:-1]) > health.deadline(), (name, timeout)
 
 
 async def test_the_probe_exits_0_when_ready_and_1_with_the_body_when_not(worker_port, engine,

@@ -153,6 +153,27 @@ async def concerning_from_a_loop(project: str, product: str = "") -> dict[str, s
     return await asyncio.to_thread(concerning, project, product)
 
 
+def announce(logger: logging.Logger, line: str) -> None:
+    """A line a process prints for a person when it starts — `panel: http://…`, `openfactory
+    worker up · …` — printed on stdout as it always was, or, with JSON lines, logged at INFO: a
+    container's log is stdout and stderr together, and one plain line in it is a line a log store
+    cannot read (review of #818). Called once the log is configured."""
+    if structured():
+        logger.info(line)
+    else:
+        print(line, flush=True)
+
+
+def exiting(logger: logging.Logger, sentence: str) -> SystemExit:
+    """The `SystemExit` a process raises to end with a sentence for a person. Python prints its
+    message as a plain line, so with JSON lines the sentence is logged at ERROR instead, and the
+    process ends with code 1 all the same."""
+    if structured():
+        logger.error(sentence)
+        return SystemExit(1)
+    return SystemExit(sentence)
+
+
 def level() -> int:
     """The level `OPENFACTORY_LOG_LEVEL` names, or INFO."""
     named = logging.getLevelName((os.environ.get(LEVEL_VARIABLE) or "INFO").strip().upper())

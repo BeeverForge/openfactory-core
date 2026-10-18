@@ -8,24 +8,29 @@ THE RULES THIS FILE HOLDS:
 
   · with `OPENFACTORY_LOG_FORMAT=json`, every process the deployment starts — read from what
     starts them, by the #675 guard this file borrows its drivers from — writes one JSON object per
-    line, with `ts` (UTC, to the millisecond), `level`, `logger` and `message`, keeps the platform's
-    INFO and drops the libraries'; a traceback stays one line; `deployment` is there exactly when
-    `OPENFACTORY_DEPLOYMENT` names one;
+    line, on stderr AND on stdout (a container's log is both), with `ts` (UTC, to the millisecond),
+    `level`, `logger` and `message`, keeps the platform's INFO and drops the libraries'; a traceback
+    stays one line; `deployment` is there exactly when `OPENFACTORY_DEPLOYMENT` names one; the
+    lines a process prints for a person, and the sentence it ends with, follow the format;
   · without it — unset, or any other value — the line is #675's, unchanged;
   · a record concerns a project when it is logged inside work about one, and then its line says the
     project and the product the project belongs to: EVERY worker activity whose input names a
     project, read from the activities the worker registers, and EVERY panel route whose path takes
-    one, read from the app's routes. Work that names no project says none.
+    one, read from the app's routes. Work that names no project says none — and the registry read
+    that finds the product never holds the event loop.
 """
 
 from __future__ import annotations
 
 import ast
+import asyncio
 import inspect
 import io
 import json
 import logging
 import re
+import threading
+import time
 import typing
 
 import pytest
@@ -74,7 +79,11 @@ def test_every_line_is_one_json_object_with_the_four_fields(monkeypatch, capsys,
     with _a_fresh_process():
         DRIVEN[process](monkeypatch)
 
-    lines = _json_lines(capsys.readouterr().err)
+    written = capsys.readouterr()
+    plain = [line for line in written.out.splitlines() if line.strip()]
+    assert all(line.startswith("{") and json.loads(line) for line in plain), (
+        f"{process} wrote a plain line on stdout: {plain}")
+    lines = _json_lines(written.err)
     for line in lines:
         assert list(line)[:4] == list(FIELDS), line
         assert TS.match(line["ts"]) and line["level"] in ("INFO", "WARNING", "ERROR"), line
@@ -113,6 +122,67 @@ def test_the_deployment_is_named_on_every_line_when_it_is_set(monkeypatch, capsy
 
     assert {line.get("deployment") for line in _json_lines(capsys.readouterr().err)} == {
         "factory-eu-1"}
+
+
+def test_the_panel_says_where_it_serves_in_the_format_it_was_asked_for(monkeypatch, capsys):
+    """`serve`'s first line, for a person: printed as ever, or a JSON line among the others."""
+    with _a_fresh_process():
+        DRIVEN["panel"](monkeypatch)
+    assert "panel: http://127.0.0.1:8787" in capsys.readouterr().out.splitlines()
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    with _a_fresh_process():
+        DRIVEN["panel"](monkeypatch)
+    written = capsys.readouterr()
+    assert not written.out.strip(), written.out
+    assert {"level": "INFO", "message": "panel: http://127.0.0.1:8787"}.items() <= next(
+        line for line in _json_lines(written.err) if "panel:" in line["message"]).items()
+
+
+#: The functions a process runs to start, whose every line goes through `logs.announce` — the
+#: worker's `main` and the panel's `serve`, the two entry points #675's guard drives.
+def _entry_points():
+    from openfactory import cli
+    from openfactory.runtime.temporal import worker
+
+    return {"worker.main": worker.main, "cli.serve": cli.serve}
+
+
+@pytest.mark.parametrize("name", sorted(_entry_points()))
+def test_no_entry_point_prints_past_the_format(name):
+    """Read off each entry point's syntax tree: nothing in it writes to stdout by itself."""
+    tree = ast.parse(inspect.getsource(_entry_points()[name]).lstrip())
+    printed = [ast.unparse(n)[:80] for n in ast.walk(tree) if isinstance(n, ast.Call)
+               and (getattr(n.func, "id", "") == "print"
+                    or (getattr(n.func, "attr", "") == "echo"
+                        and getattr(n.func.value, "id", "") == "typer"))]
+
+    assert not printed, f"{name} prints past the log format: {printed}"
+
+
+@pytest.mark.parametrize("asked", ["json", None])
+def test_a_worker_that_cannot_start_ends_with_its_sentence_in_the_format(monkeypatch, capsys,
+                                                                         asked):
+    from openfactory.runtime.temporal import worker
+    from openfactory.runtime.temporal.connection import EngineNotListening
+
+    sentence = "the durable engine at 127.0.0.1:7233 accepted no connection in 30s"
+
+    async def _never_listens():
+        raise EngineNotListening(sentence)
+
+    if asked:
+        monkeypatch.setenv(logs.FORMAT_VARIABLE, asked)
+    monkeypatch.setattr(worker, "main", _never_listens)
+    with _a_fresh_process(), pytest.raises(SystemExit) as ended:
+        asyncio.run(worker.born())
+
+    if asked:
+        assert ended.value.code == 1
+        (line,) = _json_lines(capsys.readouterr().err)
+        assert (line["level"], line["message"]) == ("ERROR", f"worker: {sentence}"), line
+    else:
+        assert ended.value.code == f"worker: {sentence}"
 
 
 def test_a_traceback_stays_one_line_and_a_message_keeps_its_letters(monkeypatch, capsys):
@@ -181,6 +251,31 @@ def registry(tmp_path, monkeypatch):
                    "tracker": {"kind": "local", "repo": "globex"}}}}))
     monkeypatch.setenv("OPENFACTORY_REGISTRY", str(path))
     return path
+
+
+async def test_the_registry_read_for_a_product_never_holds_the_loop(registry, monkeypatch):
+    """`concerning_from_a_loop` is what the panel's routes and the worker's activities ask: with
+    JSON on it reads the registry, and that read must happen on a thread — a registry on a mount
+    that stopped answering would otherwise hold every request and every activity of the process."""
+    from openfactory.registry import ProjectRegistry
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    gate = threading.Event()
+    real = ProjectRegistry.get
+
+    def hangs(self, name):
+        gate.wait(10)
+        return real(self, name)
+
+    monkeypatch.setattr(ProjectRegistry, "get", hangs)
+    asked = asyncio.create_task(logs.concerning_from_a_loop("acme"))
+    started = time.monotonic()
+    await asyncio.sleep(0.05)
+    held = time.monotonic() - started
+    gate.set()
+
+    assert await asked == {"project": "acme", "product": "repo:acme/docs"}
+    assert held < 3.0, f"the loop was held {held:.1f}s by the registry read"
 
 
 def test_the_product_is_the_one_the_registry_says_and_only_for_json(registry, monkeypatch):

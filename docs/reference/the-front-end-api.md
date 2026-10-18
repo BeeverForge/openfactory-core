@@ -220,7 +220,9 @@ per add-on row installed, read from the packages' metadata without loading them.
 Two routes answer **without a credential**, with the default front end on or off, so a container's
 healthcheck, an orchestrator's probe or a load balancer can ask them. The panel serves both on its
 own port; the worker, which serves no other HTTP, answers both on `OPENFACTORY_HEALTH_PORT` when it
-is set (the compose file sets it, and its healthchecks ask both processes through
+is set, on `OPENFACTORY_HEALTH_HOST` (this machine's loopback unless the deployment says otherwise),
+once its boot's own steps are done (the compose file sets the port, and its healthchecks ask both
+processes from inside their containers through
 `python -m openfactory.observability.health --port <port>`).
 
 <!-- probes:start -->
@@ -240,9 +242,12 @@ process's log, never in the body, because nobody identified the caller:
  "failing": ["engine"]}
 ```
 
-It answers within five seconds whatever a check is waiting on, and the engine is asked at most once
-every five seconds however many supervisors ask, so readiness is never load on an engine that is
-already struggling.
+It answers within a bounded time whatever a check is waiting on — twice the engine's read deadline
+(`OPENFACTORY_ENGINE_DEADLINE`, three seconds by default) and a second more, seven seconds by
+default — and a late check is named, never the one beside it. Each dependency is asked at most once
+every five seconds, by one question at a time, however many supervisors ask, and never on a thread
+the authenticated routes need: readiness is not load on a dependency that is already struggling,
+and asking it cannot slow anybody else down.
 
 ## 4. Streams
 

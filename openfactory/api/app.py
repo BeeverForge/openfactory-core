@@ -4207,8 +4207,8 @@ async def healthz() -> JSONResponse:
 async def readyz() -> JSONResponse:
     """Whether this panel can work right now: 200, or 503 naming each check that failed —
     `{"ready": false, "checks": {"engine": {"ok": false, "detail": "…"}, …}, "failing": [...]}`.
-    Bounded by `health.DEADLINE_S`, and the engine is asked at most once per
-    `health.ENGINE_TTL_S` whoever asks."""
+    Bounded by `health.deadline()`; each dependency is asked at most once per `health.WINDOW_S`,
+    one question at a time, and never on a thread of the executor the gate's verdict uses."""
     status, body = await health.answer(health.READY_PATH)
     return JSONResponse(body, status_code=status, headers=_NO_CACHE)
 
