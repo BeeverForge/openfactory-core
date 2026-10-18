@@ -18,6 +18,7 @@ TEST = "tests/test_a_board_credential_and_the_product_owner_reads_the_board.py"
 LOCAL = "openfactory/identity/local.py"
 APP = "openfactory/api/app.py"
 CATALOG = "openfactory/actions/catalog.py"
+ACTIONS = "openfactory/actions/__init__.py"
 CLI = "openfactory/cli.py"
 READINESS = "openfactory/onboarding/readiness.py"
 WORKTREE = "openfactory/adapters/sandbox/worktree.py"
@@ -72,9 +73,12 @@ MUTATIONS = [
      '_PRODUCT_BOARD_READ = re.compile(r"^/api/board/([^/]+)(?:/.*)?$")'),
 
     # 3. the invitation
-    ("a scoped credential invites an administrator", CATALOG,
-     "    if by.scopes is not None:\n        return refused(DENIED, f\"inviting somebody",
-     "    if False:\n        return refused(DENIED, f\"inviting somebody"),
+    # RE-PINNED (#741): the refusal moved out of `_people_invite`'s body and became the row's
+    # declaration, `installation=True`, which `perform` asks for every row that changes the
+    # installation. The claim is the same one — a scoped credential does not invite.
+    ("a scoped credential invites an administrator", ACTIONS,
+     "    if found.installation and by.scopes is not None:",
+     "    if False:"),
     ("an invitation to the board is an administrator's", CATALOG,
      "                                                   (BOARD_GROUP,) if boarded else ()),",
      "                                                   ()),"),

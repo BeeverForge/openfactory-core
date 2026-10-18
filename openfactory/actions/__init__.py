@@ -233,6 +233,9 @@ def proposable(by: Actor) -> tuple[str, ...]:
     1. **The asker's own credential**, by the SAME two checks `perform` applies and in the same
        order — scope, then admin. A credential that cannot press the button must not be told to
        ask for it; being handed an action and then refused is worse than not being offered it.
+       `perform`'s third, the installation's (#741), is not asked here because no row it guards
+       can pass (2): a proposal is never to add a project or revoke a person, and
+       `tests/test_the_installation_is_changed_through_its_rows.py` holds that.
     2. **What a human could have typed.** A suggestion is a proposal somebody approves with one
        word, so it must be something they could have said themselves: the operator grammar
        (`contracts/commands.py`, which is `resume`/`skip` and deliberately excludes prod) and the
@@ -281,6 +284,7 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
        panel knew that and Slack did not.
     4. **`needs_admin` is enforced.** Slack had this gate, the panel had a token, the CLI had
        nothing; now the three answers meet in `Actor.admin` and the decision is made in one place.
+       So is a row's `installation`: only an unscoped credential changes the deployment itself.
     5. **A row that needs the code waits for it** (`ActionSpec.needs_code`, #992): on a project
        whose product started before its code it is refused by name, naming the first source.
     6. **Everything is logged with the actor**, whatever the result. This is the audit line — the
@@ -324,6 +328,21 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
             f"{key} belongs to the {found.scope}. Nothing was done — ask somebody whose "
             f"credential covers the {found.scope}.",
             reason=OUT_OF_SCOPE,
+        )
+
+    # THE INSTALLATION IS THE ADMINISTRATOR'S (#741), asked after the area and before `admin`. A
+    # credential scoped to ANY area — a board token, a product token, an invitation to one of them
+    # — is somebody's operator or requirement-writer, and it is `admin` on its own surface; what it
+    # may never do is change what the deployment is: its projects, the people it names, whether it
+    # picks work up. Only an unscoped credential reaches these rows, which is the panel's own token
+    # and its per-person rows, an invitation to neither area, and a shell on the host.
+    if found.installation and by.scopes is not None:
+        log.warning("DENIED_INSTALLATION %s by %s (%s)", key, by, _loggable(params))
+        return refused(
+            DENIED,
+            f"{key} changes this installation, which is the administrator's; this credential is "
+            f"scoped to {', '.join(sorted(by.scopes)) or 'nothing'}. Nothing was done — ask "
+            f"somebody who administers this deployment.",
         )
 
     if found.needs_admin and not by.admin:

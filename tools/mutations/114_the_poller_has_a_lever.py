@@ -8,6 +8,7 @@ down.
 
 TEST = "tests/test_the_poller_has_a_lever.py"
 CLI = "openfactory/cli.py"
+CATALOG = "openfactory/actions/catalog.py"
 SCHED = "openfactory/runtime/temporal/schedule.py"
 
 MUTATIONS = [
@@ -48,13 +49,15 @@ MUTATIONS = [
      '                  "from an outage)"))',
      '                  ""))'),
 
-    ("an unreachable engine raises instead of refusing by name", CLI,
-     '        typer.echo(f"✗ could not pause the poller ({str(exc)[:200]}) — the engine may be "\n'
-     '                   f"unreachable. `openfactory poller status` says whether it can be read.")\n'
-     "        raise typer.Exit(2) from None",
-     "        raise"),
+    # RE-PINNED (#741): the hold moved into the `poller_pause`/`poller_resume` rows, and the
+    # refusal by name with it — the command maps onto the row. Re-raised here, the failure reaches
+    # `perform`'s catch-all, which names the row and not the poller nor where to look.
+    ("an unreachable engine raises instead of refusing by name", CATALOG,
+     '        log.warning("could not %s the poller for %s: %s", verb, by, exc)\n',
+     "        raise\n"),
 
     ("the note stops naming who pulled the lever", CLI,
-     '    reason = note or f"paused by {getpass.getuser()} via `openfactory poller pause`"',
+     # RE-PINNED (#741): the shell's login is read through `_shell_user` now.
+     '    reason = note or f"paused by {_shell_user()} via `openfactory poller pause`"',
      '    reason = note or ""'),
 ]

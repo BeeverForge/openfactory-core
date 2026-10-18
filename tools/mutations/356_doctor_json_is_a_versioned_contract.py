@@ -49,18 +49,19 @@ MUTATIONS = [
      "    return json.dumps(document, indent=2, sort_keys=True)",
      "    return json.dumps(document, indent=2)"),
 
+    # RE-PINNED (#741), the three rows below: the command renders the `doctor` row's document
+    # now, so it prints `document` and reads its `ok`, `verdict` and `next_step`.
     ("a banner line is printed above the document, so stdout no longer parses", CLI,
-     "        typer.echo(doc.as_json(doc.as_document(report, project=name, build=(code, built))))",
+     "        typer.echo(doc.as_json(document))",
      '        typer.echo(f"· this worker runs build {code}")\n'
-     "        typer.echo(doc.as_json(doc.as_document(report, project=name, build=(code, built))))"),
+     "        typer.echo(doc.as_json(document))"),
 
     ("--json exits 0 over a red report", CLI,
-     "        if not report.ok:\n            raise typer.Exit(1)\n        return\n    if code:",
+     '        if not document["ok"]:\n            raise typer.Exit(1)\n        return\n    if code:',
      "        return\n    if code:"),
 
     ("the screen's EXPECTED sentence stops naming the step the verdict carries", CLI,
-     '                   f"Next: {said.next_step}. Then run this again; it is the same command '
-     'that "',
-     '                   f"Next: the steps ahead. Then run this again; it is the same command '
-     'that "'),
+     "                   f\"Next: {document['next_step']}. Then run this again; it is the same "
+     "command \"",
+     '                   f"Next: the steps ahead. Then run this again; it is the same command "'),
 ]

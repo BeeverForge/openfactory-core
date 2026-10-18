@@ -327,6 +327,11 @@ PARAMS: dict[str, str] = {
     "pr": "`true` to open a pull request with the change instead of committing directly",
     # a preview of the product (ADR-0050)
     "unit": "what the preview is of: a card's number, e.g. `34`, or a requirement as `req0012`",
+    # the installation itself (#741)
+    "note": "why, and for whom — recorded on the poller's schedule and read back by whoever "
+            "looks next, so a held queue can be told from an outage",
+    "docs_repo": "the repository that holds the product's requirements, spelled the way this "
+                 "project's forge names one of its repositories",
 }
 
 
@@ -365,6 +370,18 @@ class ActionSpec:
     #: the code, and the rows that work without it — the product owner's conversation, its
     #: requirements, its context — say so on themselves.
     needs_code: bool = True
+    #: WHETHER THIS ROW CHANGES THE INSTALLATION ITSELF (#741) — the registry's projects, the
+    #: people the deployment names, the poller's schedule — rather than work inside it. Such a row
+    #: is THE ADMINISTRATOR'S, and `perform` refuses it to any credential scoped to an area: a
+    #: board token is the floor's operator and a product token the requirement-writer's, and
+    #: neither may name a product, pause pickup or invite somebody, whichever area the row is in.
+    #:
+    #: DECLARED ON THE ROW AND ASKED ONCE, IN `perform`. `people_invite` carried this check in its
+    #: own body (#562), and one copy per installation row is how the row added next comes to
+    #: forget it — the reason `needs_admin` and `scope` are declarations rather than lines each
+    #: runner remembers. Default False: work on the floor or the product is the ordinary case, and
+    #: the rows that change the installation say so.
+    installation: bool = False
     #: WHEN A PROPOSER SHOULD PICK THIS ROW over its neighbours — the judgment, not the definition
     #: (#172). `summary` says what the row does; this says when it is the right answer, which is a
     #: different question and the one that actually decides. It lived in a private map inside

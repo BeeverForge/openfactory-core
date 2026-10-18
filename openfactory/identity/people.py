@@ -76,10 +76,22 @@ PASSWORD_MIN_CHARS = 12
 #: and evicts them first. `revoked` was permanent and one is written per logout: five thousand of
 #: them and every registered person was gone from the fold, with no error and no warning, every
 #: live session refusing and every correct password answering "". THE INVARIANT THIS NUMBER
-#: DEPENDS ON: registrations are permanent and every other kind must expire. A new event kind
-#: written without an `expires_at` breaks it, and the suite pins the invariant rather than the one
-#: instance of it.
+#: DEPENDS ON: only the rows that open or close an ACCOUNT are permanent (`ACCOUNT_EVENTS`), and
+#: every other kind must expire. A new event kind written without an `expires_at` breaks it, and
+#: the suite pins the invariant rather than the one instance of it.
 READ_LAST = 5000
+
+#: THE ROWS THAT ARE PERMANENT, and why there are two (#741). A registration is the account; a
+#: withdrawal of a registered person is the account's end, and it has to outlive the registration
+#: it cancels or the account would come back the day it expired. Their number is bounded by the
+#: accounts ever opened — one withdrawal per registration at most — so together they still cannot
+#: outgrow the window the way a row per logout did. A withdrawal of nothing but open invitations
+#: expires with the last of them, because past that there is nothing for it to cancel.
+ACCOUNT_EVENTS = frozenset({"registered", "withdrawn"})
+
+#: What a withdrawal nobody stands behind is refused with — the same rule as an invitation's
+#: voucher (#759): an anonymous credential is only CALLED something, and cannot sign an act.
+UNSIGNED_WITHDRAWAL = "a withdrawal records who did it, and nobody did"
 
 _SEQ = itertools.count()
 
@@ -274,6 +286,21 @@ class PeopleStore:
                 snap.sessions[s.token_hash] = s
         elif event == "revoked":
             snap.sessions.pop(str(x.get("token_hash") or ""), None)
+        elif event == "withdrawn":
+            # THE PERSON'S END, read in order like everything else: whatever was folded before
+            # this row — their account, their sessions, their open invitations — is gone, and
+            # whatever comes after it is a new invitation like anybody's. THE SESSIONS GO WITH
+            # THE ACCOUNT, by name: `session_of` already answers None for a person not in
+            # `people`, but a session minted before the withdrawal would come back to life the day
+            # the same id registered again.
+            ident = str(x["id"])
+            snap.people.pop(ident, None)
+            for h, inv in list(snap.invitations.items()):
+                if inv.id == ident:
+                    del snap.invitations[h]
+            for h, s in list(snap.sessions.items()):
+                if s.person_id == ident:
+                    del snap.sessions[h]
 
     def people(self) -> list[Person]:
         return sorted(self.snapshot().people.values(), key=lambda p: p.id)
@@ -390,3 +417,28 @@ class PeopleStore:
             return False
         return bool(self._record("revoked", {"token_hash": session.token_hash},
                                  expires_at=session.expires_at))
+
+    def withdraw(self, ident: str, *, by: str = "") -> str:
+        """Take a person off this deployment: their registration, their sessions and their open
+        invitations (#741). `""` when it is recorded, or a sentence saying why not.
+
+        PERMANENT ONLY WHEN THERE IS AN ACCOUNT TO END (see `ACCOUNT_EVENTS`): a withdrawal of a
+        registered person must outlive the registration, and one of open invitations alone
+        expires with the last of them, since past that it has nothing to cancel."""
+        ident = str(ident or "").strip()
+        if not ident:
+            return "name the person — their id, as `openfactory people list` shows it"
+        if not str(by or "").strip():
+            return UNSIGNED_WITHDRAWAL
+        snap = self.snapshot()
+        invited = [i.expires_at for i in snap.invitations.values() if i.id == ident]
+        if ident not in snap.people and not invited:
+            return f"nobody called {ident!r} is registered or invited here"
+        landed = self._record("withdrawn", {
+            "id": ident, "by": str(by).strip(),
+            "withdrawn_at": datetime.fromtimestamp(int(self._now()), UTC).isoformat(),
+        }, expires_at=None if ident in snap.people else max(invited))
+        if not landed:
+            return "the withdrawal was not recorded — the metrics sink kept nothing, so the " \
+                   "person would still be let in"
+        return ""

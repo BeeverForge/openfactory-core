@@ -293,6 +293,16 @@ OWNED = {
     # would be a second place deciding what that state is — and the refusals it carries.
     "start_before_code": "product_start",
     "first_source": "product_first_source",
+    # THE INSTALLATION ITSELF (#741). Each marker is the write the row owns, and a front end that
+    # reacquired one would be changing the deployment with no row deciding whether it may — which
+    # is what every one of these verbs did before, from the command line alone:
+    "withdraw": "people_revoke",             # taking a person off the deployment
+    "hold_poller": "poller_pause/poller_resume",  # the deployment-wide hold on pickup
+    "set_agent_name": "product_name",        # what the product role is called
+    "set_docs_repo": "product_declare",      # where the product's requirements live
+    # the doctor's report AS A DOCUMENT: a front end that composed one would be a second opinion
+    # about the same machine — the screen and `--json` both render the row's
+    "as_document": "doctor",
     # The product role (#98). ONE marker for five rows, because they share one seam: a front end
     # that CONSTRUCTS the module is doing the work itself, whatever verb it then calls.
     #
