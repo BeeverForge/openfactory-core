@@ -279,6 +279,19 @@ def readable_root(sandbox: object, tier: OperatorTier) -> str | None:
     """
     if tier.dir is None or not tier.reference_docs:
         return None
+    return guidelines_root(sandbox, tier)
+
+
+def guidelines_root(sandbox: object, tier: OperatorTier) -> str | None:
+    """Where THIS box can open the operator directory, whatever it holds — or None.
+
+    `readable_root`'s question without its precondition (#364): that one asks only when there are
+    `reference/` documents to index, and the prompt budget needs the same answer for the
+    guidelines it may leave out. A guideline left out is named at `<this>/<file>`; with None the
+    tier is pinned, because naming a document the agent cannot open is leaving it out in silence
+    (ADR-0056)."""
+    if tier.dir is None:
+        return None
     probe = getattr(sandbox, "guidelines_path", None)
     if not callable(probe):
         return None
@@ -286,7 +299,8 @@ def readable_root(sandbox: object, tier: OperatorTier) -> str | None:
         answer = probe(tier.dir)
     except Exception:  # noqa: BLE001 — a box that raises here must degrade, never fail a job
         _log.warning("the box could not say where %s is readable from inside it — the operator's "
-                     "reference documents are not indexed for this pass.", tier.dir)
+                     "documents are not indexed, and its guidelines are always inlined, for this "
+                     "pass.", tier.dir)
         return None
     return str(answer) if answer else None
 

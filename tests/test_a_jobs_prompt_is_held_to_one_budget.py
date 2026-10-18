@@ -129,7 +129,8 @@ def test_the_count_is_bytes_not_characters(tmp_path):
 
     built = _build(tmp_path, manifest, budget=whole - 1)
 
-    assert len(_kept_paths(built)) == 1, "both were kept: the fit counted characters"
+    records = [p for p in _kept_paths(built) if p.startswith("adr/")]
+    assert len(records) == 1, "both were kept: the fit counted characters"
     assert budgeted_bytes(built) <= whole - 1
 
 

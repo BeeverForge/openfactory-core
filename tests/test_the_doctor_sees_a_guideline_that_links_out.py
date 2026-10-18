@@ -119,7 +119,7 @@ def test_the_doctor_fails_exactly_the_entries_the_job_does_not_read(shop, entry)
         entry = str(shop.parent / "central" / "standards.md")
     ticket = Ticket(id="#1", title="t", objective="o", repo="o/x")
     prompt = "\n".join(build_context(Manifest(docs={"guidelines": [entry]}), shop,
-                                     ticket).guidelines)
+                                     ticket).document_texts())
     read = HOUSE in prompt or CENTRAL in prompt
 
     f = _the_doctors_line(_declare(shop, entry))

@@ -166,3 +166,20 @@ def test_the_configuration_guide_states_the_truncation_and_the_budget_the_code_h
     assert "full text, every prompt" not in how
     assert f"{ctx._MAX_DOC_CHARS:,}" in how, f"the row does not state the truncation: {how!r}"
     assert VARIABLE in how and f"{ctx.DEFAULT_PROMPT_BUDGET:,}" in how, how
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR"])
+def test_explain_refuses_a_malformed_budget_in_one_sentence(monkeypatch, tmp_path, language):
+    """`explain` runs the job's own `build_context`, so it meets the same refusal — said in the
+    reader's language, never as a traceback."""
+    from openfactory.orchestrator import explain as ex
+
+    (tmp_path / ".openfactory").mkdir()
+    (tmp_path / ".openfactory" / "project.yaml").write_text("version: 1\n")
+    monkeypatch.setenv(VARIABLE, "160kb")
+
+    with pytest.raises(ex.Refused) as refused:
+        ex.explain(str(tmp_path), language=language)
+
+    said = str(refused.value)
+    assert VARIABLE in said and "'160kb'" in said and "\n" not in said, said

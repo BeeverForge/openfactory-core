@@ -35,8 +35,8 @@ def test_loads_constraints_guidelines_and_derived_index(tmp_path: Path):
     )
     ctx = build_context(manifest, tmp_path, _ticket())
 
-    assert any("must not import FastAPI" in c for c in ctx.constraints)
-    assert any("100% coverage" in g for g in ctx.guidelines)
+    assert any("must not import FastAPI" in c for c in ctx.document_texts("docs.constraints"))
+    assert any("100% coverage" in g for g in ctx.document_texts())
     assert "reconcile.md — how matching works" in ctx.doc_index  # derived from frontmatter
     assert "Edit" in ctx.allowed_tools
 
@@ -54,19 +54,19 @@ def test_a_guideline_the_manifest_names_and_the_checkout_lacks_is_WARNED(tmp_pat
     assert "rules-that-do-not-exist.md" in caplog.text
     assert "WITHOUT" in caplog.text
     # tolerated, not fatal — the framework baseline still arrives
-    assert any("Engineering baseline" in g for g in ctx.guidelines)
+    assert any("Engineering baseline" in g for g in ctx.document_texts())
 
 
 def test_missing_docs_are_tolerated(tmp_path: Path):
     ctx = build_context(Manifest(), tmp_path, _ticket())
     # project docs are empty, but the framework baseline guidelines are ALWAYS injected
-    assert ctx.constraints == [] and ctx.doc_index == ""
-    assert any("Engineering baseline" in g for g in ctx.guidelines)
+    assert ctx.document_texts("docs.constraints") == [] and ctx.doc_index == ""
+    assert any("Engineering baseline" in g for g in ctx.document_texts())
 
 
 def test_framework_baseline_always_present(tmp_path: Path):
     ctx = build_context(Manifest(), tmp_path, _ticket())
-    assert ctx.guidelines, "org_defaults must be injected for every job"
+    assert ctx.document_texts(), "org_defaults must be injected for every job"
 
 
 def test_knowledge_map_off_by_default(tmp_path: Path):
@@ -145,9 +145,9 @@ def test_operator_guidelines_land_after_the_baseline_and_before_the_project(tmp_
 
     ctx = build_context(manifest, tmp_path, _ticket())
 
-    central = next(i for i, g in enumerate(ctx.guidelines) if "CENTRAL OPERATOR STANDARD" in g)
-    house = next(i for i, g in enumerate(ctx.guidelines) if "PROJECT HOUSE RULE" in g)
-    baseline = max(i for i, g in enumerate(ctx.guidelines) if "Engineering baseline" in g
+    central = next(i for i, g in enumerate(ctx.document_texts()) if "CENTRAL OPERATOR STANDARD" in g)
+    house = next(i for i, g in enumerate(ctx.document_texts()) if "PROJECT HOUSE RULE" in g)
+    baseline = max(i for i, g in enumerate(ctx.document_texts()) if "Engineering baseline" in g
                    or "test-driven development" in g)
     assert baseline < central < house
 
@@ -163,8 +163,8 @@ def test_a_path_outside_the_operator_dir_is_refused_not_silently_read(tmp_path, 
 
     ctx = build_context(Manifest(), tmp_path, _ticket())
 
-    assert any("legitimate central rule" in g for g in ctx.guidelines)
-    assert not any("ABSOLUTELY-SECRET-CONTENT" in g for g in ctx.guidelines)
+    assert any("legitimate central rule" in g for g in ctx.document_texts())
+    assert not any("ABSOLUTELY-SECRET-CONTENT" in g for g in ctx.document_texts())
 
 
 def test_a_missing_operator_dir_warns(tmp_path, monkeypatch, caplog):
@@ -193,8 +193,8 @@ def test_a_profile_waives_an_operator_guideline_by_name_like_a_framework_one(tmp
 
     ctx = build_context(Manifest(), tmp_path, _ticket(), profile=profile)
 
-    assert not any("CENTRAL RULE THIS CLASS DROPS" in g for g in ctx.guidelines)
-    assert any("CENTRAL RULE THIS CLASS KEEPS" in g for g in ctx.guidelines)
+    assert not any("CENTRAL RULE THIS CLASS DROPS" in g for g in ctx.document_texts())
+    assert any("CENTRAL RULE THIS CLASS KEEPS" in g for g in ctx.document_texts())
 
 
 def test_waiving_an_operator_guideline_is_not_warned_as_a_typo(tmp_path, monkeypatch, caplog):
@@ -219,8 +219,8 @@ def test_a_profile_replaces_an_operator_guideline_by_name(tmp_path, monkeypatch)
 
     ctx = build_context(Manifest(), tmp_path, _ticket(), profile=profile)
 
-    assert any("THE PROJECTS OWN STYLE RULE" in g for g in ctx.guidelines)
-    assert not any("THE CENTRAL STYLE RULE" in g for g in ctx.guidelines)
+    assert any("THE PROJECTS OWN STYLE RULE" in g for g in ctx.document_texts())
+    assert not any("THE CENTRAL STYLE RULE" in g for g in ctx.document_texts())
 
 
 def _reference_dir(tmp_path, monkeypatch):
@@ -242,7 +242,7 @@ def test_reference_docs_are_INDEXED_not_INLINED(tmp_path, monkeypatch):
     ctx = build_context(Manifest(), tmp_path, _ticket(), reference_root=str(d))
 
     assert f"{d}/reference/big.md — the long central standard" in ctx.doc_index
-    assert not any("VERY-LONG-BODY-TEXT" in g for g in ctx.guidelines)
+    assert not any("VERY-LONG-BODY-TEXT" in g for g in ctx.document_texts())
 
 
 def test_the_index_names_the_path_THE_AGENT_can_open(tmp_path, monkeypatch):
@@ -284,7 +284,7 @@ def test_a_box_that_cannot_reach_the_dir_indexes_NOTHING_and_says_so(tmp_path, m
     assert "big.md" not in ctx.doc_index
     assert "NOT indexed" in caplog.text and str(d) in caplog.text
     # the INLINED tier is unaffected — it is read here, not by the agent
-    assert any("inlined central rule" in g for g in ctx.guidelines)
+    assert any("inlined central rule" in g for g in ctx.document_texts())
 
 
 def test_a_name_in_BOTH_tiers_is_named_when_a_profile_addresses_it(tmp_path, monkeypatch,
