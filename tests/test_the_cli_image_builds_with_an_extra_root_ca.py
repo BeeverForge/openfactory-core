@@ -33,6 +33,7 @@ import re
 import shutil
 import subprocess
 import uuid
+from collections.abc import Iterator
 
 import dockerfiles
 import pytest
@@ -88,6 +89,20 @@ def _snapshot(directory: pathlib.Path) -> dict[str, bytes]:
     return {p.name: p.read_bytes() for p in sorted(directory.iterdir()) if p.is_file()}
 
 
+@pytest.fixture
+def checkout_extra_ca() -> Iterator[dict[str, bytes]]:
+    """The checkout's `docker/extra-ca/` as it was before the test, for the test to compare with.
+
+    AND THE THROWAWAY REMOVED FROM IT AFTERWARDS, whatever the test concluded: a helper that wrote
+    it there (the mutation that proves the comparison) would otherwise leave a root that every
+    later build on this machine trusts, behind a `.gitignore` that hides it."""
+    before = _snapshot(ROOT / "docker/extra-ca")
+    try:
+        yield before
+    finally:
+        (ROOT / f"docker/extra-ca/{THROWAWAY}.crt").unlink(missing_ok=True)
+
+
 def _build_context(dest: pathlib.Path, pem: str) -> pathlib.Path:
     """A copy of the CLI image's build context in `dest`, with `pem` added to its extra-ca.
 
@@ -137,11 +152,11 @@ def _in_image(tag: str, entrypoint: str, *args: str) -> str:
     return ran.stdout.strip()
 
 
-def test_the_build_context_is_a_copy_and_the_checkouts_extra_ca_is_left_as_it_was(tmp_path):
+def test_the_build_context_is_a_copy_and_the_checkouts_extra_ca_is_left_as_it_was(
+        tmp_path, checkout_extra_ca):
     """The guard's own hygiene, without docker: a PEM written into the checkout would be trusted by
     every later build on this machine, and `.gitignore` would hide it."""
-    extra_ca = ROOT / "docker/extra-ca"
-    before = _snapshot(extra_ca)
+    extra_ca, before = ROOT / "docker/extra-ca", checkout_extra_ca
 
     context = _build_context(tmp_path / "ctx", "-----BEGIN CERTIFICATE-----\nY29ycA==\n"
                                                "-----END CERTIFICATE-----\n")
@@ -158,11 +173,10 @@ def test_the_build_context_is_a_copy_and_the_checkouts_extra_ca_is_left_as_it_wa
 @pytest.mark.slow
 @pytest.mark.xdist_group("docker")
 @pytest.mark.skipif(not _a_daemon_answers(), reason="no Docker daemon answers here")
-def test_the_cli_image_builds_with_a_throwaway_root_and_pip_trusts_it(tmp_path):
+def test_the_cli_image_builds_with_a_throwaway_root_and_pip_trusts_it(tmp_path, checkout_extra_ca):
     """Criteria 1 and 4: the build succeeds with a root present, and the file pip is pointed at
     holds that root beside the system's."""
-    extra_ca = ROOT / "docker/extra-ca"
-    before = _snapshot(extra_ca)
+    extra_ca, before = ROOT / "docker/extra-ca", checkout_extra_ca
     context = _build_context(tmp_path / "ctx", _throwaway_root(tmp_path))
     for image, _stage in dockerfiles.froms(ROOT / DOCKERFILE):
         _pull_or_skip(image)
