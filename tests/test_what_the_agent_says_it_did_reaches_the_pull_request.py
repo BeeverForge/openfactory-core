@@ -373,6 +373,36 @@ def test_a_reference_link_the_agent_defines_still_shows_its_address():
     assert "https://x.test/runs/a_b" in re.sub(r'href="[^"]*"', "", html), html
 
 
+@pytest.mark.parametrize("said", ["see https://x.test/a`@someone` here", "https://x.test/a\\`@someone"])
+def test_a_backtick_in_a_link_the_agent_writes_never_closes_its_span(said: str):
+    """Review on 3c6d12c: a bare link's span admitting the agent's backtick survived every test.
+    The backtick would then close the platform's span early and leave the name after it read."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    for text in ("\n".join(machine._quoted(said)),
+                 "> - adjust — " + machine._pass_words(AgentRunResult(ok=True, summary=said))):
+        html = markdown_it.MarkdownIt("commonmark").render(text)
+        assert "@someone" not in re.sub(r"<code>.*?</code>", "", html, flags=re.S), html
+
+
+@pytest.mark.parametrize("said", ["- x\n\t## y", "1. x\n\t# y", "- x\n\t---"])
+def test_no_line_tab_indented_in_the_agents_list_renders_as_a_heading(said: str):
+    """Review on 3c6d12c: a heading escape that saw only spaces before the marker survived every
+    test, and `- x` then `\\t## y` renders an `<h2>` inside the agent's list item."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert not re.search(r"<h[1-6]>", html), html
+
+
+def test_a_cut_never_leaves_a_tab_indented_underline_under_the_agents_list_item():
+    """Review on 3c6d12c: the same for a cut row, `\\t=========` under the agent's list item."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    said = "- " + "a" * 1983 + "\n\t" + "=" * 9 + "xxxxx"
+    q = machine._quoted(said)
+    lines = machine._account_lines(machine._Account(quote=q, total=machine._quote_chars(q)))
+    assert any("characters; the first" in r for r in lines), lines
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(lines[1:]))
+    assert not re.search(r"<h[1-6]>", html), html
+
 def test_a_cut_never_leaves_an_indented_underline_under_the_agents_list_item():
     """Review on be48a54: a cut row `     =====` under the agent's list item is an underline too."""
     markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")

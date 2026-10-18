@@ -493,8 +493,10 @@ _A_HEADING = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+)*)(#|>|[=-](?=[=-]*
 _AN_UNDERLINE = re.compile(r"[ \t]*[=-]+\s*$")
 #: A bare link, which GitHub's autolinker reads from the RAW source: an escape inside it goes into
 #: the address (`test%5C_a.py`, review on be48a54). Not a markdown link's destination, where
-#: CommonMark reads the escapes; and ending before trailing punctuation, as the autolinker does.
-_A_URL = re.compile(r"(?<!\]\()(?<![\w/])((?:https?://|www\.)[^\s`<>\\]*[^\s`<>\\.,;:!?'\")\]])")
+#: CommonMark reads the escapes. It ends before a trailing `.,;:!?'")]`, which stays outside the
+#: span as text; where the autolinker would keep a balanced `)` (`…/wiki/Foo_(bar)`) the span
+#: ends before it, and the reader sees the same characters, in code, and no link either way.
+_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\]*[^\s`<>\\.,;:!?'\")\]])")
 #: A markdown link to an address, whole: its text is neutralised, its destination kept as
 #: written, with the spaces CommonMark allows around it. In the destination a wrapped `@octocat`
 #: went into the href as `%60@octocat%60` and a `#12` rewritten `card 12` broke the link; the
