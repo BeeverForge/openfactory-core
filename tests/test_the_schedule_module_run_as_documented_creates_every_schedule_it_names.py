@@ -31,28 +31,15 @@ ROOT = Path(__file__).resolve().parents[1]
 ENABLED, DISABLED = "acme-on", "acme-off"
 
 
-class _AlreadyThere:
-    """The update branch of a schedule that exists: `handle.update(fn)` is all `main()` calls."""
-
-    def __init__(self, sid: str, updated: list[str]) -> None:
-        self._sid, self._updated = sid, updated
-
-    async def update(self, _fn) -> None:
-        self._updated.append(self._sid)
-
-
 class _Engine:
-    """A client that records the schedule ids it was asked to create, and nothing else."""
+    """A client on which no schedule exists yet: it records the ids it was asked to create. The
+    test of a second run replaces both methods, so that every schedule already exists."""
 
     def __init__(self) -> None:
         self.created: list[str] = []
-        self.updated: list[str] = []
 
     async def create_schedule(self, sid: str, _schedule) -> None:
         self.created.append(sid)
-
-    def get_schedule_handle(self, sid: str) -> _AlreadyThere:
-        return _AlreadyThere(sid, self.updated)
 
 
 @pytest.fixture
@@ -115,6 +102,43 @@ def test_running_the_module_as_documented_creates_the_poller_and_every_per_proje
         f"unexpected {sorted(set(engine.created) - expected)}")
     assert not [sid for sid in engine.created if DISABLED in sid], (
         f"a disabled project without the product module got a schedule: {engine.created}")
+
+
+def test_running_the_module_again_updates_every_schedule_it_created_at_the_interval_asked(engine):
+    """C1, run a second time: when every schedule already exists, the same command updates each
+    one, the poller to the `--every-minutes` it was given, and creates none (the module docstring's
+    "create/refresh"). Until review round 1 of #744 no test reached this branch: replacing the
+    poller's `handle.update(...)` with `pass`, or hard-coding `_schedule(5, ...)`, left the suite
+    green (measured 2026-10-18)."""
+    from datetime import timedelta
+
+    from temporalio.client import ScheduleAlreadyRunningError
+
+    seen: dict[str, object] = {}
+
+    async def _exists(_sid, _schedule):
+        raise ScheduleAlreadyRunningError()
+
+    class _Handle:
+        def __init__(self, sid):
+            self._sid = sid
+
+        async def update(self, fn):
+            seen[self._sid] = fn(None).schedule
+
+    engine.create_schedule = _exists
+    engine.get_schedule_handle = _Handle
+    ran = runpy.run_module(MODULE, run_name="__main__")
+
+    expected = {
+        ran["SCHEDULE_ID"],
+        f"{ran['WATCH_SCHEDULE_PREFIX']}-{ENABLED}",
+        f"{ran['PRODUCT_SCHEDULE_PREFIX']}-{ENABLED}",
+        f"{ran['OKF_SCHEDULE_PREFIX']}-{ENABLED}",
+        f"{ran['CARD_QUESTION_SCHEDULE_PREFIX']}-{ENABLED}",
+    }
+    assert set(seen) == expected, sorted(set(seen) ^ expected)
+    assert seen[ran["SCHEDULE_ID"]].spec.intervals[0].every == timedelta(minutes=3)
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
