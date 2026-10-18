@@ -36,6 +36,7 @@ it was verified against the code mounted for that source this turn — the check
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -44,9 +45,34 @@ from pathlib import Path
 
 log = logging.getLogger("openfactory.product")
 
-#: How many sources are brought up at once for one turn. Each is one git process talking to one
-#: forge; eight keeps a large product's first turn short without opening a connection per service.
-PARALLEL = 8
+#: How many sources are brought up at once when the operator does not say. Each is one git process
+#: talking to one forge; eight keeps a large product's first turn short without opening a connection
+#: per service. THE OPERATOR'S, NOT A CONSTANT (#369): at a few hundred sources eight is the bound
+#: that decides how long a first turn waits, and only the deployment knows what its forge and its
+#: machine take — `OPENFACTORY_SOURCES_PARALLEL`, read by `parallel()`.
+DEFAULT_PARALLEL = 8
+#: The unreadable values this process has already said, so a turn does not repeat the warning.
+_PARALLEL_SAID: set[str] = set()
+
+
+def parallel() -> int:
+    """`OPENFACTORY_SOURCES_PARALLEL`, else `DEFAULT_PARALLEL`. READ WHEN THE SOURCES ARE BROUGHT
+    UP, never at import (#185). A value that is not a positive number is the default, said once in
+    the log: a bound nobody can read must not become no bound, nor one source at a time."""
+    raw = (os.environ.get("OPENFACTORY_SOURCES_PARALLEL") or "").strip()
+    if not raw:
+        return DEFAULT_PARALLEL
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        if raw not in _PARALLEL_SAID:
+            _PARALLEL_SAID.add(raw)
+            log.warning("OPENFACTORY_SOURCES_PARALLEL=%r is not a positive number — %d sources "
+                        "are brought up at once", raw, DEFAULT_PARALLEL)
+        return DEFAULT_PARALLEL
+    return value
 
 # ── why a source is not mounted: said in the prompt, and nothing else is ───────────────────────
 
@@ -201,7 +227,7 @@ def check_out(own_repo: str, found: Declared,
                         type(exc).__name__)
             return Checkout(why=NOT_CHECKED_OUT)
 
-    with ThreadPoolExecutor(max_workers=min(PARALLEL, len(found.sources)),
+    with ThreadPoolExecutor(max_workers=min(parallel(), len(found.sources)),
                             thread_name_prefix="product-source") as pool:
         results = list(pool.map(one, found.sources))
     for (coordinate, _), got in zip(found.sources, results, strict=True):
@@ -286,6 +312,6 @@ def module_map(docs_root, repo: str, code: Path) -> tuple[Path | None, str]:
     return home / MODULES_FILE, ""
 
 
-__all__ = ["MAP_STALE", "NOT_AUTHORISED", "NOT_DECLARED", "NOT_FOUND", "NO_MAP", "UNREACHABLE",
-           "Checkout", "Checkouts", "Declared", "Mount", "bundle_home", "check_out", "declared",
-           "module_map", "why_not"]
+__all__ = ["DEFAULT_PARALLEL", "MAP_STALE", "NOT_AUTHORISED", "NOT_DECLARED", "NOT_FOUND",
+           "NO_MAP", "UNREACHABLE", "Checkout", "Checkouts", "Declared", "Mount", "bundle_home",
+           "check_out", "declared", "module_map", "parallel", "why_not"]

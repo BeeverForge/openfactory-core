@@ -167,6 +167,11 @@ _CACHES = {
     ("openfactory/runtime/repo_cache.py", "_LINKLESS_ROOTS"):
         "one per cache root this process serves — the deployment's `OPENFACTORY_REPO_CACHE` and "
         "the roots tests hand in; bounded by the environment, never by traffic",
+    # #369 — the unreadable values of the sources' two settings this process has said, so the
+    # warning is one line and not one per turn.
+    ("openfactory/product/sources.py", "_PARALLEL_SAID"):
+        "one per unreadable value of `OPENFACTORY_SOURCES_PARALLEL` — bounded by the environment, "
+        "never by traffic",
     # #373 — one refresh machinery per machine identity the registry declares.
     ("openfactory/adapters/azure_devops.py", "_WORKLOAD"):
         "one per identity client id a registry axis declares (the machine's own under '') — "
