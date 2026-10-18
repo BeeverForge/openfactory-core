@@ -31,4 +31,5 @@ work — real, valuable, and yours to FINISH, not redo.
   workflow change for a human; never edit those files.
 - Your final message: what (if anything) you cut, what you finished, what was already done —
   about the CODE, never about pushing or credentials. It is published as one line under
-  `## What the agent says it did` on the pull request, cut at 200 characters.
+  `## What the agent says it did` on the pull request, cut at 200 characters. Write it as
+  prose: markdown code, HTML and emphasis show literally there.

@@ -56,8 +56,9 @@ Do not write a batch of code and tests at the end; go behaviour by behaviour.
   `## What the agent says it did`, as your own account of the work (no gate checks it, and the
   reviewer is not shown it). So anything the card asks you to report or state in writing — the
   root causes you found, a decision you took, a step a human must do — is answered there, in
-  that message. On a repair or adjust pass only the first 200 characters are shown, on one
-  line: lead with what that pass changed.
+  that message. Write it as prose: markdown code, HTML and emphasis show literally there. On a
+  repair or adjust pass only the first 200 characters are shown, on one line: lead with what
+  that pass changed.
 - **Never touch `.github/workflows/` — CI/CD config is human-only.** Do not create or modify
   any file under `.github/workflows/` (e.g. `ci.yml`). The bot that pushes your work is
   **deliberately** denied permission to change workflows (so an agent can never rewrite its own

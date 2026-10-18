@@ -112,9 +112,10 @@ policy = auto and it's safe) or **hand to humans** (request reviewers + comment 
 
 The body ends, before its `Cost:` line, with **`## What the agent says it did`**: the executor's
 whole final message, quoted and labelled as its claim — no gate checked it and the reviewer was
-not shown it — bounded at 2,000 characters with a line saying when it was cut. It is quoted as
-plain text: its own markdown (code, fences, HTML, headings) shows literally, each `@name` is put in
-a code span so nobody is notified, and each `#N` reads `card N`. Each later pass that
+not shown it — bounded at 2,000 characters with a line saying when it was cut (both lengths
+counted as the reader sees them). Its code, fences, HTML, emphasis and headings show literally,
+as it wrote them (lists and links still render), each `@name` is put in a code span so nobody is
+notified, and each `#N` reads `card N`. Each later pass that
 pushes (a recovery, a gate, suppression or review repair, an adjust, a CI repair) adds one line
 beneath it: its kind, the commit it pushed, and its own words cut at 200 characters; the latest
 ten are listed and the rest counted. On a forge that limits a description's length (Azure Repos),
