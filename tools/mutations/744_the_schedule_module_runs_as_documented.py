@@ -53,8 +53,8 @@ MUTATIONS = [
      "        pass\n",
      C1_AGAIN),
 
-    ("main() ignores --every-minutes and builds the poller at 5 minutes", SCHED,
+    ("main() ignores --every-minutes and builds the poller at the default's 3 minutes", SCHED,
      "    sched = _schedule(args.every_minutes, args.sandbox)",
-     "    sched = _schedule(5, args.sandbox)",
+     "    sched = _schedule(3, args.sandbox)",
      C1_AGAIN),
 ]

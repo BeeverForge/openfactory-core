@@ -104,12 +104,14 @@ def test_running_the_module_as_documented_creates_the_poller_and_every_per_proje
         f"a disabled project without the product module got a schedule: {engine.created}")
 
 
-def test_running_the_module_again_updates_every_schedule_it_created_at_the_interval_asked(engine):
+def test_running_the_module_again_updates_every_schedule_it_created_at_the_interval_asked(
+        engine, monkeypatch):
     """C1, run a second time: when every schedule already exists, the same command updates each
     one, the poller to the `--every-minutes` it was given, and creates none (the module docstring's
     "create/refresh"). Until review round 1 of #744 no test reached this branch: replacing the
     poller's `handle.update(...)` with `pass`, or hard-coding `_schedule(5, ...)`, left the suite
-    green (measured 2026-10-18)."""
+    green (measured 2026-10-18). Until review round 2 it asked for 3, the parser's default, so a
+    `main()` that ignored the flag and built `_schedule(3, ...)` stayed green too."""
     from datetime import timedelta
 
     from temporalio.client import ScheduleAlreadyRunningError
@@ -128,6 +130,8 @@ def test_running_the_module_again_updates_every_schedule_it_created_at_the_inter
 
     engine.create_schedule = _exists
     engine.get_schedule_handle = _Handle
+    # Not the parser's default of 3: a main() that ignores the flag must not pass by coincidence.
+    monkeypatch.setattr(sys, "argv", ["schedule", "--every-minutes", "7"])
     ran = runpy.run_module(MODULE, run_name="__main__")
 
     expected = {
@@ -138,7 +142,7 @@ def test_running_the_module_again_updates_every_schedule_it_created_at_the_inter
         f"{ran['CARD_QUESTION_SCHEDULE_PREFIX']}-{ENABLED}",
     }
     assert set(seen) == expected, sorted(set(seen) ^ expected)
-    assert seen[ran["SCHEDULE_ID"]].spec.intervals[0].every == timedelta(minutes=3)
+    assert seen[ran["SCHEDULE_ID"]].spec.intervals[0].every == timedelta(minutes=7)
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
