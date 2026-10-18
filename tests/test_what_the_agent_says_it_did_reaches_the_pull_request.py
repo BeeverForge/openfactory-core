@@ -247,6 +247,7 @@ def test_a_mention_the_agent_writes_notifies_nobody(repo: Path, tmp_path: Path):
     # review on 35a1cc0: no test held the `&` escape, and GitHub decodes both to a linked name
     "the entity &#x40;someone here",
     "the entity &commat;someone here",
+    "see https://x.test/@someone/a_b here",                  # a name inside a link the agent writes
 ])
 def test_no_mention_the_agent_writes_survives_the_renderer(said: str):
     """Found by review on 9882b73, measured on GitHub's renderer: `_@octocat_` came back as a
@@ -302,6 +303,25 @@ def test_a_quote_the_agent_writes_reads_as_it_wrote_it():
     html = markdown_it.MarkdownIt("commonmark").render(
         "\n".join(machine._quoted("> quoted by the agent")))
     assert html.count("<blockquote>") == 1 and "&gt; quoted by the agent" in html, html
+
+
+@pytest.mark.parametrize("url", ["https://github.com/o/r/blob/main/tests/test_a_b.py",
+                                 "https://github.com/o/r/issues?q=is%3Aopen&label=bug",
+                                 "http://example.com/~user/a*b", "www.example.com/x_y",
+                                 "https://example.com/page#12"])
+def test_a_link_the_agent_writes_reaches_the_autolinker_as_it_wrote_it(url: str):
+    """Found by review on be48a54, measured on GitHub: its autolink extension reads the raw source,
+    so an escape inside a bare URL went into the href (`test%5C_a%5C_b.py`) and the link opened
+    another page. And a `#12` in one must not be rewritten `card 12` either."""
+    (row,) = machine._quoted(f"see {url} for it")
+    assert url in row, row
+
+
+def test_a_markdown_link_the_agent_writes_still_links_where_it_wrote():
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render(
+        "\n".join(machine._quoted("[the file](https://x.test/tests/test_a_b.py)")))
+    assert '<a href="https://x.test/tests/test_a_b.py">the file</a>' in html, html
 
 
 def test_a_cut_never_leaves_an_indented_underline_under_the_agents_list_item():

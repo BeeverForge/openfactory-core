@@ -490,6 +490,10 @@ _A_HEADING = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+|>\s*)*)(#|>|[=-](?=
 #: A row the cut shortened to only `=` or `-` underlines the agent's line above it (setext): the
 #: escape above saw the whole row, which was not one.
 _AN_UNDERLINE = re.compile(r"[ \t]*[=-]+\s*$")
+#: A bare link, which GitHub's autolinker reads from the RAW source: an escape inside it goes into
+#: the address (`test%5C_a.py`, review on be48a54). Not a markdown link's destination, where
+#: CommonMark reads the escapes; and ending before trailing punctuation, as the autolinker does.
+_A_URL = re.compile(r"(?<!\]\()(?<![\w/])((?:https?://|www\.)[^\s`<>\\]*[^\s`<>\\.,;:!?'\")\]])")
 
 
 def _neutralised(text: str) -> str:
@@ -503,11 +507,16 @@ def _neutralised(text: str) -> str:
     begins, and how an entity decodes: review on 9882b73 found two shapes GitHub linked, and fuzzing
     the paragraph-level repair against CommonMark kept finding more. A heading marker is escaped
     too, so no line of the agent's renders as a section heading, and so are the emphasis markers,
-    so its `Worker.__init__` reads as it wrote it. The price is that the agent's inline code,
-    fences and HTML read literally, backticks included — this is its claim, quoted, not a
-    document rendered on its behalf; its lists and links still render."""
-    text = _A_HEADING.sub(r"\1\\\2", _MARKUP.sub(r"\\\1", without_mentions(text)))
-    return _A_HANDLE.sub(lambda m: f"`{m.group(0)}`", text)
+    so its `Worker.__init__` reads as it wrote it. A bare link is put in a span of the platform's,
+    verbatim, before anything is rewritten: an escape or a `card` inside it would change where it
+    goes. The price is that the agent's inline code, fences and HTML read literally, backticks
+    included, and a bare link shows as code — this is its claim, quoted, not a document rendered
+    on its behalf; its `-`, `+` and numbered lists and its markdown links still render."""
+    pieces = _A_URL.split(text)
+    text = "".join(f"`{piece}`" if k % 2 else _A_HANDLE.sub(
+        lambda m: f"`{m.group(0)}`", _MARKUP.sub(r"\\\1", without_mentions(piece)))
+        for k, piece in enumerate(pieces))
+    return _A_HEADING.sub(r"\1\\\2", text)
 
 
 def _spans(row: str) -> list[tuple[int, int]]:
