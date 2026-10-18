@@ -103,8 +103,9 @@ _MASTERS_DIRNAME = ".masters"
 _STAGING_DIRNAME = ".staging"
 _TRASH_DIRNAME = ".trash"
 _LOCKS_DIRNAME = ".locks"
-#: Where a sparse key remembers when it was last brought up, and for which branch: the freshness
-#: window of `SparseRepoCache` (#369). Beside the locks, so every process on the root reads it.
+#: Where a sparse key remembers when it was last brought up, for which branch and over which
+#: commit: the freshness window of `SparseRepoCache` (#369). Beside the locks, so every process on
+#: the root reads it.
 _FRESH_DIRNAME = ".fresh"
 
 
@@ -160,6 +161,40 @@ def _git(args: list[str], cwd: Path | None = None,
 def _head(path: Path) -> str:
     rc, out = _git(["rev-parse", "HEAD"], cwd=path)
     return out.strip() if rc == 0 else ""
+
+
+def _head_as_file(path: Path) -> str:
+    """The commit `path`'s HEAD stands on, read from `.git` as files — no git process — or `""`
+    when it cannot be read that way (no checkout, a ref format this does not know). `""` is never
+    a commit, so a caller comparing two of them never matches on it.
+
+    One symbolic level, as `checkout -B` and `clone --branch` leave HEAD: `ref: refs/heads/<b>`,
+    the ref loose under `.git/` or listed in `packed-refs`."""
+    git_dir = path / ".git"
+    try:
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        if not head.startswith("ref: "):
+            return head if _is_object_name(head) else ""
+        ref = head[len("ref: "):].strip()
+        if not ref.startswith("refs/") or ".." in ref.split("/"):
+            return ""
+        try:
+            loose = (git_dir / ref).read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            loose = ""
+        if loose:
+            return loose if _is_object_name(loose) else ""
+        for line in (git_dir / "packed-refs").read_text(encoding="utf-8").splitlines():
+            name, _, listed = line.partition(" ")
+            if listed.strip() == ref and _is_object_name(name):
+                return name
+    except OSError:
+        pass
+    return ""
+
+
+def _is_object_name(text: str) -> bool:
+    return len(text) in (40, 64) and all(c in "0123456789abcdef" for c in text)
 
 
 def _worktree_dirty(path: Path) -> bool:
@@ -590,7 +625,8 @@ class SparseRepoCache(RepoCache):
     INSIDE THE WINDOW IT COSTS NOTHING (#369). One question per source is still N round trips per
     message. With `fresh_for` above 0, a key brought up for the same branch less than `fresh_for`
     seconds ago, its served tree still there, is served again without starting any git process.
-    The stamp under `.fresh/` says when and for which branch, and what the cone left out. Measured
+    The stamp under `.fresh/` says when, for which branch and over which commit, and what the cone
+    left out; one that cannot be written or removed costs the window, never the source. Measured
     at 40 sources with nothing moved: 119 git processes per turn instead of 439, and 2 round trips
     instead of 42, both of them the context repository's. The default is 0, so only a caller that
     asks for a window gets one: the product role does, the system layer's refresh does not.
@@ -623,10 +659,10 @@ class SparseRepoCache(RepoCache):
                         return served
                     # WITHDRAWN BEFORE THE MASTER IS TOUCHED: a sync that dies half-way must not
                     # leave the last good sync's window open over a master that moved since
-                    self._stamp(project).unlink(missing_ok=True)
+                    self._withdraw_fresh(project)
                     got = self._sync_sparse(project, public, base_branch, env)
                     if got is not None:
-                        self._remember_fresh(project, base_branch)
+                        self._remember_fresh(project, base_branch, got)
                     return got
                 finally:
                     self._purge_displaced()   # whether or not this sync succeeded (`RepoCache`)
@@ -636,6 +672,21 @@ class SparseRepoCache(RepoCache):
     def _stamp(self, project: str) -> Path:
         return self.root / _FRESH_DIRNAME / f"{project}.json"
 
+    def _withdraw_fresh(self, project: str) -> None:
+        """Remove `project`'s stamp, or say in the log that it could not.
+
+        A STAMP THAT CANNOT BE REMOVED COSTS THE WINDOW, NOT THE SOURCE. A `.fresh/` turned
+        read-only after a stamp was written (another uid on the volume, a remount) raised
+        `PermissionError` here, and every later sync of the key returned None — read by the prompt
+        as "not authorised", with `=0` too (review of #369, measured 2026-10-18). The stamp left
+        behind is harmless: `_fresh` trusts it only over the commit it was written for, and the
+        sync goes on, so the source is served and only the window is lost."""
+        try:
+            self._stamp(project).unlink(missing_ok=True)
+        except OSError as exc:
+            log.info("OPENFACTORY_CACHE: %s is served without a freshness window (%s)", project,
+                     _one_reason(exc))
+
     def _fresh(self, project: str, base_branch: str, served: Path) -> bool:
         """Whether `project` was brought up for this same ask less than `fresh_for` seconds ago and
         its served tree is still there — and if so, what that sync's cone left out, read back.
@@ -643,7 +694,12 @@ class SparseRepoCache(RepoCache):
         ON DISK UNDER THE ROOT, NOT IN MEMORY: a cache is built afresh per source per turn, and the
         panel and the worker are two processes on one root (`_key_lock`), so a window in memory
         would be per process and lost on every restart. Read under the key's lock, so it never
-        sees a master another sync is half-way through changing."""
+        sees a master another sync is half-way through changing.
+
+        AND OVER THE COMMIT IT WAS WRITTEN FOR. A stamp that could not be withdrawn outlives the
+        syncs after it: `main` at T0, `develop` at T0+1 over the same key, and `main` at T0+2
+        would have been served develop's tree from main's window. The served tree's HEAD is read
+        as a file (`_head_as_file`), because this path starts no git process."""
         if self.fresh_for <= 0:
             return False
         now = (self._clock or _now)()
@@ -653,17 +709,18 @@ class SparseRepoCache(RepoCache):
             left_out = [str(d) for d in stamp["left_out"]]
             partial = bool(stamp["partial"])
             if not (stamp["asked"] == base_branch and 0 <= age < self.fresh_for
-                    and (served / ".git").exists()):
+                    and stamp["head"] and stamp["head"] == _head_as_file(served)):
                 return False
         except (OSError, ValueError, KeyError, TypeError):
             return False
         self.left_out, self.partial = left_out, partial
         return True
 
-    def _remember_fresh(self, project: str, base_branch: str) -> None:
-        """Open the window: written AFTER the publish, with what THIS sync computed, so the fresh
-        path never reads a master. A stamp that cannot be written costs the window and nothing
-        else — the next turn asks the forge, as it did before there was a window."""
+    def _remember_fresh(self, project: str, base_branch: str, served: Path) -> None:
+        """Open the window: written AFTER the publish, with what THIS sync computed and the commit
+        it served, so the fresh path never reads a master. A stamp that cannot be written costs
+        the window and nothing else — the next turn asks the forge, as it did before there was a
+        window."""
         if self.fresh_for <= 0:
             return
         stamp = self._stamp(project)
@@ -671,6 +728,7 @@ class SparseRepoCache(RepoCache):
         try:
             stamp.parent.mkdir(parents=True, exist_ok=True)
             part.write_text(json.dumps({"at": (self._clock or _now)(), "asked": base_branch,
+                                        "head": _head_as_file(served),
                                         "left_out": self.left_out, "partial": self.partial}),
                             encoding="utf-8")
             os.replace(part, stamp)

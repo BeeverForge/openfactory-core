@@ -15,7 +15,8 @@ What is pinned, against real git over `file://` and a clock the test holds (no s
   4. a stamp from the future (a clock that went back, a skewed volume) opens no window;
   5. a window of zero asks every time, and the window is kept per branch asked for;
   6. a served tree that is gone is brought up again, window or not, and a root where no stamp
-     can be written serves the source and only loses the window;
+     can be written, or removed, serves the source and only loses the window — a stamp left
+     behind is trusted only over the commit it was written for;
   7. the window is the operator's, `OPENFACTORY_SOURCES_FRESH_SECONDS`.
 """
 
@@ -246,6 +247,81 @@ def test_a_root_where_no_window_can_be_written_still_serves_and_asks_the_forge_n
     assert again == served
     assert git_calls.get("ls-remote") == 1, git_calls
     assert list(fresh.iterdir()) == [], "a half-written stamp was left behind"
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root removes a file from a read-only directory, so nothing is refused")
+def test_a_stamp_that_cannot_be_withdrawn_costs_the_window_and_never_the_source(
+        tmp_path, origin, clock, git_calls):
+    """A stamp written, then a root that turned read-only (another uid on the volume, a remount):
+    the sync after the window still serves, and asks the forge.
+
+    It failed every later sync of the key before: the withdrawal raised `PermissionError`, the
+    sync returned None, and the prompt called the source "not authorised" — with `=0` too, which
+    is the documented way out (review of #369, measured 2026-10-18 on git 2.43.0)."""
+    url = f"file://{origin}"
+    _, served = _sync(tmp_path, clock, T0, url)
+    fresh = tmp_path / "cache" / repo_cache._FRESH_DIRNAME
+    assert served is not None and list(fresh.iterdir()), "the first sync opened no window"
+    fresh.chmod(0o500)
+    try:
+        git_calls.clear()
+        _, again = _sync(tmp_path, clock, T0 + 61, url)
+    finally:
+        fresh.chmod(0o700)
+
+    assert again == served and (again / "lib" / "core.py").read_text() == "ANSWER = 1\n"
+    assert git_calls.get("ls-remote") == 1, git_calls
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root removes a file from a read-only directory, so nothing is refused")
+def test_a_stamp_that_could_not_be_withdrawn_never_serves_the_tree_another_sync_put_there(
+        tmp_path, origin, clock):
+    """`main` at T0 opens a window whose stamp then cannot be removed; `develop` at T0+1 serves
+    develop's tree over the same key; `main` at T0+2 finds a stamp for `main`, inside the window,
+    over a tree that is develop's. The stamp names the commit it was written for, and a served
+    tree on another commit is not the one it describes."""
+    url = f"file://{origin}"
+    _sync(tmp_path, clock, T0, url, "main")
+    fresh = tmp_path / "cache" / repo_cache._FRESH_DIRNAME
+    fresh.chmod(0o500)
+    try:
+        _, other = _sync(tmp_path, clock, T0 + 1, url, "develop")
+        assert other is not None, "a stamp that could not be withdrawn failed the sync"
+        assert (other / "lib" / "core.py").read_text() == "ANSWER = 2  # develop\n"
+
+        _, back = _sync(tmp_path, clock, T0 + 2, url, "main")
+    finally:
+        fresh.chmod(0o700)
+
+    assert back is not None and (back / "lib" / "core.py").read_text() == "ANSWER = 1\n"
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root removes a file from a read-only directory, so nothing is refused")
+def test_a_stamp_that_could_not_be_withdrawn_is_not_trusted_over_a_commit_served_after_it(
+        tmp_path, origin, clock, git_calls):
+    """Same branch, another commit: a sync with no window (the system layer's refresh) brings up
+    a commit pushed after the stamp, which it cannot remove. The window then names a commit the
+    served tree no longer stands on — what its cone left out may not be this tree's — and the
+    forge is asked. The stamp holds the commit, not the branch HEAD points at."""
+    url = f"file://{origin}"
+    _sync(tmp_path, clock, T0, url)
+    (origin / "lib" / "core.py").write_text("ANSWER = 3\n")
+    _commit(origin, "moved inside the window")
+    fresh = tmp_path / "cache" / repo_cache._FRESH_DIRNAME
+    fresh.chmod(0o500)
+    try:
+        _, moved = _sync(tmp_path, clock, T0 + 10, url, fresh_for=0)
+        assert moved is not None and (moved / "lib" / "core.py").read_text() == "ANSWER = 3\n"
+        git_calls.clear()
+
+        _sync(tmp_path, clock, T0 + 20, url)
+    finally:
+        fresh.chmod(0o700)
+
+    assert git_calls.get("ls-remote") == 1, git_calls
 
 
 # ── the window is the operator's ───────────────────────────────────────────────────────────────

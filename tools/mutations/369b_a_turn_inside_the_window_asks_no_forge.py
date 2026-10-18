@@ -8,12 +8,15 @@ An unmoved source cost one question and no checkout (#372) — still N round tri
 per source. `SparseRepoCache` now keeps a stamp per key under `<root>/.fresh/`, and a sync for the
 same ask inside `fresh_for` seconds, its served tree still there, starts no git process.
 
-Rows 1-7 are the window itself: it opens; a stamp from the future opens none; it is kept per branch
-asked for; it is withdrawn before the master is touched and written only after a sync that served;
-a deleted served tree is brought back inside it; and what the cone left out is read back from it.
-Row 8 is a root where no stamp can be written, which loses the window and nothing else. Row 9 is
-the operator's setting. Row 10 keeps the window out of the system layer's refresh, which publishes
-the map right after a merge; row 11 is the product role's path passing the setting in.
+Rows 1-6 and 9 are the window itself: it opens; a stamp from the future opens none; it is kept
+per branch asked for; it is withdrawn before the master is touched and written only after a sync
+that served; a deleted served tree, or one on another commit than its stamp names, is brought up
+again inside it; and what the cone left out is read back from it. Rows 7-8 are a stamp that cannot
+be removed: the sync goes on, and the stamp left behind is trusted only over the COMMIT it names,
+read from the served tree's `.git` as files — not over the branch HEAD points at. Row 10 is a root
+where no stamp can be written, which loses the window and nothing else. Row 11 is the operator's
+setting. Row 12 keeps the window out of the system layer's refresh, which publishes the map right
+after a merge; row 13 is the product role's path passing the setting in.
 """
 
 TEST = "tests/test_a_source_brought_up_inside_the_window_asks_no_forge.py"
@@ -37,18 +40,30 @@ MUTATIONS = [
 
     ("a sync that died half-way leaves the last good sync's window open over a moved master",
      CACHE,
-     "                    self._stamp(project).unlink(missing_ok=True)\n",
+     "                    self._withdraw_fresh(project)\n",
      "                    pass\n"),
 
     ("a sync that failed opens a window, so 'unreachable' is never asked again inside it", CACHE,
      "                    if got is not None:\n"
-     "                        self._remember_fresh(project, base_branch)\n",
+     "                        self._remember_fresh(project, base_branch, got)\n",
      "                    if True:\n"
-     "                        self._remember_fresh(project, base_branch)\n"),
+     "                        self._remember_fresh(project, base_branch, got or served)\n"),
 
-    ("a served tree that is gone is never brought back while the window holds", CACHE,
-     "                    and (served / \".git\").exists()):",
+    ("a served tree that is gone, or stands on another commit than its stamp, is served from the "
+     "window", CACHE,
+     "                    and stamp[\"head\"] and stamp[\"head\"] == _head_as_file(served)):",
      "                    ):"),
+
+    ("a stamp that cannot be removed fails every later sync of its key", CACHE,
+     "            self._stamp(project).unlink(missing_ok=True)\n"
+     "        except OSError as exc:\n",
+     "            self._stamp(project).unlink(missing_ok=True)\n"
+     "        except ZeroDivisionError as exc:\n"),
+
+    ("the stamp names the branch HEAD points at, not the commit, so a stamp left behind is "
+     "trusted over a tree another sync moved", CACHE,
+     "        ref = head[len(\"ref: \"):].strip()\n",
+     "        return head\n"),
 
     ("the window forgets what the cone left out", CACHE,
      "        self.left_out, self.partial = left_out, partial\n",
