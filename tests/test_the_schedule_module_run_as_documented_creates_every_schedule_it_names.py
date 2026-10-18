@@ -11,12 +11,14 @@ created by the command documented to create them. The worker never showed it: it
 whole module before it calls `ensure_all` (reported by hermes-felipe, issue #744).
 
 Nothing ran the module as a script before this file, although `test_schedules_are_reachable.py`
-counted `main` as reachable "by the module being runnable". The test runs it the way `-m` does and
-reads which schedules reached the engine.
+counted `main` as reachable "by the module being runnable". The first test runs it the way `-m`
+does and reads which schedules reached the engine; the second parses every module in the package
+and holds each `__main__` block as its module's last statement.
 """
 
 from __future__ import annotations
 
+import ast
 import runpy
 import sys
 from pathlib import Path
@@ -114,3 +116,52 @@ def test_running_the_module_as_documented_creates_the_poller_and_every_per_proje
     assert not [sid for sid in engine.created if DISABLED in sid], (
         f"a disabled project without the product module got a schedule: {engine.created}")
 
+
+def _is_main_guard(node: ast.stmt) -> bool:
+    """`if __name__ == "__main__":`, read from the parsed test, in either operand order."""
+    if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
+        return False
+    test = node.test
+    if len(test.ops) != 1 or not isinstance(test.ops[0], ast.Eq):
+        return False
+    sides = [test.left, *test.comparators]
+    return (any(isinstance(s, ast.Name) and s.id == "__name__" for s in sides)
+            and any(isinstance(s, ast.Constant) and s.value == "__main__" for s in sides))
+
+
+def _defined_by(node: ast.stmt) -> str:
+    """The name a top-level statement binds, for the failure message; else its kind."""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return node.name
+    if isinstance(node, ast.Assign | ast.AnnAssign):
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        return ", ".join(ast.unparse(t) for t in targets)
+    return type(node).__name__
+
+
+def _sources() -> list[Path]:
+    files = sorted((ROOT / "openfactory").rglob("*.py"))
+    addons = ROOT / "addons"
+    if addons.is_dir():
+        files += sorted(addons.glob("*/**/*.py"))
+    return files
+
+
+def test_the_main_block_is_the_last_statement_of_every_module_that_has_one():
+    """C2: a `__main__` block is its module's last top-level statement, so `python -m` runs it
+    after every `def` it may call. On c0a50f3 `schedule.py`'s block was at line 300 with ten
+    statements after it, and the documented command died with `NameError`."""
+    found, late = 0, []
+    for path in _sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for index, node in enumerate(tree.body):
+            if not _is_main_guard(node):
+                continue
+            found += 1
+            after = tree.body[index + 1:]
+            if after:
+                late.append(f"{path.relative_to(ROOT)}: line {node.lineno}, followed by "
+                            + ", ".join(_defined_by(n) for n in after))
+    assert found, "no `if __name__ == \"__main__\"` block found: the walk read nothing"
+    assert not late, "a __main__ block runs before the rest of its module is defined:\n" + \
+        "\n".join(late)
