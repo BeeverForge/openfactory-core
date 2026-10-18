@@ -58,9 +58,10 @@ MUTATIONS = [
     # doctor asks: the login consulted before the stored secret is the same cut, made there.
     ("the row is asked even when a static token already answered, spawning `az` on a PAT",
      "openfactory/adapters/azure_devops.py",
-     "    if (os.environ.get(name) or \"\").strip():\n        return f\"env:{name}\"",
-     "    if az_token() is None and (os.environ.get(name) or \"\").strip():\n"
-     "        return f\"env:{name}\""),
+     # re-pinned 2026-10-18 (#742): the stored secret is a reference the credential store answers
+     "    if (value or \"\").strip():\n        return found, ",
+     "    if az_token() is None and (value or \"\").strip():\n"
+     "        return found, "),
 
     # re-pinned 2026-09-19: the remedy is the Azure credential row's own `when_missing` now —
     # the doctor chose it by finding the kind inside its probe's sentence — and the same cut

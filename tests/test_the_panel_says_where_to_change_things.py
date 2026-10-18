@@ -129,9 +129,10 @@ def test_what_the_panel_REPORTS_is_what_the_harness_will_USE(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-x")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
 
+    # read through the credential store since #742, in the same order
     src = inspect.getsource(claude_code)
-    oauth_at = src.index('os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")')
-    apikey_at = src.index('os.environ.get("ANTHROPIC_API_KEY")')
+    oauth_at = src.index('stored("CLAUDE_CODE_OAUTH_TOKEN")')
+    apikey_at = src.index('stored("ANTHROPIC_API_KEY")')
 
     assert oauth_at < apikey_at, (
         "the adapter no longer prefers the subscription — the panel's answer is now wrong")

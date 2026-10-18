@@ -337,6 +337,9 @@ PROBES = {
     # The preview runtime (#265): a stranger's row is `(PreviewTraits, factory)`, as the box's is.
     "preview": lambda p: __import__("openfactory.adapters.preview.registry", fromlist=["x"])
     .build_runtime("acme"),
+    # #742: a stranger's credential store — a vault of its own, named `acme:<name>`.
+    "credential_store": lambda p: __import__("openfactory.adapters.credential_store.registry",
+                                             fromlist=["x"]).build_store("acme"),
 }
 
 

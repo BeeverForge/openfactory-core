@@ -107,7 +107,9 @@ def names_read(root: Path | None = None) -> frozenset[str]:
          how the vendor-default credentials are spelled; `__all__` is a list of exports and is
          skipped;
       3. a literal handed to a function that reads ITS PARAMETER from the environment
-         (`_resolve_token(configured, "SLACK_BOT_TOKEN")`), found by name across the package;
+         (`_resolve_token(configured, "SLACK_BOT_TOKEN")`), found by name across the package —
+         or a module-level name bound to one, which is how a module hands the credential store
+         the variable it used to read itself (`stored(VARIABLE)`, #742);
       4. a literal bound to a module-level name that a read in the same module uses
          (`ENDPOINT_OVERRIDE = "…"; e.get(ENDPOINT_OVERRIDE)`).
 
@@ -159,7 +161,7 @@ def names_read(root: Path | None = None) -> frozenset[str]:
                 if all(found):
                     names.update(found)                                            # shape 2
             if isinstance(node, ast.Call) and _callee(node) in readers:
-                names.update(_env_shaped(a) for a in node.args)                    # shape 3
+                names.update(_key_of(a, bound) for a in node.args)                 # shape 3
     names.discard(None)
     return frozenset(names)
 

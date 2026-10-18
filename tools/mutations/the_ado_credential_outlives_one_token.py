@@ -25,8 +25,9 @@ MUTATIONS = [
     ("the mint outranks the PAT, so a service user's credential is ignored in favour of whichever "
      "human happens to be logged in — and every call spawns a subprocess",
      "openfactory/adapters/azure_devops.py",
-     "    if (os.environ.get(name) or \"\").strip():\n        return f\"env:{name}\"",
-     "    if az_token() is None and (os.environ.get(name) or \"\").strip():\n        return f\"env:{name}\""),
+     # re-pinned 2026-10-18 (#742): the stored secret is a reference the credential store answers
+     "    if (value or \"\").strip():\n        return found, ",
+     "    if az_token() is None and (value or \"\").strip():\n        return found, "),
 
     ("no fallback at all — the defect exactly as it shipped: the variable is re-read forever and "
      "a worker that started with a JWT needs restarting once an hour",

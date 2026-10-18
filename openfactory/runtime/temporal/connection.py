@@ -84,10 +84,14 @@ def namespace() -> str:
 
 
 def _auth() -> dict:
-    api_key = os.environ.get("TEMPORAL_API_KEY")
+    # THE ENGINE'S CREDENTIALS ARE DEPLOYMENT CREDENTIALS (#742), read through the credential store
+    # like every other: an API key mounted as a file is the one the client presents.
+    from openfactory.adapters.credential_store.registry import stored
+
+    api_key = stored("TEMPORAL_API_KEY")
     if api_key:  # Temporal Cloud API-key auth (TLS required)
         return {"api_key": api_key, "tls": True}
-    cert, key = os.environ.get("TEMPORAL_TLS_CERT"), os.environ.get("TEMPORAL_TLS_KEY")
+    cert, key = os.environ.get("TEMPORAL_TLS_CERT"), stored("TEMPORAL_TLS_KEY")
     if cert and key:  # classic mTLS client cert
         return {
             "tls": TLSConfig(
@@ -161,10 +165,12 @@ def fingerprint() -> tuple[str, str, str]:
     failure-sharing path reports it once to every caller queued behind it, rather than from a key
     computation that has no sentence to say about it.
     """
+    from openfactory.adapters.credential_store.registry import stored
+
     cert = os.environ.get("TEMPORAL_TLS_CERT") or ""
-    key = os.environ.get("TEMPORAL_TLS_KEY") or ""
+    key = stored("TEMPORAL_TLS_KEY") or ""
     material = "\x00".join((
-        "api_key", os.environ.get("TEMPORAL_API_KEY") or "",
+        "api_key", stored("TEMPORAL_API_KEY") or "",
         "tls_cert", cert, _contents(cert),
         "tls_key", key, _contents(key),
     ))

@@ -1242,8 +1242,18 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
         locally
         by our own compose file and therefore in no registry at all — which is also every adopter
         who builds their own. The question is "can this deployment obtain the image", and already
-        having it is a yes."""
-        pulled = _sh(["docker", "pull", "--quiet", img], timeout=900)[0] == 0
+        having it is a yes.
+
+        WITH THE PROJECT'S PULL CREDENTIAL when its registry entry names one (#742): resolved
+        through the credential store for this pull, in a configuration of its own, so the proof
+        obtains the image the way a job will, and the login is kept by nobody afterwards."""
+        from openfactory.adapters.sandbox.pull import pull, pull_credential_of
+
+        credential = pull_credential_of(getattr(project, "box", None))
+        if credential is not None:
+            pulled = pull(img, credential)[0]
+        else:
+            pulled = _sh(["docker", "pull", "--quiet", img], timeout=900)[0] == 0
         if not pulled and _sh(["docker", "image", "inspect", img])[0] != 0:
             return None
         rc, out = _sh(["docker", "image", "inspect", "--format",

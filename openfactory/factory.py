@@ -441,6 +441,12 @@ def build_runner(project, issue: str, *, sandbox: str, image: str, review: bool,
     # cannot honour it says so instead of silently not passing what the operator declared.
     if declared_env := tuple(getattr(declared, "env", None) or ()):
         knobs["extra_env"] = declared_env
+    # THE IMAGE'S PULL CREDENTIAL (#742): a reference, forwarded as one and resolved by the box at
+    # the pull. A box that runs no image of its own says it is ignored, like every image knob.
+    from openfactory.adapters.sandbox.pull import pull_credential_of
+
+    if (pull := pull_credential_of(declared)) is not None:
+        knobs["pull_credential"] = pull
     # The harness toolbox (ADR-0037 D2) is a DEPLOYMENT fact, not a project one: it is the same
     # volume for every project on this worker, and a client has no business naming it. Absent →
     # the box mounts nothing and the harness has to be in the image, which is the pre-D2 world and

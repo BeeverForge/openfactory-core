@@ -419,6 +419,11 @@ class Probes:
     #: with zero credentials read "OK — can run a ticket" and failed at the first paid job.
     #: None = an older Probes; the check is skipped rather than invented.
     agent_credential: Callable[[], tuple[bool, str] | tuple[bool, str, str]] | None = None
+    #: `(ok, message, remedy)`: where this deployment's stored secrets are read from — the store it
+    #: declares, then the environment — and every credential reference THIS project names (its
+    #: axes' `token_env`, its box image's pull credential), each by reference and by the store
+    #: that answers, never by value (#742). None = an older Probes; the check is skipped.
+    credential_store: Callable[[], tuple[bool, str, str]] | None = None
     #: What the project's OWN CI runs, as `{key: (command, "path:line")}` — or None when this
     #: deployment cannot look (no checkout, no reader). #176.
     #:
@@ -625,6 +630,9 @@ def diagnose(probes: Probes) -> Report:
         findings.append(_guarded("processes", lambda: _processes(probes)))
     if probes.agent_credential:
         findings.append(_guarded("agent_credential", lambda: _agent_cred(probes)))
+    if probes.credential_store:
+        findings.append(_guarded(
+            "credential_store", lambda: Finding("credential_store", *probes.credential_store())))
     findings.append(_guarded("manifest", lambda: _manifest(probes)))
     findings.append(_guarded("guidelines", lambda: _guidelines(probes)))
     if probes.operator_guidelines:
@@ -2526,17 +2534,21 @@ def probes_for(project) -> Probes:
         # two names, and a deployment on the token pool alone passed here and failed there.
         from openfactory.adapters.agent.registry import harness_credential
         from openfactory.adapters.agent.registry import harness_kind as _hk
+        from openfactory.adapters.credential_store.registry import Stored, stored_answer
 
         kind = _hk(project, "executor")
-        reading = harness_credential(kind, os.environ)
+        # ASKED OF THE CREDENTIAL STORE (#742), the way the harness reads it: a token mounted as a
+        # file is present, and the line says which reference answered.
+        reading = harness_credential(kind, Stored())
         if reading is None:
             return True, (f"presence is not checkable for {kind!r} from here — "
                           f"`openfactory box prove` exercises the real call")
         name, said, repair = reading
         if not name:
             return False, said, repair
-        return True, (f"{name} is present" + (f" — {said}" if said else "")
-                      + " (box prove verifies it works)")
+        answered = stored_answer(name)[0]
+        return True, (f"{name} is present" + (f" ({answered})" if answered else "")
+                      + (f" — {said}" if said else "") + " (box prove verifies it works)")
 
     def _forge() -> tuple[bool, str]:
         from openfactory.adapters.forge.registry import build_forge
@@ -3180,6 +3192,7 @@ def probes_for(project) -> Probes:
         harness_kind=lambda: harness_kind(project, "executor"),
         product_link=lambda: _resolve_link(project),
         agent_credential=_agent_credential_probe,
+        credential_store=lambda: credential_store_line(project),
         # THE SAME READER THE POLLER USES. `_box_gate` above already asks `default_sandbox()` for
         # its question; a second way of deciding which box this is would be a second answer.
         sandbox=_sandbox,
@@ -3197,6 +3210,57 @@ def probes_for(project) -> Probes:
         checkout=_checkout,
         installation_scope=_installation_scope_probe,
     )
+
+
+def credential_store_line(project) -> tuple[bool, str, str]:
+    """`(ok, message, remedy)` for the `credential_store` line (#742): which store this deployment's
+    stored secrets are read from, and each credential reference `project` names, said by its
+    reference and by the store that answers for it — never by its value.
+
+    A REFERENCE THAT CAN NEVER ANSWER IS RED HERE (a store nobody installed, a file the store
+    refuses), and so is a box image pull credential that does not answer, which no other line
+    asks about. One that simply holds nothing is said and left to the line that needs it — the
+    forge's, the board's — which knows what it costs."""
+    from openfactory.adapters.credential_store import registry as store
+    from openfactory.adapters.sandbox.pull import problem as pull_problem
+    from openfactory.adapters.sandbox.pull import pull_credential_of
+
+    first = store.deployment_store()
+    broken = store.unusable(first)
+    if broken:
+        return (False,
+                f"{store.STORE_VAR} declares the `{first}` credential store, and it cannot be "
+                f"read: {broken}",
+                f"fix what it names, or unset {store.STORE_VAR} to read every credential from the "
+                f"environment — until then no credential is read in that store's place")
+    order = ("stored credentials are read from the environment" if first == store.ENV
+             else f"stored credentials are read from the `{first}` store, then from the "
+                  f"environment")
+    named: list[tuple[str, str]] = []
+    for axis in ("tracker", "forge"):
+        options = getattr(getattr(project, axis, None), "options", None) or {}
+        if reference := str(options.get("token_env") or "").strip():
+            named.append((f"the {axis}'s `token_env`", reference))
+    pull = pull_credential_of(getattr(project, "box", None))
+    if pull is not None:
+        named.append((f"the box image's pull credential (as `{pull.username or '?'}`)",
+                      pull.reference))
+    said: list[str] = []
+    wrong: list[str] = []
+    for what, reference in named:
+        if why := store.refusal(reference):
+            wrong.append(f"{what} `{reference}` can never answer: {why}")
+        else:
+            said.append(f"{what} `{reference}` ← {store.source(reference) or 'nothing answers'}")
+    if pull is not None and not store.refusal(pull.reference) and (why := pull_problem(pull)):
+        wrong.append(why)
+    if wrong:
+        return (False, f"{order}; " + "; ".join(wrong),
+                f"a reference is a variable name, or `<store>:<name>` with a store this "
+                f"deployment can read ({', '.join(store.known())}); fix the one named, in the "
+                f"project's registry entry or where the store keeps it")
+    return (True, f"{order}; " + ("; ".join(said) or "this project names no credential of its own"),
+            "")
 
 
 def _declares_a_machine_identity(project) -> bool:

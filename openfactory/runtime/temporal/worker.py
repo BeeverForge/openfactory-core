@@ -13,9 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import tempfile
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -304,13 +301,9 @@ def start_channel_listeners(projects) -> list:
 
 async def main() -> None:
     load_dotenv()  # bot credentials + Claude token for the activities
-    # Secrets Manager delivers the bot App key as CONTENT; light forge reads on the
-    # worker (check_pr_merged, the board poll) need it as a file for token minting.
-    from openfactory.runtime.boxed_job import materialize_app_key
-
-    materialize_app_key(
-        dict(os.environ), dest_dir=Path(tempfile.mkdtemp(prefix="openfactory-worker-"))
-    )
+    # NO KEY IS WRITTEN TO DISK AT BOOT (#742). An App key handed over as content used to be copied
+    # into a temp file here; the minter takes the content (`credentials.app_private_key` reads it
+    # first, through the credential store), so the copy was read by nothing.
     # C-12: the registry the worker DRIVES is writable and outlives the image; the image only
     # carries a seed. Copy it in on first boot, and never over projects that are already there —
     # otherwise every deploy silently reverts whatever was registered at runtime.

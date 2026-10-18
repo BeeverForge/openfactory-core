@@ -91,7 +91,8 @@ MUTATIONS = [
      "    door_is_closed = sso or has_product or _set(*CLOSING_ENVS[:4])"),
 
     # 5. the workload
+    # re-pinned 2026-10-18 (#742): the credential directory follows the board's credentials
     ("a worktree workload holds the board's credentials", WORKTREE,
-     '                      "OPENFACTORY_BOARD_TOKEN", "OPENFACTORY_BOARD_TOKENS")',
-     "                      )"),
+     '                      "OPENFACTORY_BOARD_TOKEN", "OPENFACTORY_BOARD_TOKENS",\n',
+     ""),
 ]

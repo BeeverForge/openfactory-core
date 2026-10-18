@@ -102,7 +102,12 @@ class BoxConfig:
 
 def materialize_app_key(env: dict[str, str], *, dest_dir: Path) -> str | None:
     """Secrets Manager delivers the bot App private key as content (OPENFACTORY_GH_APP_KEY_CONTENT);
-    the token minter wants a file path. Write it out and return the path (or None)."""
+    the token minter wants a file path. Write it out and return the path (or None).
+
+    NO ENTRYPOINT OF THE CORE CALLS THIS ANY MORE (#742). The minter takes the key as content and
+    `credentials.app_private_key` reads the content first, through the credential store, so the
+    copy this writes is read by nothing here; the worker, the panel and this box stopped making
+    it. It stays for an add-on's own entrypoint that still calls it, with the same behaviour."""
     content = env.get("OPENFACTORY_GH_APP_KEY_CONTENT")
     if not content or env.get("OPENFACTORY_GH_APP_KEY"):
         return None
@@ -407,7 +412,9 @@ def main() -> int:
         tag = f"openfactory-box-{cfg.project}-{cfg.issue.lstrip('#')}"
         workdir = Path(tempfile.gettempdir()) / tag
         workdir.mkdir(parents=True, exist_ok=True)
-        materialize_app_key(dict(os.environ), dest_dir=workdir)
+        # NO KEY IS WRITTEN INTO THE WORKDIR (#742). `materialize_app_key` copied an App key handed
+        # over as content into a file here for a minter that wanted a path; the minter takes the
+        # content (`credentials.app_private_key` reads it first), so the copy was read by nothing.
         # PER PROJECT NOW, AND THE THING THAT BLOCKED IT IS GONE. This comment used to say the box
         # could not resolve the forge credential per project because `BoxConfig` carried no
         # `token_env` — so a call to `forge_token_for` would silently fall back to the same

@@ -8,6 +8,12 @@ values you can construct and becomes something that behaves differently dependin
 Each token is per-AXIS on purpose (ADR-0022). A Jira-tracker plus GitLab-forge project needs a Jira
 API token AND a GitLab access token; a single-vendor GitHub project can reuse one for both, which
 is what `OPENFACTORY_BOT_TOKEN` is for.
+
+EVERY SECRET HERE IS READ THROUGH THE CREDENTIAL STORE (#742). A variable name is a deployment
+credential (`credential_store.stored`), asked of the store the deployment declares and then of the
+environment, and a project's `token_env` is a reference (`credential_store.answer`): a bare name
+as it always was, or `file:<name>` and any installed store's `<kind>:<name>`. With no store
+declared, every answer below is the variable's, byte for byte.
 """
 
 from __future__ import annotations
@@ -16,6 +22,8 @@ import logging
 import os
 from pathlib import Path
 
+from openfactory.adapters.credential_store import registry as credential_store
+from openfactory.adapters.credential_store.registry import stored
 from openfactory.contracts.bot import BotIdentity
 
 log = logging.getLogger("openfactory.credentials")
@@ -39,11 +47,15 @@ def app_private_key() -> str | None:
     CONTENT FIRST. A stale `OPENFACTORY_GH_APP_KEY` inherited from an outer environment must not
     shadow
     the key this process was actually given — the path is the fallback, not the authority.
+
+    BOTH ARE DEPLOYMENT CREDENTIALS (#742), so both come through the store: under a file store the
+    PEM is the mounted file `OPENFACTORY_GH_APP_KEY_CONTENT`, read at this call and kept by
+    nobody, and a variable of either name still answers where no file does.
     """
-    content = os.environ.get("OPENFACTORY_GH_APP_KEY_CONTENT")
+    content = stored("OPENFACTORY_GH_APP_KEY_CONTENT")
     if content:
         return content
-    path = os.environ.get("OPENFACTORY_GH_APP_KEY")
+    path = stored("OPENFACTORY_GH_APP_KEY")
     if not path:
         return None
     try:
@@ -188,12 +200,24 @@ def vendor_default(ref) -> str | None:
     deployment was told "no forge credential is configured" with a GitHub remedy, over a
     perfectly good PAT."""
     named = vendor_default_env(ref)
-    return (os.environ.get(named) or "").strip() or None if named else None
+    return (stored(named) or "").strip() or None if named else None
+
+
+#: The identities of credentials no store holds — the deployment pair, a login, the machine's own
+#: identity, a mint. A store an add-on names after one of these is never read into them.
+_NOT_A_STORE = frozenset({"generic", "login", "identity", "deployment"})
+
+
+def _stored_secret(identity: str) -> bool:
+    """Whether a credential's identity names a secret a STORE holds — `env:X`, `file:x`, an
+    installed store's reference — as opposed to a login, an identity or a mint (#742). A stored
+    secret travels as a value; the others are providers, read at each use."""
+    kind = identity.partition(":")[0]
+    return bool(kind) and kind not in _NOT_A_STORE and kind in credential_store.known()
 
 
 def tracker_token() -> str | None:
-    return (os.environ.get("OPENFACTORY_TRACKER_TOKEN")
-            or os.environ.get("OPENFACTORY_BOT_TOKEN") or None)
+    return stored("OPENFACTORY_TRACKER_TOKEN") or stored("OPENFACTORY_BOT_TOKEN") or None
 
 
 def _axis_credential(project, axis: str, generic, *,
@@ -201,7 +225,8 @@ def _axis_credential(project, axis: str, generic, *,
     """`(source, value)` of `project`'s credential on `axis` — ONE resolution for both axes.
 
     `source` is the credential's IDENTITY, never its value: `env:<NAME>` for a variable the
-    project or its vendor named, `generic:<axis>` for the deployment-wide pair (one value per
+    project or its vendor named — or the reference of whichever store answered for it,
+    `file:<name>` and the like (#742) — `generic:<axis>` for the deployment-wide pair (one value per
     process, whichever of the two variables holds it), `""` when nothing answered. It exists so
     a reader that must ask a credential ONCE can tell two credentials apart without comparing
     their values — `floor.reading.budgets` keyed its rows by the token itself, and the App mint
@@ -232,26 +257,29 @@ def _axis_credential(project, axis: str, generic, *,
                         problem or _no_workload_identity(_kind_of(ref)))
         return "", None
     if row is not None and row.source is not None:
-        if named and announce and not (os.environ.get(named) or "").strip():
-            log.warning("%s names %s as its %s credential and that variable is empty — the "
-                        "vendor's other sources are asked instead",
+        if named and announce and not (credential_store.resolve(named) or "").strip():
+            log.warning("%s names %s as its %s credential and it is empty — the vendor's "
+                        "other sources are asked instead",
                         getattr(project, "name", "?"), named, axis)
         identity, provider = row.source(dict(options))
-        value = provider() if provider is not None and identity.startswith("env:") else None
+        value = provider() if provider is not None and _stored_secret(identity) else None
         return (identity, value) if value else ("", None)
     if named:
-        value = os.environ.get(named)
+        # A REFERENCE (#742): a bare variable name as every registry has written it, resolved
+        # through the deployment's store; `file:<name>` or another installed kind, from there alone.
+        found, value = credential_store.answer(named)
         if value:
-            return f"env:{named}", value
+            return found, value
         if announce:
-            log.warning("%s names %s as its %s credential and that variable is empty — falling "
-                        "back to this deployment's own, which is very likely the wrong system",
+            log.warning("%s names %s as its %s credential and it is empty — falling back to "
+                        "this deployment's own, which is very likely the wrong system",
                         getattr(project, "name", "?"), named, axis)
     default = vendor_default_env(ref)
     if default:
-        value = (os.environ.get(default) or "").strip() or None
+        found, value = credential_store.stored_answer(default)
+        value = (value or "").strip() or None
         if value:
-            return f"env:{default}", value
+            return found, value
     # A VENDOR THAT NEEDS NO CREDENTIAL NEVER REACHES THE GENERIC PAIR (ADR-0049 D1). The pair is
     # this DEPLOYMENT's, and on a machine that also runs a hosted project it is that project's
     # token: handing it to a row whose board is a local file would present one system's credential
@@ -281,8 +309,7 @@ def tracker_token_for(project) -> str | None:
 
 
 def forge_token() -> str | None:
-    return (os.environ.get("OPENFACTORY_FORGE_TOKEN")
-            or os.environ.get("OPENFACTORY_BOT_TOKEN") or None)
+    return stored("OPENFACTORY_FORGE_TOKEN") or stored("OPENFACTORY_BOT_TOKEN") or None
 
 
 def forge_token_for(project) -> str | None:
@@ -441,7 +468,7 @@ def _deployment_provider(ref):
         return None
     if row is not None and row.source is not None:
         identity, provider = row.source(dict(getattr(ref, "options", None) or {}))
-        if not identity or identity.startswith("env:") or provider is None:
+        if not identity or _stored_secret(identity) or provider is None:
             return None
         return provider if provider() else None
     return row.provider() if row is not None and row.provider is not None else None
@@ -501,19 +528,55 @@ def describe_source(source: str) -> str:
     """A credential's identity (`forge_credential_source` or `tracker_credential_source`) as the
     doctor says it. `generic:tracker` is the tracker's deployment-wide pair, named as such: the
     `installation_scope` line feeds tracker identities here too, and said as the forge's pair it
-    named two variables that were not set (review round 2 of #743, measured on b1a7d2c)."""
+    named two variables that were not set (review round 2 of #743, measured on b1a7d2c).
+
+    A STORED SECRET IS SAID BY ITS REFERENCE AND ITS STORE, never by its value (#742): the
+    variable it is in, or the reference another store answered for and where that store looks."""
     kind, _, name = source.partition(":")
     if source == "generic:tracker":
         return ("this deployment's own tracker token (`OPENFACTORY_TRACKER_TOKEN` / "
                 "`OPENFACTORY_BOT_TOKEN`)")
+    if kind != "env" and _stored_secret(source):
+        return f"a stored secret (`{source}`) — {credential_store.describe(source)}"
     return {
-        "env": f"a stored secret (`{name}`)",
+        "env": f"a stored secret (`{name}`) in the environment",
         "generic": "this deployment's own token (`OPENFACTORY_FORGE_TOKEN` / "
                    "`OPENFACTORY_BOT_TOKEN`)",
         "login": f"this machine's `{name}` login",
         "identity": "the identity the platform gave this machine — nothing stored",
         "deployment": f"a credential this deployment mints for the {name} vendor",
     }.get(kind, source or "no credential")
+
+
+def _generic_reference(axis: str) -> str:
+    """The reference that answers for `axis`'s deployment-wide pair, the same chain `tracker_token`
+    and `forge_token` walk, or `""`."""
+    for name in (f"OPENFACTORY_{axis.upper()}_TOKEN", "OPENFACTORY_BOT_TOKEN"):
+        found, value = credential_store.stored_answer(name)
+        if value:
+            return found
+    return ""
+
+
+def _handed_over(project, axis: str) -> str | None:
+    """`axis`'s stored secret when a store OTHER THAN THE ENVIRONMENT holds it, resolved here on
+    the worker; None when the box reads its own variable, as it always did (#742).
+
+    A REMOTE BOX CANNOT READ THE WORKER'S FILES. It resolves its credential from the variables it
+    is launched with, by the name the axis's options carry, so a secret the worker reads from a
+    mounted file would reach it as a name with nothing behind it. The worker resolves it and the
+    box is handed the value under its own variable (`BOX_TOKEN_ENV`), which is how a minted
+    identity already travels. A variable the box can read for itself is still handed over by name
+    only, so no value is written into a launch where a name sufficed."""
+    generic = tracker_token if axis == "tracker" else forge_token
+    found, value = _axis_credential(project, axis, generic, announce=False)
+    if not value:
+        return None
+    if found.startswith("generic:"):
+        found = _generic_reference(axis)
+    if found.startswith("env:") or not _stored_secret(found):
+        return None
+    return value
 
 
 # ── a box is handed a value, never the declaration (#373) ─────────────────────────────────────────
@@ -541,7 +604,12 @@ def box_options(project, axis: str) -> dict[str, str]:
     ref = getattr(project, axis, None)
     options = {str(k): str(v) for k, v in (getattr(ref, "options", None) or {}).items()}
     declared, problem = _declared(ref)
-    if not declared or problem:
+    if problem:
+        return options
+    if not declared:
+        # A SECRET A STORE HOLDS TRAVELS AS A VALUE TOO (#742), under the box's own variable.
+        if _handed_over(project, axis) is not None:
+            options["token_env"] = BOX_TOKEN_ENV[axis]
         return options
     from openfactory.adapters.credential.registry import (
         IDENTITY_CLIENT_ID_OPTION,
@@ -557,13 +625,17 @@ def box_options(project, axis: str) -> dict[str, str]:
 def box_credential_env(project) -> dict[str, str]:
     """`{variable: token}` a remote box needs for every axis that declares the machine's own
     identity — minted HERE, on the worker, freshly, so the box starts with the most life the token
-    has. RAISES `CredentialUnavailable` when a declared identity does not answer: a box launched
-    without its credential would fail inside with a sentence about the wrong thing."""
+    has — and for every axis whose stored secret a store other than the environment holds
+    (`_handed_over`, #742). RAISES `CredentialUnavailable` when a declared identity does not
+    answer: a box launched without its credential would fail inside with a sentence about the
+    wrong thing."""
     out: dict[str, str] = {}
     for axis in BOX_TOKEN_ENV:
         ref = getattr(project, axis, None)
         declared, problem = _declared(ref)
         if not (declared or problem):
+            if (value := _handed_over(project, axis)) is not None:
+                out[BOX_TOKEN_ENV[axis]] = value
             continue
         provider = _deployment_provider(ref)
         token = provider() if provider is not None else None

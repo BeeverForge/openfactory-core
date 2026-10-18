@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import hmac
 import logging
-import os
 
 from openfactory.identity.base import LOGIN_PATH, UNKNOWN, Subject
 
@@ -91,7 +90,14 @@ class LocalIdentity:
     def __init__(self, *, env: dict[str, str] | None = None, store=None) -> None:
         #: Read at construction, not per call: a provider whose answers change between two
         #: requests of the same session is a provider that can grant and revoke silently.
-        self._env = dict(env if env is not None else os.environ)
+        #:
+        #: THE DEPLOYMENT'S OWN ARE READ THROUGH THE CREDENTIAL STORE (#742) — every variable that
+        #: closes the door, and nothing else of the environment, which this provider never read.
+        if env is None:
+            from openfactory.adapters.credential_store.registry import held
+
+            env = held(CLOSING_ENVS)
+        self._env = dict(env)
         #: The people registered by invitation (`people.py`), opened on first use: most calls
         #: are answered by the environment map and never read the store.
         self._store = store

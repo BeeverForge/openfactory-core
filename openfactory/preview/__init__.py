@@ -312,9 +312,12 @@ _PROCESS_SECRET: bytes | None = None
 
 def _secret() -> bytes:
     """`OPENFACTORY_PREVIEW_SECRET`, else a secret born with this process. The fallback only means
-    a restart sends an open preview's viewer back through the panel."""
+    a restart sends an open preview's viewer back through the panel. Read through the credential
+    store (#742), imported here and not at the top: the workflow sandbox imports this package."""
     global _PROCESS_SECRET
-    configured = (os.environ.get("OPENFACTORY_PREVIEW_SECRET") or "").strip()
+    from openfactory.adapters.credential_store.registry import stored
+
+    configured = (stored("OPENFACTORY_PREVIEW_SECRET") or "").strip()
     if configured:
         return configured.encode()
     if _PROCESS_SECRET is None:

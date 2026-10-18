@@ -224,7 +224,7 @@ def _container(**kw):
     from openfactory.adapters.sandbox import ContainerSandbox
 
     known = ("project", "toolbox", "cache_volume", "cpus", "memory", "network", "extra_env",
-             "guidelines")
+             "guidelines", "pull_credential")
     return ContainerSandbox(
         image=kw.get("image") or DEFAULT_BOX_IMAGE,
         **{k: kw[k] for k in known if kw.get(k) is not None},

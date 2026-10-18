@@ -242,6 +242,22 @@ def _holds_a_credential(name: str) -> bool:
     return bool(set(words) & _SECRET_NOUNS) and words[-1] not in _NOT_THE_SECRET
 
 
+def _asks_the_store(node: ast.AST) -> ast.AST | None:
+    """The name a call to the credential store's reader asks for (`stored("X")`), else None.
+
+    A CREDENTIAL READ THROUGH THE STORE IS STILL READ BY THAT NAME (#742). `credentials.py` reads
+    every secret through `credential_store.stored` now, and its fallback chains are spelled with
+    it; the reader's name is taken from the store's own function, so a rename there is a rename
+    here."""
+    from openfactory.adapters.credential_store.registry import stored
+
+    if isinstance(node, ast.Call) and node.args and (
+            getattr(node.func, "id", "") == stored.__name__
+            or getattr(node.func, "attr", "") == stored.__name__):
+        return node.args[0]
+    return None
+
+
 def _spelling_groups(path: pathlib.Path) -> list[frozenset[str]]:
     """The groups of environment names that hold ONE credential, read out of a module's own code.
 
@@ -257,7 +273,7 @@ def _spelling_groups(path: pathlib.Path) -> list[frozenset[str]]:
             continue
         names = []
         for value in node.values:
-            key = environ._reads_environ(value)
+            key = environ._reads_environ(value) or _asks_the_store(value)
             if key is not None and (name := environ._env_shaped(key)):
                 names.append(name)
         if len(names) > 1:
@@ -432,9 +448,12 @@ def test_the_fallback_scan_SEES_a_chain_and_leaves_a_single_read_alone(tmp_path)
         "    return os.environ.get('ACME_A_TOKEN') or os.environ.get('ACME_B_TOKEN') or None\n"
         "def alone():\n"
         "    return os.environ.get('ACME_ONLY_TOKEN') or ''\n"
+        "def through_the_store():\n"
+        "    return stored('ACME_C_TOKEN') or stored('ACME_D_TOKEN') or None\n"
     )
 
-    assert _spelling_groups(planted) == [frozenset({"ACME_A_TOKEN", "ACME_B_TOKEN"})]
+    assert _spelling_groups(planted) == [frozenset({"ACME_A_TOKEN", "ACME_B_TOKEN"}),
+                                         frozenset({"ACME_C_TOKEN", "ACME_D_TOKEN"})]
 
 
 def test_a_credential_served_under_several_names_is_denied_under_all_of_them(monkeypatch):

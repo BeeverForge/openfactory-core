@@ -199,9 +199,12 @@ MUTATIONS = [
      "openfactory/floor/reading.py",
      "        key = (kind, tracker_credential_source(project))\n",
      "        key = (kind, \"\")\n"),
+    # re-pinned 2026-10-18 (#742): the project's own credential is a reference the store answers
     ("a project's own variable reads as the generic pair's identity",
      "openfactory/credentials.py",
-     "            return f\"env:{named}\", value\n",
+     "        found, value = credential_store.answer(named)\n        if value:\n"
+     "            return found, value\n",
+     "        found, value = credential_store.answer(named)\n        if value:\n"
      "            return f\"generic:{axis}\", value\n"),
     ("a vendor with no mint gets a deployment identity anyway",
      "openfactory/credentials.py",
