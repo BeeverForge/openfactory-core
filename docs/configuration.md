@@ -435,6 +435,9 @@ The board scan runs as a **Temporal Schedule**. Create / update it (idempotent):
 ```bash
 python -m openfactory.runtime.temporal.schedule --every-minutes 3 --sandbox fargate
 ```
+The same command also creates or refreshes each enabled project's tech-lead watch, knowledge
+refresh and card-question sweep, and the product sweep of each project with the product module;
+the worker reconciles all of these again at boot, along with the retention and the previews' reaper.
 Every tick scans each project's **TO-DO** column and starts a job per card. Overlap
 policy SKIP + a 2-min per-poll timeout, so a stuck poll never blocks the next. Pause it in
 the Temporal Cloud UI (Schedules → `openfactory-poller`) to halt pickup without stopping in-flight

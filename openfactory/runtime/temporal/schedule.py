@@ -2,6 +2,12 @@
 
     python -m openfactory.runtime.temporal.schedule [--every-minutes 3] [--sandbox fargate]
 
+The same command also creates or refreshes the per-project schedules: for each enabled project
+the tech-lead watch, the knowledge refresh and the card-question sweep, and the product sweep for
+each project with the product module. The history retention, the previews' reaper and the
+retirement of orphaned schedules are not reconciled by this command; the worker reconciles them,
+with everything above, at boot (`ensure_all`).
+
 Idempotent: updates the schedule if it already exists. Overlap policy SKIP — a tick
 that fires while the previous one still runs is dropped (the next one catches up),
 so a slow scan can never pile up. Pause/resume any time in the Temporal UI.
