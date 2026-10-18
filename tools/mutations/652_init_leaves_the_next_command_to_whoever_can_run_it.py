@@ -65,8 +65,8 @@ MUTATIONS = [
 
     ("the guard covers the compose branch only, and the local line is printed under the "
      "installer again", CLI,
-     _GUARD + '    if answers.runtime == "local":\n',
-     '    if answers.runtime == "local":\n',
+     _GUARD + _BLOCK,
+     _BLOCK.replace("    else:\n", "    else:\n" + _GUARD.replace("    ", "        ", 2)),
      INSTALLER_TEST),
 
     ("`--build` always", CLI,
