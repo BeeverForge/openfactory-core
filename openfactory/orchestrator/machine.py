@@ -485,7 +485,7 @@ _MARKUP = re.compile(r"([\\`<&*_~])")
 #: Any indent: a heading nested in the agent's own list item sits past column 3 and still renders
 #: (review on be48a54, measured on GitHub); at the top level such a line is an indented code
 #: block, where the escape shows, as every escape does in code.
-_A_HEADING = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+|>\s*)*)(#|>|[=-](?=[=-]*\s*$))",
+_A_HEADING = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+)*)(#|>|[=-](?=[=-]*\s*$))",
                         re.MULTILINE)
 #: A row the cut shortened to only `=` or `-` underlines the agent's line above it (setext): the
 #: escape above saw the whole row, which was not one.

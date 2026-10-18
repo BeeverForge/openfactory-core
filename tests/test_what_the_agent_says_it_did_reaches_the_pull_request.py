@@ -335,6 +335,22 @@ def test_a_cut_never_leaves_an_indented_underline_under_the_agents_list_item():
     assert not re.search(r"<h[1-6]>", html), html
 
 
+@pytest.mark.parametrize(("said", "total"), [("@ab " * 600, 2400), ("abc\n" * 600, 2399),
+                                             ("a_b " * 600, 2400)],
+                         ids=["names", "newlines", "escapes"])
+def test_the_cut_line_counts_names_newlines_and_escapes_as_the_reader_sees_them(said: str,
+                                                                               total: int):
+    """Review on be48a54: counting the span backticks, dropping the newlines and counting an
+    escape's backslash each survived every test."""
+    q = machine._quoted(said)
+    lines = machine._account_lines(machine._Account(quote=q, total=machine._quote_chars(q)))
+    kept = [r for r in lines if r.startswith(">")]
+    seen = (len("\n".join(kept)) - 2 * len(kept) + sum(r == ">" for r in kept)
+            - sum(r.count("\\") for r in kept) - sum(r.count("`") for r in kept))
+    assert (f"The agent's message was {total} characters; the first {seen} are shown."
+            in lines), lines
+
+
 def test_a_pass_line_cut_never_leaves_a_name_outside_its_span():
     """Review on 35a1cc0: neutralising BEFORE the 200-character cut survived every test."""
     markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
