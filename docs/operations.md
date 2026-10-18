@@ -30,7 +30,9 @@ lifetime. This is the ADR floor made real, not a prompt.
 The product role is the one agent that runs on the PERENNIAL half — the worker process, not a
 box that dies with its job — and it reads the product's sources from the repository cache
 (`OPENFACTORY_REPO_CACHE`). So what a turn leaves under that cache is bounded, not merely aged
-(#369): an unmoved source costs one question to its forge and no checkout; a key parks at most
+(#369): an unmoved source costs one question to its forge and no checkout, and one brought up
+less than `OPENFACTORY_SOURCES_FRESH_SECONDS` ago (60 unset) costs no question at all; at most
+`OPENFACTORY_SOURCES_PARALLEL` sources (8 unset) are brought up at once; a key parks at most
 two displaced snapshots; the purge runs whether or not a sync succeeded; a filesystem that cannot
 hardlink is said out loud. In compose the cache has a volume of its own (`openfactory_repos`) for
 the toolbox's reason — a cache that fills must not take the registry and the board with it — and

@@ -587,6 +587,14 @@ class SparseRepoCache(RepoCache):
     the role says a word. Measured on the four-source fixture: 60 git processes per unmoved turn,
     12 per source; now one process asks the forge and the rest read the master.
 
+    INSIDE THE WINDOW IT COSTS NOTHING (#369). One question per source is still N round trips per
+    message. With `fresh_for` above 0, a key brought up for the same branch less than `fresh_for`
+    seconds ago, its served tree still there, is served again without starting any git process.
+    The stamp under `.fresh/` says when and for which branch, and what the cone left out. Measured
+    at 40 sources with nothing moved: 119 git processes per turn instead of 439, and 2 round trips
+    instead of 42, both of them the context repository's. The default is 0, so only a caller that
+    asks for a window gets one: the product role does, the system layer's refresh does not.
+
     Never raises, like `RepoCache.sync`. `failure` keeps git's own words about why a sync returned
     None, WITH EVERY CREDENTIAL TAKEN OUT, for the caller to classify — they are not a sentence for
     a prompt, because git names URLs."""

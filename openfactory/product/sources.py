@@ -21,8 +21,10 @@ therefore cannot aim the deployment's credential at a host of their choosing: `h
 SPARSE, AND ON DEMAND (#266 decision 11). Each source is a `SparseRepoCache`: a partial clone
 (commits and trees, and only the blobs a checkout asks for), checked out through a cone that leaves
 out the directories holding nothing but pictures, fonts and archives. Nothing is cloned until a turn
-mounts the source; a later turn fetches what moved. The sources are brought up side by side, so a
-turn waits for the slowest of them rather than for their sum.
+mounts the source; a later turn fetches what moved, and a turn inside the freshness window
+(`fresh_for()`, #369) asks the forge nothing and is served the source as it was. The sources are
+brought up side by side, `parallel()` at a time (the operator's), so a turn waits for the slowest
+of them rather than for their sum.
 
 "COULD NOT MOUNT" IS NEVER "NOTHING THERE". A source that is not mounted is kept, with the reason,
 and the prompt names it. The reason is one of a few fixed sentences chosen from what git said —
