@@ -137,8 +137,14 @@ def _load_agent_token_pool() -> list[dict]:
     A JSON array in `OPENFACTORY_AGENT_TOKENS` — `[{"id","token","type"?}]` — lets one exhausted
     or revoked token fail over to the next instead of halting the job. Falls back to the
     single `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` so a single-token deploy behaves
-    exactly as before. A malformed pool degrades to that fallback, never a crash (#2)."""
-    pool, why = _pool_in(os.environ)
+    exactly as before. A malformed pool degrades to that fallback, never a crash (#2).
+
+    ALL THREE ARE READ THROUGH THE CREDENTIAL STORE (#742), so a pool or a token mounted as a file
+    is the one the harness runs on. The token chosen still reaches the CLI the one way it ever
+    did: `_apply_token` puts it in this process's environment, which the box inherits."""
+    from openfactory.adapters.credential_store.registry import Stored, stored
+
+    pool, why = _pool_in(Stored())
     if pool:
         return pool
     if why:
@@ -148,9 +154,9 @@ def _load_agent_token_pool() -> list[dict]:
         # anything but a person editing that value.
         log.warning("%s %s — falling back to a SINGLE credential, so there is no failover",
                     POOL, why)
-    if tok := os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+    if tok := stored("CLAUDE_CODE_OAUTH_TOKEN"):
         return [{"id": "single", "token": tok, "type": "subscription"}]
-    if tok := os.environ.get("ANTHROPIC_API_KEY"):
+    if tok := stored("ANTHROPIC_API_KEY"):
         return [{"id": "single", "token": tok, "type": "api"}]
     return []
 

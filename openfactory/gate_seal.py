@@ -85,7 +85,11 @@ def key_path() -> Path:
 
 
 def _key() -> bytes:
-    declared = (os.environ.get(VARIABLE) or "").strip()
+    # A deployment credential, read through the credential store (#742): a key mounted as a file is
+    # the one both processes seal and verify with.
+    from openfactory.adapters.credential_store.registry import stored
+
+    declared = (stored(VARIABLE) or "").strip()
     if declared:
         return declared.encode()
     path = key_path()

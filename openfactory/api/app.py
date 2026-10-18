@@ -74,14 +74,11 @@ def _load_environment() -> None:
     """
     load_dotenv()
 
-# deployed panel: Secrets Manager delivers the bot App key as CONTENT — materialize it
-# so token minting (forge reads) works, same as the worker/task do.
-if os.environ.get("OPENFACTORY_GH_APP_KEY_CONTENT") and not os.environ.get("OPENFACTORY_GH_APP_KEY"):
-    import tempfile as _tmp
-
-    from openfactory.runtime.boxed_job import materialize_app_key
-
-    materialize_app_key(dict(os.environ), dest_dir=Path(_tmp.mkdtemp(prefix="openfactory-panel-")))
+# NO KEY IS WRITTEN TO DISK AT IMPORT (#742). This block copied an App key delivered as content
+# into a temp file and pointed `OPENFACTORY_GH_APP_KEY` at it, for readers that wanted a path.
+# None is left: `credentials.app_private_key` reads the content first and the minter takes it as
+# content, so the copy was read by nothing, and it was the one place a stored secret outlived the
+# call that used it.
 
 #: What this half of the deployment calls itself when it announces its build (#135). Named here
 #: because two places must agree on the spelling — `cli serve`, which announces it, and
@@ -4271,11 +4268,11 @@ def _auth_credential() -> str:
     Read from the environment this process shares with the worker (compose forwards the whole
     `.env.compose` to both). Empty when neither variable is visible here, because the honest
     answer to "which of these two is paying" is sometimes "I cannot see from here"."""
-    import os as _os
+    from openfactory.adapters.credential_store.registry import stored
 
-    if _os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+    if stored("CLAUDE_CODE_OAUTH_TOKEN"):
         return "subscription"
-    if _os.environ.get("ANTHROPIC_API_KEY"):
+    if stored("ANTHROPIC_API_KEY"):
         return "api key"
     return ""
 

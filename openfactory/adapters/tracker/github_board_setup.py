@@ -168,7 +168,12 @@ def create_board(*, owner: str, title: str, token: str | None = None) -> tuple[s
     Raises `BoardSetupError` with an actionable sentence; never leaves a half-described state
     unreported (a created board whose columns failed is SAID, because the board exists either
     way and silence would hide where the retry must start)."""
-    if not token and not os.environ.get("GH_TOKEN"):
+    # `gh`'s own variable is a deployment credential like any other (#742): read through the
+    # store, and handed to every `gh` call below as the token, so one held in a file works too.
+    from openfactory.adapters.credential_store.registry import stored
+
+    token = token or stored("GH_TOKEN")
+    if not token:
         # REFUSE IN OUR VOCABULARY, BEFORE the subprocess. With no token, `gh` answers "run
         # `gh auth login` … or populate GH_TOKEN" — the vendor tool's remedy, in a container
         # where neither is a thing the operator should do. The first pilot funnel run hit

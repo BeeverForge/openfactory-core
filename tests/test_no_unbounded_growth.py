@@ -48,10 +48,10 @@ def _rel(path: Path) -> str:
 #: Sites where the directory outlives the call ON PURPOSE, with the reason. Everything else must
 #: remove what it made, in the same function, on every exit path.
 _LIVES_FOR_THE_PROCESS = {
-    ("openfactory/runtime/temporal/worker.py", "main"):
-        "holds the materialised GitHub App private key for the worker's whole life",
-    ("openfactory/api/app.py", "<module>"): "same key, panel process",
-    ("openfactory/runtime/slack/bot.py", "main"): "same key, bot process",
+    # The worker's and the panel's copies of the App key are gone (#742): the key is read as
+    # content, through the credential store, and nothing is written to disk to hold it.
+    ("openfactory/runtime/slack/bot.py", "main"):
+        "holds the materialised GitHub App private key for the bot's whole life",
     ("openfactory/testing/local_flow.py", "_tiny_repo"): "a throwaway repo in a throwaway local run",
 }
 

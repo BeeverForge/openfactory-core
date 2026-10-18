@@ -607,8 +607,13 @@ _AGENT_CRED_VARS = ("OPENFACTORY_AGENT_TOKENS",)
 # …and the board's credentials (#562), new, and stripped from the day they exist: a workload
 # holding one could act on the board as whoever it names. (The panel's and the product's own still
 # reach a worktree workload, as SECURITY.md's measured table says.)
+#
+# …and where the deployment's secret files are mounted (#742): a path to the credential directory
+# is reach to every secret in it. What the scrub removes is the pointer, not the reach — the
+# files are on the worker's filesystem, readable by the worker's user, as SECURITY.md says.
 _PANEL_SECRET_VARS = ("OPENFACTORY_PREVIEW_SECRET", "OPENFACTORY_GATE_SECRET",
-                      "OPENFACTORY_BOARD_TOKEN", "OPENFACTORY_BOARD_TOKENS")
+                      "OPENFACTORY_BOARD_TOKEN", "OPENFACTORY_BOARD_TOKENS",
+                      "OPENFACTORY_CREDENTIAL_DIR")
 
 
 def _scrubbed_env(keep: tuple[str, ...] = ()) -> dict[str, str]:
@@ -641,6 +646,15 @@ def _scrubbed_env(keep: tuple[str, ...] = ()) -> dict[str, str]:
     # never kept, whatever `box.env` says: no harness authenticates with the preview key
     for var in _PANEL_SECRET_VARS:
         env.pop(var, None)
+    # A NAME `box.env` DECLARES IS A DEPLOYMENT CREDENTIAL (#742): one held in a mounted file
+    # reaches the workload exactly as the container box hands it over, read through the store.
+    # With no store declared this is the variable already in `env`, so nothing moves.
+    if kept:
+        from openfactory.adapters.credential_store.registry import stored
+
+        for var in sorted(kept - set(_PANEL_SECRET_VARS)):
+            if value := stored(var):
+                env[var] = value
     return env
 
 

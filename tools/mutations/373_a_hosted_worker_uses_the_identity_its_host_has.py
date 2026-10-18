@@ -69,9 +69,10 @@ MUTATIONS = [
      "        return identity if (identity and provider is not None and provider()) else \"\"",
      "        return identity if identity else \"\""),
 
+    # re-pinned 2026-10-18 (#742): a declared axis now passes an undeclared one's branch first
     ("the box is handed the declaration, and mints from the machine it runs on", CREDENTIALS,
-     "    if not declared or problem:\n        return options",
-     "    if True:\n        return options"),
+     "    if not declared:\n        # A SECRET A STORE HOLDS",
+     "    if True:\n        # A SECRET A STORE HOLDS"),
 
     ("a declared identity that did not answer launches a box with no credential", CREDENTIALS,
      "        if not token:\n            raise CredentialUnavailable(",

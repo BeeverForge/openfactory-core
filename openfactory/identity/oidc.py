@@ -150,6 +150,14 @@ HTTP_TIMEOUT_SECONDS = 5.0
 
 # ── configuration ───────────────────────────────────────────────────────────────────────────────
 
+def _environment() -> dict[str, str]:
+    """This deployment's settings for the provider: its environment, with the client secret read
+    through the credential store (#742), so a secret mounted as a file is the one presented."""
+    from openfactory.adapters.credential_store.registry import held
+
+    return {**os.environ, CLIENT_SECRET_ENV: "", **held((CLIENT_SECRET_ENV,))}
+
+
 @dataclass(frozen=True)
 class Settings:
     """What a deployment says about its provider. Read once per provider, never per call."""
@@ -341,7 +349,7 @@ class OidcIdentity:
     login_path = LOGIN_PATH
 
     def __init__(self, *, env: dict[str, str] | None = None, fetch=None, post=None) -> None:
-        self.settings = Settings.from_env(dict(env if env is not None else os.environ))
+        self.settings = Settings.from_env(dict(env if env is not None else _environment()))
         self._fetch = fetch or _http_json
         self._post = post or _http_post_form
 

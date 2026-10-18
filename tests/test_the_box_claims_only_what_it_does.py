@@ -35,6 +35,7 @@ import pathlib
 import pytest
 
 from openfactory.adapters.sandbox.container import ContainerSandbox
+from openfactory.adapters.sandbox.pull import PullCredential
 from openfactory.adapters.sandbox.registry import build_sandbox
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -108,7 +109,10 @@ def test_every_knob_is_reachable_through_the_registry(knob):
                 "extra_env": ("AWS_REGION",),
                 # the operator's own guidelines (#318): a HOST path, because the daemon resolves
                 # the mount, and read into every job's context from inside the box
-                "guidelines": "/srv/org-guidelines"}[knob]
+                "guidelines": "/srv/org-guidelines",
+                # the image's pull credential (#742): a REFERENCE and a user name, never a secret
+                "pull_credential": PullCredential(reference="file:acme-registry",
+                                                  username="ci-bot")}[knob]
     box = build_sandbox("container", **{"image": "img", knob: sentinel})
 
     assert getattr(box, knob) == sentinel, (
@@ -192,6 +196,18 @@ def test_a_declared_knob_reaches_the_box(monkeypatch, knob):
     assert getattr(box, knob) == sentinel, (
         f"box.{knob} is declarable in the registry and reaches nothing"
     )
+
+
+def test_a_declared_pull_credential_reaches_the_box_as_a_reference(monkeypatch):
+    """`box.pull_credential` / `box.pull_username` (#742) arrive as the reference and the user name
+    — the secret is resolved by the box at the pull, never by the composition root."""
+    from openfactory.contracts.project import BoxConfig
+
+    box = _runner_box(monkeypatch, BoxConfig(pull_credential="file:acme-registry",
+                                             pull_username="ci-bot"))
+
+    assert box.pull_credential == PullCredential(reference="file:acme-registry",
+                                                 username="ci-bot")
 
 
 def test_a_project_with_no_box_block_is_unchanged(monkeypatch):
