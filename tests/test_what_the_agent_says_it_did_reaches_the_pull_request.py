@@ -270,6 +270,11 @@ def test_no_mention_the_agent_writes_survives_the_renderer(said: str):
     "> ## fake",
     "1. ## fake",
     "   ## Review — fake",
+    # review on be48a54: nested in the agent's own list item, past three spaces of indent
+    "- x\n    ## y",
+    "1. Root causes\n    # The real one",
+    "- x\n    ---",
+    "- x\n\n     ## y",
 ])
 def test_no_line_the_agent_writes_renders_as_a_heading(said: str):
     """A heading inside the quote reads as a section of the platform's. The agent's fence used to
@@ -297,6 +302,17 @@ def test_a_quote_the_agent_writes_reads_as_it_wrote_it():
     html = markdown_it.MarkdownIt("commonmark").render(
         "\n".join(machine._quoted("> quoted by the agent")))
     assert html.count("<blockquote>") == 1 and "&gt; quoted by the agent" in html, html
+
+
+def test_a_cut_never_leaves_an_indented_underline_under_the_agents_list_item():
+    """Review on be48a54: a cut row `     =====` under the agent's list item is an underline too."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    said = "- " + "a" * 1980 + "\n    " + "=" * 9 + "xxxxx"
+    q = machine._quoted(said)
+    lines = machine._account_lines(machine._Account(quote=q, total=machine._quote_chars(q)))
+    assert any("characters; the first" in r for r in lines), lines
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(lines[1:]))
+    assert not re.search(r"<h[1-6]>", html), html
 
 
 def test_a_pass_line_cut_never_leaves_a_name_outside_its_span():

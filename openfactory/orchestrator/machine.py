@@ -482,11 +482,14 @@ _MARKUP = re.compile(r"([\\`<&*_~])")
 #: `#`, a line of only `=` or `-` under another (setext), or a `>` of its own that a heading could
 #: follow. Escaped where it opens the line — after the indent, list markers and `>`s that can
 #: come before it, since `- ## x`, `1. ## x` and `> # x` render a heading too (review on 35a1cc0).
-_A_HEADING = re.compile(r"^(\s{0,3}(?:(?:[-+]|\d{1,9}[.)])\s+|>\s*)*)(#|>|[=-](?=[=-]*\s*$))",
+#: Any indent: a heading nested in the agent's own list item sits past column 3 and still renders
+#: (review on be48a54, measured on GitHub); at the top level such a line is an indented code
+#: block, where the escape shows, as every escape does in code.
+_A_HEADING = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+|>\s*)*)(#|>|[=-](?=[=-]*\s*$))",
                         re.MULTILINE)
 #: A row the cut shortened to only `=` or `-` underlines the agent's line above it (setext): the
 #: escape above saw the whole row, which was not one.
-_AN_UNDERLINE = re.compile(r"\s{0,3}[=-]+\s*$")
+_AN_UNDERLINE = re.compile(r"[ \t]*[=-]+\s*$")
 
 
 def _neutralised(text: str) -> str:
