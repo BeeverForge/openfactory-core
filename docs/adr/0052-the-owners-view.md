@@ -540,9 +540,9 @@ means choosing the few sources a question enters *before* the role reads, and th
 to do that. The first is a guess made outside the model, which makes "not mounted" impossible to
 tell apart from "not chosen", and D16 and D21 both forbid that. The second is a mount on request
 in the middle of a turn, which is a tool protocol, and ADR-0041 refuses one (*Not a tool
-protocol*, below). At 3.3 ms and 2.2 ms per source, the cost reaches a second per turn only at a
-few hundred sources. The design it needs (the maps of all N, the code of the few, within "facts
-are files") is left for when a product that size exists to measure it on.
+protocol*, below). At 3.3 ms and 2.2 ms per source, the cost reaches a second per turn only near
+180 sources (1000 / 5.5). The design it needs (the maps of all N, the code of the few, within
+"facts are files") is left for when a product that size exists to measure it on.
 
 ### D17 — The system layer, derived without a model
 
@@ -665,7 +665,7 @@ section (`role.py::_board_section`) stays beside the briefing or is folded into 
 demand is the mitigation, and it is measured on a real multi-repo product before #268's first slice
 is called done — not on a fixture alone. The deferral of a relevance filter (D16, amended for #369)
 is wrong if a measurement on a real product shows the view and the map check costing a second or
-more per turn. That is near 300 sources at the 5.5 ms per source measured on the fixture, or fewer
+more per turn. That is near 180 sources at the 5.5 ms per source measured on the fixture, or fewer
 on a product whose sources hold many more files than the fixture's.
 
 **A topology derived without a model (Part II).** It can be incomplete where a system hides its
