@@ -124,6 +124,8 @@ pathlib.Path('/etc/openfactory/build.json').write_text(json.dumps({\
 # `.env.compose` this writes belongs to the person who ran the installer and not to root. A file
 # the user cannot edit without `sudo` would put back, at the last step, exactly the thing P0.4
 # removed from the first.
+# It is also why the mount must be the working directory: `init` names the file it wrote relative
+# to it (`--env-file .env.compose`), the one name that means the same file on both sides (#652).
 WORKDIR /out
 
 # ENTRYPOINT AND NOT CMD, so `docker run … openfactory-cli preflight` reads as the command it is.
