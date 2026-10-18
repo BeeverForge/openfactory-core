@@ -373,8 +373,9 @@ architecture and the executor implements *following* it. Three tiers, by hardnes
 
 ```yaml
 docs:
-  constraints:  docs/adr/**            # the CONSTITUTION — hard rules (ADRs).
-                                       #   Loaded IN FULL, always, into every prompt.
+  constraints:  docs/adr/**            # the CONSTITUTION — hard rules (ADRs). Each one
+                                       #   inlined up to 8,000 characters, newest first,
+                                       #   under the prompt budget; the rest named by path.
   guidelines:                          # HOUSE RULES the agent can't guess. Inlined.
     - .openfactory/guidelines/execution.md    #   e.g. "100% coverage enforced", "reserve the
                                        #   migration number", "i18n strings in 4 bundles"
@@ -385,8 +386,8 @@ docs:
 
 | Tier | For | How it reaches the agent | Example |
 |---|---|---|---|
-| **constraints** | inviolable rules | full text, every prompt | "money is Decimal", "writes emit an event" |
-| **guidelines** | house rules, small | inlined in the prompt | "reads go through the cache layer", "100% coverage" |
+| **constraints** | inviolable rules | each record inlined up to 8,000 characters, the deployment's prompt budget (`OPENFACTORY_PROMPT_BUDGET`, default 160,000 bytes) filled newest first; every record not inlined, or cut, is named by path in the prompt | "money is Decimal", "writes emit an event" |
+| **guidelines** | house rules, small | inlined in the prompt, and the first thing the budget keeps; one that does not fit is named by path | "reads go through the cache layer", "100% coverage" |
 | **architecture** | large design docs | an index; read in full on demand | "docs/architecture/realtime-events.md — the WS push topology" |
 
 Rules of thumb: a rule that must **never** be broken → an **ADR** (constraint). Something
@@ -394,6 +395,21 @@ the agent **can't guess and CI enforces** → a **guideline** (keep it tight —
 every prompt). A subsystem's design the agent should **read when relevant** → an
 **architecture** doc (can be long — it's only pulled when the diff touches that area).
 This keeps prompts small while the full knowledge base stays reachable.
+
+**One budget bounds what a pass inlines** (ADR-0056). The card, the plan, the knowledge map, a
+repair's failure log, the reference index and every document tier share
+`OPENFACTORY_PROMPT_BUDGET` bytes — 160,000 unless the operator sets another number, or `off` to
+inline everything. The budget is filled in this order: the project's own guidelines (the last
+declared first), then the decision records newest first, then the operator's guidelines, then a
+profile's additions. The framework's baseline is always inlined. What is kept is still handed
+over in the cascade's order, so the project keeps the last word. Every document that does not
+fit, and every one cut at 8,000 characters, is named in the prompt by the path the agent can
+open it at; `openfactory explain` shows each document's fate, and `openfactory doctor` says how
+many a blank card's brief keeps.
+
+If your corpus does not fit, the budget is not the only answer: a long record that the agent
+needs only when a change touches its area reads better as an **architecture** document, indexed
+and opened on demand, than as a constraint that crowds out the newer ones.
 
 **A guideline is a path inside the repository** (#329). The manifest lives in the repository
 the agent edits, and each guideline is inlined into the prompt, so an entry is resolved and must

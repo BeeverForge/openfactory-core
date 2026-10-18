@@ -39,7 +39,9 @@ class DocRoles(BaseModel):
 
     model_config = _STRICT
 
-    constraints: str | None = None  # ADRs — the constitution; always loaded, all of them
+    # ADRs — the constitution: each one inlined newest first under the operator's prompt budget,
+    # and every one not inlined named by path in the prompt (ADR-0056)
+    constraints: str | None = None
     architecture: str | None = None  # large; pulled on demand via the derived index
     guidelines: list[str] = Field(default_factory=list)  # small; the executor's manual
 
