@@ -95,6 +95,8 @@ def fresh_for() -> float:
         value = float(raw)
     except ValueError:
         value = -1.0
+    # `float()` reads "inf" and "nan": inf would be a window that never closes, and nan compares
+    # false with everything, so both are refused by name like any other unreadable value
     if not 0 <= value < float("inf"):
         if raw not in _FRESH_SAID:
             _FRESH_SAID.add(raw)

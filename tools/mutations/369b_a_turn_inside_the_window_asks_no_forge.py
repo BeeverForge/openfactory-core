@@ -14,9 +14,10 @@ that served; a deleted served tree, or one on another commit than its stamp name
 again inside it; and what the cone left out is read back from it. Rows 7-8 are a stamp that cannot
 be removed: the sync goes on, and the stamp left behind is trusted only over the COMMIT it names,
 read from the served tree's `.git` as files — not over the branch HEAD points at. Row 10 is a root
-where no stamp can be written, which loses the window and nothing else. Row 11 is the operator's
-setting. Row 12 keeps the window out of the system layer's refresh, which publishes the map right
-after a merge; row 13 is the product role's path passing the setting in.
+where no stamp can be written, which loses the window and nothing else. Rows 11-12 are the
+operator's setting, read, and refused when it is `inf`. Row 13 keeps the window out of the system
+layer's refresh, which publishes the map right after a merge; row 14 is the product role's path
+passing the setting in.
 """
 
 TEST = "tests/test_a_source_brought_up_inside_the_window_asks_no_forge.py"
@@ -79,6 +80,10 @@ MUTATIONS = [
     ("the operator's window is ignored", SOURCES,
      "    raw = (os.environ.get(\"OPENFACTORY_SOURCES_FRESH_SECONDS\") or \"\").strip()\n",
      "    raw = \"\"\n"),
+
+    ("an operator's `inf` is a window that never closes", SOURCES,
+     "    if not 0 <= value < float(\"inf\"):\n",
+     "    if not 0 <= value:\n"),
 
     ("the window leaks into the system layer's refresh", CACHE,
      "        self.fresh_for = fresh_for\n",

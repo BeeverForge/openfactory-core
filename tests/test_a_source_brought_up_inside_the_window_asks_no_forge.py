@@ -337,7 +337,7 @@ def test_the_window_is_the_operators_and_unset_is_the_default(monkeypatch):
     assert sources.fresh_for() == 0
 
 
-@pytest.mark.parametrize("value", ["soon", "-1"])
+@pytest.mark.parametrize("value", ["soon", "-1", "inf", "nan"])
 def test_a_window_nobody_can_read_is_the_default_and_is_said_once(monkeypatch, caplog, value):
     monkeypatch.setattr(sources, "_FRESH_SAID", set(), raising=False)
     monkeypatch.setenv("OPENFACTORY_SOURCES_FRESH_SECONDS", value)
