@@ -9,8 +9,10 @@ through it. The claims, each put back the way it could break:
 
   the refusal   a fragment that ends with its own reference is refused, with or without a final
                 full stop, an issue's number or an advisory's id, and the fix is named
-  the line      the first line is checked, since that is the one the reference closes; a final
-                colon and the emphasis around the full stop are where it would close too
+  the line      the first line is checked, since that is the one the reference closes, trailing
+                spaces and all; a final colon and the emphasis around the full stop are where it
+                would close too
+  the page      a candidate's page leaves such a fragment out rather than print it twice
   the scope     another number, or its own number before the end, still passes
 """
 
@@ -51,6 +53,14 @@ MUTATIONS = [
     ("only the end of the whole text is checked, not the first line the reference closes", SCRIPT,
      "for line in (text.splitlines()[0].rstrip(), text.rstrip()))",
      "for line in (text.rstrip(),))"),
+
+    ("trailing spaces after a lead line hide its reference", SCRIPT,
+     "for line in (text.splitlines()[0].rstrip(), text.rstrip()))",
+     "for line in (text.splitlines()[0], text.rstrip()))"),
+
+    ("a refused fragment is kept anyway, and a candidate's page reads its number twice", SCRIPT,
+     '                            f"file name")\n            continue\n',
+     '                            f"file name")\n'),
 
     ("the refusal does not say how to fix it", SCRIPT,
      '`({fragment.reference})`; drop it, the assembly adds it from the "\n'

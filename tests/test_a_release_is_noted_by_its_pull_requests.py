@@ -186,6 +186,7 @@ def test_a_fragment_that_ends_with_its_own_reference_is_refused_and_told_to_drop
 @pytest.mark.parametrize("text", [
     pytest.param("Covers (#654):\n- Jira", id="colon-before-sub-items"),
     pytest.param("**Lead (#654).**\n- one detail", id="bold-lead-line"),
+    pytest.param("Lead (#654).  \n- one detail", id="trailing-spaces-after-the-lead-line"),
 ])
 def test_a_lead_line_that_ends_with_its_own_reference_is_refused_even_with_sub_items_below(
         tree, text):
@@ -366,6 +367,17 @@ def test_a_candidate_page_leaves_a_broken_fragment_out_and_says_so_in_the_run(tr
 
     assert done.returncode == 0 and "A good line (#600)." in done.stdout, done.stdout
     assert "::warning::changes/601.fixes.md" in done.stderr, done.stderr
+
+
+def test_a_candidate_page_leaves_out_a_fragment_that_ends_with_its_own_reference(tree):
+    _fragment(tree, "600.fix.md", "A good line.")
+    _fragment(tree, "654.fix.md", "A line (#654).")
+
+    done = _run(tree, "page", "v0.8.0-rc.1")
+
+    assert done.returncode == 0 and "A good line (#600)." in done.stdout, done.stdout
+    assert "(#654)" not in done.stdout, "the page printed the line that reads its number twice"
+    assert "::warning::changes/654.fix.md" in done.stderr, done.stderr
 
 
 def _page_from(tree: Path, tag: str, *, with_notes: bool = True) -> subprocess.CompletedProcess:
