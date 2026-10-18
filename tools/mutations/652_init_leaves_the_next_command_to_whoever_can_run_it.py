@@ -97,6 +97,19 @@ MUTATIONS = [
      '        build = " --build" if _builds_from_this_checkout(Path.cwd()) else ""\n',
      '        build = " --build" if _builds_from_this_checkout(dest.parent) else ""\n'),
 
+    # ── the compose shapes the shipped file does not use (review of 207bc8f) ───────────────────
+    ("the short form `build: <dir>` is not read", CLI,
+     "    if isinstance(build, str):\n        build = {\"context\": build}\n",
+     ""),
+
+    ("a missing `dockerfile:` defaults to another name than compose's", CLI,
+     '    return (context / str(build.get("dockerfile", "Dockerfile"))).is_file()\n',
+     '    return (context / str(build.get("dockerfile", "worker.Dockerfile"))).is_file()\n'),
+
+    ("`context:` is ignored, so the Dockerfile is looked for beside the compose file", CLI,
+     '    context = project_dir / str(build.get("context", "."))\n',
+     "    context = project_dir\n"),
+
     ("the comparison is made on unresolved paths", CLI,
      "        return str(Path(out).expanduser().resolve().relative_to(Path.cwd().resolve()))\n",
      "        return str(Path(out).expanduser().relative_to(Path.cwd()))\n"),

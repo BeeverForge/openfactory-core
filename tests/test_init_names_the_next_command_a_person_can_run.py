@@ -140,6 +140,48 @@ def test_a_checkout_that_builds_its_images_is_told_to_build(by_hand, monkeypatch
     assert line is not None and " --build`" in line, line
 
 
+def _a_project_whose_worker_builds(root: pathlib.Path, build: str, dockerfile: str
+                                   ) -> pathlib.Path:
+    """A compose file with the worker's `build:` written as `build`, and one Dockerfile at
+    `dockerfile` (relative to the project) — the shapes compose accepts that ours does not use."""
+    where = root / "project"
+    (where / dockerfile).parent.mkdir(parents=True, exist_ok=True)
+    (where / dockerfile).write_text("FROM scratch\n")
+    (where / "docker-compose.yml").write_text(f"services:\n  worker:\n    build: {build}\n")
+    return where
+
+
+def test_a_short_form_build_with_its_dockerfile_beside_it_is_a_checkout(by_hand, monkeypatch):
+    """`build: <dir>` is compose's short form: the context, with `Dockerfile` in it by default."""
+    monkeypatch.chdir(_a_project_whose_worker_builds(by_hand, "w", "w/Dockerfile"))
+
+    line = _then()
+
+    assert line is not None and " --build`" in line, line
+
+
+def test_a_dockerfile_is_looked_for_in_its_context(by_hand, monkeypatch):
+    """Compose resolves `dockerfile:` against `context:`, not against the project: a Dockerfile in
+    `sub/` builds, and the same name beside the compose file would not."""
+    monkeypatch.chdir(_a_project_whose_worker_builds(
+        by_hand, "{context: sub, dockerfile: Dockerfile}", "sub/Dockerfile"))
+
+    line = _then()
+
+    assert line is not None and " --build`" in line, line
+
+
+def test_a_dockerfile_outside_its_context_does_not_build(by_hand, monkeypatch):
+    where = _a_project_whose_worker_builds(
+        by_hand, "{context: sub, dockerfile: Dockerfile}", "Dockerfile")
+    (where / "sub").mkdir()
+    monkeypatch.chdir(where)
+
+    line = _then()
+
+    assert line is not None and "--build" not in line, line
+
+
 def test_no_compose_file_in_the_working_directory_is_not_a_checkout(by_hand, monkeypatch):
     where = by_hand / "empty"
     where.mkdir()

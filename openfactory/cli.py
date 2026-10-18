@@ -1240,9 +1240,10 @@ def _named_as_passed(out: str) -> str:
 def _builds_from_this_checkout(project_dir: Path) -> bool:
     """Whether the `docker-compose.yml` here builds the worker from a Dockerfile that is here.
 
-    An installation from published images has the compose file and no `docker/` (the release ships
-    three assets), so `--build` there fails on a Dockerfile it cannot find — what every fresh
-    install from v0.5.0 to v0.6.0-rc.2 was told to run (#650). A checkout has both, and keeps it.
+    An installation from published images has the compose file and no `docker/` (none of the
+    three files the installer downloads is under it), so `--build` there fails on a Dockerfile it
+    cannot find — what every fresh install from v0.5.0 to v0.6.0-rc.2 was told to run (#650). A
+    checkout has both, and keeps it.
 
     A file that cannot be read or parsed answers "no", which is not the same as "there is no
     build", and is acceptable only because the answer decides a hint: nothing is written or
