@@ -173,3 +173,35 @@ def test_what_the_agent_cannot_open_is_never_left_out(tmp_path):
     left_out = fit_documents(built).left_out
     assert sorted(d.path for d in left_out) == ["adr/0001-a.md", "rules/house.md"]
     assert all(d.open_at and (tmp_path / d.open_at).is_file() for d in left_out)
+
+
+def test_a_framework_document_a_profile_replaces_stays_pinned(tmp_path):
+    """A profile may replace a framework guideline with a file of the checkout. The replacement
+    stands in for the baseline, so it is pinned like the baseline (ADR-0056) — not dropped as if it
+    were one of the project's own documents."""
+    from openfactory.contracts.profile import Profile
+    from openfactory.policy import profiles as prof
+
+    _write(tmp_path, {"docs/our-tdd.md": "OUR TEST-FIRST RULES\n" + "t" * 3_000})
+    profile = prof.ResolvedProfile([Profile.model_validate(
+        {"name": "house", "guidelines": {"replace": {"tdd.md": "docs/our-tdd.md"}}})])
+    built = ctx.build_context(Manifest(), tmp_path, _card(), knowledge_map="", profile=profile)
+    built.prompt_budget = 1_000
+
+    assert "OUR TEST-FIRST RULES" in ticket_brief(built)
+    assert fit_documents(built).left_out == []
+
+
+def test_a_brief_that_leaves_documents_out_logs_one_line(tmp_path, caplog):
+    """Bounds are logged when hit, ONCE per brief: #359 logged one line per document, 44 per build
+    and twice per job. The documents themselves are named in the prompt."""
+    _write(tmp_path, {f"adr/{i:04d}-r.md": "c" * 7_000 for i in range(6)})
+    built = _build(tmp_path, Manifest(docs={"constraints": "adr/*.md"}), budget=20_000)
+
+    with caplog.at_level("WARNING", logger="openfactory.adapters.agent.base"):
+        ticket_brief(built)
+
+    said = [r for r in caplog.records if r.name == "openfactory.adapters.agent.base"]
+    assert len(fit_documents(built).left_out) > 1, "the fixture must leave several out"
+    assert len(said) == 1, [r.getMessage() for r in said]
+    assert "OPENFACTORY_PROMPT_BUDGET" in said[0].getMessage()

@@ -215,3 +215,20 @@ def test_explain_says_what_the_budget_left_out_and_what_it_truncated(
     assert left_out.format(budget=number(budget)) in old, old
     assert truncated.format(cut=number(ctx._MAX_DOC_CHARS), whole=number(9_000)) in new, new
     assert "inlined in full" not in said and "incluído inteiro" not in said
+
+
+def test_a_cut_operator_document_is_named_where_the_rest_can_be_opened(tmp_path, monkeypatch):
+    """An operator document's `path` is a bare filename, which opens nothing in the checkout: the
+    line about its cut says where the rest is, at the root the box answered."""
+    from openfactory.orchestrator import operator_guidelines as og
+
+    central = tmp_path / "central"
+    _write(central, {"security.md": "s" * 9_000})
+    monkeypatch.setenv(og.ENV_VAR, str(central))
+    built = ctx.build_context(Manifest(), tmp_path / "repo", _card(), knowledge_map="",
+                              operator_root="/openfactory/guidelines")
+    built.prompt_budget = None
+
+    line = next(x for x in _the_notice(ticket_brief(built)).splitlines() if "security.md" in x)
+
+    assert "the rest is at `/openfactory/guidelines/security.md`" in line, line

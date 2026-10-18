@@ -72,9 +72,11 @@ def test_off_inlines_everything(monkeypatch, tmp_path):
 
 # ── a value nobody can read is refused by name, before a pass ───────────────────────────────────
 
-@pytest.mark.parametrize("value", ["160kb", "-5", "0", "1.5e5", "unlimited"])
+@pytest.mark.parametrize("value", ["160kb", "-5", "0", "1.5e5", "unlimited", "²", "١٦٠٠٠٠"])
 def test_a_malformed_budget_is_refused_by_name(monkeypatch, value):
-    """Never the default in silence: an operator who wrote `160kb` believes a budget is set."""
+    """Never the default in silence: an operator who wrote `160kb` believes a budget is set. A
+    digit that is not ASCII (`²`, Arabic-Indic numerals) is refused the same way: `str.isdigit`
+    says yes to it and `int()` raises a bare `ValueError` on `²`."""
     monkeypatch.setenv(VARIABLE, value)
 
     with pytest.raises(ctx.PromptBudgetError) as raised:
