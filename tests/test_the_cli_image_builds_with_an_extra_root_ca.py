@@ -152,6 +152,40 @@ def _in_image(tag: str, entrypoint: str, *args: str) -> str:
     return ran.stdout.strip()
 
 
+def test_under_TEST_REQUIRE_DOCKER_a_missing_daemon_runs_the_build_rather_than_skipping(
+        monkeypatch):
+    """CI's integration job is the only place the build runs. If the switch were ignored there, a
+    runner that lost its daemon would skip this guard in silence (review of #738, cut E)."""
+    monkeypatch.setenv("TEST_REQUIRE_DOCKER", "1")
+    monkeypatch.setenv("PATH", "/nonexistent")
+
+    assert _a_daemon_answers(), "under TEST_REQUIRE_DOCKER the probe still skips the build"
+
+
+@pytest.mark.parametrize("required", [True, False])
+def test_an_image_that_cannot_be_pulled_fails_under_TEST_REQUIRE_DOCKER_and_skips_otherwise(
+        monkeypatch, required):
+    """BOTH OUTCOMES ARE CAUGHT, and the type asserted: `pytest.raises(pytest.fail.Exception)`
+    lets a skip through as a skip, which is how a draft of this test reported cut F as skipped
+    rather than red (review of #738)."""
+    if required:
+        monkeypatch.setenv("TEST_REQUIRE_DOCKER", "1")
+    else:
+        monkeypatch.delenv("TEST_REQUIRE_DOCKER", raising=False)
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "denied"))
+
+    try:
+        _pull_or_skip("docker:28-cli")
+    except (pytest.fail.Exception, pytest.skip.Exception) as outcome:
+        caught = outcome
+    else:
+        caught = None
+
+    expected = pytest.fail.Exception if required else pytest.skip.Exception
+    assert type(caught) is expected and "docker:28-cli" in str(caught), caught
+
+
 def test_the_build_context_is_a_copy_and_the_checkouts_extra_ca_is_left_as_it_was(
         tmp_path, checkout_extra_ca):
     """The guard's own hygiene, without docker: a PEM written into the checkout would be trusted by

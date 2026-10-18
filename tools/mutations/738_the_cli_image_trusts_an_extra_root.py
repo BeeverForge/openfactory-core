@@ -52,4 +52,15 @@ MUTATIONS = [
      '    (dest / f"docker/extra-ca/{THROWAWAY}.crt").write_text(pem)',
      '    (ROOT / f"docker/extra-ca/{THROWAWAY}.crt").write_text(pem)',
      DOCKER_TEST),
+
+    # ── CI's switch: under TEST_REQUIRE_DOCKER the guard fails, it never skips (review of #738) ──
+    ("the daemon probe ignores TEST_REQUIRE_DOCKER, so a CI without a daemon skips the build",
+     DOCKER_TEST,
+     '    if os.environ.get("TEST_REQUIRE_DOCKER"):\n        return True\n',
+     "",
+     DOCKER_TEST),
+    ("an image that cannot be pulled skips even under TEST_REQUIRE_DOCKER", DOCKER_TEST,
+     "        if os.environ.get(\"TEST_REQUIRE_DOCKER\"):\n            pytest.fail(why)\n",
+     "        if os.environ.get(\"TEST_REQUIRE_DOCKER\"):\n            pytest.skip(why)\n",
+     DOCKER_TEST),
 ]
