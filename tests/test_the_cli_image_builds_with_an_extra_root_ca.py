@@ -175,7 +175,12 @@ def test_the_cli_image_builds_with_a_throwaway_root_and_pip_trusts_it(tmp_path):
         assert built.returncode == 0, (
             f"the CLI image does not build with a root in docker/extra-ca/:\n{built.stderr[-3000:]}")
 
-        cert = _in_image(tag, "pip", "config", "get", "global.cert")
+        # `pip config list`, NOT `pip config get global.cert`: `get` reads the user file alone and
+        # answers "No such key" for /etc/pip.conf (pip 25.0.1); `list` is every file pip loads.
+        listing = dict(line.split("=", 1) for line in
+                       _in_image(tag, "pip", "config", "list").splitlines() if "=" in line)
+        assert "global.cert" in listing, f"pip in the image has no cert configured: {listing}"
+        cert = listing["global.cert"].strip("'\"")
         # LOADED AS pip's TLS LOADS IT: an `ssl` context from that file, listing what it trusts.
         listed = _in_image(tag, "python", "-c",
                            "import ssl, sys; c = ssl.create_default_context(cafile=sys.argv[1]); "
