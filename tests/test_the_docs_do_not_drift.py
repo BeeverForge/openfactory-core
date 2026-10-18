@@ -473,11 +473,22 @@ def test_no_two_ADRs_share_a_number():
     """Two records written on two branches both take the next free number, and each one's index row
     resolves, so the guards above pass for both. The collision shows only when the second merges:
     two files and two rows answering to one number, and every "ADR-00NN" in the docs ambiguous."""
-    by_number: dict[str, list[str]] = {}
-    for p in (ROOT / "docs" / "adr").glob("[0-9][0-9][0-9][0-9]-*.md"):
-        by_number.setdefault(p.name[:4], []).append(p.name)
-    shared = {n: sorted(names) for n, names in by_number.items() if len(names) > 1}
+    shared = _numbers_shared(p.name for p in (ROOT / "docs" / "adr").glob("[0-9][0-9][0-9][0-9]-*.md"))
     assert not shared, f"two ADRs share a number: {shared}"
+
+
+def _numbers_shared(names):
+    """Every four-digit number more than one record answers to, with the records that take it."""
+    by_number: dict[str, list[str]] = {}
+    for name in names:
+        by_number.setdefault(name[:4], []).append(name)
+    return {n: sorted(v) for n, v in by_number.items() if len(v) > 1}
+
+
+def test_two_records_with_one_number_are_named_by_the_shared_number_guard():
+    """The tree holds no duplicate to cut, so the guard's own rule is tested on names it is given."""
+    assert _numbers_shared(["0056-a.md", "0056-b.md", "0057-c.md"]) == {
+        "0056": ["0056-a.md", "0056-b.md"]}
 
 
 def test_a_link_from_one_ADR_to_another_resolves():

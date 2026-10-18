@@ -196,16 +196,18 @@ deployment grants roles; it cannot invent one, for the same reason it cannot inv
   provider, which decides who a person is but not who is an `admin`, two admins can grant each
   other, and on an upgraded install every subject no group map covers is an `admin` (D6). Those two
   roles therefore come only from places the deployment's admins do not control: the host's
-  configuration — the registry's `roles:` and its aliases (`project.product.admins`,
+  configuration — the `approver` and `product-owner` entries of the registry's `roles:` and their aliases (`project.product.admins`,
   `OPENFACTORY_PROD_APPROVERS`, and in D5 release 1 the store), written by whoever owns the host —
   and the identity provider's group map
   (`OPENFACTORY_OIDC_GROUPS`), written in the deployment's environment by whoever owns the host,
   over groups whose members the directory's owner decides. Both are shown with their source. The grant verb refuses the two
   roles under every kind, naming those two paths.
-- **No catalog row writes a grant.** A guard test asserts that no row writes `roles:`,
-  `product.admins`, `project.admins`, a manifest's `prod_approvers`, `OPENFACTORY_OIDC_GROUPS` or
-  `OPENFACTORY_PROD_APPROVERS`, so the barrier still holds once the installation verbs become rows
-  that `admin` reaches (#741).
+- **No catalog row writes `approver` or `product-owner`.** A guard test asserts that no row writes
+  either role to any place a grant lives — the `approver` and `product-owner` keys of `roles:`,
+  `product.admins`, a manifest's `prod_approvers`, `OPENFACTORY_OIDC_GROUPS`,
+  `OPENFACTORY_PROD_APPROVERS`, an invitation's role — and that the grant row and `people_invite`
+  accept only `viewer`, `requester`, `operator` and `admin`, so the barrier still holds once the
+  installation verbs become rows that `admin` reaches (#741).
 - **The CLI's `people invite --by` goes** (`cli.py::people_invite`): it vouched as whatever it was
   typed. The CLI vouches as its shell login, like every other inviter. `env rehearse --by` stays:
   it records who approved a spend (ADR-0048), which is not a grant.
@@ -217,7 +219,9 @@ deployment grants roles; it cannot invent one, for the same reason it cannot inv
   `OPENFACTORY_BOARD_TOKENS` `operator`, `OPENFACTORY_PRODUCT_TOKENS` `requester`), an invitation's
   role, and the OIDC group map, whose right-hand side accepts a role name
   (`OPENFACTORY_OIDC_GROUPS="eng-leads=operator,release-board=approver"`). A per-deployment grant
-  holds on every project; a per-project grant holds on that project alone.
+  holds on every project; a per-project grant holds on that project alone. The grant verb writes
+  its four roles (`viewer`, `requester`, `operator`, `admin`) as `roles:` entries that record their
+  granter; `approver` and `product-owner` entries are the host owner's alone.
 - **The CLI is `Subject(id=<shell login>, via="cli")`**, holding `admin` on every project — written
   in the table rather than implied by `admin=True` at three call sites — and `product-owner` only
   where its login is granted, as `may_act` decides today: the product rows that write already ask
@@ -235,12 +239,15 @@ they must hold `approver` on that project, and they must have proved who they ar
   grants nothing: an approver of that project holds `approver` from `roles:`,
   `OPENFACTORY_PROD_APPROVERS` or the group map, and, when the manifest names anyone, is one of
   them. That is today's two-party shape: the repository says who, the host proves it. As today,
-  while `OPENFACTORY_PROD_APPROVERS` is set the manifest is not read (`catalog.py::_prod_allowlist`).
+  while `OPENFACTORY_PROD_APPROVERS` is set the manifest is not read (`catalog.py::_prod_allowlist`),
+  read by `approve_prod`; `promote` reads the manifest alone today (`catalog.py::_promote`), a
+  case for the parity test.
 - **No second identity.** `approve_prod` and `promote` lose their `approver` and `password`
   parameters. The approver recorded on the card, the tag and the audit line is `Subject.id` —
   the signed-in person — and nothing a caller types can change it.
 - **Anonymous never approves, nor, in the end, does the CLI.** The shared panel token (`UNKNOWN`)
-  and the shared product and board tokens cannot approve, whatever they hold; each refusal names the
+  and the shared product and board tokens cannot approve, whatever they hold (an approval presented
+  the old way is D5 release 1's exception); each refusal names the
   fix: *"a production release is approved by a named person — sign in with your own credential"*.
   The CLI cannot approve as itself either, since no identity provider can step a shell login up.
   Today it approves with a store login and that login's password
@@ -303,7 +310,8 @@ add|remove` are retired.** An approver is a person the identity axis knows, hold
 **On first start after the upgrade, the policy computes every grant from the legacy sources
 below, logs the table once (`OPENFACTORY_ROLES_DERIVED`), and `openfactory roles` prints it with
 the source of each line.** The legacy fields keep working as aliases — nothing has to be edited
-for the upgrade to keep the doors it had open — and an explicit `roles:` entry wins over its alias.
+for the upgrade to keep the doors it had open — and an explicit `roles:` entry wins over its
+per-project alias (`project.admins`, `product.admins`); deployment grants add to it.
 
 | existing credential | becomes | scope of the grant | note |
 |---|---|---|---|
@@ -353,8 +361,9 @@ each with its remedy, and none is silent; the last looks like one and is not:
   with your own credential (an `OPENFACTORY_PANEL_TOKENS` row, an invitation, an OIDC login)"*.
 - *An anonymous subject granting a role*: no grant verb exists today, so nothing an existing
   deployment does stops; the verb is born refusing it, with the same remedy.
-- *A grant to oneself, of any role*: refused with the rule's sentence; the remedy is a grant by
-  another person, or a `roles:` line the host's owner writes in the registry, which
+- *A grant to oneself, of `viewer`, `requester`, `operator` or `admin`*: refused with the rule's
+  sentence; the remedy is a grant by another person, or a `roles:` line the host's owner writes in
+  the registry, which
   `OPENFACTORY_ROLES_DERIVED` and `openfactory roles` show with its source.
 - *A grant of `approver` or `product-owner` by a verb*: no grant verb exists today, so nothing an
   existing deployment does stops; the verb is born refusing those two roles under every identity
@@ -375,7 +384,8 @@ each with its remedy, and none is silent; the last looks like one and is not:
   map and the manifest must name the subject id. `doctor` lists each such login from release 1,
   with both edits.
 - *A store login that approved a project whose manifest names other approvers*: it never could —
-  `_prod_allowlist` read the manifest first — so nothing changes.
+  `_prod_allowlist` read the environment variable first, and the manifest when it was unset — so
+  nothing changes.
 
 Every other credential keeps exactly the access it had — the shared panel token,
 `OPENFACTORY_PANEL_TOKENS` rows, a group-less invitation and the OIDC catch-all keep their
