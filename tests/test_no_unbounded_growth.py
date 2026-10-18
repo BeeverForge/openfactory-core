@@ -172,6 +172,9 @@ _CACHES = {
     ("openfactory/product/sources.py", "_PARALLEL_SAID"):
         "one per unreadable value of `OPENFACTORY_SOURCES_PARALLEL` — bounded by the environment, "
         "never by traffic",
+    ("openfactory/product/sources.py", "_FRESH_SAID"):
+        "one per unreadable value of `OPENFACTORY_SOURCES_FRESH_SECONDS` — bounded by the "
+        "environment, never by traffic",
     # #373 — one refresh machinery per machine identity the registry declares.
     ("openfactory/adapters/azure_devops.py", "_WORKLOAD"):
         "one per identity client id a registry axis declares (the machine's own under '') — "

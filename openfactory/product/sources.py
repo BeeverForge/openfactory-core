@@ -74,6 +74,35 @@ def parallel() -> int:
         return DEFAULT_PARALLEL
     return value
 
+#: How long a source brought up for the product role is served again without asking its forge,
+#: when the operator does not say. An unmoved source already costs one question and no checkout
+#: (#372), and one question per source is still N round trips per message. A minute covers the
+#: back-and-forth of a conversation and is the most a merge waits to reach the role; `0` asks every
+#: turn. `OPENFACTORY_SOURCES_FRESH_SECONDS`, read by `fresh_for()` (#369).
+DEFAULT_FRESH_SECONDS = 60
+_FRESH_SAID: set[str] = set()
+
+
+def fresh_for() -> float:
+    """`OPENFACTORY_SOURCES_FRESH_SECONDS`, else `DEFAULT_FRESH_SECONDS`, read now (#185). `0` is a
+    value — no window. A value that is not a number of seconds is the default, said once."""
+    raw = (os.environ.get("OPENFACTORY_SOURCES_FRESH_SECONDS") or "").strip()
+    if not raw:
+        return DEFAULT_FRESH_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1.0
+    if not 0 <= value < float("inf"):
+        if raw not in _FRESH_SAID:
+            _FRESH_SAID.add(raw)
+            log.warning("OPENFACTORY_SOURCES_FRESH_SECONDS=%r is not a number of seconds — a "
+                        "source is served for %d seconds without asking its forge again", raw,
+                        DEFAULT_FRESH_SECONDS)
+        return DEFAULT_FRESH_SECONDS
+    return value
+
+
 # ── why a source is not mounted: said in the prompt, and nothing else is ───────────────────────
 
 NOT_DECLARED = ("it is not among the product's `sources:` in `.openfactory/product.yaml`, so it "
@@ -312,6 +341,7 @@ def module_map(docs_root, repo: str, code: Path) -> tuple[Path | None, str]:
     return home / MODULES_FILE, ""
 
 
-__all__ = ["DEFAULT_PARALLEL", "MAP_STALE", "NOT_AUTHORISED", "NOT_DECLARED", "NOT_FOUND",
-           "NO_MAP", "UNREACHABLE", "Checkout", "Checkouts", "Declared", "Mount", "bundle_home",
-           "check_out", "declared", "module_map", "parallel", "why_not"]
+__all__ = ["DEFAULT_FRESH_SECONDS", "DEFAULT_PARALLEL", "MAP_STALE", "NOT_AUTHORISED",
+           "NOT_DECLARED", "NOT_FOUND", "NO_MAP", "UNREACHABLE", "Checkout", "Checkouts",
+           "Declared", "Mount", "bundle_home", "check_out", "declared", "fresh_for", "module_map",
+           "parallel", "why_not"]

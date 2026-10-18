@@ -30,6 +30,8 @@ they inherit the scrubbed remote.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 import os
 import re
@@ -101,6 +103,16 @@ _MASTERS_DIRNAME = ".masters"
 _STAGING_DIRNAME = ".staging"
 _TRASH_DIRNAME = ".trash"
 _LOCKS_DIRNAME = ".locks"
+#: Where a sparse key remembers when it was last brought up, and for which branch: the freshness
+#: window of `SparseRepoCache` (#369). Beside the locks, so every process on the root reads it.
+_FRESH_DIRNAME = ".fresh"
+
+
+def _now() -> float:
+    """The clock the freshness window reads. The WALL clock, not a monotonic one: the stamp is read
+    by other processes on the same root and outlives a restart, and a monotonic reading means
+    nothing outside the process that took it."""
+    return time.time()
 
 #: How long a sync waits for a key another thread or process is changing. A holder's git commands
 #: are each bounded by `_GIT_TIMEOUT`, and a holder that dies lets go with it (the kernel releases
@@ -579,13 +591,18 @@ class SparseRepoCache(RepoCache):
     None, WITH EVERY CREDENTIAL TAKEN OUT, for the caller to classify — they are not a sentence for
     a prompt, because git names URLs."""
 
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(self, root: Path | None = None, *, fresh_for: float = 0,
+                 clock=None) -> None:
         super().__init__(root)
         self.failure = ""
         self.left_out: list[str] = []
         #: whether the clone really is partial: a server that does not serve filters clones whole,
         #: and git says so only in a warning
         self.partial = False
+        #: seconds a key brought up by this cache is served again without asking its forge. 0 — the
+        #: default, and what the system layer's refresh keeps — asks every time.
+        self.fresh_for = fresh_for
+        self._clock = clock
 
     def sync(self, project: str, clone_url: str, base_branch: str = "") -> Path | None:
         self.failure, self.left_out, self.partial = "", [], False
@@ -593,11 +610,67 @@ class SparseRepoCache(RepoCache):
         try:
             with _key_lock(self.root, project).held(timeout=_LOCK_WAIT_SECONDS):
                 try:
-                    return self._sync_sparse(project, public, base_branch, env)
+                    served = self.root / project
+                    if self._fresh(project, base_branch, served):
+                        return served
+                    # WITHDRAWN BEFORE THE MASTER IS TOUCHED: a sync that dies half-way must not
+                    # leave the last good sync's window open over a master that moved since
+                    self._stamp(project).unlink(missing_ok=True)
+                    got = self._sync_sparse(project, public, base_branch, env)
+                    if got is not None:
+                        self._remember_fresh(project, base_branch)
+                    return got
                 finally:
                     self._purge_displaced()   # whether or not this sync succeeded (`RepoCache`)
         except Exception as exc:  # noqa: BLE001 — cache trouble must never block the pipeline
             return self._failed(project, str(exc))
+
+    def _stamp(self, project: str) -> Path:
+        return self.root / _FRESH_DIRNAME / f"{project}.json"
+
+    def _fresh(self, project: str, base_branch: str, served: Path) -> bool:
+        """Whether `project` was brought up for this same ask less than `fresh_for` seconds ago and
+        its served tree is still there — and if so, what that sync's cone left out, read back.
+
+        ON DISK UNDER THE ROOT, NOT IN MEMORY: a cache is built afresh per source per turn, and the
+        panel and the worker are two processes on one root (`_key_lock`), so a window in memory
+        would be per process and lost on every restart. Read under the key's lock, so it never
+        sees a master another sync is half-way through changing."""
+        if self.fresh_for <= 0:
+            return False
+        now = (self._clock or _now)()
+        try:
+            stamp = json.loads(self._stamp(project).read_text(encoding="utf-8"))
+            age = now - float(stamp["at"])
+            left_out = [str(d) for d in stamp["left_out"]]
+            partial = bool(stamp["partial"])
+            if not (stamp["asked"] == base_branch and 0 <= age < self.fresh_for
+                    and (served / ".git").exists()):
+                return False
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
+        self.left_out, self.partial = left_out, partial
+        return True
+
+    def _remember_fresh(self, project: str, base_branch: str) -> None:
+        """Open the window: written AFTER the publish, with what THIS sync computed, so the fresh
+        path never reads a master. A stamp that cannot be written costs the window and nothing
+        else — the next turn asks the forge, as it did before there was a window."""
+        if self.fresh_for <= 0:
+            return
+        stamp = self._stamp(project)
+        part = stamp.with_name(f"{stamp.name}.{uuid.uuid4().hex[:8]}")
+        try:
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            part.write_text(json.dumps({"at": (self._clock or _now)(), "asked": base_branch,
+                                        "left_out": self.left_out, "partial": self.partial}),
+                            encoding="utf-8")
+            os.replace(part, stamp)
+        except OSError as exc:
+            with contextlib.suppress(OSError):
+                part.unlink(missing_ok=True)
+            log.info("OPENFACTORY_CACHE: %s is served without a freshness window (%s)", project,
+                     _one_reason(exc))
 
     def _sync_sparse(self, project: str, public: str, base_branch: str,
                      env: dict[str, str]) -> Path | None:

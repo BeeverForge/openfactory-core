@@ -397,6 +397,33 @@ def test_the_layer_and_the_role_never_share_a_checkout(product):
     assert ProductModule(project)._source_key("quayside-orders") != tree.root.name
 
 
+def test_the_system_layer_refresh_asks_the_forge_whatever_the_window(product, monkeypatch):
+    """The product role's sources are served inside a freshness window (#369); this refresh is not.
+    It derives and publishes the map right after a merge, and a map derived from a tree a minute
+    old would publish the code as it was before the merge it ran for."""
+    from openfactory.runtime import repo_cache
+
+    project, remotes, root, _ = product
+    monkeypatch.setenv("OPENFACTORY_SOURCES_FRESH_SECONDS", "3600")
+    asked: dict[str, int] = {}
+    real = repo_cache.subprocess.run
+
+    def counting(args, *a, **kw):
+        if isinstance(args, (list, tuple)) and list(args[:2]) == ["git", "ls-remote"]:
+            for name in SOURCES:
+                if any(str(x).rstrip("/").endswith(f"{name}.git") for x in args):
+                    asked[name] = asked.get(name, 0) + 1
+        return real(args, *a, **kw)
+
+    monkeypatch.setattr(repo_cache.subprocess, "run", counting)
+    found = Declared(sources=tuple((s, s) for s in SOURCES))
+    for _ in range(2):
+        _, missing = refresh.gather(project, found, token=None, root=root)
+        assert missing == {}
+
+    assert asked == {name: 2 for name in SOURCES}, asked
+
+
 def test_the_map_is_of_what_the_product_declares_and_nothing_about_the_role(product):
     """`sources.check_out` names the registry project's repository as NOT DECLARED when the
     product leaves it out — a fact about the role's boundary. The map is of what the product

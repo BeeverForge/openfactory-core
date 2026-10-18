@@ -1854,8 +1854,18 @@ class ProductModule:
 
         `own` is the registry project's own repository: addressed by the registry's spelling and
         read on the registry's declared base. Every other source is addressed as `sources:` spells
-        it and read on its own default branch, since the registry declares no branch for it."""
-        from openfactory.product.sources import NOT_ADDRESSABLE, NOT_CHECKED_OUT, Checkout, why_not
+        it and read on its own default branch, since the registry declares no branch for it.
+
+        A source brought up less than `OPENFACTORY_SOURCES_FRESH_SECONDS` ago, for the same branch,
+        is served as it was without asking its forge (#369): a commit pushed inside that window
+        reaches the role on the first turn after it."""
+        from openfactory.product.sources import (
+            NOT_ADDRESSABLE,
+            NOT_CHECKED_OUT,
+            Checkout,
+            fresh_for,
+            why_not,
+        )
 
         try:
             from openfactory.loader import load_manifest_base_branch
@@ -1867,7 +1877,7 @@ class ProductModule:
                 log.warning("product: the forge of %s cannot address the source %s (%s)",
                             getattr(self.project, "name", "?"), repo, type(exc).__name__)
                 return Checkout(why=NOT_ADDRESSABLE)
-            cache = SparseRepoCache()
+            cache = SparseRepoCache(fresh_for=fresh_for())
             # THE REGISTRY'S DECLARED BASE, OR THE REPOSITORY'S OWN (#162). `"main"` here was not a
             # harmless default: `git clone --branch main` against a `master` or `develop`
             # repository names nothing and fails, and this function's failure is silent by
