@@ -1,7 +1,8 @@
 # `docker/extra-ca/` — a root CA this deployment's network requires
 
 **Empty on purpose.** Drop a PEM-encoded root certificate named `*.crt` in here and every image
-this repository builds will trust it: the box, the worker, and the harness toolbox.
+this repository builds will trust it: the box, the worker, the harness toolbox, and the CLI image
+the installer runs.
 
 ## When you need this
 
@@ -25,8 +26,10 @@ cp /path/to/your-corporate-root.crt docker/extra-ca/
 docker compose --env-file .env.compose up -d --build
 ```
 
-That is all. Each image copies whatever `.crt` files are here into the system trust store, runs
-`update-ca-certificates`, and points `npm` and `pip` at the result. **With no `.crt` here the
+That is all. The box and the worker copy whatever `.crt` files are here into the system trust
+store, run `update-ca-certificates`, and point `npm` and `pip` at the result. The CLI image
+installs nothing from Debian, so it appends them to the system store its base image already
+carries (`/etc/ssl/certs/ca-certificates.crt`) and points `pip` there. **With no `.crt` here the
 images build exactly as they did before** — the block is a no-op, not a branch you opt out of.
 
 `.gitignore` in this directory ignores `*.crt`, so a certificate dropped here is never committed

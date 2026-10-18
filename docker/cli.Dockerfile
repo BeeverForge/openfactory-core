@@ -57,6 +57,22 @@ FROM python:3.12-slim
 # mirror argument for cannot happen here; an ARG for it would be a setting that looks configured
 # and changes nothing.
 #
+# THE SYSTEM STORE, NOT `certifi`, AND NOT BECAUSE ONE IS NICER. From v0.1.0 to 0.6.x this step
+# appended to `$(python -c 'import certifi; print(certifi.where())')` — and at this point the image
+# is a bare `python:3.12-slim`, which has no `certifi` (measured 2026-10-17: Debian 13.7 and the
+# `-bookworm` variant on 12.15, both Python 3.12.15 / pip 25.0.1, both `ModuleNotFoundError`). The
+# substitution came back empty, `>> ""` failed under `set -eu`, and the layer exited 2, so nobody
+# with a root in `docker/extra-ca/` could build this image (#738). Every build without one skipped
+# the branch, which is why the release never saw it. What the base image DOES carry, on both, is
+# Debian's `/etc/ssl/certs/ca-certificates.crt` (224 449 bytes, 150 roots, `ca-certificates`
+# 20250419), and `base-python` and `worker` already point pip at that path. Not pip's own
+# `pip/_vendor/certifi/cacert.pem` either: that file belongs to pip, and the next pip upgrade
+# replaces it with one that has never heard of the extra root.
+#
+# THE STORE IS CHECKED, NOT ASSUMED: `>>` onto a missing file CREATES it, holding the extra root
+# alone, and pip pointed at it would then trust nothing else — every download failing for a reason
+# that looks like the network. A base image without the store refuses here, by name.
+#
 # `/etc/pip.conf` rather than `PIP_CERT`: a file can be written before the tool that reads it
 # runs, and a file that was never written is a stronger no-op than an environment variable always
 # set to something. It IS pip's global config on Linux, wherever pip came from.
@@ -69,10 +85,11 @@ RUN set -eu; \
       cat "$crt" >> /usr/local/share/openfactory/extra-ca.crt; \
     done; \
     if [ -s /usr/local/share/openfactory/extra-ca.crt ]; then \
-      cat /usr/local/share/openfactory/extra-ca.crt >> \
-        "$(python -c 'import certifi; print(certifi.where())')"; \
-      printf '[global]\ncert = %s\n' \
-        "$(python -c 'import certifi; print(certifi.where())')" > /etc/pip.conf; \
+      [ -s /etc/ssl/certs/ca-certificates.crt ] || { \
+        echo "docker/extra-ca/ holds a root certificate, but the base image carries no system trust store at /etc/ssl/certs/ca-certificates.crt for it to join; build FROM an image that ships Debian's ca-certificates (python:3.12-slim does)." >&2; \
+        exit 1; }; \
+      cat /usr/local/share/openfactory/extra-ca.crt >> /etc/ssl/certs/ca-certificates.crt; \
+      printf '[global]\ncert = /etc/ssl/certs/ca-certificates.crt\n' > /etc/pip.conf; \
     fi; \
     rm -rf /tmp/extra-ca
 
