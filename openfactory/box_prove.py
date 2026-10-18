@@ -1234,6 +1234,12 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
     }
     if declared_env := tuple(getattr(declared, "env", None) or ()):
         knobs["extra_env"] = declared_env
+    # …and the operator directory the job's box mounts (`factory.py`), read from the same place: a
+    # proof box without it opens no operator document, and the budget's fit it reports pinned that
+    # tier where the job leaves it out (review of #364)
+    from openfactory.orchestrator import operator_guidelines
+
+    knobs.update(operator_guidelines.box_knobs())
     # THE BOX THIS DEPLOYMENT RUNS, not always the container one (ADR-0049 D9). A proof taken in a
     # box the job will not use proves the box nobody runs — the same reasoning that made this reuse
     # `ContainerSandbox` rather than approximate it, one axis further out.

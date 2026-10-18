@@ -3109,19 +3109,15 @@ def _box_stages_input(kind: str) -> bool:
 
 
 def _box_operator_root(kind: str) -> str | None:
-    """Where this deployment's box opens the operator's guideline directory, asked of a built
-    instance the way the job asks it (`operator_guidelines.guidelines_root`). A box that cannot be
-    built here answers None, which pins the operator tier: the fit then leaves out fewer documents
-    than a pass might, never more (#364)."""
-    from openfactory.adapters.sandbox.registry import build_sandbox
-    from openfactory.orchestrator.operator_guidelines import gather, guidelines_root
+    """Where this deployment's box opens the operator's guideline directory: asked of a box built
+    the way the JOB builds it, with the directory mounted (`operator_guidelines.deployment_root`).
+    This built a bare box, and a container box built without the mount answers None — so the fit
+    pinned the operator tier and reported the project's own guidelines left out where the job
+    leaves the operator's out (review of #364). A box that cannot be built here still answers None,
+    and then the operator tier is pinned."""
+    from openfactory.orchestrator.operator_guidelines import deployment_root
 
-    try:
-        box = build_sandbox(kind)
-    except Exception as exc:  # cannot say; the tier stays pinned
-        log.debug("could not build the %r box to ask where it opens the guidelines (%s)", kind, exc)
-        return None
-    return guidelines_root(box, gather())
+    return deployment_root(kind)
 
 
 def _operator_guidelines_tier():

@@ -143,3 +143,172 @@ def test_the_kept_documents_keep_the_order_that_gives_the_project_the_last_word(
               "PROJECT-FIRST", "PROJECT-SECOND")]
     assert order == sorted(order), "the kept documents are not in the cascade's order"
     assert "RECORD-0001" not in brief
+
+
+# ── the other half of the project tier, and a profile's additions (review of #364) ───────────────
+
+def _operator_and_budget_for_all_but_one(tmp_path: Path, monkeypatch, manifest: Manifest,
+                                         files: dict[str, str], **kw):
+    """Six operator standards, the project's `files`, and a budget one operator document short."""
+    operator = _six_operator_documents(tmp_path)
+    monkeypatch.setenv(og.ENV_VAR, str(operator))
+    _write(tmp_path / "repo", files)
+    built = ctx.build_context(manifest, tmp_path / "repo", _card(), knowledge_map="",
+                              operator_root=str(operator.resolve()), **kw)
+    built.prompt_budget = None
+    built.prompt_budget = budgeted_bytes(built) - 7_900
+    return fit_documents(built)
+
+
+def test_a_components_guidelines_are_kept_before_the_operator_tier(tmp_path, monkeypatch):
+    """`components.<name>.guidelines` are the project's own rules as much as `docs.guidelines`.
+    The document is larger than one operator document, so drop-and-continue cannot fit it back in
+    afterwards: only the priority keeps it."""
+    manifest = Manifest(components={"api": {"path": "api/", "stack": "python",
+                                            "guidelines": ["api/RULES.md"]}})
+    fit = _operator_and_budget_for_all_but_one(
+        tmp_path, monkeypatch, manifest, {"api/RULES.md": "# API rules\n" + "a" * 7_950})
+
+    assert "api/RULES.md" in [d.path for d in fit.kept]
+    assert {d.source for d in fit.left_out} == {ctx.OPERATOR}
+
+
+def test_a_profiles_extension_is_left_out_before_the_operator_tier(tmp_path, monkeypatch):
+    """A profile's `extend:` comes after the operator tier in the fill (ADR-0056): the deployment's
+    standards outrank a class's additions, as they do in the cascade."""
+    from openfactory.contracts.profile import Profile
+    from openfactory.policy import profiles as prof
+
+    profile = prof.ResolvedProfile([Profile.model_validate(
+        {"name": "x", "guidelines": {"extend": ["docs/extra.md"]}})])
+    fit = _operator_and_budget_for_all_but_one(
+        tmp_path, monkeypatch, Manifest(), {"docs/extra.md": "# Extra\n" + "e" * 7_950},
+        profile=profile)
+
+    assert "docs/extra.md" in [d.path for d in fit.left_out]
+
+
+# ── the diagnostic surfaces ask the box the job's way (review of #364) ──────────────────────────
+
+def test_explain_gives_an_operator_document_the_fate_the_job_gives_it(tmp_path, monkeypatch):
+    """`explain` pinned the operator tier on every box, so with the job leaving three operator
+    standards out it told the developer the project's own `rules/house.md` was left out instead."""
+    import yaml
+
+    from openfactory.adapters.sandbox.worktree import WorktreeSandbox
+    from openfactory.orchestrator import explain as ex
+    from openfactory.orchestrator.machine import JobRunner
+
+    operator = _six_operator_documents(tmp_path)
+    monkeypatch.setenv(og.ENV_VAR, str(operator))
+    monkeypatch.setenv("OPENFACTORY_SANDBOX", "worktree")
+    repo = tmp_path / "repo"
+    rules = {"rules/house.md": "# House\nReads go through the cache.\n" * 20}
+    _write(repo, rules | {".openfactory/project.yaml": yaml.safe_dump(
+        {"version": 1, "docs": {"guidelines": list(rules)}})})
+    runner = JobRunner(tracker=object(), forge=object(), agent=object(),
+                       sandbox=WorktreeSandbox(root=tmp_path / "wt"),
+                       manifest=Manifest(docs={"guidelines": list(rules)}), repo_path=repo)
+    whole = runner._build_context(ctx._BLANK_CARD)
+    whole.prompt_budget = None
+    monkeypatch.setenv("OPENFACTORY_PROMPT_BUDGET", str(budgeted_bytes(whole) - 2 * 7_900))
+    job_left = {d.path for d in fit_documents(runner._build_context(ctx._BLANK_CARD)).left_out}
+    assert job_left, "the job leaves nothing out"
+
+    said = ex.explain(str(repo))
+
+    explain_left = {line.split()[1] for line in said.splitlines() if "left out" in line}
+    assert explain_left == job_left, (sorted(job_left), sorted(explain_left))
+
+
+def test_doctor_asks_the_container_box_the_job_builds(tmp_path, monkeypatch):
+    """The job's container box is built with the operator directory mounted (`factory.py`), and
+    answers its mount; doctor built one without it, which answers nothing."""
+    from openfactory import doctor
+    from openfactory.adapters.sandbox.container import GUIDELINES_MOUNT
+
+    monkeypatch.setenv(og.ENV_VAR, str(_six_operator_documents(tmp_path)))
+
+    assert doctor._box_operator_root("container") == GUIDELINES_MOUNT
+
+
+def test_box_prove_builds_its_box_with_the_operator_directory_the_job_mounts(tmp_path,
+                                                                             monkeypatch):
+    """The proof box is the job's box: built with the same `guidelines` knob, so the fit it
+    reports leaves out what a pass would."""
+    from types import SimpleNamespace
+
+    from openfactory import box_prove
+    from openfactory.adapters.sandbox import registry as sandboxes
+
+    operator = _six_operator_documents(tmp_path)
+    monkeypatch.setenv(og.ENV_VAR, str(operator))
+    handed: list[dict] = []
+
+    class _Box:
+        def prepare(self, **_kw):
+            return SimpleNamespace(path=str(tmp_path))
+
+        def cleanup(self, **_kw):
+            pass
+
+    monkeypatch.setattr(sandboxes, "installed_box_traits",
+                        lambda _kind: SimpleNamespace(honours_image=True))
+    monkeypatch.setattr(sandboxes, "build_sandbox",
+                        lambda *_a, **kw: handed.append(kw) or _Box())
+
+    with box_prove.box_probes(SimpleNamespace(name="acme", box=None), "img", repo_path=tmp_path,
+                              manifest=Manifest(), key="acme", sandbox="container"):
+        pass
+
+    assert handed and handed[0].get("guidelines") == str(operator), handed
+
+
+def test_explain_names_a_left_out_operator_document_where_the_box_opens_it(tmp_path, monkeypatch):
+    """The fate says where to open it: the operator root the box answered, not the bare filename
+    the operator tier addresses its documents by."""
+    import yaml
+
+    from openfactory.orchestrator import explain as ex
+
+    operator = _six_operator_documents(tmp_path)
+    monkeypatch.setenv(og.ENV_VAR, str(operator))
+    monkeypatch.setenv("OPENFACTORY_SANDBOX", "worktree")
+    monkeypatch.setenv("OPENFACTORY_PROMPT_BUDGET", "20000")
+    repo = tmp_path / "repo"
+    _write(repo, {".openfactory/project.yaml": yaml.safe_dump({"version": 1})})
+
+    said = ex.explain(str(repo))
+
+    left = [x for x in said.splitlines() if "left out" in x]
+    assert left, said
+    assert all(f"`{operator.resolve()}/standard-" in x for x in left), left
+
+
+def test_the_jobs_box_is_built_with_the_operator_directory(tmp_path, monkeypatch):
+    """The composition root's half of the same knob, read from the one place `box prove` and
+    `doctor` read it (`operator_guidelines.box_knobs`): the box a job runs in is built with the
+    operator directory, so a container box mounts it and answers where it opens."""
+    from openfactory import factory
+    from openfactory.contracts.project import Project, ProviderRef
+
+    operator = _six_operator_documents(tmp_path)
+    monkeypatch.setenv(og.ENV_VAR, str(operator))
+    handed: list[dict] = []
+    monkeypatch.setattr("openfactory.adapters.sandbox.registry.build_sandbox",
+                        lambda *a, **kw: handed.append(kw) or object())
+    monkeypatch.setattr(factory, "resolve_repo_path", lambda p, **kw: tmp_path)
+    for seam in ("openfactory.adapters.tracker.registry.build_tracker",
+                 "openfactory.adapters.forge.registry.build_forge",
+                 "openfactory.adapters.agent.build_executor",
+                 "openfactory.loader.load_manifest",
+                 "openfactory.observability.registry.journal_for"):
+        monkeypatch.setattr(seam, lambda *a, **kw: object())
+    monkeypatch.setattr(factory, "notifier_for_project", lambda p: object())
+    monkeypatch.setattr("openfactory.orchestrator.JobRunner", lambda **kw: kw)
+
+    factory.build_runner(Project(name="books", repo_path=str(tmp_path),
+                                 tracker=ProviderRef(kind="github", repo="acme/books")),
+                         "1", sandbox="container", image="img", review=False)
+
+    assert handed and handed[0].get("guidelines") == str(operator), handed

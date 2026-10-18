@@ -179,7 +179,10 @@ budget), never one line per document: #359 logged 44 lines per build, twice per 
 
 `openfactory explain` says the same thing about each document (left out, or inlined up to N of M
 characters), from the same fit. `openfactory doctor` and `box prove` give the budget and how many
-documents a blank card's brief keeps, cuts and names.
+documents a blank card's brief keeps, cuts and names. All three ask where the operator directory
+opens of a box built the way the job builds it, with that directory mounted
+(`operator_guidelines.box_knobs`). Otherwise they would pin the operator tier and report the
+project's own guidelines left out, where the job leaves the operator's out.
 
 ### What it does not reach
 

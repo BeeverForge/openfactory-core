@@ -372,9 +372,17 @@ def explain(target: str, *, language: str = "en", full: bool = False) -> str:
         manifest = _manifest(checkout, target, language)
         profile = _profile(manifest, checkout, language)
         trace: list[ctx.Traced] = []
+        # WHERE THE JOB'S BOX OPENS THE OPERATOR DIRECTORY, asked of the box this deployment runs,
+        # built as the job builds it: without it the operator tier is pinned here and left out by
+        # the job, and the fates below would name the project's own guideline instead (review of
+        # #364). Nothing is built when no operator directory is configured.
+        from openfactory.orchestrator.operator_guidelines import deployment_root
+        from openfactory.runtime.temporal.io import default_sandbox
+
         try:
             context = ctx.build_context(manifest, checkout, ctx._BLANK_CARD, knowledge_map="",
-                                        profile=profile, trace=trace)
+                                        profile=profile, trace=trace,
+                                        operator_root=deployment_root(default_sandbox()))
         except ctx.PromptBudgetError:
             raise Refused(_say(SAY, "refuse.budget", language, variable=ctx.ENV_VAR_PROMPT_BUDGET,
                                value=os.environ.get(ctx.ENV_VAR_PROMPT_BUDGET, "").strip())

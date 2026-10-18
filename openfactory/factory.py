@@ -444,8 +444,7 @@ def build_runner(project, issue: str, *, sandbox: str, image: str, review: bool,
     # host, and it says so through the same capability.
     from openfactory.orchestrator import operator_guidelines
 
-    if (og_dir := operator_guidelines.configured_dir()) is not None and og_dir.is_dir():
-        knobs["guidelines"] = str(og_dir)
+    knobs.update(operator_guidelines.box_knobs())
     if knobs:
         _warn_unhonoured_knobs(project, sandbox, knobs)
     _warn_if_a_pause_will_cost_a_second_pass(project, sandbox)
