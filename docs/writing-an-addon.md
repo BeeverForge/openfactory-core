@@ -159,6 +159,7 @@ that matters:
 | `session_store`, `token_pool` | `builder(**kw)` | a store / a mapping |
 | `identity` | `builder()` | an `IdentityProvider` |
 | `credential` | `builder()` | a `CredentialRow` (a value, not a client) |
+| `credential_store` | `builder()` | a `CredentialStore`: `resolve(name)` → the secret or `None`, `describe(name)` → where it is looked for, never the value |
 | `board_setup` | `builder()` | a `BoardCreator` |
 | `role` | `builder()` | a `RoleSpec` (a value, not a client) |
 | `preview` | `builder()` | a `(PreviewTraits, factory)` row; `factory(**kw)` → a `PreviewRuntime` (§3b) |
