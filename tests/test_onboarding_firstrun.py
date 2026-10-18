@@ -23,6 +23,7 @@ docker, a harness and a dollar.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import inspect
 import re
 from pathlib import Path
@@ -1115,3 +1116,23 @@ def test_the_stage_list_is_the_contract():
     assert fr.STAGES[0] == "box" and fr.STAGES[-1] == "teardown"
     assert set(fr.COSTED_STAGES) < set(fr.STAGES)
     assert fr.AGENT_PASSES == len(fr.COSTED_STAGES)
+
+
+def test_a_prompt_budget_nobody_can_read_is_named_not_blamed_on_the_harness():
+    """The rehearsal builds its context with the job's own `build_context`, which refuses an
+    `OPENFACTORY_PROMPT_BUDGET` nobody can read (#364). That refusal is the deployment's setting,
+    and the round said "the executor raised … this is the harness itself", sending the operator to
+    the harness binary and its auth for a variable in their own `.env.compose`."""
+    from openfactory.orchestrator.context import PromptBudgetError
+
+    def _refuses(ticket, ws):  # noqa: ARG001
+        raise PromptBudgetError("OPENFACTORY_PROMPT_BUDGET is '160kb', which is neither …")
+
+    p, built = _probes()
+    p = dataclasses.replace(p, context=_refuses)
+    run = fr.rehearse(p, consent=APPROVED)
+
+    stage = next(s for s in run.stages if s.name == "agent")
+    assert not stage.ok
+    assert "OPENFACTORY_PROMPT_BUDGET" in stage.message
+    assert "harness" not in f"{stage.message} {stage.remedy}", stage

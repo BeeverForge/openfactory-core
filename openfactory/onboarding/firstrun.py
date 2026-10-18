@@ -1075,10 +1075,21 @@ class _Runner:
         manifest = self.p.manifest()
         self.ticket = rehearsal_ticket(repo=self.p.project_name,
                                        base_branch=manifest.base_branch)
+        from openfactory.orchestrator.context import PromptBudgetError
+
         try:
             agent = self.p.executor()
             ctx = self.p.context(self.ticket, self.workspace)
             result = agent.execute(sandbox=self.box, workspace=self.workspace, context=ctx)
+        except PromptBudgetError as exc:
+            # THE DEPLOYMENT'S SETTING, NOT THE HARNESS (#364): the context refuses a budget nobody
+            # can read before any pass, and the remedy below would send the operator to the
+            # harness binary and its auth for a variable in their own environment.
+            self.finish(_fail("agent", str(exc),
+                              "fix the variable in the worker's environment (`.env.compose`) and "
+                              "restart the worker; a job holds on it the same way",
+                              on=self.on), started)
+            return False
         except Exception as exc:  # noqa: BLE001
             self.finish(_fail("agent", f"the executor raised: {str(exc)[:300]}",
                               "this is the harness itself, not your code — check the box's "
