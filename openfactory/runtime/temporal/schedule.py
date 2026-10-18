@@ -297,10 +297,6 @@ async def main() -> None:
         print(line)
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
-
-
 def _product_schedule(project_name: str, every_hours: int) -> Schedule:
     return Schedule(
         action=ScheduleActionStartWorkflow(
@@ -533,3 +529,9 @@ async def ensure_techlead_watch(every_hours: int = WATCH_EVERY_HOURS) -> list[st
             await handle.update(lambda _, sch=schedule: ScheduleUpdate(schedule=sch))
             made.append(f"updated {sid}")
     return made
+
+
+# Last, because `-m` runs the module top to bottom: at line 300, above the per-project `ensure_*`
+# definitions, `main()` reached `ensure_techlead_watch` before its `def` had run (NameError, #744).
+if __name__ == "__main__":
+    asyncio.run(main())
