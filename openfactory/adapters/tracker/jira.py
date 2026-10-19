@@ -195,6 +195,30 @@ def _jql_since(stamp: str) -> str:
     return f"-{int(elapsed // 60) + 1}m"
 
 
+def within_scope(where: str, scope: str) -> str:
+    """`where` narrowed to the project's `scope_jql` — `where AND (<scope>)` — or `where` unchanged
+    when no scope is declared.
+
+    THE PARENTHESES ARE WHAT "ANDED" MEANS. A scope such as `labels = "of-api" OR labels =
+    "of-web"` appended bare would read `project = "DAR" AND labels = "of-api" OR labels = "of-web"`,
+    and JQL binds AND tighter than OR: every `of-web` issue on the whole site. Azure Boards wraps
+    its team area clause the same way (`AzureBoardsBoard._team_area_clause`).
+
+    ONE HELPER FOR THE BOARD AND THE TRACKER, so the reads the poller makes and the reads the panel
+    makes cannot drift into two different slices of the same project (#752)."""
+    narrowed = str(scope or "").strip()
+    return f"{where} AND ({narrowed})" if narrowed else where
+
+
+def scope_named(scope: str) -> str:
+    """` within scope_jql '<scope>'` for a "could not search" warning, `""` without a scope.
+
+    A condition Jira cannot parse answers 400, which reads as an unreadable board; without the
+    scope in the sentence the person sees "could not search DAR" and looks at the credential."""
+    narrowed = str(scope or "").strip()
+    return f" within scope_jql {narrowed!r}" if narrowed else ""
+
+
 class JiraTracker:
     """Jira Cloud REST v3. Satisfies `TrackerAdapter`."""
 
@@ -217,7 +241,8 @@ class JiraTracker:
     def __init__(self, *, site: str, project_key: str, email: str, token: str | None = None,
                  status_map: dict[str, str] | None = None, issue_type: str = "Task",
                  not_delivered_resolution: str = "", not_delivered_status: str = "",
-                 intake_status: str = "", language: str | None = None) -> None:
+                 intake_status: str = "", language: str | None = None,
+                 scope_jql: str = "") -> None:
         self.site = site.rstrip("/")
         self.project_key = project_key
         self.email = email
@@ -239,6 +264,12 @@ class JiraTracker:
         #: workflow's initial status, which Jira publishes only to an administrator of the workflow
         #: (#543). `""` = not declared, and the board reads it off the workflow where it can.
         self.intake_status = str(intake_status or "").strip()
+        #: THIS PROJECT's SLICE OF A SHARED JIRA PROJECT, a JQL condition (`labels = "of-api"`)
+        #: ANDed onto every search of its issues (#752). About nineteen repositories registered
+        #: against one Jira project each read the whole of it as their queue, and one ticket was
+        #: picked up by three of them in one night (v0.6.0-rc.2). `""` = the whole project, the
+        #: JQL unchanged; whitespace alone is `""`, so a blank YAML value cannot emit `AND ()`.
+        self.scope_jql = str(scope_jql or "").strip()
         #: The PROJECT's language, for the one sentence this row writes to a person in its own
         #: name — the note on a card it could not record as not delivered. Everything else it
         #: posts was composed by its caller, already in that language.
