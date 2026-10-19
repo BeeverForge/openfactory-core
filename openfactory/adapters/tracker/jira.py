@@ -326,7 +326,15 @@ class JiraTracker:
 
     @staticmethod
     def _adf(text: str) -> dict:
-        """Plain text as ADF — one paragraph per line, which is what Jira's API accepts."""
+        """Markdown as ADF — one paragraph per line, which is what Jira's API accepts.
+
+        The markdown is sent as written, `## ` and `- ` included, not converted to heading or list
+        nodes; a blank line is an empty paragraph. `_text` reads an empty paragraph back as a blank
+        line and a paragraph as its text, so a body the factory writes reads back byte-identical
+        after `strip()`
+        (`tests/test_what_the_factory_writes_to_jira_reads_back_as_it_wrote_it.py`). Before
+        2026-10-19 the blank lines were dropped on the read, and a split child's last
+        out-of-scope item swallowed the auto-split line below it."""
         return {
             "type": "doc", "version": 1,
             "content": [

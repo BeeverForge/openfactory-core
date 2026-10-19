@@ -105,6 +105,14 @@ rules this codebase learned the hard way:
 - **ADF is walked as a tree.** Jira stores rich text as a document model; a description written with
   a panel or a table would come back EMPTY from a naive read — and that empty body is what the
   sizing gate would judge as "this ticket says nothing".
+  **Amended (2026-10-19, #751):** walking the tree for its text was not enough. The parser reads
+  markdown shapes (a section is a `## ` line, a criterion a `- ` line), and Jira's editor stores
+  exactly those shapes as `heading` and list nodes, so a card written there read as
+  `'Acceptance criteria\nthe \nx\n is created'`, with no criterion, and the gate refused it. The
+  walk now keeps the shape of each block: a heading is `#` × its level, every list item (numbered
+  or nested too) is a flat `- ` line, as the Azure DevOps converter already draws it, a list ends
+  on a blank line, and an empty paragraph is a blank line, so a body the factory wrote reads back
+  as it wrote it. Panels, tables and unknown nodes are still walked for their blocks.
 - **JQL is escaped.** The splitter's idempotency runs through `find_ticket`; a title containing a
   quote would break the query or, worse, match a different issue and make a re-run reuse the wrong
   child.

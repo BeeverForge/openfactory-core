@@ -187,7 +187,7 @@ marked as such.
   `_text`/`_adf` today (grepped), but the rewrite moves lines. Run
   `.venv/bin/python -m pytest -q tests/test_every_mutation_plan_can_run.py`, and re-pin any anchor
   it refuses in this PR, with a dated `# re-pinned` comment.
-- [ ] 7. Docs:
+- [x] 7. Docs:
   - `docs/adr/0022-provider-seams.md` §4, bullet "**ADF is walked as a tree.**" (line ~105). Add,
     in place, `**Amended (2026-10-xx, #751):**`: walking for text was not enough. The parser reads
     markdown shapes, so the walk now keeps the shape of each block (heading → `#`×level, list item →
