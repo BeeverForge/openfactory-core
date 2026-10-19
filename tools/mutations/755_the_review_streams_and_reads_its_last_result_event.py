@@ -17,7 +17,9 @@ The claims, each a row:
     that never ran (row 9);
   * every door of every Claude role streams, the shared builder's included (row 11, review of #922:
     with `ClaudeCodeAdapter._cli`'s flag cut to `json`, 63 modules and 1746 tests stayed green on
-    82c8e6d; the sweep in `ROLES` turns the executor, product and techlead doors red).
+    82c8e6d; the sweep in `ROLES` turns the executor, product and techlead doors red);
+  * the shell's own `not found` says the reviewer never ran whatever the exit code, not on 127 alone
+    (row 12, #919: with the clause dropped, 183 tests of 10 reviewer modules stayed green on 82c8e6d).
 
 TWO TESTS ARE HELD BY ANOTHER ROW THAN THE ONE THAT NAMES THEM. The 2.1.219 `json` envelope carries
 `type: "result"`, so `result_event` reads it without the fallback: dropping the fallback (row 4)
@@ -71,4 +73,7 @@ MUTATIONS = [
      "a wrapper sees none of their events until the run ends", AGENT,
      '            "--output-format", "stream-json", "--verbose",\n            "--permission-mode", "acceptEdits",',
      '            "--output-format", "json",\n            "--permission-mode", "acceptEdits",', ROLES),
+    ("the never-ran test reads the exit code alone: a CLI missing from the box under any exit but 127 "
+     "is told as an unreadable review", REVIEWER,
+     'never_ran = rc == 127 or "not found" in prose_only(out).lower()', "never_ran = rc == 127"),
 ]

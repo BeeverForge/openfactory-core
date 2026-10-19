@@ -200,8 +200,9 @@ def test_a_stream_that_quotes_not_found_in_a_tool_result_is_not_a_review_that_ne
     in it is a file the reviewer read — not a shell that could not find `claude`. A run that exited
     0 and answered in prose is a review that could not be read. On main the text match over the
     whole output found `404 Not Found` in the tool result: "the reviewer never ran", and a person
-    was sent to fix a box that worked. The other side (`sh: 1: claude: not found`, exit 127) is held
-    by `tests/test_the_reviewer_can_actually_run.py`."""
+    was sent to fix a box that worked. The other side, the shell's own line with an exit code other
+    than 127, is held by the next test (#919): `tests/test_the_reviewer_can_actually_run.py` passes
+    on exit 127 alone."""
     out = cli.stdout(
         cli.init_event(),
         cli.assistant_event("reading the fixtures the diff names"),
@@ -213,3 +214,13 @@ def test_a_stream_that_quotes_not_found_in_a_tool_result_is_not_a_review_that_ne
 
     assert review.decision == "rejected", review
     assert review.summary == "reviewer output could not be parsed (rc=0)", review.summary
+
+
+def test_a_cli_missing_from_the_box_says_the_reviewer_never_ran_whatever_the_exit_code():
+    """The shell's own line, beside a stream whose tool output also says Not Found: the prose
+    line decides, the tool output does not."""
+    out = (cli.stdout(cli.init_event(), cli.tool_result_event("404 Not Found"))
+           + "sh: 1: /toolbox/claude: not found\n")
+    review = _review(out, rc=1)
+    assert review.decision == "rejected"
+    assert review.summary.startswith("the reviewer never ran"), review.summary
