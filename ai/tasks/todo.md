@@ -203,7 +203,7 @@ marked as such.
     makes no claim about descriptions, so leave it. Re-grep at the end
     (`git grep -n -i "ADF\|walked as a tree\|plain text" -- docs openfactory`) and list in the PR
     any claim found and changed.
-- [ ] 8. Blast radius: run every module that reads a Jira body or `_text`/`_adf` (listed below) on
+- [x] 8. Blast radius: run every module that reads a Jira body or `_text`/`_adf` (listed below) on
   the changed tree, and record pass counts. For any test that compared an exact `_text` string and
   now sees the kept blank lines, fix the **expectation** only when the new string is what the
   factory wrote (task 3's property), and name each such change in the PR. A change elsewhere is a
