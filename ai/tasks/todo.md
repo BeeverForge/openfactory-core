@@ -250,7 +250,7 @@ marked as such.
   `.venv/bin/python -m pytest -q -n auto -p no:randomly`. Record both counts against task 0's
   baseline: the new tests are the only difference in passed, and failed is 0 apart from the known
   docker preview flake, named if it appears.
-- [ ] 14. Hand-off. Draft `ai/tasks/pr-body.md` in the maintainers' shape (`factory-developer.md`,
+- [x] 14. Hand-off. Draft `ai/tasks/pr-body.md` in the maintainers' shape (`factory-developer.md`,
   "The pull request body"). It covers: the measured before (`'Acceptance criteria\nthe \nx\n is
   created'` → `[]`) and after; the red counts of tasks 1–3 on the pre-change tree, saying that the
   GitHub/Azure params and the table/expand guard pass on main on purpose; the mutation summary;
