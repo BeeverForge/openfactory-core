@@ -8,7 +8,7 @@ Jira Cloud answers a Basic pair whose token is not the email's account as an ano
     straight through `urlopen` (a `myself` that 404s does not ask again);
   - only a 401 there is the mismatch, refused with `code=401`; any other answer, or a probe that
     cannot be made, keeps the original 404;
-  - no other failure asks anything;
+  - no other failure asks anything, and a call that succeeds asks nothing either;
   - the sentence puts the cause first (the park line and the card's door keep 120 characters),
     never carries the token, and with no token says so instead of "different accounts".
 """
@@ -75,4 +75,12 @@ MUTATIONS = [
     ("with no token at all, the refusal says the pair is of different accounts", JIRA,
      "    if not has_token:\n",
      "    if False:\n"),
+
+    # Not `exc.code >= 400` above: a 200 never reaches the `except HTTPError` branch, so only a
+    # probe on the success path can make a card that reads cost one request more (task 10).
+    ("the probe runs on a call that succeeded, and every card that reads costs one more request",
+     JIRA,
+     "            return json.loads(body) if body.strip() else {}",
+     "            self._who_is_asking()\n"
+     "            return json.loads(body) if body.strip() else {}"),
 ]

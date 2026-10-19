@@ -328,3 +328,29 @@ def test_with_no_token_the_refusal_says_no_token_reached_the_tracker(site, token
     assert "no API token" in str(raised.value)
     assert "different accounts" not in str(raised.value)
     assert "token_env" in str(raised.value)
+
+
+# ── the cost: a read that answers asks nothing more ──────────────────────────────────────────────
+
+def test_a_card_that_reads_costs_no_extra_request(site):
+    """Lesson 10, the cost measured: the probe is paid only by a 404. A card that reads is one
+    request, a board with issues one, an empty board whose project answers two, as on 82500f9;
+    what the probe adds is one request per 404 (`get_ticket` 1 → 2, an empty board whose project
+    404s 2 → 3, whatever `myself` answers).
+
+    Green on 82500f9, which had no probe: it holds the new path against a probe on every answer
+    (the 749 plan's "the probe runs on a call that succeeded" cut turns it red)."""
+    row = {"key": REF, "fields": _ISSUE_200["fields"]}
+
+    jira = site(routes={("GET", ISSUE): _ISSUE_200}, myself=_MYSELF_200)
+    _tracker().get_ticket(REF)
+    assert [path for _m, path, _a in jira.requests] == [ISSUE]
+
+    jira = site(routes={("POST", SEARCH): {"isLast": True, "issues": [row]}}, myself=_MYSELF_200)
+    assert _tracker().list_tickets()
+    assert [path for _m, path, _a in jira.requests] == [SEARCH]
+
+    jira = site(routes={("POST", SEARCH): {"isLast": True, "issues": []},
+                        ("GET", PROJECT): {"key": "DAR"}}, myself=_MYSELF_200)
+    assert _tracker().list_tickets() == []
+    assert [path for _m, path, _a in jira.requests] == [SEARCH, PROJECT]
