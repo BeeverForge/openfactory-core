@@ -85,6 +85,43 @@ def unreachable_window() -> float:
     return _seconds("OPENFACTORY_ENGINE_UNREACHABLE_FOR", 3.0)
 
 
+#: How many recent jobs the job list asks the engine about at once when the operator does not say.
+#: Each RUNNING row is a `describe()` plus up to three queries a WORKER answers by replaying the
+#: job's history, so one-at-a-time made the list's cost the sum of every running row's round trips
+#: and a busy floor ran past `read_deadline()` (#754: 48 running jobs at 10 ms an RPC is four
+#: round trips each, ~1.9 s in sequence; on f37aeaa that test's list was refused at its 1 s
+#: deadline with one RPC in flight, and the breaker opened for every reader). Eight is up to eight
+#: query replays at once on the worker for one scan, the same default the product's sources are
+#: brought up with (`OPENFACTORY_SOURCES_PARALLEL`). THE OPERATOR'S, NOT A CONSTANT,
+#: as `OPENFACTORY_SOURCES_PARALLEL` is (#369): a Temporal Cloud namespace across a region answers
+#: in tenths of a second and only the deployment knows what its workers take —
+#: `OPENFACTORY_LIST_CONCURRENCY`, read by `list_concurrency()`.
+DEFAULT_LIST_CONCURRENCY = 8
+#: The unreadable values this process has already said, so a list read on every stream tick does
+#: not repeat the warning. Bounded by the values the environment has held, never by traffic.
+_LIST_CONCURRENCY_SAID: set[str] = set()
+
+
+def list_concurrency() -> int:
+    """`OPENFACTORY_LIST_CONCURRENCY`, else `DEFAULT_LIST_CONCURRENCY`. READ ON EVERY CALL, never at
+    import (#185). A value that is not a positive number is the default, said once in the log: a
+    bound nobody can read must not become no bound, nor one job at a time."""
+    raw = (os.environ.get("OPENFACTORY_LIST_CONCURRENCY") or "").strip()
+    if not raw:
+        return DEFAULT_LIST_CONCURRENCY
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        if raw not in _LIST_CONCURRENCY_SAID:
+            _LIST_CONCURRENCY_SAID.add(raw)
+            log.warning("OPENFACTORY_LIST_CONCURRENCY=%r is not a positive number — %d jobs are "
+                        "asked about at once", raw, DEFAULT_LIST_CONCURRENCY)
+        return DEFAULT_LIST_CONCURRENCY
+    return value
+
+
 def _seconds(name: str, fallback: float) -> float:
     try:
         wanted = float(os.environ.get(name, "") or fallback)
