@@ -77,6 +77,47 @@ def no_such_base(base_branch: str, where: str) -> str:
             f"instead. Push that branch, or name a base {where} has.")
 
 
+#: What `path_taken` can say is at the box's path, and what each is called in the sentence.
+_TAKEN_BY = ("tree", "forgotten", "repository", "file", "symlink", "directory")
+
+
+def path_taken(branch: str, path: str, *, repo: str, what: str, owner: str = "",
+               locked: bool = False) -> str:
+    """The refusal for the box's path taken by something not provably this repository's (#746):
+    one sentence naming the card's branch, the path, what is there and whose, that it was left as
+    it is, and the command that moves it, then resume.
+
+    BUILT FROM WHAT THE BOX READ AT THE PATH, NEVER FROM GIT'S `already exists`, which names no
+    owner and no remedy. English, like every hold note: notes are classified and hashed. Every
+    path in a command is shell-quoted, so a root with a space pastes whole.
+
+    `what`: `tree`, a working tree that the repository at `owner` lists there (moved with `git -C
+    <owner> worktree move`, which keeps its registration; `locked` puts the unlock first, since
+    `move` refuses a locked tree); `forgotten`, one that repository no longer lists (`worktree
+    move` answers rc 128 `is not a working tree`, 2.43.0, measured 2026-10-18, so it is moved with
+    `mv`); `repository`, a clone; `file`, `symlink`, or a `directory` that is none of these."""
+    if what not in _TAKEN_BY:
+        raise ValueError(f"unknown kind of thing at the box's path: {what!r}")
+    where, mine = shlex.quote(path), "<a path of yours>"
+    there = {
+        "tree": f"a working tree of the repository at {owner}{', locked' if locked else ''}",
+        "forgotten": f"a working tree that the repository at {owner} no longer lists",
+        "repository": "a repository of its own",
+        "file": "a file",
+        "symlink": "a symbolic link",
+        "directory": f"a directory that is not a working tree of {repo}",
+    }[what]
+    if what == "tree":
+        git = f"git -C {shlex.quote(owner)} worktree"
+        unlock = f"`{git} unlock {where}`, then " if locked else ""
+        move = f"{unlock}`{git} move {where} {mine}`"
+    else:
+        move = f"`mv {where} {mine}`"
+    return (f"{branch} cannot be checked out at {path}, the path this job's working tree takes, "
+            f"because {there} is there; it was left as it is, and this job did not start. Move "
+            f"it with {move}, then resume.")
+
+
 def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str = "",
                 gone: bool = False, rebuilt: bool = False, ours: bool = False) -> str:
     """The refusal for a card's branch somebody else has out (#623): one sentence naming the
@@ -250,6 +291,56 @@ def _a_tree_this_repository_forgot(repo_path, wt, trees) -> bool:
     if any(_same_dir(tree.path, wt) for tree in trees):
         return False
     return _admin_dir_of(repo_path, wt) is not None
+
+
+def _where(wt: Path) -> Path:
+    """`wt` with its parent resolved and its own name kept, so a symlink AT `wt` is named (and
+    moved) itself, not its target."""
+    try:
+        return wt.parent.resolve() / wt.name
+    except OSError:
+        return wt
+
+
+def _what_is_at(wt: Path) -> tuple[str, str, bool] | None:
+    """What takes the box's path, as `(what, owner, locked)` for `path_taken`, or `None` when the
+    path is free: missing, or an EMPTY directory, which git accepts as the add's path (rc 0,
+    2.34.1 and 2.43.0). `None` also when the path cannot be looked at: then git judges, as for
+    `_holder`. Asked only after `_clear_our_own` removed what was provably the box's own."""
+    try:
+        if wt.is_symlink():
+            return "symlink", "", False
+        if not wt.exists():
+            return None
+        if not wt.is_dir():
+            return "file", "", False
+        with os.scandir(wt) as entries:
+            if next(entries, None) is None:
+                return None
+        dotgit = wt / ".git"
+        if dotgit.is_dir() and not dotgit.is_symlink():
+            return "repository", "", False
+    except OSError:
+        return None
+    named = _gitdir_named_by(wt)
+    if named is None or named.parent.name != "worktrees":
+        return "directory", "", False
+    common = named.parent.parent
+    try:
+        if not common.is_dir():  # a `.git` file naming no repository
+            return "directory", "", False
+    except OSError:
+        return "directory", "", False
+    owner = common.parent if common.name == ".git" else common
+    listed = _working_trees(owner)
+    if listed is None:
+        # could not ask the owner: `worktree move` refuses loudly where `mv` would break a live
+        # registration
+        return "tree", str(owner), False
+    tree = next((t for t in listed if not t.main and _same_dir(t.path, wt)), None)
+    if tree is None:
+        return "forgotten", str(owner), False
+    return "tree", str(owner), tree.locked
 
 
 def _say_what_was_not_removed(function, path, exc) -> None:
@@ -467,7 +558,7 @@ class WorktreeSandbox(SandboxAdapter):
         # (`LocalForge._rebase_in_a_scratch_tree`, "NEVER `worktree prune`"). `remove --force`
         # takes our registration whether or not its directory is still there (rc 0 on a missing
         # directory, git 2.43.0, measured 2026-10-17).
-        self._clear_our_own(repo_path, wt)
+        trees = self._clear_our_own(repo_path, wt)
         # DECIDE BEFORE YOU WRITE (engineering lessons §12). A card's branch somebody else has
         # out — a review tree, or their own checkout — cannot be checked out here, and git says so
         # only at `worktree add`: after `branch -D` was tried, and after the fetch below wrote
@@ -480,6 +571,17 @@ class WorktreeSandbox(SandboxAdapter):
         if held is not None:
             raise _branch_held_elsewhere(branch, held, repo_path=repo_path, rebuilt=rebuilt,
                                          ours=wt)
+        # THE PATH ITSELF MAY BE TAKEN (#746), and git says so only at `worktree add`, with rc 128
+        # `fatal: '<wt>' already exists` (2.34.1 and 2.43.0): after `branch -D` below, after `add
+        # -b` made the branch again at the base (2.43.0, measured 2026-10-18: the job's work was
+        # replaced by `main`), and after a hosted resume's fetch wrote `refs/remotes/origin/<b>`.
+        # Decided here, before any of that (engineering lessons §12). Only when the list was read:
+        # unread, `_clear_our_own` could not tell what is ours, and git judges as before.
+        taken = _what_is_at(wt) if trees is not None else None
+        if taken is not None:
+            what, owner, locked = taken
+            raise RuntimeError(path_taken(branch, str(_where(wt)), repo=str(repo_path),
+                                          what=what, owner=owner, locked=locked))
         # WHEN THE REMOTE IS THIS REPOSITORY, THE BRANCH IS THE WORK (ADR-0049 D3). On a forge that
         # hosts a copy, deleting the local branch is free: the resume fetches it back from the
         # remote. Here `remote_url` IS `repo_path`, so the delete below removes the only copy — and
