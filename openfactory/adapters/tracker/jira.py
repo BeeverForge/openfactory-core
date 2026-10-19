@@ -59,6 +59,7 @@ pair (`_not_one_account`); the cost is one request per 404 and none on any other
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import logging
 import urllib.error
@@ -306,7 +307,10 @@ class JiraTracker:
                 return False
         except urllib.error.HTTPError as exc:
             return exc.code == 401
-        except OSError as exc:   # URLError, TimeoutError, ConnectionResetError
+        # URLError, TimeoutError, ConnectionResetError; and what `getresponse()` raises, which
+        # urllib does not wrap: BadStatusLine and LineTooLong are HTTPException, not OSError
+        # (review round 1, 2026-10-19: one replaced the 404 with a non-RuntimeError).
+        except (OSError, http.client.HTTPException) as exc:
             log.info("jira answered a 404 and GET myself could not be asked (%s) — keeping the "
                      "404, since nothing says the credential was not accepted", str(exc)[:200])
             return False

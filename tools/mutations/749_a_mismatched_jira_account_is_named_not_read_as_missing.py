@@ -95,4 +95,9 @@ MUTATIONS = [
      "got", JIRA,
      "f\"{SHIPPED_ENV['jira']}, or the variable the project's tracker.options.token_env \"",
      "f\"the variable the project's tracker.options.token_env \""),
+
+    ("a probe that meets a malformed answer replaces the 404 with an `http.client` exception, "
+     "which is not a RuntimeError", JIRA,
+     "        except (OSError, http.client.HTTPException) as exc:",
+     "        except OSError as exc:"),
 ]

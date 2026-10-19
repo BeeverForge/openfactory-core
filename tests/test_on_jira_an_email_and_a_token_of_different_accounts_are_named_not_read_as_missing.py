@@ -33,6 +33,7 @@ code, never the body.
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import logging
@@ -226,10 +227,13 @@ def test_a_404_whose_myself_answers_200_is_the_original_404_unchanged(site):
     ConnectionResetError(),
     500, 502, 503,
     403, 404,
-], ids=["dns", "timeout", "reset", "500", "502", "503", "403", "404"])
+    http.client.BadStatusLine("garbage from a proxy"),
+], ids=["dns", "timeout", "reset", "500", "502", "503", "403", "404", "bad-status"])
 def test_a_myself_that_cannot_answer_keeps_the_original_404(site, myself):
     """C2. A probe that cannot answer (network, 5xx), or answers something that is not 401, keeps
-    the original 404, so nothing is misreported the other way."""
+    the original 404, so nothing is misreported the other way. `bad-status`: `urllib` does not wrap
+    an `http.client.HTTPException` (not an `OSError`), and on a685021 it replaced the 404 with
+    `BadStatusLine`, which is not a `RuntimeError` (review round 1)."""
     jira = site(routes={("GET", ISSUE): 404}, myself=myself)
 
     with pytest.raises(JiraRefused) as raised:
