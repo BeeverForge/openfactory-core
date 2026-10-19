@@ -41,10 +41,12 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
 
+from openfactory.adapters.gitworktrees import JOB_MARKER, JOB_MARKER_MAX_AGE
 from openfactory.adapters.sandbox import worktree as worktree_box
 from openfactory.adapters.sandbox.worktree import WorktreeSandbox
 from openfactory.runtime.repo_cache import RepoCache
@@ -170,6 +172,11 @@ def test_after_the_cache_republishes_the_checkout_the_same_card_starts_again(tmp
     box = WorktreeSandbox(root=served.parent / ".openfactory-worktrees")
     wt = _fresh(box, served, remote_url=url).path
     (wt / LEFT).write_text("from the earlier pass\n")
+    # The earlier pass's worktree is marked as a running job's, and that mark holds the republish
+    # (#747) until it is a day old; the earlier pass here died long ago, so its mark is aged past.
+    marker = Path(_git(wt, "rev-parse", "--absolute-git-dir")) / JOB_MARKER
+    then = time.time() - JOB_MARKER_MAX_AGE - 60
+    os.utime(marker, (then, then))
 
     _commit(seed, "README.md", "# app, again\n", "the base moves")
     _git(seed, "push", "-q", str(forge), "main")

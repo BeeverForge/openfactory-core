@@ -45,7 +45,8 @@ MUTATIONS = [
      "                    pass\n"),
 
     ("a sync that failed opens a window, so 'unreachable' is never asked again inside it", CACHE,
-     "                    if got is not None:\n"
+     # re-pinned 2026-10-19 (#747): the guard now also skips a held sync's stamp
+     "                    if got is not None and not self.held:\n"
      "                        self._remember_fresh(project, base_branch, got)\n",
      "                    if True:\n"
      "                        self._remember_fresh(project, base_branch, got or served)\n"),

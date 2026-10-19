@@ -34,7 +34,10 @@ box that dies with its job — and it reads the product's sources from the repos
 less than `OPENFACTORY_SOURCES_FRESH_SECONDS` ago (60 unset) costs no question at all; at most
 `OPENFACTORY_SOURCES_PARALLEL` sources (8 unset) are brought up at once; a key parks at most
 two displaced snapshots; the purge runs whether or not a sync succeeded; a filesystem that cannot
-hardlink is said out loud. In compose the cache has a volume of its own (`openfactory_repos`) for
+hardlink is said out loud. A job on the worktree box whose project is registered by clone URL
+adds its worktree to that key's served checkout, so the cache keeps the checkout as it is while
+the job's worktree is on disk — until the box removes it, for at most a day — and says so with an
+`OPENFACTORY_CACHE_HELD` line naming the worktree (#747). In compose the cache has a volume of its own (`openfactory_repos`) for
 the toolbox's reason — a cache that fills must not take the registry and the board with it — and
 the one-machine door names it under `~/.openfactory/repos` rather than the system's temporary
 directory. `tools/measure_a_turns_footprint.py` measures all of it, turn after turn.
@@ -54,7 +57,9 @@ Maps 1:1 to the `JobState` machine. `openfactory run <project> <issue>` drives:
    scope contradiction? Fail → `gh` labels the issue `openfactory:needs_refinement` + a
    comment with the reason, and the job stops.
 3. **PREPARING** — the sandbox is created: an ephemeral clone/worktree on a fresh
-   `openfactory/<issue>` branch off the manifest's `base_branch`.
+   `openfactory/<issue>` branch off the manifest's `base_branch`. On the worktree box the worktree
+   is marked as a running job's, and the repository cache does not swap the checkout it stands on
+   until the worktree is removed (at most a day; `OPENFACTORY_CACHE_HELD` in the log says so).
 4. **IMPLEMENTING** — the **executor** role runs *inside* the sandbox, on whichever harness
    this project declares, and edits code.
 5. commit — the orchestrator commits the agent's work on the branch.

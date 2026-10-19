@@ -5,7 +5,8 @@ pre-flight sizing gate's code layer). Clone on first touch; per use `fetch` + `r
 origin/<base>` + `clean -fdx` — reset, never pull: a cache must be IDENTICAL to base, not
 merged into. A corrupt cache is deleted and recloned; a reclone failure returns None so the
 caller degrades (text-only gate) instead of blocking. The executor's fresh isolated clone in
-Fargate is untouched — this cache is only ever read.
+Fargate is untouched. Callers read the served tree — except the worktree box, which adds a job's
+worktree to it (below).
 
 THE SERVED TREE IS NEVER MUTATED IN PLACE. The per-key lock covers sync-vs-sync, but a READER
 (the baseline survey, a conversational agent behind the view symlink) holds the returned path for
@@ -17,6 +18,17 @@ rename only when the master's commit moved (or the snapshot was dirtied/corrupte
 snapshot is parked for a grace period before deletion, so a reader that anchored itself (open fd,
 cwd) keeps a complete, self-consistent tree for the whole window; a reader resolving by name flips
 between complete trees, never through a mid-mutation state.
+
+A JOB'S WORKTREE LIVES IN THE SERVED `.git`, SO A SWAP WAITS FOR IT (#747). On the worktree box a
+project registered by clone URL gets this served checkout as its repository, and `prepare` runs
+`git worktree add` in it: the job's admin directory is `<served>/.git/worktrees/<name>`. A swap
+moved that into the trash, and every git command in the job then exited 128, `fatal: not a git
+repository: <root>/<key>/.git/worktrees/<name>`, its push included (82500f9, git 2.43.0). So the
+box marks the worktree it adds (`gitworktrees.mark_as_job`), and a sync that would replace the
+served tree keeps it as it is while a marked worktree still stands on disk, saying so as
+`OPENFACTORY_CACHE_HELD`. Git deletes the marker with the admin directory on `worktree remove` and
+`prune`, and a marker older than a day (`gitworktrees.JOB_MARKER_MAX_AGE`) stops holding, said as
+`OPENFACTORY_CACHE_HOLD_EXPIRED`. A held key is served at its old commit until then.
 
 THE CREDENTIAL NEVER RESTS IN THE CHECKOUT. `git clone <url-with-token>` persists that URL in
 `.git/config`, and agents DO run over this cache — the pre-flight sizer explores it. A sizer reads
@@ -41,6 +53,7 @@ import time
 import uuid
 from pathlib import Path
 
+from openfactory.adapters import gitworktrees
 from openfactory.util.filelock import FileLock
 
 #: WARNINGS, NOT `print`. These two lines are the cache degrading, and they used to go to
@@ -266,6 +279,8 @@ def _one_reason(exc: OSError) -> str:
 class RepoCache:
     def __init__(self, root: Path | None = None) -> None:
         self.root = Path(root) if root else default_root()
+        #: whether the last `_needs_publish` kept the served tree for a running job's worktree
+        self.held = False
 
     def sync(self, project: str, clone_url: str, base_branch: str = "") -> Path | None:
         """Return a checkout of `project` reset hard to origin/<base>, or None when the repo
@@ -280,7 +295,8 @@ class RepoCache:
 
         The returned path is STABLE across syncs, and its content is only ever replaced by an
         atomic swap — a caller still reading the tree a previous sync returned is never reset,
-        cleaned, or deleted underneath.
+        cleaned, or deleted underneath. And no swap happens while a running job's worktree stands
+        on the served tree (`_needs_publish`): the tree is then returned at its old commit.
 
         `project` is only a cache key, so one project may keep several checkouts under distinct
         keys (its code, its documentation repo) without them colliding."""
@@ -336,16 +352,71 @@ class RepoCache:
             self._publish(project, served, master)
         return served
 
-    @staticmethod
-    def _needs_publish(served: Path, master: Path) -> bool:
+    def _needs_publish(self, served: Path, master: Path) -> bool:
         """Whether the served snapshot must be replaced: absent, corrupt, behind the master's
         commit, or dirtied by a scribbler (a cache must be IDENTICAL to base, never merged into).
         When none of that holds the snapshot is left completely untouched, so the routine
-        no-change sync costs a fetch and two reads — and churns nothing under a reader."""
+        no-change sync costs a fetch and two reads — and churns nothing under a reader.
+
+        THE FOURTH ANSWER IS "HELD" (#747): corrupt, behind or dirty, but a running job's worktree
+        stands on it, so it stays as it is and `OPENFACTORY_CACHE_HELD` says why. The decision
+        is taken here, the one place both `RepoCache._sync` and `SparseRepoCache._sync_sparse`
+        ask, before `_publish` stages, links or renames anything. The marks are read only when a
+        publish would otherwise happen, so the unmoved sync costs what it did. `self.held` says
+        which answer a False was, for the sparse cache's freshness window."""
+        self.held = False
         if not (served / ".git").exists():
-            return True
+            return True     # nothing can be marked in a tree that has no `.git`
         head = _head(served)
-        return not head or head != _head(master) or _worktree_dirty(served)
+        if not head:
+            why = "its HEAD cannot be read"
+        else:
+            base = _head(master)
+            if head != base:
+                why = f"it is at {head[:12]} and the base is at {base[:12]}"
+            elif _worktree_dirty(served):
+                why = "something was written into it"
+            else:
+                return False
+        self.held = RepoCache._held_by_a_job(served, why)
+        return not self.held
+
+    @staticmethod
+    def _held_by_a_job(served: Path, why: str) -> bool:
+        """Whether a running job's worktree stands on `served`, said when it does.
+
+        A JOB ON THE WORKTREE BOX LIVES IN THIS TREE'S `.git` (#747). For a project registered by
+        clone URL the box runs `git worktree add` in the served checkout, so the job's admin
+        directory is `<served>/.git/worktrees/<name>`. Swapping the tree moved it into the trash,
+        and every git command in the job then exited 128, `fatal: not a git repository:
+        <root>/<key>/.git/worktrees/<name>`, its push included (82500f9, git 2.43.0). The box
+        marks the worktree it adds (`gitworktrees.mark_as_job`); git deletes the marker with the
+        admin directory on `worktree remove` and `prune`; a marker older than a day stops holding.
+
+        UNREADABLE HOLDS (engineering lessons §2): a `.git/worktrees` that cannot be listed may
+        hold a job, and the destructive act is the one that waits."""
+        marks = gitworktrees.live_job_marks(served)
+        if marks is None:
+            log.warning("OPENFACTORY_CACHE_HELD %s would be replaced (%s), but the job worktrees "
+                        "registered in it could not be read, so it is kept as it is — a running "
+                        "job may stand on it. Check the permissions of %s.",
+                        served, why, served / ".git" / "worktrees")
+            return True
+        for stale in marks.stale:
+            log.warning("OPENFACTORY_CACHE_HOLD_EXPIRED the job worktree %s was marked %d h ago, "
+                        "past the %d h a job may hold %s, so it no longer holds it — a job that "
+                        "ended without removing its worktree left it there",
+                        stale.worktree, stale.age // 3600,
+                        gitworktrees.JOB_MARKER_MAX_AGE // 3600, served)
+        if not marks.live:
+            return False
+        holders = "; ".join(f"{m.worktree} (marked {int(m.age // 60)} min ago)"
+                            for m in marks.live)
+        log.warning("OPENFACTORY_CACHE_HELD %s would be replaced (%s), but a running job's "
+                    "worktree stands on it: %s. It is kept as it is until that worktree is "
+                    "removed, for at most %d h after it was marked.",
+                    served, why, holders, gitworktrees.JOB_MARKER_MAX_AGE // 3600)
+        return True
 
     def _publish(self, project: str, served: Path, master: Path) -> None:
         """Swap a fresh snapshot of the master into the served path.
@@ -661,7 +732,11 @@ class SparseRepoCache(RepoCache):
                     # leave the last good sync's window open over a master that moved since
                     self._withdraw_fresh(project)
                     got = self._sync_sparse(project, public, base_branch, env)
-                    if got is not None:
+                    # A HELD TREE IS NOT FRESH (#747): it stands at the commit a job's worktree
+                    # holds, not the forge's, and a window over it served that old commit again
+                    # for `fresh_for` seconds after the job let go (measured: the first sync after
+                    # `cleanup`, 10 s into a 60 s window, still at the held commit)
+                    if got is not None and not self.held:
                         self._remember_fresh(project, base_branch, got)
                     return got
                 finally:
