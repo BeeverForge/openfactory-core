@@ -364,3 +364,38 @@ def test_another_repository_s_tree_whose_list_cannot_be_read_is_told_to_move_wit
     moves = _commands(said)
     git = f"git -C {shlex.quote(str(other.resolve()))} worktree "
     assert moves and all(c.startswith(git) for c in moves), said
+
+
+@pytest.mark.parametrize("door_name", DOORS)
+def test_a_symbolic_link_at_the_box_s_path_to_a_person_s_own_tree_of_this_repository_keeps_that_tree(
+        tmp_path, root, door_name):
+    """C2 for a link naming a linked working tree of THIS repository that a person made. Git lists
+    the tree's real path and `_same_dir` resolves through the link, so `_clear_our_own` read it as
+    the box's own and `worktree remove --force` deleted it with its uncommitted work (rc 0, 2.43.0);
+    `worktree remove --force <link>`, on an unread list, does the same."""
+    door = _door(door_name, tmp_path, root)
+    mine = tmp_path / "my own tree"
+    _git(door.repo, "worktree", "add", "-q", "-b", "mine", str(mine))
+    (mine / "unsaved.txt").write_text("a person's uncommitted work\n")
+    wt = root / BRANCH.replace("/", "-")
+    root.mkdir(parents=True, exist_ok=True)
+    os.symlink(mine, wt)
+    said = str(_refusal(door))
+    assert "a symbolic link" in said, said
+    assert (mine / "unsaved.txt").read_text() == "a person's uncommitted work\n", said
+    assert str(mine.resolve()) in _registered(door.repo)
+
+
+def test_a_symbolic_link_at_the_box_s_path_to_a_person_s_own_tree_is_kept_when_the_list_cannot_be_read(
+        tmp_path, root, monkeypatch):
+    """The same, on an unread list: `worktree remove --force <link>` removes the tree it names."""
+    door = _door("fresh", tmp_path, root)
+    mine = tmp_path / "my own tree"
+    _git(door.repo, "worktree", "add", "-q", "-b", "mine", str(mine))
+    (mine / "unsaved.txt").write_text("a person's uncommitted work\n")
+    wt = root / BRANCH.replace("/", "-")
+    root.mkdir(parents=True, exist_ok=True)
+    os.symlink(mine, wt)
+    monkeypatch.setattr(worktree_box, "_working_trees", lambda repo_path: None)
+    _refusal(door)
+    assert (mine / "unsaved.txt").read_text() == "a person's uncommitted work\n"

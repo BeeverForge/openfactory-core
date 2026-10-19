@@ -104,6 +104,11 @@ MUTATIONS = [
      '    where, mine = path, "<a path of yours>"\n',
      NOT_OURS),
 
+    ("a link at the path is read as the box's own tree, and the tree it names is removed", BOX,
+     "        if wt.is_symlink():\n            # A LINK AT `wt` IS NEVER THE BOX'S OWN",
+     "        if False:\n            # A LINK AT `wt` IS NEVER THE BOX'S OWN",
+     NOT_OURS),
+
     ("a symlink at the path is followed, and the job checks out into what it names", BOX,
      '        if wt.is_symlink():\n            return "symlink", "", False\n', "",
      NOT_OURS),  # review of 35ac306, point 1

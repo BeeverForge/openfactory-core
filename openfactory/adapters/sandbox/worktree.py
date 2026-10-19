@@ -836,6 +836,11 @@ class WorktreeSandbox(SandboxAdapter):
         the served checkouts, shared by every project the process serves, so `wt` can be another
         repository's worktree of a branch with the same name, or a person's directory; `prepare`
         refuses by name over it rather than this deleting it."""
+        if wt.is_symlink():
+            # A LINK AT `wt` IS NEVER THE BOX'S OWN: git lists the real path and `_same_dir`
+            # resolves through the link, and `worktree remove --force <link>` removes the linked
+            # tree it names (rc 0, 2.43.0). `prepare` refuses it by name below.
+            return _working_trees(repo_path)
         trees = _working_trees(repo_path)
         if trees is None:
             # Could not read the list: remove by our own path, whether or not its directory is
