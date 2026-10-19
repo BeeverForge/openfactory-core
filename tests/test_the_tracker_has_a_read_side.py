@@ -207,7 +207,7 @@ class _Gh(GitHubIssuesTracker):
         self._answers = answers
         self.argv: list[list[str]] = []
 
-    def _gh(self, args, timeout: int = 60):  # noqa: ARG002 — the timeout is the adapter's business
+    def _gh(self, args, timeout: int = 60, *, stdin=None):  # noqa: ARG002 — timeout, stdin: the adapter's
         self.argv.append(list(args))
         answer = self._answers.get(args[0])
         if answer is None:

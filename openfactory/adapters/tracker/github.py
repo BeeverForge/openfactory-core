@@ -544,10 +544,16 @@ class GitHubIssuesTracker(TrackerAdapter):
         decision by default (ADR-0013 D3).
 
         In `repo` when one is named (#265 §6.2) — the issue IS in that repository, so its ref is
-        qualified (`owner/name#14`, C-18) unless that is this adapter's own."""
+        qualified (`owner/name#14`, C-18) unless that is this adapter's own.
+
+        The body goes to `gh` over STDIN (`--body-file -`), like `update_body`'s, and never as an
+        argument: GitHub's limit is in characters (65,536) while one argv element's is in bytes
+        (131,072), so a body in a 3-byte script crossed the second at about 43,690 characters and
+        the create died as `OSError: [Errno 7] Argument list too long` (#807's table). It still
+        runs through `_gh`, so it keeps the empty-`--repo` refusal and the rate-limit retry."""
         target = (repo or "").strip().strip("/") or self.repo
         p = self._gh(["issue", "create", "--repo", target,
-                      "--title", title, "--body", body])
+                      "--title", title, "--body-file", "-"], stdin=body)
         if p.returncode != 0:
             raise RuntimeError(f"gh issue create failed: {p.stderr[:300]}")
         url = (p.stdout or "").strip().splitlines()[-1].strip()

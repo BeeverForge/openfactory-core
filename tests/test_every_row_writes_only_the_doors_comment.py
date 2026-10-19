@@ -65,7 +65,7 @@ def _github(tmp_path, monkeypatch) -> Row:
     tracker = GitHubIssuesTracker("acme/books")
     row = Row(tracker)
 
-    def gh(args, timeout=60):
+    def gh(args, timeout=60, *, stdin=None):
         if args[:2] == ["issue", "comment"]:
             row.posted.append(args[args.index("--body") + 1])
         if "--comment" in args:
