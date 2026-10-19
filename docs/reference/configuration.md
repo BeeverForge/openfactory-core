@@ -378,9 +378,14 @@ reviews it, and one stale line becoming an outage is a failure the operator coul
 
 **Every secret the core reads comes through one seam**, the credential store: the per-axis tokens,
 the generic pair, the GitHub App key, the harness tokens, the panel's tokens and keys, the engine's
-key, a `box.env` name the box passes through, and the box image's pull credential. Nothing reads a
-credential from the environment around it, and `tests/test_every_stored_credential_is_read_through_the_store.py`
-holds every module of the package to that.
+key, a `box.env` name the box passes through, and the box image's pull credential. The readiness
+report and `openfactory certify` also measure an environment or audit `.env.compose`, and ask the
+store beside it; the stack preflight, which runs before the stack and its store exist, reads
+`.env.compose` alone. `tests/test_every_stored_credential_is_read_through_the_store.py`
+holds every module of the package to that: a credential read by a name the code spells (a
+literal, a constant, a table of them), from the environment or through any other mapping, fails it
+outside the store unless the function says what its mapping is. A name computed while running is
+beyond such a scan, and each reader of that kind has a test of its own.
 
 **A reference is `<store>:<name>`**: `env:ACME_JIRA_TOKEN` is a variable, `file:acme-jira` is a file
 in the credential directory, and an installed add-on's store reads its own (`credential_store.<kind>`
@@ -402,10 +407,11 @@ held: the PEM for `OPENFACTORY_GH_APP_KEY_CONTENT`, a path for `OPENFACTORY_GH_A
   and a mounted cluster secret volume alike. A reference names one file in it, never a path.
 - **Read at each use, kept by nobody.** A rotated file is the next use's.
 - **Refused by name**, and never replaced by the variable, when the directory or the file is
-  writable by anyone but its owner (a sticky directory, as a cluster mounts its secrets, is
-  accepted for files of root or of the worker's user), when a link leads out of the directory,
-  when it is not a regular file, or when it is larger than a credential (64 KB). Each refusal
-  ends with its repair.
+  writable by anyone but its owner, when the name is a link another user made, when a link leads
+  out of the directory, when it is not a regular file, or when it is larger than a credential
+  (64 KB). A directory anyone may write to is read only on a mount that refuses writes, as a
+  cluster mounts its secret volume, and then only its files of root or of the worker's user. Each
+  refusal ends with its repair.
 - **Except on a mount that refuses writes.** Compose mounts a `secrets:` file read-only with the
   mode it has on the host, and on a host whose umask is `0002` (Ubuntu's, for users) a file made
   with `echo … >` is `0664`. Nobody who sees a read-only mount can write through it, so its write
