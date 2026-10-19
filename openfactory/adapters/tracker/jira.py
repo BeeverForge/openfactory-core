@@ -205,18 +205,21 @@ def within_scope(where: str, scope: str) -> str:
     its team area clause the same way (`AzureBoardsBoard._team_area_clause`).
 
     ONE HELPER FOR THE BOARD AND THE TRACKER, so the reads the poller makes and the reads the panel
-    makes cannot drift into two different slices of the same project (#752)."""
-    narrowed = str(scope or "").strip()
-    return f"{where} AND ({narrowed})" if narrowed else where
+    makes cannot drift into two different slices of the same project (#752).
+
+    `scope` is `JiraTracker.scope_jql`, already stripped where the tracker takes the option: one
+    normalisation, so a mutation of it cannot hide behind a second one (measured: with both, the
+    tracker's `.strip()` could be removed and every test stayed green)."""
+    return f"{where} AND ({scope})" if scope else where
 
 
 def scope_named(scope: str) -> str:
     """` within scope_jql '<scope>'` for a "could not search" warning, `""` without a scope.
 
     A condition Jira cannot parse answers 400, which reads as an unreadable board; without the
-    scope in the sentence the person sees "could not search DAR" and looks at the credential."""
-    narrowed = str(scope or "").strip()
-    return f" within scope_jql {narrowed!r}" if narrowed else ""
+    scope in the sentence the person sees "could not search DAR" and looks at the credential.
+    `scope` is the stripped `JiraTracker.scope_jql`, as for `within_scope`."""
+    return f" within scope_jql {scope!r}" if scope else ""
 
 
 class JiraTracker:
