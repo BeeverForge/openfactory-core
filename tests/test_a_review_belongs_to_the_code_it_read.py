@@ -297,7 +297,8 @@ def test_the_MACHINE_reviews_the_diff_it_just_pushed():
     # over the whole of it is satisfied by either. Cutting the RunResult's copy — the one the
     # workflow reads — left the republish in place and this guard green; found 2026-09-07, the
     # first time the plan for this file could run since the refactor that stranded its anchors.
-    assert "self._republish_review(pr_url, review=review)" in src, (
+    # (the call also carries the pass's line for what the agent says it did since #627)
+    assert "self._republish_review(pr_url, review=review," in src, (
         "the pass re-reads the pushed diff and never republishes the verdict on the pull "
         "request — the surface a collaborator without the panel token actually opens")
     returned = src[src.index("RunResult("):]

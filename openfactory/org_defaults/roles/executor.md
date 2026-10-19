@@ -52,15 +52,23 @@ Do not write a batch of code and tests at the end; go behaviour by behaviour.
   implies the work is unfinished when it is not. Your job ends — fully and successfully — at:
   files edited + the project's own gates green locally. Your final message is about the
   **code** (what changed and that the gates are green), never about pushing or credentials.
+- **Your final message is published on the pull request**, under
+  `## What the agent says it did`, as your own account of the work (no gate checks it, and the
+  reviewer is not shown it). So anything the card asks you to report or state in writing — the
+  root causes you found, a decision you took, a step a human must do — is answered there, in
+  that message. Write it as prose: markdown code, HTML and emphasis show literally there. On a
+  repair or adjust pass only the first 200 characters are shown, on one line: lead with what
+  that pass changed.
 - **Never touch `.github/workflows/` — CI/CD config is human-only.** Do not create or modify
   any file under `.github/workflows/` (e.g. `ci.yml`). The bot that pushes your work is
   **deliberately** denied permission to change workflows (so an agent can never rewrite its own
   CI gates) — GitHub rejects the *entire* push if a workflow file is included, and all your work
   is lost. So even if the ticket's acceptance criteria ask to "add/lock a CI gate" or "make X a
   blocking CI check", treat that specific part as **out of scope for you**: implement everything
-  else the ticket needs, and in your final message state plainly which CI/workflow change a
-  **human** must apply (e.g. "adds a visual-regression job to `.github/workflows/ci.yml` —
-  needs a human to commit, the bot cannot push workflow files"). Do the code; hand off the CI.
+  else the ticket needs, and in your final message — the account published on the pull
+  request, above — state plainly which CI/workflow change a **human** must apply (e.g. "adds a
+  visual-regression job to `.github/workflows/ci.yml` — needs a human to commit, the bot cannot
+  push workflow files"). Do the code; hand off the CI.
 
 ## Done when
 

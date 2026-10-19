@@ -99,10 +99,31 @@ in only when a flag is raised.
 - `approved` **+** every criterion executed by a gate **+** green gates **+** policy allows →
   cleared for auto-merge.
 
+**A criterion that asks for a written answer** ("say which root causes you found") is answered in
+the implementing agent's final message, which the reviewer is never shown. Every reviewer is told
+so: such a criterion is `unknown`, like anything no gate executed (#447), never `failed` because the
+diff lacks the answer — so the card reads NOT VERIFIED, and the person at the merge reads the answer
+in the pull request, under `## What the agent says it did` (#627).
+
 ### 7. PR — open the pull request
 Opens the PR as the bot (idempotent — a re-run reuses the same PR, never a duplicate). The
 reviewer's verdict is posted on it. From here the merge posture decides: **auto-merge** (when
 policy = auto and it's safe) or **hand to humans** (request reviewers + comment the ticket).
+
+The body ends, before its `Cost:` line, with **`## What the agent says it did`**: the executor's
+whole final message, quoted and labelled as its claim — no gate checked it and the reviewer was
+not shown it — bounded at 2,000 characters as written in the body, with a line saying when it
+was cut (both lengths counted in the quote as the reader sees it, so a `#N` counts as `card N`).
+Its code, fences, HTML, emphasis and headings show literally, as it wrote them; its `-`, `+` and
+numbered lists render, and so does a markdown link to an address, `[text](https://…)`, which goes
+where the agent wrote: its address is kept as written. A bare link shows as code, verbatim, and
+is not a link; a reference definition, `[1]: https://…`, shows as text with its address as code.
+An indented code block shows the escapes. Each `@name` it shows is put in a code span so nobody
+is notified, and each `#N` it shows reads `card N`. Each later pass that
+pushes (a recovery, a gate, suppression or review repair, an adjust, a CI repair) adds one line
+beneath it: its kind, the commit it pushed, and its own words cut at 200 characters; the latest
+ten are listed and the rest counted. On a forge that limits a description's length (Azure Repos),
+the oldest of those lines give way first, so the cost, the review and the newest pass remain.
 
 ---
 

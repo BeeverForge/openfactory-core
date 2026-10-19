@@ -12,12 +12,18 @@ import logging
 import re
 import shlex
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from openfactory import after_merge, namespace
-from openfactory.adapters.agent.base import AgentContext, CodingAgentAdapter, takes_instruction
-from openfactory.adapters.forge.base import ForgeAdapter
+from openfactory.adapters.agent.base import (
+    AgentContext,
+    CodingAgentAdapter,
+    final_text,
+    takes_instruction,
+)
+from openfactory.adapters.forge.base import ForgeAdapter, description_ceiling
 from openfactory.adapters.forge.base import display_name as forge_display_name
 from openfactory.adapters.notify.base import Level, NullNotifier
 from openfactory.adapters.notify.base import Notifier as NotifierT
@@ -40,7 +46,14 @@ from openfactory.contracts import (
 from openfactory.contracts.bot import BotIdentity
 from openfactory.contracts.item_space import closing_keyword, forge_owns_the_card
 from openfactory.contracts.refs import canonical_ref
-from openfactory.contracts.run import HandedBack
+from openfactory.contracts.run import (
+    AGENT_ACCOUNT_HEADING,
+    AGENT_ACCOUNT_MAX,
+    AGENT_PASS_WORDS_MAX,
+    AGENT_PASSES_SHOWN,
+    HandedBack,
+    PassAccount,
+)
 from openfactory.contracts.state import PROGRESS_MARKS
 from openfactory.observability import EventKind, EventSink, JobEvent, NullEventSink, now_iso
 from openfactory.orchestrator.context import build_context
@@ -426,6 +439,393 @@ def _review_lines(r: ReviewResult) -> list[str]:
             loc = f" ({f.file}:{f.line})" if f.file else ""
             out.append(f"- **{f.severity}**{loc}: {f.description}")
         return out
+
+
+# ── what the agent says it did (#627) ──────────────────────────────────────────────────────────
+#
+# THE AGENT'S ACCOUNT REACHED NO ARTIFACT. Its final message went to the journal note `agent
+# finished: {summary[:200]}` and nowhere else, so a card that asked the agent to report something in
+# writing (the field report's card 82: "say which root causes you found") could not be satisfied
+# anywhere a person reads. The pull request now carries it, last, under `AGENT_ACCOUNT_HEADING`, as
+# the agent's CLAIM: no gate checks it and the reviewer is never shown it (ADR-0001 D-5, D-11).
+#
+# EVERY ROW OF AGENT TEXT STARTS WITH `>`. `_republish_review` finds the review and the `Cost:` line
+# by line prefix, so an agent row that started `## Review — ` or `Cost: $` would be read as the
+# platform's. And every plain row after a quote follows a blank row: CommonMark's lazy continuation
+# would otherwise pull the next platform row — the `Cost:` line included — into the quote.
+
+_CLAIM = ("This is the implementing agent's own account, as it wrote it. No gate checked it, and "
+          "the reviewer was not shown it.")
+_WROTE_NOTHING = "The agent ended its pass without a final message."
+_NOT_RECORDED = ("The account of the pass that opened this pull request was not recorded: it was "
+                 "opened before this section existed.")
+_PASSES_LABEL = ("Later passes, oldest first — each is that pass's own words, cut at "
+                 f"{AGENT_PASS_WORDS_MAX} characters:")
+_CUT = re.compile(r"^The agent's message, as quoted, was (\d+) characters; the first (\d+) are "
+                  r"shown\.$")
+_EARLIER = re.compile(r"^(\d+) earlier pass(?:es are| is) not shown\.$")
+_PASS_ROW = re.compile(r"^> - (?P<kind>[A-Za-z ]+?(?: \d+)?)(?: · `(?P<head>[0-9a-f]*)`)? — "
+                       r"(?P<words>.*)$")
+
+#: A name GitHub would notify: after anything but a letter or a digit, so `a@b.com` is left alone
+#: and `_@octocat_` is not (`_` is a word character, and `(?<!\w)` skipped it until review on
+#: 9882b73 measured GitHub linking it inside `<em>`); ending on a word character, so a sentence's
+#: full stop is not part of the name; and a chained `@ann@cy` taken whole, so wrapping the first
+#: never puts a backtick before the second.
+_A_HANDLE = re.compile(r"(?<![A-Za-z0-9])@([A-Za-z0-9](?:[\w.@-]*\w)?)")
+#: What could make the agent's text anything but text around the platform's spans: a backtick (a
+#: code span or fence of its own, which pairs with the wrapping), a backslash (which escapes the
+#: wrapping's backtick), `<` (an HTML block, inside which markdown — the wrapping — is not read)
+#: and `&` (an entity, `&#x40;`, which decodes to a name after the wrapping was decided). And the
+#: emphasis markers `*`, `_` and `~`: with its backticks escaped, the agent's `Worker.__init__` and
+#: `*.py` lost the code span that kept them literal (review on 35a1cc0, measured on GitHub).
+_MARKUP = re.compile(r"([\\`<&*_~])")
+#: …and what would make one of its lines a HEADING, posing as a section of the platform's: an ATX
+#: `#`, a line of only `=` or `-` under another (setext), or a `>` of its own that a heading could
+#: follow. Escaped where it opens the line — after the indent, list markers and `>`s that can
+#: come before it, since `- ## x`, `1. ## x` and `> # x` render a heading too (review on 35a1cc0).
+#: Any indent: a heading nested in the agent's own list item sits past column 3 and still renders
+#: (review on be48a54, measured on GitHub); at the top level such a line is an indented code
+#: block, where the escape shows, as every escape does in code.
+_A_HEADING = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+)*)(#|>|[=-](?=[=-]*\s*$))",
+                        re.MULTILINE)
+#: A row the cut shortened to only `=` or `-` underlines the agent's line above it (setext): the
+#: escape above saw the whole row, which was not one.
+_AN_UNDERLINE = re.compile(r"[ \t]*[=-]+\s*$")
+#: A bare link, which GitHub's autolinker reads from the RAW source: an escape inside it goes into
+#: the address (`test%5C_a.py`, review on be48a54). Not a markdown link's destination, where
+#: CommonMark reads the escapes. It ends before a trailing `.,;:!?'")]`, which stays outside the
+#: span as text. It never holds `(` or `)`: a span that did straddled the `)` after a `](` the
+#: link pattern below refuses (`[t](<https://…)[`), CommonMark read the span's opening backtick
+#: into that destination, and every later span shifted by one, an `@name` outside code (review
+#: on b440cf5, measured on GitHub). So `…/wiki/Foo_(bar)` shows in code up to `Foo_`, then
+#: `(bar)` as text; it was not a link before either.
+_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\()]*[^\s`<>\\.,;:!?'\")\]()])")
+#: A markdown link to an address, whole: its text is neutralised, its destination kept as
+#: written, with the spaces CommonMark allows around it. In the destination a wrapped `@octocat`
+#: went into the href as `%60@octocat%60` and a `#12` rewritten `card 12` broke the link; the
+#: bare-link split cut `[https://…](https://…)` in two, and after `]( ` it took the address off
+#: the page (review on 3c6d12c, measured on GitHub). A bare destination with a backtick, a
+#: backslash, `<` or a parenthesis is left to `_plain`, as before; and not after `]`, where it may
+#: be a label.
+#: The angle form, `[t](<https://…>)`, is CommonMark's for an address with spaces or parentheses:
+#: escaped, it rendered `t` with no link and the address nowhere (review on 39183a4, on GitHub).
+_A_LINK = re.compile(r"(?<!\])\[([^\[\]\n]*)\]\(([ \t]*(?:(?:https?://|www\.)[^\s()<>`\\]*"
+                     r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*)\)")
+#: The same link in a quote row, which a cut must not open: its destination is raw, `@` included.
+_A_LINK_IN_ROW = re.compile(r"\[[^\[\]]*\]\([ \t]*(?:(?:https?://|www\.)[^\s()<>`\\]*"
+                            r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*\)")
+#: A line that would define a reference link: its `[` is escaped, so it shows as text, its address
+#: as a bare link's code. Parsed, the definition renders nothing, and its address, in a span, was
+#: on the page nowhere (review on 3c6d12c, measured on GitHub).
+_A_DEFINITION = re.compile(r"^([ \t]*(?:(?:[-+]|\d{1,9}[.)])\s+)*)\[(?=[^\]]*\]:)", re.MULTILINE)
+
+
+def _neutralised(text: str) -> str:
+    """Agent text as the pull request may carry it: every `#<number>` it shows is `card <number>`
+    whatever the forge (`without_mentions`), and every `@name` it shows is put in a code span,
+    which GitHub renders literally and notifies nobody from — measured on its renderer (#627, the
+    pull request body).
+
+    THE AGENT'S OWN MARKUP IS ESCAPED FIRST, so the platform's spans are the only code spans in it
+    and each opens and closes on its own line. Wrapping around the agent's markdown instead had to
+    predict how CommonMark pairs backticks across a paragraph, where a fence or an HTML block
+    begins, and how an entity decodes: review on 9882b73 found two shapes GitHub linked, and fuzzing
+    the paragraph-level repair against CommonMark kept finding more. A heading marker is escaped
+    too, so no line of the agent's renders as a section heading, and so are the emphasis markers,
+    so its `Worker.__init__` reads as it wrote it. A bare link is put in a span of the platform's,
+    verbatim, before anything is rewritten: an escape or a `card` inside it would change where it
+    goes. A markdown link to an address, `[text](https://…)` or `[text](<https://…>)`, keeps its
+    destination as written, `@` and `#N` included, which the reader is not shown and GitHub
+    notifies nobody from; its text is neutralised like the rest. A reference definition,
+    `[1]: https://…`, shows as text, its address as a bare link's code: parsed, it renders
+    nothing. The price is that the agent's inline code, fences and HTML read literally, backticks
+    included, and a bare link shows as code and is not a link — this is its claim, quoted, not a
+    document rendered on its behalf; its `-`, `+` and numbered lists and its markdown links to an
+    address still render."""
+    out, pos = [], 0
+    for link in _A_LINK.finditer(text):
+        out += [_plain(text[pos:link.start()]), f"[{_plain(link[1])}]({link[2]})"]
+        pos = link.end()
+    out.append(_plain(text[pos:]))
+    return _A_DEFINITION.sub(r"\1\\[", _A_HEADING.sub(r"\1\\\2", "".join(out)))
+
+
+def _plain(text: str) -> str:
+    """Agent text outside a markdown link's destination, every line's start aside: each bare link
+    in a platform span, verbatim; around them, `#N` rewritten, the markup escaped, names wrapped."""
+    pieces = _A_URL.split(text)
+    return "".join(f"`{piece}`" if k % 2 else _A_HANDLE.sub(
+        lambda m: f"`{m.group(0)}`", _MARKUP.sub(r"\\\1", without_mentions(piece)))
+        for k, piece in enumerate(pieces))
+
+
+def _spans(row: str) -> list[tuple[int, int]]:
+    """Where the platform's code spans are in a quote row: its unescaped backticks, in pairs —
+    every backtick the agent wrote is escaped (`_neutralised`)."""
+    ticks, i = [], 0
+    while i < len(row):
+        if row[i] == "\\":
+            i += 2
+            continue
+        if row[i] == "`":
+            ticks.append(i)
+        i += 1
+    return [(ticks[j], ticks[j + 1] + 1) for j in range(0, len(ticks) - 1, 2)]
+
+
+def _quoted(text: str) -> list[str]:
+    """Agent text as quote rows: `> ` + each neutralised line, and `>` for an empty one, so the
+    quote does not end inside the agent's text."""
+    return [f"> {_neutralised(line)}" if line.strip() else ">" for line in text.splitlines()]
+
+
+def _seen(text: str) -> int:
+    """How many characters a reader sees of neutralised agent text: an escape is one, and the
+    platform's span backticks — the unescaped ones (`_spans`) — none."""
+    seen, i = 0, 0
+    while i < len(text):
+        if text[i] != "`":
+            seen += 1
+        i += 2 if text[i] == "\\" else 1
+    return seen
+
+
+def _quote_chars(rows: list[str]) -> int:
+    """How many characters of the message `rows` show — what the cut line counts in: what the
+    reader sees, so counting the source instead published a message of 1,920 characters as 2,880
+    (review on 35a1cc0). The bound itself is on the source: that is what a forge limits."""
+    return len(rows) - 1 + sum(_seen(row[2:]) for row in rows) if rows else 0
+
+
+def _cut_quote(rows: list[str], room: int) -> list[str]:
+    """The leading quote rows that fit in `room` characters as written in the body, prefixes and
+    newlines counted. The row that crosses the bound is cut, never inside a code span — a span cut
+    open would leave the name the wrapping hid outside it — and never inside an escape, whose lone
+    backslash the agent did not write and the cut line would not count as lost. A cut row that
+    would underline the row above it is left out."""
+    kept: list[str] = []
+    used = -1  # no newline before the first row
+    for row in rows:
+        if used + 1 + len(row) <= room:
+            kept.append(row)
+            used += 1 + len(row)
+            continue
+        cut = room - used - 1
+        i = 2
+        while i < cut:  # nor between an escape's backslash and what it escapes
+            i += 2 if row[i] == "\\" else 1
+        if i > cut:
+            cut -= 1
+        for link in _A_LINK_IN_ROW.finditer(row):  # nor inside a link, whose destination is raw
+            if link.start() < cut < link.end():
+                cut = link.start()
+        for start, end in _spans(row):
+            if start < cut < end:
+                cut = start
+        if cut > 2 and not _AN_UNDERLINE.match(row[2:cut]):
+            kept.append(row[:cut])
+        break
+    return kept
+
+
+@dataclass
+class _Account:
+    """The section's parts, as `_account_lines` renders them and `_read_account` reads them back.
+
+    `quote` is the executor's message as quote rows, uncut — or `None` when the pull request was
+    opened before this section existed. `total` is the message's length in the characters the cut
+    line counts in."""
+
+    quote: list[str] | None
+    total: int
+    passes: list[PassAccount] = field(default_factory=list)
+    earlier: int = 0
+
+
+def _account_of(result: RunResult) -> _Account:
+    """The section's parts for a run's own result. The message is kept raw on the result; the part
+    beyond what was kept (4 × the bound) is counted, not shown."""
+    quote = _quoted(result.agent_account) if result.agent_account.strip() else []
+    beyond = max(0, result.agent_account_chars - len(result.agent_account))
+    return _Account(quote=quote, total=_quote_chars(quote) + beyond,
+                    passes=list(result.agent_passes))
+
+
+def _pass_words(res: AgentRunResult) -> str:
+    """A later pass's own words on one line: its whole final message with whitespace runs folded,
+    cut at `AGENT_PASS_WORDS_MAX` like the `agent finished:` note, THEN neutralised — cutting
+    after the wrapping could leave a name outside a cut-open code span."""
+    words = " ".join(final_text(res).split())
+    if not words:
+        return "the pass ended without a final message"
+    cut = words[:AGENT_PASS_WORDS_MAX]
+    return _neutralised(cut) + ("…" if len(words) > AGENT_PASS_WORDS_MAX else "")
+
+
+def _pass_row(p: PassAccount) -> str:
+    commit = f" · `{p.head[:12]}`" if p.head else ""
+    return f"> - {p.kind}{commit} — {p.words}"
+
+
+def _account_lines(account: _Account, *, room: int = AGENT_ACCOUNT_MAX) -> list[str]:
+    """The pull request's `AGENT_ACCOUNT_HEADING` section — the ONE place it is composed (#187's
+    rule), when the pull request is opened and whenever a later pass adds its line.
+
+    The executor's block is cut to `room` characters as written in the body (decision 3), with a
+    platform line giving both lengths; then the latest `AGENT_PASSES_SHOWN` pass lines, and a count
+    of the rest. "Wrote nothing" and "not recorded" are platform lines, never an empty quote: they
+    are different facts (docs/engineering-lessons.md, lesson 2)."""
+    out = [AGENT_ACCOUNT_HEADING, _CLAIM, ""]
+    if account.quote is None:
+        out.append(_NOT_RECORDED)
+    elif not account.quote and not account.total:
+        out.append(_WROTE_NOTHING)
+    else:  # a block cut to nothing on a limited forge still says how long the message was
+        kept = _cut_quote(account.quote, room)
+        out += kept
+        shown = _quote_chars(kept)
+        if shown < account.total:
+            out += [*([""] if kept else []),
+                    f"The agent's message, as quoted, was {account.total} characters; the first "
+                    f"{shown} are shown."]
+    if account.passes:
+        shown_passes = account.passes[-AGENT_PASSES_SHOWN:]
+        earlier = account.earlier + len(account.passes) - len(shown_passes)
+        out += ["", _PASSES_LABEL, ""]
+        if earlier:
+            out.append(f"{earlier} earlier passes are not shown." if earlier > 1
+                       else "1 earlier pass is not shown.")
+        out += [_pass_row(p) for p in shown_passes]
+    return out
+
+
+def _read_account(rows: list[str]) -> tuple[int, int, _Account] | None:
+    """The section a body carries — `(start, end, parts)`, `rows[start:end]` being the section —
+    or `None` when it carries none (a pull request opened before it existed).
+
+    Only what `_account_lines` writes is read back. Agent text cannot forge the label, the count or
+    the cut line, because every agent row starts with `>`; and the executor's rows and the pass
+    rows are told apart by position, the label between them."""
+    start = next((i for i, row in enumerate(rows) if row == AGENT_ACCOUNT_HEADING), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(rows))
+                if rows[i].startswith(("## ", _COST_LINE))), len(rows))
+    while end > start + 1 and not rows[end - 1].strip():
+        end -= 1
+    body = rows[start + 1:end]
+    label = next((i for i, row in enumerate(body) if row == _PASSES_LABEL), len(body))
+    own, later = body[:label], body[label + 1:]
+    quote = [row for row in own if row.startswith(">")]
+    cut = next((m for m in map(_CUT.match, own) if m), None)
+    recorded = _NOT_RECORDED not in own
+    account = _Account(quote=quote if recorded else None,
+                       total=int(cut.group(1)) if cut else _quote_chars(quote))
+    for row in later:
+        if (m := _EARLIER.match(row)):
+            account.earlier = int(m.group(1))
+        elif (m := _PASS_ROW.match(row)):
+            try:
+                account.passes.append(PassAccount(kind=m["kind"], words=m["words"],
+                                                  head=m["head"] or ""))
+            except ValueError:  # not a row this platform wrote: left out, never guessed at
+                continue
+    return start, end, account
+
+
+def _with_passes(rows: list[str], passes: list[PassAccount]) -> list[str]:
+    """`rows` with each of `passes` that is not already a line added under the section — the
+    section inserted whole, before the `Cost:` row or at the end, where the pull request was opened
+    before it existed.
+
+    A pass is `(kind, head)`: the same pass republished twice adds its line once. Lines beyond
+    `AGENT_PASSES_SHOWN` roll into the count of earlier passes as `_account_lines` renders them,
+    and the count is read back and accumulates. The executor's
+    rows are re-rendered from what they say, by the one writer, so they come back byte for byte."""
+    read = _read_account(rows)
+    if read is None:
+        cost_at = next((i for i in range(len(rows) - 1, -1, -1)
+                        if rows[i].startswith(_COST_LINE)), len(rows))
+        start = end = cost_at
+        while start > 0 and not rows[start - 1].strip():
+            start -= 1
+        account = _Account(quote=None, total=0)
+    else:
+        start, end, account = read
+    known = {(p.kind, p.head[:12]) for p in account.passes}
+    new = []
+    for p in passes:
+        if (p.kind, p.head[:12]) not in known:
+            known.add((p.kind, p.head[:12]))
+            new.append(p)
+    if not new:
+        return rows
+    account.passes += new
+    section = _account_lines(account)
+    if read is None:  # its own blank rows around it, as `_pr_body` writes it
+        section = ["", *section, *([""] if end < len(rows) else [])]
+    return rows[:start] + section + rows[end:]
+
+
+def _fit_to_forge(before: list[str], account: _Account, after: list[str],
+                  ceiling: tuple[int, Callable[[str], int]] | None) -> list[str]:
+    """`before` + the section + `after`, fitted to the forge's declared description limit — the ONE
+    place the order in which the section gives way is written (#627, decision 5).
+
+    Azure Repos refuses over 4,000 UTF-16 units, and its adapter's last-resort cut is from the end:
+    the `Cost:` line first, then the newest pass, then the review. So, on a forge that declares a
+    limit (`description_ceiling`), measured in ITS unit:
+      (a) the oldest pass lines go first, one at a time, each folded into the count of earlier
+          passes, until the body fits or only the newest is left;
+      (b) then the executor's quoted block is cut from its end, its cut line saying how much is
+          shown, down to nothing but the cut line if it must.
+    What `before` and `after` hold — the review, the `Cost:` line — always survives. Where they
+    alone are over the limit, the section is cut to its heading, claim, cut line and newest pass,
+    the warning names it, and the adapter's own cut stays the backstop: cutting the objective is
+    not this function's to do. A forge that declares nothing has no limit, and every decided line
+    stands."""
+    def composed(acct: _Account, room: int = AGENT_ACCOUNT_MAX) -> list[str]:
+        return [*before, *_account_lines(acct, room=room), *after]
+
+    rows = composed(account)
+    if ceiling is not None:
+        limit, measure = ceiling
+
+        def fits(r: list[str]) -> bool:
+            return measure("\n".join(r)) <= limit
+
+        if not fits(rows):
+            acct = _Account(quote=account.quote, total=account.total,
+                            passes=account.passes[-AGENT_PASSES_SHOWN:],
+                            earlier=account.earlier + max(0, len(account.passes)
+                                                          - AGENT_PASSES_SHOWN))
+            while len(acct.passes) > 1 and not fits(rows):
+                acct.passes, acct.earlier = acct.passes[1:], acct.earlier + 1
+                rows = composed(acct)
+            if not fits(rows):
+                rows = composed(acct, 0)
+                if not fits(rows):
+                    log.warning(
+                        "OPENFACTORY_PR_BODY_OVER_LIMIT the pull request's description is %d of "
+                        "the %d its forge accepts even with the agent's account cut to its "
+                        "heading and newest pass — the objective, the gates and the review alone "
+                        "are too long, and the forge's own cut decides the rest",
+                        measure("\n".join(rows)), limit)
+                else:  # the longest block that fits: the bisection only keeps a room it measured
+                    lo, hi = 0, AGENT_ACCOUNT_MAX
+                    while lo < hi:
+                        mid = (lo + hi + 1) // 2
+                        if fits(composed(acct, mid)):
+                            lo = mid
+                        else:
+                            hi = mid - 1
+                    rows = composed(acct, lo)
+    cut = next((m for m in map(_CUT.match, rows) if m), None)
+    if cut:  # a bound hit is logged
+        log.info("the agent's account is %s characters and %s fit the pull request — the rest is "
+                 "cut, and the body says so", cut.group(1), cut.group(2))
+    return rows
 
 
 def _measured_from(ws: Workspace, base: str) -> str:
@@ -1116,6 +1516,11 @@ class JobRunner:
                 ticket, "note", f"agent finished: {agent_result.summary[:200]}",
                 cost_usd=agent_result.cost_usd, role="executor",
             )
+            # WHAT THE AGENT SAYS IT DID, WHOLE (#627): the note above keeps its 200-character cut
+            # for the journal, and the pull request carries the message itself, as the agent's
+            # claim. `summary` is capped at ~1000 characters with no marker; `final_text` is not.
+            account = final_text(agent_result)
+            passes: list[PassAccount] = []
             self._count(agent_result, "executor")
             if agent_result.pause_reason:
                 return self._paused(
@@ -1179,6 +1584,9 @@ class JobRunner:
                                            f"{agent_result.summary[:150]}",
                            cost_usd=agent_result.cost_usd, role="executor")
                 self._count(agent_result, "recovery")
+                # a recovery commits nothing of its own: its position is its identity
+                passes.append(PassAccount(kind=f"recovery {rec}",
+                                          words=_pass_words(agent_result)))
                 if agent_result.pause_reason:
                     return self._paused(
                         ticket, agent_result.pause_reason, agent_result.retry_at, branch=branch,
@@ -1237,6 +1645,8 @@ class JobRunner:
                     return self._paused(ticket, rep.pause_reason, rep.retry_at, branch=branch,
                                         ws=ws, resume_handle=rep.resume_handle)
                 self._commit(ws, ticket)
+                passes.append(PassAccount(kind=f"gate repair {attempts}", words=_pass_words(rep),
+                                          head=self._head(ws)))
                 touched, validations = self._validate(ws, ticket)
 
             # Stopped repairing because the ticket got too expensive (not because it's
@@ -1252,6 +1662,8 @@ class JobRunner:
                 repair_attempts=attempts, total_cost_usd=self._reported_cost(),
                 spent_turns=getattr(self, "_turns", 0),  # effort accounting (D4)
                 agent_runs=getattr(self, "_agent_runs", []),  # per-model/harness cost telemetry
+                agent_account=account[:4 * AGENT_ACCOUNT_MAX], agent_account_chars=len(account),
+                agent_passes=passes,
             )
             self._record_risk(result)
             if not result.all_passed:
@@ -1343,6 +1755,9 @@ class JobRunner:
                 total_cost += rep.cost_usd or 0.0
                 result.total_cost_usd = self._reported_cost()
                 self._commit(ws, ticket)
+                result.agent_passes.append(PassAccount(
+                    kind=f"suppression repair {supp_attempts}", words=_pass_words(rep),
+                    head=self._head(ws)))
                 touched, validations = self._validate(ws, ticket)  # must stay green
                 result.touched_components, result.validations = touched, validations
                 self._record_risk(result)
@@ -1421,6 +1836,9 @@ class JobRunner:
                     total_cost += rep.cost_usd or 0.0
                     result.total_cost_usd = self._reported_cost()
                     self._commit(ws, ticket)
+                    result.agent_passes.append(PassAccount(
+                        kind=f"review repair {rev_attempts}", words=_pass_words(rep),
+                        head=self._head(ws)))
                     touched, validations = self._validate(ws, ticket)  # the fix must stay green
                     result.touched_components, result.validations = touched, validations
                     self._record_risk(result)
@@ -1766,6 +2184,10 @@ class JobRunner:
                     JobState.ON_HOLD, branch=branch,
                 ))
             self._commit(ws, ticket)
+            #: this pass's line under what the agent says it did (#627), with the commit it made —
+            #: published only if the pass pushes, and then with the gate repairs that followed it
+            passes = [PassAccount(kind="adjust" if human else "CI repair", words=_pass_words(rep),
+                                  head=self._head(ws))]
             # A PERSON'S PASS IS GATED THE WAY THE FIRST ONE WAS (#448). An adjust pass rewrote
             # the pull request, pushed, and went to re-review with none of the project's gates
             # re-run in the box, and the requester was then handed a preview of a head nothing
@@ -1773,8 +2195,9 @@ class JobRunner:
             # re-run by the forge on the push, and that run is its gate.
             validations: list[ValidationResult] = []
             if human:
-                validations, held = self._the_adjusted_change_passes_its_gates(
+                validations, held, fixes = self._the_adjusted_change_passes_its_gates(
                     ticket, owner, ws, branch, rep)
+                passes += fixes
                 if held is not None:
                     # NOTHING WAS PUSHED, so the pull request is the one the reviewer read and
                     # `code_changed` is False by construction rather than by `as_left`'s measure:
@@ -1848,7 +2271,7 @@ class JobRunner:
                 # The pass pushed and no reviewer read what it pushed, so the verdict standing on
                 # the pull request is about a diff that is gone. #187: say so THERE too.
                 if pushed:
-                    self._republish_review(pr_url, review=None)
+                    self._republish_review(pr_url, review=None, account_passes=passes)
                 return as_left(self._hold(
                     ticket, owner,
                     f"ci-repair added {because} — needs human review",
@@ -1893,7 +2316,8 @@ class JobRunner:
             # one a collaborator without the panel token has. A fresh reading REPLACES the section;
             # without one, what stands is dated rather than deleted.
             if pushed or review is not None:
-                self._republish_review(pr_url, review=review)
+                self._republish_review(pr_url, review=review,
+                                       account_passes=passes if pushed else ())
             self._emit(ticket, "pr", "ci-repair pushed — CI re-running", url="")
             # CI IS RE-RUNNING on a pull request this platform just pushed to: the machine is the
             # one working. Whether a person is then needed is decided when the watch ends.
@@ -1913,7 +2337,7 @@ class JobRunner:
     def _the_adjusted_change_passes_its_gates(
         self, ticket: Ticket, owner: str | None, ws: Workspace, branch: str,
         rep: AgentRunResult,
-    ) -> tuple[list[ValidationResult], RunResult | None]:
+    ) -> tuple[list[ValidationResult], RunResult | None, list[PassAccount]]:
         """Run the project's gates on an adjust pass's commit, repair while they are red, and say
         whether the change may be pushed (#448).
 
@@ -1924,14 +2348,16 @@ class JobRunner:
           · a pause mid-repair keeps its partial work in the workspace. `run` pushes it so a
             resume continues; here that push would put a red head under the requester's preview.
 
-        Returns the validations, and a hold when the change may not be pushed. NOTHING IS PUSHED
-        on a hold, as on the first pass, whose red gates open no pull request. The pull request
-        and its preview stay what the requester was given, and a resume goes back to the merge
-        watch, the mark the empty-instruction hold uses.
+        Returns the validations, a hold when the change may not be pushed, and one line per gate
+        repair for what the agent says it did (#627) — published only with the push. NOTHING IS
+        PUSHED on a hold, as on the first pass, whose red gates open no pull request. The pull
+        request and its preview stay what the requester was given, and a resume goes back to the
+        merge watch, the mark the empty-instruction hold uses.
         """
         _, validations = self._validate(ws, ticket)
         self._account_for_gates_that_could_not_run(validations)
         spent, attempts = rep.cost_usd or 0.0, 0
+        fixes: list[PassAccount] = []
         while (
             not _all_passed(validations)
             and not _never_ran(validations)
@@ -1950,11 +2376,13 @@ class JobRunner:
             self._count(fix, "repair")
             if fix.pause_reason:
                 return validations, self._paused(ticket, fix.pause_reason, fix.retry_at,
-                                                 branch=branch)
+                                                 branch=branch), fixes
             self._commit(ws, ticket)
+            fixes.append(PassAccount(kind=f"adjust gate repair {attempts}",
+                                     words=_pass_words(fix), head=self._head(ws)))
             _, validations = self._validate(ws, ticket)
         if _all_passed(validations):
-            return validations, None
+            return validations, None, fixes
         reason = _never_ran_reason(validations) or (
             self._cost_reason(spent) if self._over_cost_ceiling(spent) else
             "the adjusted change fails the project's gates ("
@@ -1964,7 +2392,7 @@ class JobRunner:
         return validations, self._hold(
             ticket, owner,
             f"{reason}. Nothing was pushed: the pull request and its preview are as they were",
-            JobState.ON_HOLD, branch=branch, validations=validations, merge_refused=True)
+            JobState.ON_HOLD, branch=branch, validations=validations, merge_refused=True), fixes
 
     def review_pr(self, ticket_ref: str, pr_url: str = "") -> RunResult:
         """Read the open pull request again, as it stands now, and publish a fresh verdict (#181).
@@ -2995,6 +3423,17 @@ class JobRunner:
         )
         return [ln.strip() for ln in out.splitlines() if ln.strip()] if rc == 0 else []
 
+    def _head(self, ws: Workspace) -> str:
+        """The commit the workspace's branch points at — "" when git could not say.
+
+        Read through the box, so it is the box's git that answers. `rev-parse HEAD` takes no
+        option and prints the same full name on git 2.28 (CONTRIBUTING's floor) as on 2.34.1;
+        `--short` is avoided on purpose — its length depends on the repository — and the pull
+        request's line cuts the name itself (#627)."""
+        rc, out = self.sandbox.run(workspace=ws, command="git rev-parse HEAD", timeout=60)
+        head = out.strip().splitlines()[-1].strip() if rc == 0 and out.strip() else ""
+        return head if re.fullmatch(r"[0-9a-f]{40,64}", head) else ""
+
     def _commit(self, ws: Workspace, ticket: Ticket) -> None:
         """Commit the working tree authored as the bot (D-12).
 
@@ -3301,7 +3740,8 @@ class JobRunner:
                                    for v in validations[:4]))
 
     def _republish_review(self, pr_url: str, *,
-                          review: ReviewResult | None | object = _SECTION_AS_IT_STANDS) -> bool:
+                          review: ReviewResult | None | object = _SECTION_AS_IT_STANDS,
+                          account_passes: list[PassAccount] | tuple = ()) -> bool:
         """Bring the pull request's own review section back into agreement with the card (#187).
 
         MEASURED ON THE PILOT. podbeam #119 was reviewed and rejected (score 58); an adjust pass
@@ -3336,6 +3776,13 @@ class JobRunner:
         that opened with no line — nobody priced the ticket — is not given one by the first pass
         that is priced, which would read as the cost of the whole ticket.
 
+        AND EACH LATER PASS'S LINE UNDER WHAT THE AGENT SAYS IT DID (#627), IN THE SAME WRITE.
+        `account_passes` are the passes that pushed; each adds its line once (`_with_passes`). The
+        BODY IS THE STORE: a CI repair or an adjust runs on a fresh runner, and nothing in memory
+        holds the first run's result — the executor's account is carried over from the body as it
+        stands, and only the pass lines are re-rendered. One read and at most one write, as #310
+        made it, so the account, the review and the `Cost:` line never disagree between writes.
+
         BEST-EFFORT, ALWAYS. A forge that refuses a description edit must not fail the pass that
         was doing the work — but it may not be silent either, so the refusal is journalled.
         """
@@ -3343,7 +3790,7 @@ class JobRunner:
             return False
         spent = self._reported_cost()
         owed = (spent or 0.0) - getattr(self, "_cost_on_the_pr", 0.0)
-        if review is _SECTION_AS_IT_STANDS and not owed:
+        if review is _SECTION_AS_IT_STANDS and not owed and not account_passes:
             return False  # nothing to say, so nothing is read
         body = self.forge.pr_body(pr=pr_url)
         if body is None:
@@ -3369,6 +3816,10 @@ class JobRunner:
                 if cost_at is not None and cost_at >= end:
                     cost_at += len(section) - (end - start)
                 rows = rows[:start] + section + rows[end:]
+        if account_passes:
+            rows = _with_passes(rows, list(account_passes))
+            cost_at = next((i for i in range(len(rows) - 1, -1, -1)
+                            if rows[i].startswith(_COST_LINE)), None)
         if owed and cost_at is not None:
             try:
                 stood = float(rows[cost_at][len(_COST_LINE):])
@@ -3376,6 +3827,16 @@ class JobRunner:
                 stood = None
             if stood is not None:
                 rows[cost_at] = f"{_COST_LINE}{stood + owed:.4f}"
+        # FITTED IN THE SAME WRITE (#627, decision 5): a pass line, a fresh review or a grown cost
+        # can carry a body that fit past its forge's limit, and the adapter's cut from the end
+        # would take the `Cost:` line first. The executor's rows are re-cut from their end only
+        # when the older pass lines are already gone.
+        ceiling = description_ceiling(self.forge)
+        if ceiling is not None and ceiling[1]("\n".join(rows)) > ceiling[0]:
+            read = _read_account(rows)
+            if read is not None:
+                start, end, account = read
+                rows = _fit_to_forge(rows[:start], account, rows[end:], ceiling)
         updated = "\n".join(rows)
         if updated == body:
             return False
@@ -3550,9 +4011,18 @@ class JobRunner:
             lines += ["", "this project requires a person to look at a preview of it before a "
                           "change merges — start one from the card, and merge when it looks "
                           "right; nobody merges this for you"]
-        if result.total_cost_usd is not None:
-            lines += ["", f"{_COST_LINE}{result.total_cost_usd:.4f}"]
-        return "\n".join(lines)
+        # WHAT THE AGENT SAYS IT DID (#627), LAST AND DIRECTLY BEFORE THE `Cost:` LINE, under its
+        # own `## ` heading. Placed here because a fresh review replaces everything from its heading
+        # to the next `## ` or the `Cost:` row (`_republish_review`; measured at 3a582f1: review +
+        # `Touched components:` + `risk:` + `Cost` came back as review + `Cost`) — so this heading
+        # also ends the review's span, and a dated review never stamps the agent's account `was:`.
+        # Read from `result` only, never `self`: stub holders build this body.
+        # And on a forge that limits a description, fitted to it by giving up the oldest of the
+        # section's rows first (`_fit_to_forge`); a holder with no forge declares no limit.
+        cost = ["", f"{_COST_LINE}{result.total_cost_usd:.4f}"] \
+            if result.total_cost_usd is not None else []
+        return "\n".join(_fit_to_forge([*lines, ""], _account_of(result), cost,
+                                        description_ceiling(getattr(self, "forge", None))))
 
 
 # THE PUBLIC ENTRIES HAND THEIR OUTCOMES BACK (ADR-0055 D7, #414): each call's result carries what

@@ -1102,6 +1102,13 @@ class AzureReposForge(ForgeAdapter):
     #: one outright (400), where GitHub takes essentially anything — so the bound lives HERE, on
     #: the vendor that has it, rather than in the caller composing the text.
     _DESCRIPTION_MAX = 4000
+    #: …AND IS DECLARED, WITH ITS UNIT, so the composer can fit to it (#627,
+    #: `forge.base.description_ceiling`). The number and the unit stay this vendor's; what the
+    #: caller decides is which of its own rows give way first — the oldest lines under "what the
+    #: agent says it did", never the `Cost:` line, which a cut from the end removes first.
+    #: `_fit_description` stays the backstop, and a fitted body passes through it untouched.
+    description_limit = _DESCRIPTION_MAX
+    description_length = staticmethod(_vendor_length)
 
     #: The note a cut description ends with. A body that stops mid-sentence with no marker reads
     #: as one that ends there.

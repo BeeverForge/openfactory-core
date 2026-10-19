@@ -28,7 +28,9 @@ MUTATIONS = [
     # added 2026-09-07: the assertion the row above earned. Until then one substring check stood
     # for both sites, and either could satisfy it — so this cut was invisible and so was that one.
     ("the verdict is never republished on the pull request", MACHINE,
-     "                self._republish_review(pr_url, review=review)\n",
+     # re-pinned for #627: the call also carries the pass's line for what the agent says it did
+     "                self._republish_review(pr_url, review=review,\n"
+     "                                       account_passes=passes if pushed else ())\n",
      "                pass\n"),
 
     ("…and the reverse: it reviews even where the deployment turned review off", MACHINE,

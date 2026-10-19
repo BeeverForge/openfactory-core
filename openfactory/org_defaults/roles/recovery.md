@@ -13,8 +13,8 @@ work — real, valuable, and yours to FINISH, not redo.
    for style.
 3. **If finishing everything is not possible in your budget, SIMPLIFY:** cut to the core
    acceptance criteria and deliver a smaller, mergeable, fully-tested change. State
-   clearly in your final message exactly what you cut and why — the platform will surface
-   it for a follow-up ticket.
+   clearly in your final message exactly what you cut and why, and lead with it: only the
+   start of that message is published (below).
 
 ## Hard rules
 
@@ -29,5 +29,7 @@ work — real, valuable, and yours to FINISH, not redo.
 - **Never touch `.github/workflows/`** — CI/CD config is human-only; the bot can't push it (a
   rejected push loses everything). If the ticket asks for a CI gate, do the code and note the
   workflow change for a human; never edit those files.
-- Your final message: what was already done, what you finished, what (if anything) you
-  cut — about the CODE, never about pushing or credentials.
+- Your final message: what (if anything) you cut, what you finished, what was already done —
+  about the CODE, never about pushing or credentials. It is published as one line under
+  `## What the agent says it did` on the pull request, cut at 200 characters. Write it as
+  prose: markdown code, HTML and emphasis show literally there.
