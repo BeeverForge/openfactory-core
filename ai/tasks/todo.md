@@ -237,7 +237,7 @@ marked as such.
   the human; its key will be written here as `Browser issue: KAN-<n>`. If it is absent when this task
   is reached, do the API round-trip, and end the report with `NEEDS A DECISION:` asking for the key.
   Browser issue: KAN-4
-- [ ] 11. Environment variance. The change is a pure function, so locale, git version and the CI
+- [x] 11. Environment variance. The change is a pure function, so locale, git version and the CI
   machine do not reach it. Check `pt_BR` once anyway: task 2's pt-BR param runs under
   `LANG=pt_BR.UTF-8` and under `LANG=C.UTF-8`. What differs between deployments is the **Jira
   site**: company-managed and team-managed projects use the same ADF editor, the site's language
