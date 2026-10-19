@@ -7,12 +7,19 @@ state a world instead of standing one up.
 THREE CADENCES, BECAUSE THE READS COST WILDLY DIFFERENT AMOUNTS — measured, not guessed:
 
     fast   ~2-4 Temporal RPCs   the job list. Safe every couple of seconds.
-    slow   1+N+P schedule reads the poller's cadence, the build stamps, the registry, the boxes.
+    slow   1+N+P schedule reads the poller's cadence, the build stamps, and the registry with
+           + git per project    each project's box.
                                 `intake` describes the poller, one schedule per enabled project,
                                 and one more for each project declaring a `product` — 2 reads for
                                 one project, 11 for five with products (measured 2026-09-16), one
                                 round trip after another. Doing that on the fast tick turns a
                                 status line into load, so the schedule half rides `INTAKE_TTL_S`.
+                                The box read costs apart from those: once per project it runs
+                                git (the repo cache's sync), then `docker image inspect` or
+                                `<harness> --version`. 19 projects whose box read was doubled by
+                                a 30 ms sleep held the loop 588 ms (measured 2026-10-18), and a
+                                forge round trip is longer, so it, and the build stamps, are paid
+                                off the loop, in a thread.
     costly a subprocess + TLS   the API budget is asked of each tracker through the port; on the
                                 one vendor that reports one it spawns a CLI and makes an HTTPS
                                 round trip: 100-500 ms. It belongs on a minute-scale clock, or is
@@ -71,6 +78,13 @@ async def gather(client=None, *, want: tuple[str, ...] = FAST + SLOW,
     `budget` lets a caller HAND IN a budget summary it already has — the poller reads it on every
     tick — instead of paying for a second subprocess. Passing it is not the same as asking for it:
     `want` still decides whether an absent one is read or left unread.
+
+    EVERY BLOCKING READER RUNS THROUGH `asyncio.to_thread`. This is awaited on the panel's only
+    loop, on the standing loop and under `asyncio.run`, and a synchronous call here holds whichever
+    loop it is: every other request and both SSE streams wait for it. It happened twice, the
+    budget's subprocess (#240) and the box read's git per project (#748).
+    `tests/test_the_project_and_build_reads_leave_the_panels_loop.py` parses this function and
+    fails on any bare call to a synchronous function of this module.
     """
     unknown = sorted(set(want) - _KNOWN)
     if unknown:
@@ -528,6 +542,10 @@ def _projects() -> list[dict] | None:
 
     `enabled` is deliberately `None` rather than `True` when the registry could not be read for a
     project: an unknown pickup is not an armed one, and rung 8 says so.
+
+    It BLOCKS: `box_prove.health` runs git (the repo cache's sync), then `docker image inspect` or
+    `<harness> --version`, once per registered project. Call it from a thread, or from a process
+    with no loop to stall; `gather` calls it through `asyncio.to_thread`.
     """
     from openfactory.box_prove import health
     from openfactory.registry import ProjectRegistry
