@@ -78,9 +78,23 @@ def app_installation_id() -> str | None:
     (#64). The CHANNEL credential is per-project (`factory.notifier_for_project` reads the env var
     the registry names), so one deployment hosts N projects across N Slack workspaces; the FORGE
     credential is process-wide, so the same deployment authenticates against exactly one GitHub
-    App installation. Two orgs need two processes today, and nothing states that anywhere a person
-    onboarding a project would look."""
+    App installation. Two orgs need two processes. Until #743 nothing stated that anywhere a person
+    onboarding a project would look; `docs/configuration.md` now states the rule and its reason,
+    and `openfactory doctor`'s `installation_scope` line checks it, comparing the account this
+    installation is on (`app_installation_account`) with the organisations the registry names."""
     return os.environ.get("OPENFACTORY_GH_APP_INSTALLATION_ID") or None
+
+
+def app_installation_account() -> tuple[str | None, str] | None:
+    """The account this deployment's App installation is on, as the reference vendor's credential
+    row reads it (`CredentialRow.installed_on`): `None` when no App is configured (or the row
+    declares no such read), `(login, "")` when read, `(None, reason)` when it could not be.
+
+    ASKED OF THE ROW, and reading no variable here: `app_id`, `app_private_key` and
+    `app_installation_id` above stay the only readers of the trio, and the row calls them."""
+    row = _row(_REFERENCE_KIND)
+    installed_on = getattr(row, "installed_on", None) if row is not None else None
+    return installed_on() if installed_on is not None else None
 
 
 def bot_identity() -> BotIdentity:
