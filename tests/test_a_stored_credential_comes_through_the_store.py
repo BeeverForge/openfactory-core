@@ -277,11 +277,20 @@ def test_a_link_inside_the_directory_is_followed_as_a_cluster_mounts_its_secrets
     assert FileStore().resolve("acme-token") == SECRET
 
 
-def test_a_sticky_directory_anyone_may_write_to_is_read_for_this_users_files(secrets):
+def test_a_shared_directory_is_read_only_on_a_mount_that_refuses_writes(secrets, monkeypatch):
+    """A cluster mounts its secret volume read-only, and that is the one layout a directory anyone
+    may write to is read in (#822): a sticky bit stops a file being removed, not one being added."""
+    from openfactory.adapters.credential_store.base import CredentialRefused
+
     secrets.directory.chmod(0o1777)
     secrets("acme-token", SECRET, mode=0o444)
-
-    assert FileStore().resolve("acme-token") == SECRET
+    try:
+        with pytest.raises(CredentialRefused, match="writable by"):
+            FileStore().resolve("acme-token")
+        _read_only(monkeypatch, file=False, directory=True)
+        assert FileStore().resolve("acme-token") == SECRET
+    finally:
+        secrets.directory.chmod(0o700)
 
 
 def _outside(secrets, tmp_path):
@@ -959,3 +968,129 @@ def test_the_board_line_says_a_refused_tracker_credential_instead_of_asking_for_
     assert not finding.ok and not read
     assert doctor.REFUSED_BY_THE_STORE in finding.remedy and "ACME_JIRA_TOKEN" in finding.remedy
     assert SECRET not in finding.message + finding.remedy
+
+
+# ── the review of 493875d3 ──────────────────────────────────────────────────────────────────────
+
+def test_the_box_is_created_with_a_file_held_name_in_dockers_environment_not_its_argv(
+        file_store, monkeypatch, tmp_path):
+    """`prepare()`'s `docker run` hands a `box.env` name held in a file the way `run()`'s `docker
+    exec` does: the name on the command line, the value only in the client's environment."""
+    import openfactory.adapters.sandbox.container as container
+
+    file_store("ACME_SCANNER_TOKEN", SECRET)
+    created: list[tuple[list[str], dict | None]] = []
+    monkeypatch.setenv("OPENFACTORY_WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setattr(container, "_host", lambda argv, timeout=120, env=None: (
+        created.append((list(argv), env)), (0, ""))[1])
+    monkeypatch.setattr(container, "_materialize_workspace", lambda **kw: "0" * 40)
+    box = container.ContainerSandbox(image="img", extra_env=("ACME_SCANNER_TOKEN",))
+    box.prepare(repo_path=tmp_path, base_branch="main", branch="feat/1")
+
+    argv, env = next((a, e) for a, e in created if a[1:2] == ["run"])
+    assert "ACME_SCANNER_TOKEN" in argv and not any(SECRET in part for part in argv)
+    assert env is not None and env["ACME_SCANNER_TOKEN"] == SECRET
+
+
+def test_the_doctor_walks_a_listing_store_by_its_listing_and_parses_nothing(
+        file_store, monkeypatch):
+    """The store line parsed the whole package on every run (2.8 s, review of 493875d3). A store
+    that lists what it holds is walked by its listing — every refusal of an entry is of an entry
+    it lists — and only a store that cannot list is asked by every name the core reads."""
+    from openfactory import environ
+    from openfactory.doctor import credential_store_line
+
+    def parsed(*_a, **_kw):
+        raise AssertionError("the package was parsed for a store that lists what it holds")
+
+    file_store("OPENFACTORY_BOT_TOKEN", SECRET, mode=0o664)
+    monkeypatch.setattr(environ, "names_read", parsed)
+    ok, said, _ = credential_store_line(Project(name="acme", repo_path="/tmp/acme"))
+    assert not ok and "OPENFACTORY_BOT_TOKEN" in said
+
+
+def _the_panel_and_product_tokens_in_files(file_store):
+    file_store("OPENFACTORY_PANEL_TOKEN", "fictitious-panel-0001")
+    file_store("OPENFACTORY_PRODUCT_TOKEN", "fictitious-product-0002")
+
+
+def test_readiness_counts_a_panel_and_a_product_token_held_in_files(file_store):
+    """`product_role` read the door's variables from the environment alone, so a deployment that
+    moved them into files was told its panel is open to everyone (review of 493875d3)."""
+    from openfactory.onboarding import readiness
+
+    _the_panel_and_product_tokens_in_files(file_store)
+    wired = readiness.probes_for(Project(name="acme", repo_path="/tmp/acme"))
+    # what `_product_role` reads, and nothing off this machine but the store the test declared
+    probes = SimpleNamespace(project_name="acme", product_enabled=lambda: True,
+                             product_admins=lambda: ["alice"], environ=lambda: {},
+                             stored=wired.stored, refused=wired.refused)
+    finding, _ = readiness._product_role(probes, "the worker")
+    assert finding.ok and "open to everyone" not in finding.message, finding.message
+
+    (file_store.directory / "OPENFACTORY_PANEL_TOKEN").chmod(0o664)  # now refused
+    assert "writable by its group" in wired.refused("OPENFACTORY_PANEL_TOKEN")
+    finding, _ = readiness._product_role(probes, "the worker")
+    assert not finding.ok and "refuses OPENFACTORY_PANEL_TOKEN" in finding.message
+    assert "fictitious-" not in finding.message
+
+
+def test_certify_reads_the_panels_tokens_from_the_store_or_says_it_cannot(file_store,
+                                                                          monkeypatch):
+    from openfactory.certify import controls
+
+    env = dict(os.environ)
+    reading = SimpleNamespace(env=env)
+    assert controls._panel(reading, None)[0] == controls.FAIL  # nothing anywhere: exposed
+    _the_panel_and_product_tokens_in_files(file_store)
+    result, detail, _ = controls._panel(reading, None)
+    assert result == controls.PASS and "held in the `file` credential store" in detail
+
+    (file_store.directory / "OPENFACTORY_PANEL_TOKEN").chmod(0o664)
+    assert controls._panel(reading, None)[0] == controls.UNKNOWN
+
+    # certify beside `.env.compose`, which declares a store this process cannot read
+    monkeypatch.delenv(STORE_VAR)
+    result, detail, _ = controls._panel(SimpleNamespace(env={**env, STORE_VAR: "file"}), None)
+    assert result == controls.UNKNOWN and "not checked here" in detail
+
+
+def test_certify_redacts_what_the_store_holds_and_what_a_reference_names(file_store,
+                                                                        monkeypatch):
+    """`_secret_values` collected the values of variables, so a token held in a file — or named by
+    `token_env: file:<name>` — was a value the pack did not know to redact."""
+    from openfactory.certify import pack
+
+    _the_panel_and_product_tokens_in_files(file_store)
+    file_store("acme-jira", "fictitious-jira-0003")
+    row = Project(name="acme", repo_path="/tmp/acme",
+                  tracker=ProviderRef(kind="jira", repo="ACME",
+                                      options={"token_env": "file:acme-jira"}))
+    values = pack._secret_values([row], dict(os.environ))
+    assert {"fictitious-panel-0001", "fictitious-product-0002", "fictitious-jira-0003"} <= values
+
+
+def test_a_stale_refused_token_file_stops_the_harness_though_the_pool_answers(file_store,
+                                                                            monkeypatch):
+    """The pool answered, the boxes withheld `CLAUDE_CODE_OAUTH_TOKEN` because a stale file of that
+    name was refused, and `_apply_token` puts the pool's token exactly there: every job ran on
+    nothing under a green agent line (review of 493875d3). Any refused credential of the harness
+    now stops it, by name, and the agent line says it."""
+    from openfactory import doctor
+    from openfactory.adapters.agent.claude_code import POOL, ClaudeCodeAdapter
+
+    file_store(POOL, json.dumps([{"id": "a", "token": SECRET}]))
+    file_store("CLAUDE_CODE_OAUTH_TOKEN", "fictitious-stale", mode=0o664)
+
+    adapter = ClaudeCodeAdapter()
+    assert [t["id"] for t in adapter._pool] == ["a"]
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in adapter._refused
+    ran: list[object] = []
+    monkeypatch.setattr(adapter, "_invoke_once", lambda *a, **kw: ran.append(a))
+    result = adapter._invoke(None, None, "say hello", "executor", tools=[], model=None,
+                             context=None)
+    assert not result.ok and not ran and "CLAUDE_CODE_OAUTH_TOKEN" in result.summary
+
+    present, said, *_ = doctor.probes_for(Project(name="acme", repo_path="/tmp/acme")) \
+        .agent_credential()
+    assert not present and "CLAUDE_CODE_OAUTH_TOKEN" in said and SECRET not in said

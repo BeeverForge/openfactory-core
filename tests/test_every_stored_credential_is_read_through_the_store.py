@@ -34,11 +34,22 @@ WHAT A READ IS, in every shape the package has used:
 What is NOT a read: a write (`env["GH_TOKEN"] = token` hands a subprocess its token), a `pop`
 whose value nobody takes (that is a scrub), and a name nobody spells (a loop over `box.env`, whose
 names are a deployment's) inside a function nobody hands the environment.
+
+AND THROUGH ANY MAPPING AT ALL (review of 493875d3). The environment also crosses modules as a
+field (`reading.env`) or a callable's answer (`probes.environ()`), where no alias analysis follows
+it, and readiness and certify read the panel's tokens that way while the panel read the store. So
+the third rule does not ask what the mapping is: a credential read by a name the code spells —
+a literal, a constant (imported ones too), a loop over a table of them, or a reader's arguments —
+through ANY mapping is a read outside the store, unless the mapping is the store's own answer
+(built from `Stored()` or `held()` in the same function) or the function is declared in
+`THROUGH_A_MAPPING` with what it reads and why the store is asked too. A key computed at run time
+(`{k for k in env if …}`) is beyond any scan, and each such reader is held by a behaviour test.
 """
 
 from __future__ import annotations
 
 import ast
+import functools
 import pathlib
 
 from test_the_environment_carries_the_products_name import _holds_a_credential
@@ -308,6 +319,261 @@ def credential_reads(root: pathlib.Path = PACKAGE,
                     if name and _holds_a_credential(name):
                         found.append((rel, node.lineno, name))
     return sorted(set(found))
+
+
+# ── the third rule: through any mapping ─────────────────────────────────────────────────────────
+
+#: `(module, function)` → why a credential read by name through a mapping there is not a read
+#: around the store. Each names what the mapping is; a function not here is held to the rule.
+THROUGH_A_MAPPING: dict[tuple[str, str], str] = {
+    ("openfactory/adapters/agent/claude_code.py", "_pool_in"):
+        "handed `Stored()` by the harness and the doctor, and the preflight's `.env.compose` rows "
+        "by the preflight, which runs before the stack and its store exist",
+    ("openfactory/adapters/agent/claude_code.py", "credential_in"):
+        "the same two mappings as `_pool_in`",
+    ("openfactory/identity/local.py", "identify"):
+        "`self._env` is the store's snapshot (`held(CLOSING_ENVS)`), or a mapping a caller hands in",
+    ("openfactory/identity/local.py", "open_to_everyone"):
+        "the same snapshot as `identify`",
+    ("openfactory/identity/oidc.py", "get"):
+        "`Settings.from_env` reads the mapping `_environment()` builds, whose client secret is the "
+        "store's (`held`)",
+    ("openfactory/runtime/boxed_job.py", "materialize_app_key"):
+        "no entrypoint of the core calls it; it reads the mapping an add-on's entrypoint hands it",
+    ("openfactory/onboarding/readiness.py", "_set"):
+        "reports on the environment it measured (`Probes.environ`) and asks the store beside it "
+        "(`Probes.stored`, `Probes.refused`)",
+    ("openfactory/certify/controls.py", "_panel"):
+        "audits the deployment's `.env.compose` and environment, and asks the store beside it "
+        "(`_panel_in_the_store`)",
+}
+
+#: What builds a mapping that IS the store's answer.
+_THE_STORES_MAPPINGS = frozenset({"Stored", "held"})
+
+
+class _Package:
+    """Every module's constants and tables, so a name imported from another module resolves."""
+
+    def __init__(self, root: pathlib.Path) -> None:
+        self.root = root
+        self.constants: dict[tuple[str, str], str] = {}
+        self.tables: dict[tuple[str, str], list[ast.AST]] = {}
+        self.scopes: dict[str, _Scope] = {}
+        trees = {path: ast.parse(path.read_text(encoding="utf-8"))
+                 for path in sorted(root.rglob("*.py"))}
+        for path, tree in trees.items():
+            dotted = self.dotted(path)
+            for node in tree.body:
+                if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                        and isinstance(node.targets[0], ast.Name):
+                    name = node.targets[0].id
+                    if value := environ._env_shaped(node.value):
+                        self.constants[(dotted, name)] = value
+                    elif isinstance(node.value, (ast.Tuple, ast.List, ast.Set)):
+                        self.tables[(dotted, name)] = list(node.value.elts)
+        for path, tree in trees.items():
+            self.scopes[self.dotted(path)] = _Scope(self, path, tree)
+
+    def dotted(self, path: pathlib.Path) -> str:
+        parts = list(path.relative_to(self.root.parent).with_suffix("").parts)
+        if parts[-1] == "__init__":
+            parts.pop()
+        return ".".join(parts)
+
+
+class _Scope:
+    """One module seen with the package: what a name means in it, and how a read is placed."""
+
+    def __init__(self, pkg: _Package, path: pathlib.Path, tree: ast.Module) -> None:
+        self.pkg, self.path, self.tree = pkg, path, tree
+        self.dotted = pkg.dotted(path)
+        self.rel = path.relative_to(pkg.root.parent).as_posix()
+        self.imported = {alias.asname or alias.name: (node.module, alias.name)
+                         for node in ast.walk(tree)
+                         if isinstance(node, ast.ImportFrom) and node.module
+                         for alias in node.names}
+        self.parent = {id(c): n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+
+    def names(self, node: ast.AST, depth: int = 0) -> list[str] | None:
+        """The env-shaped names an expression spells — a literal, a constant, a table of them, a
+        starred or sliced or summed table, here or imported — or None when it spells none."""
+        if depth > 6:
+            return None
+        if value := environ._env_shaped(node):
+            return [value]
+        if isinstance(node, ast.Name):
+            where = self.imported.get(node.id, (self.dotted, node.id))
+            if where in self.pkg.constants:
+                return [self.pkg.constants[where]]
+            if where in self.pkg.tables:
+                home = self.pkg.scopes.get(where[0], self)
+                return home.names(ast.Tuple(elts=self.pkg.tables[where], ctx=ast.Load()),
+                                  depth + 1)
+            return None
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            out: list[str] = []
+            for element in node.elts:
+                found = self.names(element, depth + 1)
+                if found is None:
+                    return None
+                out += found
+            return out
+        if isinstance(node, ast.Starred):
+            return self.names(node.value, depth + 1)
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
+            return self.names(node.value, depth + 1)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = self.names(node.left, depth + 1), self.names(node.right, depth + 1)
+            return None if left is None or right is None else left + right
+        return None
+
+    def function_of(self, node: ast.AST):
+        fn = self.parent.get(id(node))
+        while fn is not None and not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            fn = self.parent.get(id(fn))
+        return fn
+
+    def loop_tables(self, read: ast.AST, key: ast.Name) -> list[ast.AST]:
+        node = self.parent.get(id(read))
+        while node is not None:
+            if isinstance(node, ast.For) and isinstance(node.target, ast.Name) \
+                    and node.target.id == key.id:
+                return [node.iter]
+            if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+                found = [g.iter for g in node.generators
+                         if isinstance(g.target, ast.Name) and g.target.id == key.id]
+                if found:
+                    return found
+            node = self.parent.get(id(node))
+        return []
+
+    def the_stores(self, fn, receiver: ast.AST) -> bool:
+        """Whether `receiver` is a name this function assigned from the store's own mapping."""
+        if fn is None:
+            return False
+        name = ast.unparse(receiver)
+        return any(isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                   and _callee(node.value) in _THE_STORES_MAPPINGS
+                   and any(ast.unparse(t) == name for t in node.targets)
+                   for node in ast.walk(fn))
+
+
+def _mapping_read(node: ast.AST) -> tuple[ast.AST, ast.AST] | None:
+    """`(receiver, key)` of a read through a mapping: `m.get(key, …)`, `m.setdefault(key, …)`,
+    `m[key]` — never a write, never a discarded `pop`."""
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args \
+            and node.func.attr in ("get", "setdefault"):
+        return node.func.value, node.args[0]
+    if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+        return node.value, node.slice
+    return None
+
+
+@functools.cache
+def _reads_through_mappings(root: pathlib.Path,
+                            exempt: pathlib.Path | None) -> tuple[tuple[str, int, str, tuple], ...]:
+    """Every credential read by a spelled name through a mapping the store did not answer, as
+    `(path, line, name, (module, function) that reads it)` — scanned once per tree."""
+    pkg = _Package(root)
+    scopes = [s for s in pkg.scopes.values() if exempt is None or not s.path.is_relative_to(exempt)]
+    found: set[tuple[str, int, str, tuple]] = set()
+    readers: dict[str, dict[tuple, set[object]]] = {}  # name -> {(module, fn): positions | "*"}
+    for scope in scopes:
+        for node in ast.walk(scope.tree):
+            read = _mapping_read(node)
+            if read is None:
+                continue
+            receiver, key = read
+            fn = scope.function_of(node)
+            if scope.the_stores(fn, receiver):
+                continue
+            who = (scope.rel, fn.name if fn is not None else "")
+            names = scope.names(key) or []
+            if isinstance(key, ast.Name) and fn is not None:
+                params = [a.arg for a in (*fn.args.posonlyargs, *fn.args.args)]
+                vararg = fn.args.vararg.arg if fn.args.vararg else None
+                spots = readers.setdefault(fn.name, {}).setdefault(who, set())
+                for table in scope.loop_tables(node, key):
+                    if isinstance(table, ast.Name) and table.id == vararg:
+                        spots.add("*")
+                    else:
+                        names += scope.names(table) or []
+                if key.id in params:
+                    spots.add(params.index(key.id))
+            found |= {(scope.rel, node.lineno, n, who) for n in names if _holds_a_credential(n)}
+    for scope in scopes:
+        for node in ast.walk(scope.tree):
+            if not (isinstance(node, ast.Call) and _callee(node) in readers):
+                continue
+            args = node.args
+            for who, spots in readers[_callee(node)].items():
+                picked = list(args) if "*" in spots else [args[i] for i in spots
+                                                           if isinstance(i, int) and i < len(args)]
+                for arg in picked:
+                    found |= {(scope.rel, node.lineno, n, who) for n in scope.names(arg) or ()
+                              if _holds_a_credential(n)}
+    return tuple(sorted(found))
+
+
+def mapping_reads(root: pathlib.Path = PACKAGE, exempt: pathlib.Path | None = STORE,
+                  declared: dict | None = None) -> list[tuple[str, int, str]]:
+    """`(path, line, name)` for every credential read by a spelled name through a mapping the
+    store did not answer, outside `exempt` and the `declared` functions. See the module."""
+    declared = THROUGH_A_MAPPING if declared is None else declared
+    return sorted({(path, line, name) for path, line, name, who in
+                   _reads_through_mappings(root, exempt) if who not in declared})
+
+
+def test_no_credential_is_read_by_name_through_a_mapping_the_store_did_not_answer():
+    """The third rule, over the whole package: readiness, certify and every reader like them."""
+    found = mapping_reads()
+    assert not found, (
+        "these read a credential by name through a mapping the credential store did not answer, "
+        "so a secret held in a file never reaches them — read it through the store, or declare "
+        "the function in THROUGH_A_MAPPING with what the mapping is and where the store is "
+        "asked:\n  " + "\n  ".join(f"{path}:{line}: {name}" for path, line, name in found))
+
+
+def test_every_declaration_through_a_mapping_is_a_function_that_still_reads_one():
+    """Its verifier: each declared function exists and, undeclared, is seen — so a declaration
+    cannot outlive the read it excuses and silently excuse the next one."""
+    for (module, function), why in THROUGH_A_MAPPING.items():
+        assert why.strip(), (module, function)
+        others = {k: v for k, v in THROUGH_A_MAPPING.items() if k != (module, function)}
+        seen = {path for path, _, _ in mapping_reads(declared=others)}
+        assert module in seen, f"{module}::{function} reads no credential through a mapping now"
+
+
+def test_the_third_rule_SEES_a_mapping_whatever_it_is_and_the_stores_own_is_not_one(tmp_path):
+    pkg = tmp_path / "openfactory"
+    pkg.mkdir()
+    (pkg / "names.py").write_text(
+        "DOOR = ('ACME_PANEL_TOKEN', 'ACME_PANEL_TOKENS')\n"
+        "PRODUCT = 'ACME_PRODUCT_TOKEN'\n")
+    (pkg / "report.py").write_text(
+        "from openfactory.names import DOOR, PRODUCT\n"
+        "def field(reading):\n"
+        "    return reading.env.get('ACME_FIELD_TOKEN')\n"
+        "def looped(reading):\n"
+        "    return [reading.env.get(n) for n in ('ACME_LOOP_SECRET',)]\n"
+        "def probed(p):\n"
+        "    env = p.environ()\n"
+        "    def _set(*names):\n"
+        "        return any(env.get(n) for n in names)\n"
+        "    return _set(*DOOR) or _set(PRODUCT)\n"
+        "def stored():\n"
+        "    settings = Stored()\n"
+        "    return settings.get('ACME_STORED_TOKEN')\n"
+        "def not_a_secret(reading):\n"
+        "    return reading.env.get('ACME_REGION')\n"
+        "def declared(reading):\n"
+        "    return reading.env.get('ACME_DECLARED_TOKEN')\n")
+
+    found = sorted(name for _, _, name in mapping_reads(
+        pkg, exempt=None, declared={("openfactory/report.py", "declared"): "a planted reason"}))
+    assert found == ["ACME_FIELD_TOKEN", "ACME_LOOP_SECRET", "ACME_PANEL_TOKEN",
+                     "ACME_PANEL_TOKENS", "ACME_PRODUCT_TOKEN"], found
 
 
 def test_no_module_but_the_store_reads_a_credential_from_the_environment():

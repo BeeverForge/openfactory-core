@@ -302,23 +302,24 @@ def refusal(reference: object) -> str:
     return look(reference, quiet=True).refused
 
 
-def listed(kind: str) -> list[str]:
+def listed(kind: str) -> list[str] | None:
     """The names the store `kind` holds, when it can say — an optional `names()` on the row, asked
-    when the row defines it, as `unusable()` is — and `[]` when it cannot. What the doctor walks
-    to find a refused file nobody named: a planted panel-token file is refused, and is a
-    credential no reader asked for by a name the doctor would think of."""
+    when the row defines it, as `unusable()` is — and None when it cannot, which is not "it holds
+    nothing". What the doctor walks to find a refused file nobody named: a planted panel-token
+    file is refused, and is a credential no reader asked for by a name the doctor would think
+    of."""
     try:
         store = build_store(kind)
     except ValueError:
-        return []
+        return None
     asked = getattr(store, "names", None)
     if not callable(asked):
-        return []
+        return None
     try:
         return sorted(str(n) for n in (asked() or ()))
     except Exception:  # noqa: BLE001 — an add-on's listing may not take the doctor down
         log.warning("the %s credential store could not list what it holds", kind, exc_info=True)
-        return []
+        return None
 
 
 class Stored:

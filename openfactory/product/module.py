@@ -4176,7 +4176,7 @@ class ProductModule:
         inner = self._given_tracker
         if inner is None:
             from openfactory.credentials import tracker_token_for
-            from openfactory.factory import _bot_token_provider
+            from openfactory.factory import bot_token_provider_for
 
             # THIS PROJECT'S CREDENTIAL, NOT THE PROCESS'S. `tracker_token()` is one value for the
             # whole worker (`OPENFACTORY_TRACKER_TOKEN` / `OPENFACTORY_BOT_TOKEN`), and one
@@ -4201,7 +4201,8 @@ class ProductModule:
             from openfactory.adapters.tracker.registry import build_tracker
 
             inner = build_tracker(self.project, token=tok,
-                                  token_provider=None if tok else _bot_token_provider())
+                                  token_provider=(None if tok else
+                                                  bot_token_provider_for(self.project, "tracker")))
         return _WatchedWrites(inner, self._write_outcome)
 
     # ---- what a person can ASK it to do --------------------------------------------------------

@@ -383,6 +383,19 @@ def _bot_token_provider():
     return GitHubAppTokenProvider(app_id=aid, private_key=key, installation_id=inst).token
 
 
+def bot_token_provider_for(project, axis: str):
+    """`_bot_token_provider()` for `project`'s `axis` — and None when that axis's own credential
+    is REFUSED by the credential store (#822). The minter is the last step of the axis's
+    resolution, and a refusal ends the resolution: every construction point that hands an
+    adapter the minter when the project holds no token asks this, not the minter itself
+    (`tests/test_a_refused_credential_opens_no_door.py` holds each one to that)."""
+    from openfactory.credentials import axis_refusal
+
+    if axis_refusal(project, axis):
+        return None
+    return _bot_token_provider()
+
+
 def build_runner(project, issue: str, *, sandbox: str, image: str, review: bool, events=None,
                  repo_key: str | None = None, change: int = 0):
     """Assemble a JobRunner for one ticket: tracker + forge + agent + sandbox +

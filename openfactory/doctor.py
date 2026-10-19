@@ -1680,6 +1680,25 @@ REFUSED_REMEDY = ("fix what the refusal names, where the secret is kept — unti
                   "own credential, not a mint")
 
 
+def _names_read_by(kind: str) -> list[str]:
+    """Every setting the harness `kind` reads its credential from, in its order — asked by walking
+    `harness_credential` over a mapping that holds nothing and records what it is asked."""
+    from openfactory.adapters.agent.registry import harness_credential
+
+    class _Asked(dict):
+        def __init__(self) -> None:
+            super().__init__()
+            self.names: list[str] = []
+
+        def get(self, name, default=None):
+            self.names.append(name)
+            return default
+
+    asked = _Asked()
+    harness_credential(kind, asked)
+    return asked.names
+
+
 def refused_said(what: str, refused: dict[str, str]) -> str:
     """`what`, refused: each name and the store's reason, never a value."""
     return (f"{what} {REFUSED_BY_THE_STORE}: "
@@ -2333,12 +2352,13 @@ def _resolve_link(project):
 def _forge_credential() -> str | None:
     """The token the FORGE authenticates with — static if the deployment set one, otherwise
     freshly minted from the App. Resolved at USE, never at wiring."""
-    from openfactory.credentials import forge_token
+    from openfactory.credentials import forge_token, pair_refusal
     from openfactory.factory import github_app_token_from_env
 
     # github-only: this asks about the DEPLOYMENT's own credential and takes no project, so there
     # is no axis to ask. `_board_credential` below is the per-project question and it does ask.
-    return forge_token() or github_app_token_from_env()
+    # A REFUSED PAIR IS NOT ANSWERED BY THE MINT (#822).
+    return forge_token() or (None if pair_refusal("forge") else github_app_token_from_env())
 
 
 def _board_coordinates(project) -> str:
@@ -2555,18 +2575,26 @@ def probes_for(project) -> Probes:
         # two names, and a deployment on the token pool alone passed here and failed there.
         from openfactory.adapters.agent.registry import harness_credential
         from openfactory.adapters.agent.registry import harness_kind as _hk
-        from openfactory.adapters.credential_store.registry import Stored, stored_answer
+        from openfactory.adapters.credential_store.registry import (
+            Stored,
+            refusals,
+            stored_answer,
+        )
 
         kind = _hk(project, "executor")
         # ASKED OF THE CREDENTIAL STORE (#742), the way the harness reads it: a token mounted as a
         # file is present, and the line says which reference answered.
         settings = Stored()
         reading = harness_credential(kind, settings)
-        if settings.refused:
-            # A REFUSAL, NOT AN ABSENCE (review of #822): the harness runs on nothing rather than
-            # on the next name, and "set CLAUDE_CODE_OAUTH_TOKEN" would send the operator to set a
-            # variable that is already set.
-            return False, refused_said("the harness credential", settings.refused), REFUSED_REMEDY
+        # …AND EVERY NAME THE HARNESS READS, not only the walk's (review of #822): a pool that
+        # answers ends the walk, and a refused file named like the token it travels under still
+        # starves every job. The names are the harness's own, asked by walking it over nothing.
+        refused = {**settings.refused, **refusals(_names_read_by(kind))}
+        if refused:
+            # A REFUSAL, NOT AN ABSENCE: the harness runs on nothing rather than on the next name,
+            # and "set CLAUDE_CODE_OAUTH_TOKEN" would send the operator to set a variable that is
+            # already set.
+            return False, refused_said("the harness credential", refused), REFUSED_REMEDY
         if reading is None:
             return True, (f"presence is not checkable for {kind!r} from here — "
                           f"`openfactory box prove` exercises the real call")
@@ -3301,9 +3329,13 @@ def credential_store_line(project) -> tuple[bool, str, str]:
     if pull is not None and not store.refusal(pull.reference) and (why := pull_problem(pull)):
         wrong.append(why)
     if first != store.ENV:
-        # the environment refuses nothing, so only a declared store is walked
-        deployment = {n for n in environ.names_read() if environ.holds_a_credential(n)}
-        refused = store.refusals(sorted(deployment | set(store.listed(first))))
+        # THE ENVIRONMENT REFUSES NOTHING, so only a declared store is walked — and a store that
+        # lists what it holds is walked by its listing alone: every refusal of an entry is of an
+        # entry it lists, and one of the directory is `unusable` above. Only a store that cannot
+        # list is asked by every name the core reads, which parses the package (seconds).
+        listing = store.listed(first)
+        refused = store.refusals(listing if listing is not None else sorted(
+            n for n in environ.names_read() if environ.holds_a_credential(n)))
         if refused:
             wrong.append(refused_said("the deployment credential", refused))
     if wrong:
