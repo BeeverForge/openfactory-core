@@ -29,8 +29,6 @@ from temporalio.service import TLSConfig
 from openfactory.listeners import ENGINE
 from openfactory.observability import logs
 
-log = logging.getLogger("openfactory.engine")
-
 #: The one local target, spelled once. Named so a deployment can DECLARE it — which is the whole
 #: difference between "I meant the dev server" and "nobody told me anything" (#163). ASKED OF THE
 #: ONE DEFINITION (#183), so it is the port `openfactory up` starts the engine on by construction.
@@ -179,37 +177,36 @@ def core_telemetry() -> TelemetryConfig:
         forwarding=LogForwardingConfig(logger=logging.getLogger(CORE_LOGGER))))
 
 
-_core_lines_routed = False
+def core_runtime() -> Runtime | None:
+    """The runtime a new client is made on. With JSON log lines, ONE OF ITS OWN, whose core hands
+    its lines to `CORE_LOGGER` (`core_telemetry`), and so to the deployment's one format; without,
+    None — the library's shared default, whose core writes its own lines, as it always did.
 
+    WHY THE CORE IS TOLD AT ALL (second review of #818, measured): the client's core is not Python,
+    and left to itself it writes its own lines — `WARN temporalio_client::retry: gRPC call
+    poll_activity_task_queue retried 6 times …`, compact, coloured, on stdout — exactly when the
+    engine goes away, which is when somebody reads the log.
 
-def route_the_cores_lines() -> None:
-    """With JSON log lines, the engine client's core writes through Python's logging: once per
-    process, before its first client, by making `core_telemetry()` the default runtime's.
-
-    WHY (second review of #818, measured): the client's core is not Python, and left to itself it
-    writes its own lines — `WARN temporalio_client::retry: gRPC call poll_activity_task_queue
-    retried 6 times …`, compact, coloured, on STDOUT — exactly when the engine goes away, which is
-    when somebody reads the log. With `OPENFACTORY_LOG_FORMAT=json` a worker wrote eleven of them,
-    and not one JSON line, in twenty seconds without its engine. The readable format is left as
-    it was, its lines and the core's beside each other.
-
-    A RUNTIME ALREADY SET IS KEPT: whoever set one did so on purpose (an embedding host, a test),
-    and replacing it would move the clients made after this onto another thread pool."""
-    global _core_lines_routed
-    if _core_lines_routed or not logs.structured():
-        return
-    _core_lines_routed = True
-    try:
-        Runtime.set_default(Runtime(telemetry=core_telemetry()), error_if_already_set=True)
-    except RuntimeError as exc:
-        log.warning("the durable engine's client already has a runtime (%s), so its own lines "
-                    "keep the format it was given rather than JSON", exc)
+    WHY ONE PER CLIENT, AND NOT ONE SHARED DEFAULT (third review, measured on the real worker): the
+    library's bridge stops a runtime's forwarding for EVERY client of it the moment ANY one of them
+    is dropped. `temporalio/bridge/src/runtime.rs` (1.34.0, and `main` the same day): `Runtime` is
+    `Clone`, each client holds a clone, and `impl Drop for Runtime` aborts the one
+    `log_forwarder_handle` they all share. The worker drops a dozen one-shot clients at boot
+    (`schedule.ensure_all`), so on one shared runtime its core went silent — no plain line and no
+    JSON one: 0 lines in 60 s of an engine outage, where the readable format printed 86. A
+    runtime of its own lives and dies with its client: about 5 ms and one thread per CPU to
+    build, about 3 ms to drop (measured on 8 CPUs)."""
+    if not logs.structured():
+        return None
+    return Runtime(telemetry=core_telemetry())
 
 
 async def connect() -> Client:
-    route_the_cores_lines()
+    where = address()  # raises for an engine nobody declared, before a runtime is built for it
+    runtime = core_runtime()
     return await Client.connect(
-        address(), namespace=namespace(), data_converter=pydantic_data_converter, **_auth()
+        where, namespace=namespace(), data_converter=pydantic_data_converter,
+        **({"runtime": runtime} if runtime is not None else {}), **_auth()
     )
 
 

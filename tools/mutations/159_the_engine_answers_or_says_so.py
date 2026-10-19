@@ -54,7 +54,10 @@ MUTATIONS = [
      "async def start_job(client: Client, params: JobParams) -> str:",
      '@_bounded_read("a start")\nasync def start_job(client: Client, params: JobParams) -> str:'),
 
-    ("the deadline is not the deployment's to set", VIEW,
+    # RE-POINTED 2026-10-19: #681 moved `read_deadline` and `_seconds` out of `view.py` into
+    # `deadlines.py`, so the healthcheck reads the same number without the engine's client. `view`
+    # names them as before; the cut and what it proves are unchanged.
+    ("the deadline is not the deployment's to set", "openfactory/runtime/temporal/deadlines.py",
      '    return _seconds("OPENFACTORY_ENGINE_DEADLINE", 3.0)',
      "    return 3.0"),
 ]

@@ -143,7 +143,29 @@ def _break_identity(monkeypatch, _engine, _registry):
     monkeypatch.setenv("OPENFACTORY_IDENTITY", "no-such-provider")
 
 
-BREAK = {"engine": _break_engine, "registry": _break_registry, "identity": _break_identity}
+def _break_the_people_store(monkeypatch, _engine, registry):
+    """The `local` row with nobody's token configured and its people store unreadable: the
+    metrics sink it reads through is a sqlite file that is a directory (review of #818 on
+    f48b79fd). RETURNS the loggers through which that store says its own failure each time it is
+    read — read off the modules that log it, not named here."""
+    from openfactory.identity import people
+    from openfactory.observability import sqlite_metrics
+
+    store = registry.parent / "metrics-is-a-directory"
+    store.mkdir()
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(store))
+    return {people.log.name, sqlite_metrics.log.name}
+
+
+#: EVERY way each check's own dependency is broken here, by the name `health.CHECKS` gives it — the
+#: first is `BREAK`'s. A way returns the loggers its dependency says its own failure through when
+#: it is read, or nothing.
+BREAKS = {"engine": [_break_engine], "registry": [_break_registry],
+          "identity": [_break_identity, _break_the_people_store]}
+BREAK = {name: ways[0] for name, ways in BREAKS.items()}
+WAYS = [pytest.param(name, way, id=way.__name__.removeprefix("_break_"))
+        for name, ways in BREAKS.items() for way in ways]
 
 
 # ── liveness ────────────────────────────────────────────────────────────────────────────────────
@@ -175,8 +197,18 @@ def _never_asked(name, asked):
 # ── readiness: the table ────────────────────────────────────────────────────────────────────────
 
 def test_every_check_is_broken_here():
-    assert set(BREAK) == set(health.CHECKS) == set(health.SAID), (
+    assert set(BREAKS) == set(health.CHECKS) == set(health.SAID), (
         "a check with no way to break it, or no sentence to say, is a check nobody proved")
+    assert all(BREAKS.values())
+
+
+def test_every_sentence_readiness_says_is_its_own():
+    """A supervisor tells two causes apart by their sentences: an engine nobody declared is not an
+    engine that did not answer, and a missing client is neither (review on f48b79fd, C12)."""
+    from openfactory.runtime.host import CLIENT_MISSING
+
+    said = [*health.SAID.values(), health.ENGINE_UNDECLARED, CLIENT_MISSING]
+    assert len(set(said)) == len(said), said
 
 
 def test_ready_when_every_check_passes(deployment):
@@ -187,9 +219,10 @@ def test_ready_when_every_check_passes(deployment):
                              "checks": {name: {"ok": True} for name in health.CHECKS}}
 
 
-@pytest.mark.parametrize("broken", sorted(health.CHECKS))
-def test_a_503_names_the_check_that_failed_and_no_other(deployment, engine, monkeypatch, broken):
-    BREAK[broken](monkeypatch, engine, deployment)
+@pytest.mark.parametrize(("broken", "way"), WAYS)
+def test_a_503_names_the_check_that_failed_and_no_other(deployment, engine, monkeypatch, broken,
+                                                        way):
+    way(monkeypatch, engine, deployment)
 
     answer = _panel().get(health.READY_PATH)
 
@@ -217,27 +250,42 @@ def test_readiness_needs_no_credential(deployment, monkeypatch):
     assert client.get(health.READY_PATH).status_code == 200
 
 
-@pytest.mark.parametrize("broken", sorted(health.CHECKS))
-async def test_a_failure_is_logged_once_by_anybody_and_never_sent(deployment, engine,
-                                                                  monkeypatch, caplog, broken):
+WINDOWS = 4
+
+
+@pytest.mark.parametrize(("broken", "way"), WAYS)
+async def test_a_failure_is_said_once_by_readiness_and_never_sent(deployment, engine, monkeypatch,
+                                                                  caplog, broken, way):
     """The body goes to a caller nobody identified; the cause is the operator's, in the log — ONE
-    warning when the check starts failing, from ANY logger, however many supervisors' polls fall
-    in new windows (review of #818: four polls of a stopped engine logged four warnings, from the
-    floor's probe the engine check reused)."""
+    warning from readiness when the check starts failing, however many supervisors' polls fall in
+    new windows (review of #818: four polls of a stopped engine logged four warnings, from the
+    floor's probe the engine check reused).
+
+    AND NOTHING ELSE BUT WHAT THE DEPENDENCY SAYS ABOUT ITSELF WHEN IT IS READ (narrowed after the
+    review on f48b79fd, measured: an unreadable people store logs its own line, and the sink's,
+    on every read, so four windows logged nine warnings, one of them readiness's). That is the
+    store's own report, once per read, and it says the same for every request the gate checks in
+    the same outage; silencing another module's line from here would mean owning the filters of
+    every handler, an add-on sink's included. So: readiness's line once, the dependency's at most
+    once per window, and no other logger at all."""
     clock = [1000.0]
     monkeypatch.setattr(health, "_clock", lambda: clock[0])
-    BREAK[broken](monkeypatch, engine, deployment)
+    itself = way(monkeypatch, engine, deployment) or set()
 
     with caplog.at_level(logging.INFO):
         said = []
-        for _ in range(4):
+        for _ in range(WINDOWS):
             said.append(json.dumps(await health.ready()))
             clock[0] += health.WINDOW_S
 
     warned = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert len(warned) == 1 and "NOT_READY" in warned[0].getMessage(), [
+    ours = [r for r in warned if r.name not in itself]
+    assert len(ours) == 1 and ours[0].name == health.log.name, [
         (r.name, r.getMessage()) for r in warned]
-    assert not any("10.0.0.7" in body for body in said), said
+    assert "NOT_READY" in ours[0].getMessage()
+    for name in itself:
+        assert sum(r.name == name for r in warned) <= WINDOWS, (name, len(warned))
+    assert not any("10.0.0.7" in body or "metrics-is-a-directory" in body for body in said), said
 
 
 async def test_a_check_that_answers_again_is_said_once(deployment, engine, monkeypatch, caplog):
@@ -355,8 +403,7 @@ def test_the_window_is_a_few_seconds_and_the_deadline_makes_room_for_the_engine(
 
 
 async def test_a_slow_engine_inside_its_own_deadline_is_ready(deployment, engine, monkeypatch):
-    """Whatever the fallback, the deployment's engine deadline is what readiness waits for."""
-    monkeypatch.setattr(health, "DEADLINE_S", 0.4)
+    """The deployment's engine deadline is what readiness waits for."""
     monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", "1.5")
     engine.connect_delay = engine.delay = 0.3
 
@@ -400,8 +447,8 @@ def test_every_check_can_be_hung_here():
 async def test_a_hung_check_starves_no_request_and_blames_no_other_check(deployment, engine,
                                                                          monkeypatch, hung):
     """The review's probe, made deterministic. The executor the gate's verdict hops to is given ONE
-    thread; twenty unauthenticated `/readyz` arrive while one check's dependency hangs; an
-    operator's request must still be answered at once, each `/readyz` must name the hung check and
+    thread; twenty unauthenticated `/readyz` arrive and one check's dependency hangs; once it is
+    being asked, an operator's request must still be answered at once, each `/readyz` must name the hung check and
     no other, within the deadline, and the dependency must have been asked once — by one question,
     on a thread that is not the gate's. A check that blocked the event loop instead would hold
     every one of those answers for as long as it hangs."""
@@ -419,7 +466,14 @@ async def test_a_hung_check_starves_no_request_and_blames_no_other_check(deploym
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                      base_url="http://panel", timeout=10) as client:
             polls = [asyncio.create_task(client.get(health.READY_PATH)) for _ in range(20)]
-            await asyncio.sleep(0.05)
+            # UNTIL THE DEPENDENCY IS BEING ASKED, NOT A GUESS AT HOW LONG THAT TAKES (review of
+            # #818 on f48b79fd): after a fixed 50 ms, a loaded runner could let the operator's
+            # gate hop take the one thread first, and the test then passed with a check moved
+            # back onto the gate's executor.
+            for _ in range(200):
+                if entered():
+                    break
+                await asyncio.sleep(0.01)
             operator = await asyncio.wait_for(
                 client.get("/api/whoami", headers={"Authorization": "Bearer the-operator"}), 3.0)
             answers = await asyncio.wait_for(asyncio.gather(*polls), 6.0)
@@ -431,6 +485,38 @@ async def test_a_hung_check_starves_no_request_and_blames_no_other_check(deploym
     for answer in answers:
         assert answer.status_code == 503 and answer.json()["failing"] == [hung], answer.json()
     assert entered() == 1, f"the hung dependency was asked {entered()} times"
+
+
+@pytest.mark.parametrize("path", health.PATHS)
+async def test_a_supervisors_question_takes_no_pooled_thread(deployment, engine, path):
+    """With every pooled thread a handler could wait for held — the default executor's one, and
+    the threadpool a sync route runs on — both questions are still answered: liveness must not
+    fail because every thread is busy, and readiness's own threads are its own (review on
+    f48b79fd, C6: `/healthz` made a sync handler passed every test)."""
+    import anyio.to_thread
+    import httpx
+
+    from openfactory.api.app import app
+
+    loop = asyncio.get_running_loop()
+    held = threading.Event()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    executor.submit(held.wait, 10)
+    loop.set_default_executor(executor)
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    tokens, limiter.total_tokens = limiter.total_tokens, 1
+    await limiter.acquire()
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://panel", timeout=10) as client:
+            answer = await asyncio.wait_for(client.get(path), 3.0)
+    finally:
+        limiter.release()
+        limiter.total_tokens = tokens
+        held.set()
+        executor.shutdown(wait=False)
+
+    assert answer.status_code == 200, answer.text
 
 
 async def test_a_check_that_hangs_holds_no_process_open(deployment, engine, monkeypatch):
@@ -482,12 +568,24 @@ async def test_an_engine_that_cannot_be_connected_to_is_not_ready(deployment, en
     assert await _engine_said() == {"ok": False, "detail": health.SAID["engine"]}
 
 
+async def _floor_said() -> tuple[bool, str]:
+    """What the floor's own probe of the engine says, whose steps the engine check follows."""
+    from openfactory.floor import reading
+
+    _client, connected, _address, error = await reading._engine(None)
+    return connected, error
+
+
 async def test_an_engine_nobody_declared_is_said_as_such(deployment, monkeypatch):
-    """Not "did not answer": that sends its reader to a network, and the remedy is a variable."""
+    """Not "did not answer": that sends its reader to a network, and the remedy is a variable.
+    And the floor's probe, whose steps the check follows, reaches the same verdict on the same
+    state (review on f48b79fd: nothing held the two together)."""
     for name in ("TEMPORAL_ADDRESS", "TEMPORAL_ENDPOINT"):
         monkeypatch.delenv(name, raising=False)
 
     assert await _engine_said() == {"ok": False, "detail": health.ENGINE_UNDECLARED}
+    connected, error = await _floor_said()
+    assert connected is False and error, error
 
 
 @pytest.mark.parametrize(("missing", "said"), [("temporalio", "install"),
@@ -511,9 +609,11 @@ async def test_an_install_without_the_engines_client_says_what_to_install(deploy
     with monkeypatch.context() as patched:
         patched.setattr(builtins, "__import__", _without)
         said_now = await _engine_said()
+        connected, error = await _floor_said()
 
     expected = CLIENT_MISSING if said == "install" else health.SAID["engine"]
     assert said_now == {"ok": False, "detail": expected}
+    assert connected is False and (error == CLIENT_MISSING) is (said == "install"), error
 
 
 async def test_an_engine_that_does_not_answer_in_time_is_not_ready(deployment, engine,
@@ -686,6 +786,26 @@ async def test_the_worker_answers_nothing_else_and_echoes_nothing(worker_port, r
     assert "acme" not in json.dumps(body), body
 
 
+@pytest.mark.parametrize("path", health.PATHS)
+async def test_no_answer_to_a_supervisor_is_kept_by_a_cache(worker_port, path):
+    """A cached `/readyz` is yesterday's verdict: the panel and the worker both say `no-store`."""
+    raw = await _raw(worker_port, f"GET {path} HTTP/1.1\r\nHost: x\r\n\r\n".encode())
+    head = raw.partition(b"\r\n\r\n")[0].decode("latin-1").lower()
+
+    assert _panel().get(path).headers.get("cache-control") == "no-store"
+    assert "\r\ncache-control: no-store\r\n" in head + "\r\n", head
+
+
+async def _raw(port: int, request: bytes) -> bytes:
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(request)
+        await writer.drain()
+        return await asyncio.wait_for(reader.read(), 10)
+    finally:
+        writer.close()
+
+
 async def test_the_worker_reads_a_request_to_its_end_before_it_answers(worker_port):
     """Closing a socket with bytes unread in it resets the connection, and a client can lose the
     answer to the reset: nothing is answered until the request's headers have ended."""
@@ -803,18 +923,39 @@ def test_every_process_the_compose_file_starts_is_health_checked_by_readyz():
             f"{name}'s healthcheck asks port {asked.port}, and it answers on {_answers_on(svc)}")
 
 
-def test_a_healthchecks_timeout_outlasts_the_readiness_deadline(monkeypatch):
-    """Under the compose file's own environment, which leaves the engine's deadline at its
-    default."""
-    for name, svc in _compose_services().items():
-        environment = svc.get("environment") or {}
+def _shipped_environment(svc: dict) -> dict[str, str]:
+    """What the repository ships for a service's environment: each `env_file:` row read from the
+    example it is made from (`.env.compose.example` for `.env.compose`: a deployment's own file is
+    the deployment's, and no test reads it), then its `environment:`, which wins (review on
+    77e18c98: the variables `.env.compose` carries reach both services through `env_file:`)."""
+    from dotenv import dotenv_values
+
+    environment: dict[str, str] = {}
+    for row in svc.get("env_file") or []:
+        path = row["path"] if isinstance(row, dict) else str(row)
+        example = ROOT / f"{path}.example"
+        assert example.exists(), f"{path} has no example in the repository to read"
+        environment.update({k: v for k, v in dotenv_values(example).items() if v is not None})
+    environment.update({k: str(v) for k, v in (svc.get("environment") or {}).items()})
+    return environment
+
+
+def test_a_healthchecks_timeout_outlasts_the_probes_own_wait(monkeypatch):
+    """Under the environment the repository gives each service, its healthcheck's `timeout`
+    outlasts the probe's own wait (`probe_timeout()`, the readiness deadline and two seconds more):
+    a supervisor that kills the probe first never sees which check failed. A deployment that
+    raises `OPENFACTORY_ENGINE_DEADLINE` raises the timeout with it (`configuration.md`)."""
+    services = _compose_services()
+    assert all(svc.get("env_file") for svc in services.values()), "the sweep reads no env_file"
+    for name, svc in services.items():
+        environment = _shipped_environment(svc)
         if "OPENFACTORY_ENGINE_DEADLINE" in environment:
-            monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE",
-                               str(environment["OPENFACTORY_ENGINE_DEADLINE"]))
+            monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", environment["OPENFACTORY_ENGINE_DEADLINE"])
         else:
             monkeypatch.delenv("OPENFACTORY_ENGINE_DEADLINE", raising=False)
         timeout = str(svc["healthcheck"]["timeout"])
-        assert timeout.endswith("s") and float(timeout[:-1]) > health.deadline(), (name, timeout)
+        assert timeout.endswith("s") and float(timeout[:-1]) > health.probe_timeout(), (
+            name, timeout, health.probe_timeout())
 
 
 async def test_the_probe_exits_0_when_ready_and_1_with_the_body_when_not(worker_port, engine,
@@ -853,6 +994,61 @@ async def test_a_supervisor_reads_which_check_hung_through_the_listener_and_the_
     assert said == 1
     assert "answered 503" in err and f"{health.SAID[hung]} within 1.5s" in err, err
     assert json.loads(err.split(": ", 1)[1])["failing"] == [hung], err
+
+
+def test_the_probe_gives_up_on_a_listener_that_never_answers(monkeypatch, capfd):
+    """A port that accepts and never answers — a process whose loop is stuck — is not one the
+    probe waits on for ever: it gives up after `probe_timeout()` and exits 1 (review on f48b79fd,
+    C4). The connection is left in the backlog, accepted by the kernel and by nobody else."""
+    import socket
+
+    monkeypatch.setattr(health, "deadline", lambda: 0.5)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    said: list[int] = []
+    asking = threading.Thread(target=lambda: said.append(health.probe(
+        listener.getsockname()[1])), daemon=True)
+    started = time.monotonic()
+    asking.start()
+    try:
+        asking.join(health.probe_timeout() + 2.0)
+        waited = time.monotonic() - started
+    finally:
+        listener.close()
+        asking.join(5)
+
+    assert said == [1] and waited < health.probe_timeout() + 2.0, (said, waited)
+    assert "did not answer" in capfd.readouterr().err
+
+
+def test_the_probe_a_healthcheck_runs_imports_no_engine_client(tmp_path):
+    """It runs every fifteen seconds in two containers, so it pays only for what it asks (review
+    on f48b79fd, measured: importing the engine's client to read one variable was 158 ms of its
+    start and most of its 62 MB). Run as compose runs it, in a process of its own."""
+    import socket
+    import subprocess
+    import sys
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        free = sock.getsockname()[1]
+    script = (
+        "import json, runpy, sys\n"
+        f"sys.argv = ['health', '--port', '{free}']\n"
+        "code = None\n"
+        "try:\n"
+        "    runpy.run_module('openfactory.observability.health', run_name='__main__',"
+        " alter_sys=True)\n"
+        "except SystemExit as exc:\n"
+        "    code = exc.code\n"
+        "print(json.dumps({'code': code, 'engine': sorted(m for m in sys.modules"
+        " if m.split('.')[0] == 'temporalio' or m == 'openfactory.runtime.temporal.view')}))\n")
+    ran = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True,
+                         text=True, timeout=60)
+
+    said = json.loads(ran.stdout.strip().splitlines()[-1])
+    assert said == {"code": 1, "engine": []}, (said, ran.stderr[-500:])
 
 
 def test_the_probe_exits_1_when_nothing_answers(capfd):

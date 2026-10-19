@@ -36,8 +36,12 @@ The claims, each a row:
      only work the gate admitted asks for it — never a route the gate leaves open — and neither a
      route nor an activity takes a thread of the default executor for it; the copy holds the
      registry's projects only, a failed read keeps the last one, and a read forgotten lands nowhere;
-  10. with JSON lines, the engine client's core writes through the log, before the first client,
-     and a runtime somebody set is kept.
+  10. with JSON lines, every engine client is made on a runtime of its own whose core writes
+     through the log at the library's default filter — so a client dropped never silences another
+     (third review) — and without them the library's default is left alone;
+  11. the probe's own guards (third review): liveness takes no pooled thread, neither answer is
+     cached, each sentence is its own, the probe gives up on a port that never answers, it
+     imports no engine client, and the healthcheck's timeout outlasts the probe's wait.
 """
 
 READY = "tests/test_a_running_deployment_says_whether_it_is_alive_and_ready.py"
@@ -57,6 +61,7 @@ CONNECTION = "openfactory/runtime/temporal/connection.py"
 INTERCEPTORS = "openfactory/runtime/temporal/interceptors.py"
 WORKER = "openfactory/runtime/temporal/worker.py"
 COMPOSE = "docker-compose.yml"
+DEADLINES = "openfactory/runtime/temporal/deadlines.py"
 
 MUTATIONS = [
     # 1. liveness reads nothing
@@ -82,7 +87,7 @@ MUTATIONS = [
      "        _when, said, cause = await asyncio.wait_for(_SLOTS[name].kept_or_asked(name), bound)",
      "        _when, said, cause = await _SLOTS[name].kept_or_asked(name)"),
     ("the deadline ignores the engine's own", HEALTH,
-     "    return 2 * read_deadline() + 1.0", "    return DEADLINE_S"),
+     "    return 2 * read_deadline() + 1.0", "    return 5.0"),
     ("every check is asked on every call", HEALTH,
      "        if kept is not None and _clock() - kept[0] < WINDOW_S:\n            return kept",
      "        if False:\n            return kept"),
@@ -110,7 +115,7 @@ MUTATIONS = [
 
     # 3c. every layer outlasts the deadline (second review of #818)
     ("the probe gives up before the readiness deadline", HEALTH,
-     "timeout=deadline() + 2 if timeout is None else timeout)",
+     "timeout=probe_timeout() if timeout is None else timeout)",
      "timeout=1.0 if timeout is None else timeout)"),
     ("the worker's listener gives up before the readiness deadline", HEALTH,
      "_read_and_answer(reader), _READ_S + deadline())", "_read_and_answer(reader), _READ_S)"),
@@ -319,14 +324,42 @@ MUTATIONS = [
      LOGS),
 
     # 10. the engine client's own core
-    ("a client is made before its core is told", CONNECTION,
-     "    route_the_cores_lines()\n    return await Client.connect(",
-     "    return await Client.connect(", LOGS),
+    # RETIRED 2026-10-19: "a client is made before its core is told" and "a runtime somebody set
+    # is replaced" — the third review measured one shared default runtime going silent once any
+    # client of it is dropped, so no default runtime is set any more; each client gets its own.
+    ("every client shares one runtime, so one dropped silences the rest", CONNECTION,
+     "    return Runtime(telemetry=core_telemetry())\n",
+     "    global _SHARED\n    if globals().get(\"_SHARED\") is None:\n"
+     "        _SHARED = Runtime(telemetry=core_telemetry())\n    return _SHARED\n", LOGS),
+    ("a client is made on the library's default runtime", CONNECTION,
+     '        **({"runtime": runtime} if runtime is not None else {}), **_auth()',
+     "        **_auth()", LOGS),
     ("the core writes its own lines", CONNECTION,
      "        forwarding=LogForwardingConfig(logger=logging.getLogger(CORE_LOGGER))))",
      "        forwarding=None))", LOGS),
+    ("the core is asked for more than it says by default", CONNECTION,
+     "        filter=LoggingConfig.default.filter,", '        filter="TRACE",', LOGS),
     ("the core's lines are routed without JSON", CONNECTION,
-     "    if _core_lines_routed or not logs.structured():", "    if _core_lines_routed:", LOGS),
-    ("a runtime somebody set is replaced", CONNECTION,
-     "error_if_already_set=True)", "error_if_already_set=False)", LOGS),
+     "    if not logs.structured():\n        return None\n    return Runtime(",
+     "    return Runtime(", LOGS),
+
+    # 11. the probe's own guards (third review)
+    ("liveness is a sync handler, waiting for a pooled thread", APP,
+     "async def healthz() -> JSONResponse:", "def healthz() -> JSONResponse:"),
+    ("readiness's answer may be cached", APP,
+     "    status, body = await health.answer(health.READY_PATH)\n"
+     "    return JSONResponse(body, status_code=status, headers=_NO_CACHE)",
+     "    status, body = await health.answer(health.READY_PATH)\n"
+     "    return JSONResponse(body, status_code=status)"),
+    ("an engine nobody declared is said as the engine that did not answer", HEALTH,
+     'ENGINE_UNDECLARED = "this deployment does not say where its durable engine is"',
+     'ENGINE_UNDECLARED = "the durable engine did not answer"'),
+    ("the probe waits for ever on a port that never answers", HEALTH,
+     "timeout=probe_timeout() if timeout is None else timeout)", "timeout=None)"),
+    ("the probe reads the deadline through the engine's client", HEALTH,
+     "    from openfactory.runtime.temporal.deadlines import read_deadline\n",
+     "    from openfactory.runtime.temporal.view import read_deadline\n"),
+    ("the worker's healthcheck gives up before the probe does", COMPOSE,
+     "      timeout: 10s\n      retries: 3\n      start_period: 5m\n",
+     "      timeout: 8s\n      retries: 3\n      start_period: 5m\n"),
 ]

@@ -36,7 +36,13 @@ hung filled the default executor until nothing that hops to a thread — the gat
 WHAT A CALLER WITH NO CREDENTIAL IS TOLD. Readiness names the check that failed and says one fixed
 sentence about it; the cause — an address, a variable's name, a file's path — goes to the log, ONCE
 when the check starts failing and once when it answers again, never on every poll. It is the gate's
-rule for a caller nobody has identified (`api/app.py::IDENTITY_UNAVAILABLE`). The one cause said in
+rule for a caller nobody has identified (`api/app.py::IDENTITY_UNAVAILABLE`). That is READINESS'S
+OWN line. A dependency that reports its own failure each time it is read still does so when
+readiness reads it — the people store and the metrics sink under it, two lines a window while the
+store cannot be read, as for every request the gate checks in that outage (review of #818,
+measured: four windows, nine warnings, one readiness's). Silencing another module's line from
+here would mean owning every handler's filters, an add-on sink's included; the cause is in
+readiness's own line either way. The one cause said in
 the body is an install without the engine's client library: what to install is a fact about the
 product, not about the deployment, and every other surface says it the same way
 (`runtime/host.py::CLIENT_MISSING`).
@@ -92,9 +98,6 @@ LOOPBACK = "127.0.0.1"
 #: knows which digest that became.
 IMAGE_DIGEST_VARIABLE = "OPENFACTORY_IMAGE_DIGEST"
 
-#: `deadline()` on an install with no engine client, whose engine check answers at once.
-DEADLINE_S = 5.0
-
 #: How long a check's answer is kept. A few seconds: a supervisor learns of a dependency that went
 #: away within one of its own polls, and a dozen supervisors polling every second cost each
 #: dependency one question per window, not a dozen per second.
@@ -124,15 +127,22 @@ class NotReady(Exception):  # noqa: N818 — a verdict, not an error: the check 
 
 def deadline() -> float:
     """How long `ready()` waits for any one check: room for the engine check's two bounded steps
-    — a connect and a health check, each within `OPENFACTORY_ENGINE_DEADLINE` (`view.read_deadline`,
+    — a connect and a health check, each within `OPENFACTORY_ENGINE_DEADLINE` (`read_deadline`,
     three seconds unless the deployment says otherwise) — and a second more. It FOLLOWS that
     setting (review of #818): a fixed five seconds read a slow engine, answering within a deadline
-    the deployment raised, as one that "did not answer within 5s" on every poll."""
-    try:
-        from openfactory.runtime.temporal.view import read_deadline
-    except ImportError:
-        return DEADLINE_S
+    the deployment raised, as one that "did not answer within 5s" on every poll.
+
+    READ FROM `deadlines`, NOT `view` (review on f48b79fd): the probe below asks this every
+    fifteen seconds in each container, and `view` imports the engine's client to answer it."""
+    from openfactory.runtime.temporal.deadlines import read_deadline
+
     return 2 * read_deadline() + 1.0
+
+
+def probe_timeout() -> float:
+    """How long the probe a healthcheck runs waits for its answer: `deadline()` and two seconds
+    more, so a check that hangs reaches the supervisor as its 503 — never as "did not answer"."""
+    return deadline() + 2.0
 
 
 # ── liveness ────────────────────────────────────────────────────────────────────────────────────
@@ -473,10 +483,10 @@ async def _read_and_answer(reader: asyncio.StreamReader) -> tuple[int, dict]:
 def probe(port: int, path: str = READY_PATH, *, host: str = LOOPBACK,
           timeout: float | None = None) -> int:
     """GET `path` on this machine's `port`: 0 when it answers 200, else 1 — with what it said on
-    stderr, so `docker inspect` shows a supervisor which check failed. It waits `deadline()` and
-    two seconds more unless told otherwise."""
+    stderr, so `docker inspect` shows a supervisor which check failed. It waits `probe_timeout()`
+    unless told otherwise."""
     connection = http.client.HTTPConnection(host, port,
-                                            timeout=deadline() + 2 if timeout is None else timeout)
+                                            timeout=probe_timeout() if timeout is None else timeout)
     try:
         connection.request("GET", path)
         response = connection.getresponse()

@@ -38,6 +38,7 @@ from temporalio.client import Client, WorkflowExecutionStatus
 from openfactory.contracts.state import JobState
 from openfactory.listeners import ENGINE, ENGINE_UI
 from openfactory.runtime.temporal import TASK_QUEUE
+from openfactory.runtime.temporal.deadlines import read_deadline, unreachable_window
 from openfactory.runtime.temporal.io import JobParams
 
 # `tv.ATTENTION_STATES` and `tv.MERGE_WAIT` are the names every caller uses, so they are named
@@ -50,91 +51,37 @@ from openfactory.util.single_flight import _Flight, _OneAtATime
 log = logging.getLogger("openfactory.panel.temporal")
 
 
-#: What a READ somebody is waiting for may spend on an engine that is not answering (#159).
-#:
-#: MEASURED, ON THE REAL STACK. With the engine killed under a running panel — `main` at `98dc177`,
-#: so with the pooled client — `/api/floor` took **38.8 s**, `/api/inbox` 8.9 s (and then a 500),
-#: `/api/temporal/jobs` 6.3 s: the client retries an unreachable engine (`gRPC call
-#: describe_schedule retried 7 times`) before anything gives up. The board's own route stayed at
-#: 8 ms and the board still crawled — a tab gets six connections to a host, the page asks for the
-#: floor on every engine frame and holds the stream open, so those six fill with requests waiting
-#: on retries and every other read queues behind them.
-#:
-#: WHAT A HEALTHY READ COSTS, so the headroom is a measurement and not a hope (review of #161).
-#: On a dev server with the worker running, timed through these functions:
-#:
-#:     list_jobs, 8 jobs      51 ms median, 80 ms max
-#:     list_jobs, 50 jobs     317 ms median, 352 ms max   ← 50 is the panel's own limit
-#:     job_detail             8 ms
-#:     intake                 5 ms
-#:
-#: So three seconds was roughly ten times what the panel's largest list cost, asked one job after
-#: another as it was then. Each RUNNING row is a describe plus up to three queries a worker answers,
-#: and that sum is what overran this bound on a busy floor (#754). The listed jobs are now asked
-#: about in batches of `list_concurrency()` (8 unset), so a list costs about one slowest row per
-#: batch of the listing instead of every running row's round trips added up. Readers asking
-#: together, or within `LIST_TTL_S`, share one scan (`list_jobs`). Measured 2026-10-19 on
-#: `temporal server start-dev` 1.9.1 (Server 1.32.0), temporalio 1.34.0, a stand-in registered as
-#: `JobWorkflow` answering its real queries: 98 listed, the 50 read being 48 running (8 at a merge
-#: gate) and 2 closed, 10 scans each:
-#:
-#:     one after another (f37aeaa)        558 ms median, 583 ms max   185 describes and queries
-#:     8 at a time (unset)                357 ms median, 364 ms max   188 (the last batch's extra)
-#:     OPENFACTORY_LIST_CONCURRENCY=1     564 ms median, 594 ms max
-#:     six readers at once                6 scans in ~2.0-2.2 s on f37aeaa; 1 scan in ~350 ms
-#:
-#: The compose stack's `temporalio/auto-setup:1.25.2` on Postgres 16 gave the same: 557 against
-#: 345 ms, 6 scans against 1. On loopback a scan is bound by THIS process's CPU (a 354 ms scan
-#: at eight spent 327 ms of it; one at a time, 307 ms of 576), which is why eight at once buys a
-#: third here and not eightfold: what it overlaps is the round trips, and those are what a
-#: namespace across a network pays.
-#:
-#: The bound also catches a second real case: a workflow whose worker is gone cannot answer a
-#: query at all, and `list_jobs` did not return in 120 s against eight such jobs. It now degrades
-#: in three (measured again 2026-10-19 on the dev server above, f37aeaa and now alike: 3.00 s,
-#: the same sentence, and no task still running 1 s later). The deadline sits on the shared scan
-#: (`_scan`), so running out of time cancels every question the scan still has out.
-#:
-#: A NUMBER A DEPLOYMENT CAN CHANGE, because "slow" is a property of somebody's network: a Temporal
-#: Cloud namespace across a region answers in tenths of a second, and this must not call that
-#: unreachable. Read per call, so an operator changes it without a rebuild.
-def read_deadline() -> float:
-    return _seconds("OPENFACTORY_ENGINE_DEADLINE", 3.0)
-
-
-#: How long an engine that did not answer is remembered as unreachable, so the NEXT read does not
-#: pay the same wait again. Short on purpose: an engine that came back must be picked up without a
-#: restart, which is the rule `connect()` already holds for a failed connect.
-def unreachable_window() -> float:
-    return _seconds("OPENFACTORY_ENGINE_UNREACHABLE_FOR", 3.0)
+# HOW LONG A READ MAY WAIT (`read_deadline`), AND HOW LONG A SILENT ENGINE IS REMEMBERED
+# (`unreachable_window`), live in `deadlines.py`: the same two numbers, read without the engine's
+# client, for the healthcheck that asks them every fifteen seconds (#681). Imported above and
+# named on this module, as every caller and guard reads them.
 
 
 #: How many recent jobs the job list asks the engine about at once when the operator does not say.
 #: Each RUNNING row is a `describe()` plus up to three queries a WORKER answers by replaying the
 #: job's history, so one-at-a-time made the list's cost the sum of every running row's round trips
-#: and a busy floor ran past `read_deadline()` (#754: 48 running jobs at 10 ms an RPC is four
-#: round trips each, ~1.9 s in sequence; on f37aeaa that test's list was refused at its 1 s
-#: deadline with one RPC in flight, and the breaker opened for every reader). Eight is up to eight
-#: query replays at once on the worker for one scan, the same default the product's sources are
-#: brought up with (`OPENFACTORY_SOURCES_PARALLEL`). On a real dev server (2026-10-19, the
-#: measurement beside `read_deadline`) 48 running rows took 564 ms one at a time, 362 ms four at a
+#: and a busy floor ran past `read_deadline()` (#754: 48 running jobs at 10 ms an RPC is four round
+#: trips each, ~1.9 s in sequence; on f37aeaa that test's list was refused at its 1 s deadline with
+#: one RPC in flight, and the breaker opened for every reader). Eight is up to eight query replays
+#: at once on the worker for one scan, the same default the product's sources are brought up with
+#: (`OPENFACTORY_SOURCES_PARALLEL`). On a real dev server (2026-10-19, the measurement beside
+#: `read_deadline`, in `deadlines.py`) 48 running rows took 564 ms one at a time, 362 ms four at a
 #: time, 357 ms at eight and 384 ms at sixteen: past eight this process's own CPU is the bound on
 #: loopback. WHAT IT COSTS THE LOOP: a 10 ms heartbeat on the same loop as a scan saw its longest
 #: gap grow with the batch, from 14 ms one at a time to 27 ms at four, 40 ms at eight and 74 ms at
-#: sixteen (medians of 10 scans; about 5 ms a row asked at once). The merge-gate rows' registry
-#: read (`_lists_review_comments`, 3.6 ms each) is not that gap: stubbed out, it measured 44 ms at
-#: eight. THE OPERATOR'S, NOT A CONSTANT,
-#: as `OPENFACTORY_SOURCES_PARALLEL` is (#369): a Temporal Cloud namespace across a region answers
-#: in tenths of a second and only the deployment knows what its workers take —
-#: `OPENFACTORY_LIST_CONCURRENCY`, read by `list_concurrency()`. Measured 2026-10-20 on the same
-#: dev server and 48 running rows: with 100 ms added to every client RPC, eight at once took
-#: 2.80 s against the 3 s default deadline (one at a time, and f37aeaa: 19.4 s, refused at 3 s;
+#: sixteen (medians of 10 scans; about 5 ms a row asked at once). The merge-gate rows' registry read
+#: (`_lists_review_comments`, 3.6 ms each) is not that gap: stubbed out, it measured 44 ms at eight.
+#: THE OPERATOR'S, NOT A CONSTANT, as `OPENFACTORY_SOURCES_PARALLEL` is (#369): a Temporal Cloud
+#: namespace across a region answers in tenths of a second and only the deployment knows what its
+#: workers take — `OPENFACTORY_LIST_CONCURRENCY`, read by `list_concurrency()`. Measured 2026-10-20
+#: on the same dev server and 48 running rows: with 100 ms added to every client RPC, eight at once
+#: took 2.80 s against the 3 s default deadline (one at a time, and f37aeaa: 19.4 s, refused at 3 s;
 #: sixteen: 1.66 s). With every query replay taking 100 ms on the worker instead, eight answered in
-#: 2 of 10 scans at 3 s (3.25 s median under a 60 s deadline; sixteen 2.38 s; one at a time
-#: 14.5 s). THE WORKER'S SIDE: at most `list_concurrency()` query handlers ran at once (peak 8,
-#: 16 at sixteen; 16 once, right after a scan the deadline cut, whose handlers the worker still
-#: finished). Queries take workflow-task slots (the SDK's default 100; `worker.py` sets none), not
-#: the eight activity slots `worker.py` gives `run_job` and the checks.
+#: 2 of 10 scans at 3 s (3.25 s median under a 60 s deadline; sixteen 2.38 s; one at a time 14.5 s).
+#: THE WORKER'S SIDE: at most `list_concurrency()` query handlers ran at once (peak 8, 16 at
+#: sixteen; 16 once, right after a scan the deadline cut, whose handlers the worker still finished).
+#: Queries take workflow-task slots (the SDK's default 100; `worker.py` sets none), not the eight
+#: activity slots `worker.py` gives `run_job` and the checks.
 DEFAULT_LIST_CONCURRENCY = 8
 #: The unreadable values this process has already said, so a list read on every stream tick does
 #: not repeat the warning. Bounded by the values the environment has held, never by traffic.
@@ -159,15 +106,6 @@ def list_concurrency() -> int:
                         "asked about at once", raw, DEFAULT_LIST_CONCURRENCY)
         return DEFAULT_LIST_CONCURRENCY
     return value
-
-
-def _seconds(name: str, fallback: float) -> float:
-    try:
-        wanted = float(os.environ.get(name, "") or fallback)
-    except ValueError:
-        log.warning("%s is not a number (%r) — using %ss", name, os.environ.get(name), fallback)
-        return fallback
-    return wanted if wanted > 0 else fallback
 
 
 #: When the engine is worth asking again — a loop clock, never a wall clock.

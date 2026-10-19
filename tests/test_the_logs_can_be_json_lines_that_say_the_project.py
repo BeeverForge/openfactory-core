@@ -48,6 +48,7 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
+from temporalio import activity
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
 
 from openfactory.observability import logs
@@ -747,16 +748,15 @@ def test_the_worker_registers_the_interceptor():
 # ── the durable engine client's own core ────────────────────────────────────────────────────────
 
 class _Runtimes:
-    """`temporalio.runtime.Runtime`, recorded: the telemetry each runtime was built with, and
-    which was made the default — so a case reads the configuration, and the process's own default
-    runtime is never touched."""
+    """`temporalio.runtime.Runtime` and `Client.connect`, recorded: the telemetry each runtime was
+    built with, and the runtime each client was made on — so a case reads the configuration, and
+    no core is started."""
 
-    def __init__(self, monkeypatch, already=None):
+    def __init__(self, monkeypatch):
         from openfactory.runtime.temporal import connection
 
         self.built: list = []
-        self.default = already
-        self.clients_before_it = 0
+        self.clients: list = []
         recorder = self
 
         class _Runtime:
@@ -764,19 +764,11 @@ class _Runtimes:
                 self.telemetry = telemetry
                 recorder.built.append(self)
 
-            @staticmethod
-            def set_default(runtime, *, error_if_already_set=True):
-                if recorder.default is not None and error_if_already_set:
-                    raise RuntimeError("Runtime default already set")
-                recorder.default = runtime
-
-        async def _connect(*_a, **_k):
-            if recorder.default is None:
-                recorder.clients_before_it += 1
+        async def _connect(*_a, **kwargs):
+            recorder.clients.append(kwargs.get("runtime"))
             return object()
 
         monkeypatch.setattr(connection, "Runtime", _Runtime)
-        monkeypatch.setattr(connection, "_core_lines_routed", False)
         monkeypatch.setattr(connection.Client, "connect", _connect)
         monkeypatch.setenv("TEMPORAL_ADDRESS", "localhost:7233")
 
@@ -787,10 +779,15 @@ def _a_line_of_the_core(level: int, message: str):
                                  fields={"code": "Unavailable"}, time=time.time())
 
 
-async def test_with_json_lines_the_engines_core_writes_through_the_log(monkeypatch, capsys):
+async def test_with_json_lines_every_engine_client_has_a_runtime_whose_core_writes_through_the_log(
+        monkeypatch, capsys):
     """Read off what `connection.connect()` — the one door every engine client of the worker, the
-    panel and the CLI is made through — sets before the first client: the default runtime forwards
-    the core's lines to a Python logger, and a line forwarded that way is a JSON line on stderr."""
+    panel and the CLI is made through — hands each client: a runtime of its own (one shared would
+    stop forwarding for all the moment one client is dropped: the bridge's `Drop` aborts their
+    one forwarder), whose core forwards its lines to `CORE_LOGGER` at the library's own default
+    filter; and a line forwarded that way is a JSON line on stderr."""
+    from temporalio.runtime import LoggingConfig
+
     from openfactory.runtime.temporal import connection
 
     monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
@@ -799,15 +796,18 @@ async def test_with_json_lines_the_engines_core_writes_through_the_log(monkeypat
     await connection.connect()
     await connection.connect()
 
-    assert runtimes.clients_before_it == 0, "a client was made before its core was told"
-    assert len(runtimes.built) == 1 and runtimes.default is runtimes.built[0], runtimes.built
-    forwarding = runtimes.default.telemetry.logging.forwarding
-    assert forwarding is not None, "the core still writes its own lines"
-    assert forwarding.logger.name == connection.CORE_LOGGER
+    assert len(runtimes.built) == 2 and runtimes.clients == runtimes.built, (
+        "every client is made on a runtime of its own", runtimes.clients, runtimes.built)
+    for runtime in runtimes.built:
+        said = runtime.telemetry.logging
+        assert said.forwarding is not None, "the core still writes its own lines"
+        assert said.forwarding.logger.name == connection.CORE_LOGGER
+        assert said.filter == LoggingConfig.default.filter, (
+            "the core is asked for more than it says by default", said.filter)
 
     with _a_fresh_process():
         logs.configure()
-        forwarding._on_logs([
+        runtimes.built[0].telemetry.logging.forwarding._on_logs([
             _a_line_of_the_core(logging.WARNING, "gRPC call poll_activity_task_queue retried"),
             _a_line_of_the_core(logging.INFO, "a core's chatter")])
     written = capsys.readouterr()
@@ -827,21 +827,98 @@ async def test_without_json_the_engines_runtime_is_left_as_it_was(monkeypatch, a
 
     await connection.connect()
 
-    assert runtimes.built == [] and runtimes.default is None
+    assert runtimes.built == [] and runtimes.clients == [None]
 
 
-async def test_a_runtime_somebody_already_set_is_kept_and_said(monkeypatch, caplog):
-    """An embedding host or a test set the client's runtime on purpose: replacing it would move
-    the clients made after this onto another runtime, so it is kept, and the log says why the
-    core's lines are not JSON."""
+@activity.defn(name="nothing_at_all")
+async def _nothing_at_all() -> None:
+    return None
+
+
+@pytest.mark.owns_its_engine
+async def test_a_core_warning_arrives_as_a_json_line_after_another_client_is_gone(
+        monkeypatch, capsys):
+    """THE THIRD REVIEW'S MEASUREMENT, ON A REAL ENGINE. The worker drops one-shot clients at boot
+    (`schedule.ensure_all`), and with one shared runtime that silenced its core for good: the
+    bridge aborts a runtime's one forwarder when any client of it is dropped. So: a client made
+    through `connect()` is dropped, then a worker polls on another — and the core's own warning
+    must still reach the log, as a JSON line, and no line may be anything else. The time-skipping
+    engine makes the core warn as the worker starts; if it ever stops, the engine goes away under
+    the worker, whose polls then retry and warn.
+
+    THE WORKER IS STOPPED HERE ON EVERY PATH, AND WAITED FOR WITHIN A BOUND: a case that failed
+    with its worker still polling a dead engine left it to the loop's teardown, and one mutation
+    run of this file hung for hours there."""
+    import gc
+    import uuid
+
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
     from openfactory.runtime.temporal import connection
 
     monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
-    theirs = object()
-    runtimes = _Runtimes(monkeypatch, already=theirs)
+    for name in ("TEMPORAL_API_KEY", "TEMPORAL_TLS_CERT", "TEMPORAL_TLS_KEY", "TEMPORAL_NAMESPACE"):
+        monkeypatch.delenv(name, raising=False)
+    seen: list[dict] = []
+    strays: list[str] = []
+    core: list[dict] = []
+    stopped = False
+    env = await WorkflowEnvironment.start_time_skipping()
+    engine_up = True
+    try:
+        with _a_fresh_process():
+            logs.configure()
+            monkeypatch.setenv("TEMPORAL_ADDRESS", env.client.service_client.config.target_host)
+            gone = await connection.connect()
+            del gone
+            gc.collect()
+            client = await connection.connect()
+            worker = Worker(client, task_queue=f"q-{uuid.uuid4().hex}",
+                            activities=[_nothing_at_all])
+            polling = asyncio.create_task(worker.run())
+            try:
+                core = await _the_cores_lines(capsys, seen, strays, within=5.0)
+                if not core and not strays:
+                    await env.shutdown()
+                    engine_up = False
+                    core = await _the_cores_lines(capsys, seen, strays, within=30.0)
+            finally:
+                polling.cancel()
+                finished, _pending = await asyncio.wait({polling}, timeout=15.0)
+                stopped = polling in finished
+    finally:
+        if engine_up:
+            await env.shutdown()
 
-    with caplog.at_level(logging.WARNING, logger="openfactory.engine"):
-        await connection.connect()
+    assert stopped, "the worker did not stop within 15 s of being cancelled"
+    assert not strays, f"lines that are not one JSON object: {strays[:3]}"
+    assert core, "no line from the engine client's core reached the log"
+    assert core[0]["level"] == "WARNING", core[0]
 
-    assert runtimes.default is theirs
-    assert "keep the format it was given" in caplog.text, caplog.text
+
+async def _the_cores_lines(capsys, seen: list[dict], strays: list[str], *,
+                           within: float) -> list[dict]:
+    """Read what was written until a line from the engine client's core is among the JSON lines,
+    a line that is not JSON is (`strays`), or `within` seconds pass; `seen` keeps every JSON line
+    across reads. Never raises, so its caller always stops its worker."""
+    from openfactory.runtime.temporal import connection
+
+    deadline = time.monotonic() + within
+    while True:
+        written = capsys.readouterr()
+        for line in (*written.out.splitlines(), *written.err.splitlines()):
+            if not line.strip():
+                continue
+            try:
+                said = json.loads(line)
+            except ValueError:
+                said = None
+            if isinstance(said, dict) and list(said)[:4] == list(FIELDS):
+                seen.append(said)
+            else:
+                strays.append(line[:300])
+        core = [line for line in seen if line["logger"].startswith(connection.CORE_LOGGER)]
+        if core or strays or time.monotonic() >= deadline:
+            return core
+        await asyncio.sleep(0.1)
