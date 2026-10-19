@@ -18,7 +18,8 @@ The claims, each held by a test this plan cuts under:
     refuses as unreadable when that search cannot be made; an unscoped board asks nothing more
     (review round 1 of #752);
   - the product role's queueing asks the same of a card its board read did not return, and
-    refuses another project's card rather than move it back into the queue (review round 2).
+    refuses another project's card rather than move it back into the queue (review round 2),
+    and refuses as an unreachable board when that search cannot be made (review round 3).
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
@@ -146,4 +147,10 @@ MUTATIONS = [
      "                inside = holds(str(number)) if callable(holds) else True\n",
      "                inside = True\n",
      f"{SLICE}::test_another_projects_running_card_is_not_queued_from_this_one"),
+
+    ("a slice the queueing could not ask about reads as held, and the card goes to the door",
+     PRODUCT,
+     "                if inside is not True:\n",
+     "                if inside is False:\n",
+     f"{SLICE}::test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_queue_it"),
 ]

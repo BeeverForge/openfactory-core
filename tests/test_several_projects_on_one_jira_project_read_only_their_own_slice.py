@@ -504,3 +504,69 @@ def test_another_projects_running_card_is_not_queued_from_this_one(tmp_path, mon
     assert not result.ok, "another project's running card was queued from this one"
     assert "DAR-2" in result.detail and "api" in result.detail, result.detail
     assert moved == []
+
+
+def test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_queue_it(tmp_path, monkeypatch):
+    """`promote` asks `holds` about a card its board read did not return, and a slice that could
+    not be asked (`None`) must refuse as an unreachable board, as `_stage` does — never read as
+    "inside": the door then sees a card no board places, which `PROMOTED` allows, and the move
+    reaches another project's running card by key."""
+    from openfactory.adapters.board import build_board
+    from openfactory.adapters.tracker.registry import build_tracker
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.product.config import ProductLink
+    from openfactory.product.loader import ProductContext
+    from openfactory.product.module import ProductModule
+    from openfactory.product.voice import board_move_said
+    from tests.test_card_maintenance import COMMIT, REQUIREMENTS_DIR, _corpus, _Harness
+
+    where = {"DAR-1": ("of-api", "Backlog"), "DAR-2": ("of-web", "Em andamento")}
+    moved: list[str] = []
+
+    def urlopen(req, timeout=0):
+        split = urllib.parse.urlsplit(req.full_url)
+        if "search/jql" in split.path:
+            jql = (urllib.parse.parse_qs(split.query)["jql"][0] if req.get_method() == "GET"
+                   else json.loads(req.data)["jql"])
+            if "key = " in jql:
+                raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", hdrs=None,
+                                             fp=io.BytesIO(b'{"errorMessages":["x"]}'))
+            label = re.search(r'labels = "([^"]+)"', jql)
+            keys = [k for k, (lab, _) in where.items() if label is None or lab == label.group(1)]
+            return _Answer({"isLast": True, "issues": [
+                {"key": k, "fields": {"status": {"name": where[k][1]}}} for k in keys]})
+        issue = re.search(r"issue/(DAR-\d+)(/transitions)?$", split.path)
+        if issue is None:
+            return _Answer({})
+        if issue.group(2) and req.get_method() == "POST":
+            moved.append(issue.group(1))
+            return _Answer({})
+        if issue.group(2):
+            return _Answer({"transitions": [{"id": "11", "name": "A Fazer",
+                                             "to": {"name": "A Fazer"}}]})
+        lab, status = where[issue.group(1)]
+        return _Answer({"key": issue.group(1), "fields": {
+            "summary": "web's card", "description": None, "labels": [lab],
+            "status": {"name": status, "statusCategory": {"key": "indeterminate"}}}})
+
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "metrics.db"))
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    sm = {"backlog": "Backlog", "todo": "A Fazer", "in_progress": "Em andamento", "done": "Concluído"}
+    api = Project(name="api", repo_path=str(tmp_path), tracker=ProviderRef(
+        kind="jira", repo="DAR", options={"site": SITE, "email": "a@b.c",
+                                          "status_map": json.dumps(sm), "scope_jql": API}),
+        product=ProductConfig(docs_repo="acme/acme-docs", admins=["ana"], agent_name="Nina"))
+    ctx = ProductContext(link=ProductLink(active=True, docs_repo="acme/acme-docs", kind="ok",
+                                          reason="fine"),
+                         corpus=_corpus(), docs_path=str(tmp_path), docs_commit=COMMIT,
+                         requirements_dir=REQUIREMENTS_DIR)
+    module = ProductModule(api, context=ctx, agent=_Harness("{}"),
+                           tracker=build_tracker(api, token="t"), board=build_board(api, token="t"))
+
+    [result] = module.promote(["DAR-2"], actor="ana")
+
+    assert not result.ok, "a card the slice could not be asked about was queued"
+    assert result.detail == board_move_said("unreachable", ref="DAR-2"), result.detail
+    assert moved == []
