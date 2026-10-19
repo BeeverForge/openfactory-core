@@ -399,6 +399,52 @@ def _in_gits_own_words() -> dict[str, str]:
     return env
 
 
+#: What git's `worktree add` writes to `<admin>/locked` while it checks out, under `LC_ALL=C`: its
+#: `_("initializing")` and a newline, 13 bytes (2.34.1, 2.39.5, 2.43.0 and 2.47.3, measured). The
+#: box's add runs under `_in_gits_own_words`, so its own lock is never a translation.
+_GITS_OWN_LOCK = b"initializing\n"
+
+
+def _a_mark_of(repo_path, wt: Path) -> bool:
+    """Whether the mark at `_add_mark(wt)` is a regular file (not a symlink) whose bytes name
+    exactly THIS repository's common directory and `wt`, as `_write_mark` writes them."""
+    mark = _add_mark(wt)
+    try:
+        if mark.is_symlink() or not mark.is_file():
+            return False
+        held = mark.read_bytes()
+    except OSError:
+        return False
+    common = _common_dir(repo_path)
+    return common is not None and held == _mark_bytes(common, wt)
+
+
+def _an_add_this_box_never_finished(repo_path, wt: Path,
+                                    tree: gitworktrees.WorkingTree) -> bool:
+    """Whether the locked tree git lists at `wt` is the box's own `worktree add`, interrupted
+    (#746, option A): this repository's tree at `wt`, its `<admin>/locked` exactly git's own
+    `initializing\\n`, and the box's mark naming this repository and `wt`. Read from the
+    filesystem, never from the porcelain's `locked <reason>`, which is translated and, from 2.36,
+    C-quoted. Anything that cannot be read answers False: not proven is a person's lock."""
+    if tree.main or not tree.locked or not _same_dir(tree.path, wt):
+        return False
+    try:
+        if wt.is_symlink():
+            return False
+    except OSError:
+        return False
+    admin = _admin_dir_of(repo_path, wt)
+    if admin is None:
+        return False
+    try:
+        fd = os.open(admin / "locked", os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as fh:
+            locked = fh.read(len(_GITS_OWN_LOCK) + 1)
+    except OSError:
+        return False
+    return locked == _GITS_OWN_LOCK and _a_mark_of(repo_path, wt)
+
+
 def _say_what_was_not_removed(function, path, exc) -> None:
     """`shutil.rmtree`'s `onexc`: what could not be removed is logged, never ignored, so a refusal
     by name that follows does not read as the box having found the path taken by somebody."""
@@ -766,15 +812,32 @@ class WorktreeSandbox(SandboxAdapter):
             # here: unread is not "not listed" (engineering lessons §2).
             _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", str(wt)])
             return None
+        kept = False
         for tree in trees:
             if not tree.main and _same_dir(tree.path, wt):
                 if tree.locked:
-                    # THE PLATFORM NEVER LOCKS A TREE, so a lock here is a person's "keep this"
-                    # (review of 268c726). One `--force` refuses it anyway (rc 128, 2.34.1 and
-                    # 2.43.0), and the `rmtree` below then deleted what they kept and the refusal
-                    # said nothing was touched. Left as it is: `_holder` names it, unlock first.
-                    log.warning("the box's own tree %s is locked — left as it is", tree.path)
-                    continue
+                    # A LOCK IS A PERSON'S "KEEP THIS" (review of 268c726) UNLESS IT IS THE BOX'S
+                    # OWN ADD, INTERRUPTED (#746). Git's own `worktree add` locks the tree while it
+                    # checks out, so the platform does lock a tree, for that long; one killed then
+                    # leaves the lock for good. It is the box's only when git's lock bytes are
+                    # `initializing\n` AND the box's mark names this repository and `wt`: the bytes
+                    # alone are also what `git worktree lock --reason initializing` writes. Any
+                    # other lock is left as it is: one `--force` refuses it anyway (rc 128, 2.34.1
+                    # and 2.43.0), and the `rmtree` below then deleted what they kept and the
+                    # refusal said nothing was touched. `_holder` names it, unlock first.
+                    if not _an_add_this_box_never_finished(repo_path, wt, tree):
+                        log.warning("the box's own tree %s is locked — left as it is", tree.path)
+                        kept = True
+                        continue
+                    log.warning("the box's own tree %s was left by its own worktree add, "
+                                "interrupted (locked 'initializing', marked) — removed", wt)
+                    rc, out = _run(["git", "-C", str(repo_path), "worktree", "unlock",
+                                    tree.path])
+                    if rc != 0:
+                        log.warning("could not unlock the box's own tree %s (%s) — left as it "
+                                    "is", tree.path, out.strip())
+                        kept = True
+                        continue
                 _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", tree.path])
                 # what a failed remove left on disk is ours too: git listed it as this box's tree
                 if wt.exists():
@@ -783,6 +846,11 @@ class WorktreeSandbox(SandboxAdapter):
             log.warning("the box's own tree %s is one git has forgotten (its .git file names "
                         "this repository, which no longer lists it) — removed", wt)
             shutil.rmtree(wt, onexc=_say_what_was_not_removed)
+        # THE BOX'S OWN MARK GOES WITH ITS TREE, and only its own: the root is shared, and a mark
+        # naming another repository is that repository's interrupted add, which only its own box
+        # can prove (as measured 2026-10-18). Kept while a locked tree it may prove stays.
+        if not kept and _a_mark_of(repo_path, wt):
+            _unlink_mark(_add_mark(wt))
         return trees
 
     @staticmethod
