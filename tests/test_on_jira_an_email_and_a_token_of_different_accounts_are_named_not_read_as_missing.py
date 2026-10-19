@@ -229,17 +229,22 @@ def test_a_404_whose_myself_answers_200_is_the_original_404_unchanged(site):
     403, 404,
     http.client.BadStatusLine("garbage from a proxy"),
 ], ids=["dns", "timeout", "reset", "500", "502", "503", "403", "404", "bad-status"])
-def test_a_myself_that_cannot_answer_keeps_the_original_404(site, myself):
+def test_a_myself_that_cannot_answer_keeps_the_original_404(site, myself, caplog):
     """C2. A probe that cannot answer (network, 5xx), or answers something that is not 401, keeps
     the original 404, so nothing is misreported the other way. `bad-status`: `urllib` does not wrap
     an `http.client.HTTPException` (not an `OSError`), and on a685021 it replaced the 404 with
     `BadStatusLine`, which is not a `RuntimeError` (review round 1)."""
     jira = site(routes={("GET", ISSUE): 404}, myself=myself)
 
-    with pytest.raises(JiraRefused) as raised:
-        _tracker().get_ticket(REF)
+    with caplog.at_level(logging.INFO, logger="openfactory.tracker.jira"):
+        with pytest.raises(JiraRefused) as raised:
+            _tracker().get_ticket(REF)
 
     assert jira.asked(MYSELF) == 1
+    if isinstance(myself, BaseException):
+        # a probe that could not be made says so in the log, never in silence (lesson 6)
+        said = [r.getMessage() for r in caplog.records]
+        assert any("GET myself could not be asked" in m for m in said), said
     assert raised.value.code == 404
     assert str(raised.value) == _main_says(404)
     assert isinstance(raised.value.__cause__, urllib.error.HTTPError)

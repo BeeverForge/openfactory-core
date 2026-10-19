@@ -100,4 +100,11 @@ MUTATIONS = [
      "which is not a RuntimeError", JIRA,
      "        except (OSError, http.client.HTTPException) as exc:",
      "        except OSError as exc:"),
+
+    ("a probe that could not be made is silent: nothing in the log says the 404 went unasked",
+     JIRA,
+     "            log.info(\"jira answered a 404 and GET myself could not be asked (%s) — keeping "
+     "the \"",
+     "            (lambda *_a: None)(\"jira answered a 404 and GET myself could not be asked (%s) "
+     "— keeping the \""),
 ]
