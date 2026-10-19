@@ -200,3 +200,23 @@ def test_a_scope_probe_that_raises_is_a_red_line_not_a_crash():
     report = doctor.diagnose(a_fully_pinned_probe_set(installation_scope=boom))
     finding = next(f for f in report.findings if f.check == doctor.INSTALLATION_SCOPE)
     assert finding.ok is False and "is invalid" in finding.message
+
+
+def test_an_app_that_is_not_fully_configured_is_said_as_such_and_not_as_no_app(
+        monkeypatch, tmp_path):
+    """Q4 holds (an incomplete trio is not asked), but the sentence must be true. Measured in
+    review round 1 on d744ba8 with `OPENFACTORY_GH_APP_ID=1`, `OPENFACTORY_GH_APP_INSTALLATION_ID=1`
+    and `OPENFACTORY_GH_APP_KEY` naming a missing file: the line said "not applicable — no GitHub
+    App installation is configured for this deployment", beside an installation id that was."""
+    from openfactory.contracts.project import Project, ProviderRef
+
+    project = Project(name="demo", repo_path="/tmp/demo",
+                      tracker=ProviderRef(kind="github", repo="acme/demo"))
+    finding, asked = _line_from_the_live_probe(monkeypatch, project, {
+        "OPENFACTORY_GH_APP_ID": "1", "OPENFACTORY_GH_APP_INSTALLATION_ID": "1",
+        "OPENFACTORY_GH_APP_KEY": str(tmp_path / "missing.pem")})
+
+    assert finding.ok is True and finding.message.startswith(doctor.NOT_APPLICABLE), \
+        finding.message
+    assert "not fully configured" in finding.message, finding.message
+    assert asked == []

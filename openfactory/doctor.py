@@ -362,6 +362,10 @@ class InstallationScope:
     #: it (`credentials.sources_instead_of_the_app`); empty otherwise. A static token wins over
     #: the App, so its installation is then not what reaches them (decided 2026-10-19).
     used_instead: tuple[str, ...] = ()
+    #: Some, not all, of the App's three settings are set (`credentials.app_settings_set`): no App
+    #: to ask, as with none (decided 2026-10-19), but the line must not say none is configured
+    #: beside an installation id that is (review round 1).
+    app_incomplete: bool = False
 
 
 def as_json(document: dict) -> str:
@@ -1582,7 +1586,8 @@ def _installation_scope(p: Probes) -> Finding:
 
     scope = p.installation_scope()
     ok, message, remedy = installation_scope_line(scope.by_owner, scope.installed,
-                                                  used_instead=scope.used_instead)
+                                                  used_instead=scope.used_instead,
+                                                  app_incomplete=scope.app_incomplete)
     return Finding(INSTALLATION_SCOPE, ok, message, remedy)
 
 
@@ -3119,8 +3124,11 @@ def probes_for(project) -> Probes:
         by_owner = owners_by_project(projects)
         if len(by_owner) > 1:
             return InstallationScope(by_owner=by_owner, installed=None)
+        settings = app_settings_set()
+        if 0 < settings < 3:
+            return InstallationScope(by_owner=by_owner, installed=None, app_incomplete=True)
         instead = (sources_instead_of_the_app([p for p in projects if github_owners(p)])
-                   if app_settings_set() == 3 else [])
+                   if settings == 3 else [])
         if instead:
             said = tuple(dict.fromkeys(describe_source(s) for s in instead))
             return InstallationScope(by_owner=by_owner, installed=None, used_instead=said)

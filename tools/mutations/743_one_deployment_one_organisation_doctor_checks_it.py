@@ -3,8 +3,9 @@
 The claims, each held by one named test and broken here by one cut:
 - the App installation's account is compared with the one organisation the registry names, and
   a mismatch fails; GitHub logins compare without case;
-- with no App configured the line says "not applicable" first and verifies nothing; an App that
-  could not be read is never a pass;
+- with no App configured the line says "not applicable" first and verifies nothing, and an App
+  not fully configured is said as such, not as no App; an App that could not be read is never a
+  pass;
 - an App beside a static token that every GitHub axis uses instead is not applicable and is not
   asked; one GitHub axis still on the App is enough for it to be asked (Q5, round 1);
 - a registry that spans organisations fails the line in exactly the sentence the load path logs
@@ -58,6 +59,17 @@ MUTATIONS = [
      '        return (False, f"the GitHub App installation could not be read: {reason}",',
      '        return (True, f"the GitHub App installation could not be read: {reason}",',
      f"{LINE}::test_an_installation_that_could_not_be_read_is_not_a_pass"),
+
+    # ── an App not fully configured (review round 1) ────────────────────────────────────────────
+    ("an App not fully configured is said as no App at all", REGISTRY,
+     "    if installed is None and app_incomplete:",
+     "    if False:",
+     f"{LINE}::test_an_app_that_is_not_fully_configured_is_said_as_such_and_not_as_no_app"),
+
+    ("the probe no longer tells an incomplete App from none", DOCTOR,
+     "        if 0 < settings < 3:",
+     "        if False:",
+     f"{LINE}::test_an_app_that_is_not_fully_configured_is_said_as_such_and_not_as_no_app"),
 
     # ── a static token beside the App (Q5 (a), review round 1) ──────────────────────────────────
     ("the probe asks the App although every GitHub axis uses a token instead", DOCTOR,

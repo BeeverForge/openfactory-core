@@ -101,8 +101,8 @@ def app_settings_set() -> int:
     """How many of the App's three settings this process holds (`app_id`, `app_private_key`,
     `app_installation_id`): 3 is an App, 0 is none, and 1 or 2 is an App that is not fully
     configured — no App to mint on or to ask (`github_app.token_from_env`'s rule). The doctor's
-    `installation_scope` line asks whether a token is used instead of the App only of an App
-    (#743)."""
+    `installation_scope` line says 1 or 2 as an App not fully configured, not as no App, and asks
+    whether a token is used instead of the App only of a full one (#743)."""
     return sum(1 for value in (app_id(), app_private_key(), app_installation_id()) if value)
 
 

@@ -382,9 +382,9 @@ names both. A registry edited by hand that spans two still loads (the load logs
 `openfactory doctor <project>` fails its `installation_scope` line with the same sentence. With
 one organisation, that line asks the App installation which account it is on (a read signed with
 the App's own key; no installation token is minted) and fails, naming both, when the registry
-names another one. With no App configured (any of `OPENFACTORY_GH_APP_ID`, the App's private key
-or `OPENFACTORY_GH_APP_INSTALLATION_ID` unset), the line begins "not applicable" and verifies
-nothing. The same holds when every GitHub project uses a static token instead
+names another one. With no App configured, the line begins "not applicable" and verifies
+nothing; with one not fully configured (any of `OPENFACTORY_GH_APP_ID`, the App's private key or
+`OPENFACTORY_GH_APP_INSTALLATION_ID` unset), it says so and names the three it needs. The same holds when every GitHub project uses a static token instead
 (`OPENFACTORY_BOT_TOKEN`, `OPENFACTORY_FORGE_TOKEN` / `OPENFACTORY_TRACKER_TOKEN`, or a project's
 `token_env`), which wins over the App: the line names the token and asks the App nothing, since
 its installation is not what reaches those projects. The line reads the whole registry, not
