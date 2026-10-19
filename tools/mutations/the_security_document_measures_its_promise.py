@@ -38,10 +38,13 @@ MUTATIONS = [
     ("one credential grows a third override that no list carries",
      CREDENTIALS,
      # RE-PINNED 2026-10-18 (#742): the chain is read through the credential store
-     '    return stored("OPENFACTORY_TRACKER_TOKEN") or ',
+     # RE-PINNED 2026-10-19 (#822): the chain is the store's `chain`, which a refusal ends — and
+     # the measured table reads it as one credential's spellings, as it read the `or` chain
+     'credential_store.chain(("OPENFACTORY_TRACKER_TOKEN", "OPENFACTORY_BOT_TOKEN"))',
      # RE-PINNED 2026-10-11 (#562): `OPENFACTORY_BOARD_TOKEN` became a real credential, and one
      # the scrub removes, so the unseen spelling is another one
-     '    return stored("OPENFACTORY_CARD_TOKEN") or stored("OPENFACTORY_TRACKER_TOKEN") or '),
+     'credential_store.chain(("OPENFACTORY_CARD_TOKEN", "OPENFACTORY_TRACKER_TOKEN", '
+     '"OPENFACTORY_BOT_TOKEN"))'),
     ("a new credential the platform reads reaches the agent unannounced",
      CREDENTIALS,
      "",
@@ -73,9 +76,11 @@ MUTATIONS = [
     ("the container box passes the worker's whole environment",
      CONTAINER,
      # RE-PINNED 2026-10-18 (#742): the declared names are resolved through the credential store
-     "        for var in self.extra_env:\n            if var not in seen and (value := stored(var)):",
+     # RE-PINNED 2026-10-19 (#822): …as an `Answer`, so a refused one crosses nothing
+     "        for var in self.extra_env:\n"
+     "            if var not in seen and (value := lookup(var).value):",
      "        for var in (*self.extra_env, *os.environ):\n"
-     "            if var not in seen and (value := stored(var)):"),
+     "            if var not in seen and (value := lookup(var).value):"),
     # ── the document, cut the way a reviewer cuts a document ────────────────────────────────────
     ("the table keeps the name and moves it out of the claim",
      SECURITY,

@@ -38,7 +38,8 @@ MUTATIONS = [
      "    return pool, \"\""),
     # re-pinned 2026-10-18 (#742): the adapter reads the pool through the credential store
     ("the adapter runs on a reading of its own, not the one the probes are given", ADAPTER,
-     "    pool, why = _pool_in(Stored())\n    if pool:\n        return pool\n",
+     # re-pinned 2026-10-19 (#822): one `Stored` walk, which a refusal ends
+     "    pool, why = _pool_in(settings)\n    if pool:\n        return pool\n",
      "    pool, why = [], \"\"\n    if pool:\n        return pool\n"),
     ("a broken pool alone is said as nothing set", ADAPTER,
      '    if why:\n        return "", f"{POOL} is set and {why}", _REPAIR["pool"]\n',
@@ -70,8 +71,9 @@ MUTATIONS = [
     # 4. the doctor
     # re-pinned 2026-10-18 (#742): the doctor asks through the credential store
     ("the doctor asks one harness whatever the project runs", DOCTOR,
-     "        reading = harness_credential(kind, Stored())",
-     '        reading = harness_credential("claude_code", Stored())'),
+     # re-pinned 2026-10-19 (#822): the doctor keeps its walk, to say a refusal by name
+     "        reading = harness_credential(kind, settings)",
+     '        reading = harness_credential("claude_code", settings)'),
     ("the doctor passes a broken pool alone", DOCTOR,
      "        name, said, repair = reading\n        if not name:\n"
      "            return False, said, repair\n",

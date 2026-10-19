@@ -61,8 +61,10 @@ MUTATIONS = [
 
     ("THE MEASURED CASE: an Azure axis falls through to the deployment's generic pair, so the "
      "doctor counts a GitHub token the Azure adapter never uses", CREDENTIALS,
-     "    if row is not None and row.source is not None:\n        if named and announce",
-     "    if False:\n        if named and announce"),
+     # re-pinned 2026-10-19 (#822): the row's reference is asked for a refusal first
+     "    if row is not None and row.source is not None:\n"
+     "        # THE REFERENCE THE ROW WILL READ, asked first",
+     "    if False:\n        # THE REFERENCE THE ROW WILL READ, asked first"),
 
     ("the doctor reports a source that answered nothing — a declared identity on the wrong "
      "machine reads as reachable", CREDENTIALS,
