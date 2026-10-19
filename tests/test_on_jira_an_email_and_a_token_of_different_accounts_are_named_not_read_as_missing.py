@@ -7,11 +7,14 @@ the 404 into `JiraRefused("jira GET issue/DAR-7 failed: 404 …", code=404)`, an
 person sees repeated it — the card's door (`Ports.seen`, `str(exc)[:120]`), the job's preflight
 (`degrade(f"ticket: {str(exc)[:120]}")`), the board (`_project_exists` → None) — so every card that
 exists read as not found, and jobs parked on it. Reported 2026-10-14 by a downstream deployment
-against v0.6.0-rc.2; reported, not re-measured here.
+against v0.6.0-rc.2, and measured 2026-10-19 on a Jira Cloud site: account A's email with account
+B's token, or with an empty token, got 404 on an issue and a project that exist, 200 and empty on a
+bounded `search/jql`, and 401 on `myself`. A revoked token was not measured.
 
 THE ONE REQUEST THAT DOES SAY IT is `GET /rest/api/3/myself`: anonymous, it answers 401 (Atlassian's
-REST v3 documentation of "Get current user"; the issue's report). So a 404 asks it ONCE, with the
-same credential, under `api/3` whatever family 404'd — `myself` exists nowhere else. A 401 there
+REST v3 documentation of "Get current user"; the issue's report; the measurement above). So a 404
+asks it ONCE, with the same credential, under `api/3` whatever family 404'd — `myself` exists
+nowhere else. A 401 there
 is the refusal that names the pair; anything else, or no answer at all, keeps the 404 exactly as it
 was, so a card that is really missing, or a site that could not be asked, is never misreported the
 other way.
