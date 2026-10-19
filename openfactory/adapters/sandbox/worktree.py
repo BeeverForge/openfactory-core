@@ -146,8 +146,10 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
     not mounted), and git still counts the branch as out there; `remove` frees it, after a mount
     (a removed registration orphans the tree when the disk comes back) and, on a rebuild door,
     after `git branch` keeps what was committed there. `ours`: the box's own tree from an earlier
-    pass, which a person locked; the box leaves it as it is, and on a rebuild door it is moved off
-    the box's path too, or `worktree add` meets it there."""
+    pass that it could not remove: locked, by a person or by a `git worktree add` interrupted
+    before the box could mark it (#746), which the box cannot tell apart; the box leaves it as it
+    is, and on a rebuild door it is moved off the box's path too, or `worktree add` meets it
+    there."""
     where = shlex.quote(path)
     git = f"git -C {shlex.quote(repo)}" if repo else "git"
     unlock = f"`{git} worktree unlock {where}`, then " if locked else ""
@@ -175,8 +177,18 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
                     f"there on a branch of yours and frees {branch}, then resume.")
         return (f"{head} Switch that checkout to another branch "
                 f"(`git -C {where} switch <another branch>`), then resume.")
-    whose = (", the job's own from an earlier pass, which somebody locked, so it was left as it is"
-             if ours else "")
+    # A LOCK ON THE BOX'S OWN TREE IS A PERSON'S OR AN INTERRUPTED `git worktree add`'s (#746):
+    # git's add locks the tree `initializing` while it checks out, a person's `--reason
+    # initializing` writes the same bytes, and a tree interrupted before this release carries no
+    # mark of the box's, so the box cannot always tell which, and says so rather than naming
+    # somebody.
+    # (no backticks around git's verb: in these sentences a backticked `git …` is a command to
+    # paste, and the #623 tests run every one of them as written)
+    whose = (", the job's own from an earlier pass, which is locked, by a person or by a "
+             "git worktree add that was interrupted, and the box could not tell which, so it "
+             "was left as it is" if ours and locked else
+             ", the job's own from an earlier pass, which could not be removed, so it was left "
+             "as it is" if ours else "")
     head = (f"{branch} is checked out in another working tree, at {path}{whose}, and {once}, and "
             f"nothing in that tree was touched.")
     if rebuilt and ours:
