@@ -46,6 +46,12 @@ Every refusal is JSON with a `detail` sentence:
 | 503 | the identity provider cannot check anybody right now | `{"detail": "identity provider unavailable…"}` |
 | 4xx from an action | a catalogued action refused what was asked | `{"detail": "<the action's own sentence>"}` |
 
+A refusal from `POST /api/act/{name}` is the action's whole outcome — `ok`, `message`, `code`,
+`data` and `detail` — and `data.reason` says why in a word a program branches on: the `code` itself
+where nothing finer applies, or one of `bad_parameters`, `bad_ref`, `out_of_scope`, `not_admin`,
+`engine_unreachable`, `raised`, `reported_nothing`, and `unknown_action` for a name no action has.
+`GET /api/v1/actions` lists, as `refusals`, every reason each action can answer.
+
 A socket is refused before it is accepted: the upgrade is answered with a 403 and closed with code
 **1008** for a refusal, **1011** when nobody could be judged.
 
@@ -174,4 +180,4 @@ This is slice 1 of #561. The default front end still ships with the API, in the 
 image, and is turned off by its setting; moving it into a module of its own, built only on this
 contract, and a guide with a minimal example are the slices after it. Only the reads that declare
 their model are under `/api/v1/` (#678); the actions, the streams and the other reads are not
-versioned yet, and the refusals do not yet carry a reason a program can read.
+versioned yet.

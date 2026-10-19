@@ -6762,6 +6762,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="tell a parked job to carry on — optionally picking one of the options it "
                     "offered",
             run=_resume,
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             optional=("choice",),
             choose_when="ONLY if a fresh run would make progress. If it would re-park on the "
@@ -6772,6 +6773,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="skip",
             summary="abandon a parked job and free the floor for the next ticket",
             run=_skip,
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             choose_when="for a parked job a re-run cannot advance, and for an ORPHANED one "
                         "(ticket closed, workflow still holding the line). The ticket is left for "
@@ -6781,12 +6783,14 @@ CATALOG: dict[str, ActionSpec] = {
             name="ack",
             summary="record that a person has taken a review finding, closing its open loop",
             run=_ack,
+            refuses=(NOT_FOUND, CONFLICT, FAILED),
             required=("project", "issue"),
         ),
         ActionSpec(
             name="enable",
             summary="turn pickup on or off for a project",
             run=_enable,
+            refuses=(NOT_FOUND,),
             required=("project",),
             optional=("enabled",),
         ),
@@ -6794,6 +6798,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="card_create",
             summary="open a card on this project's board",
             run=_card_create,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "title"),
             optional=("body", "column"),
         ),
@@ -6801,18 +6806,21 @@ CATALOG: dict[str, ActionSpec] = {
             name="card_move",
             summary="move a card to another column — this is how work is queued",
             run=_card_move,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue", "column"),
         ),
         ActionSpec(
             name="card_comment",
             summary="say something on a card, in your own name",
             run=_card_comment,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project", "issue", "message"),
         ),
         ActionSpec(
             name="card_check",
             summary="say what pickup would make of a card before it is saved — writes nothing",
             run=_card_check,
+            refuses=(NOT_FOUND,),
             required=("project",),
             optional=("title", "body"),
             choose_when="while a card is being written or corrected: it runs the same spec gate a "
@@ -6823,6 +6831,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="card_edit",
             summary="correct a card's title or description, before the factory takes it up",
             run=_card_edit,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue"),
             optional=("title", "body"),
             choose_when="when a card is wrong and no job has it yet — the spec gate refused it, or "
@@ -6833,6 +6842,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="card_close",
             summary="take a card off the board with a reason — closed, never deleted",
             run=_card_close,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue", "reason"),
             choose_when="when a card should not be on the board at all: a duplicate, a request "
                         "withdrawn, a plan abandoned. It records that the work did NOT happen, so "
@@ -6844,6 +6854,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="card_remove",
             summary="remove a card nobody has started from the board, with a reason",
             run=_card_remove,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue", "reason"),
             choose_when="when a card should never have been on the board and the factory has not "
                         "taken it up — filed wrong, filed twice, no longer wanted. What removal "
@@ -6855,6 +6866,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="card_reopen",
             summary="put a closed card back on the board",
             run=_card_reopen,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue"),
             choose_when="when a card was closed by mistake, or the thing came back. Nothing is "
                         "deleted here, so the card, its thread and its number are all still there",
@@ -6863,6 +6875,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="pr_merge",
             summary="land a pull request no job is waiting on — this forge's own fast-forward",
             run=_pr_merge,
+            refuses=(INVALID, NOT_FOUND, CONFLICT),
             required=("project", "pr"),
             choose_when="when the pull request is open, the gates passed, and no job is parked on "
                         "it — the one a `run` or a `poll` left behind. On a hosted forge this "
@@ -6872,6 +6885,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="merge",
             summary="land the PR a human-gated job is waiting on",
             run=_merge,
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue"),
             optional=("comment",),
             choose_when="when the gates passed and the review did not reject. The DECISION is "
@@ -6882,6 +6896,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="adjust",
             summary="send the PR back for one repair pass against your own words — same PR",
             run=_adjust,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue", "instruction"),
             choose_when="when the work is nearly right and you can NAME the change: a review "
                         "finding that still applies, a missed case, a wrong shape. Prefer this "
@@ -6894,6 +6909,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="send the PR back for one repair pass against the review comments people "
                     "left on it — same PR",
             run=_address,
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue"),
             choose_when="when people reviewed the pull request on the forge and their comments "
                         "say what to change: unresolved threads, a request for changes. Prefer "
@@ -6906,6 +6922,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="read the open PR again with the independent reviewer — same PR, no change "
                     "to the code, and the verdict on the card is replaced",
             run=_review,
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue"),
             choose_when="when the reading you have is out of date or was answered — an `adjust` "
                         "fixed what the review rejected, or a pass rewrote the diff — and "
@@ -6918,6 +6935,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="discard",
             summary="close the PR without merging and free the floor — the branch is untouched",
             run=_discard,
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue"),
             optional=("reason",),
             choose_when="for work that should not land: the review rejected it, or the change "
@@ -6929,6 +6947,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="end a running job nothing else can reach and free the floor — it cannot "
                     "resume; the ticket goes back to the board",
             run=_stop,
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             optional=("reason",),
             choose_when="for a job nothing else can reach — wedged, holding the floor with no "
@@ -6941,12 +6960,14 @@ CATALOG: dict[str, ActionSpec] = {
             name="scan",
             summary="scan a project's TO-DO column now and start what the floor allows",
             run=_scan,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
         ),
         ActionSpec(
             name="start",
             summary="start one job for one ticket",
             run=_start,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue"),
             optional=("sandbox", "promote", "durable"),
         ),
@@ -6954,6 +6975,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="approve_prod",
             summary="answer a job's production-release gate — the parked workflow is waiting on it",
             run=_approve_prod,
+            refuses=(DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue", "version", "approver", "password"),
             optional=("comment",),
         ),
@@ -6961,6 +6983,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="promote",
             summary="run the staging→production promotion for a ticket in this process",
             run=_promote,
+            refuses=(DENIED, NOT_FOUND, UNAVAILABLE),
             required=("project", "issue", "version", "approver", "password"),
             optional=("comment",),
         ),
@@ -6968,6 +6991,10 @@ CATALOG: dict[str, ActionSpec] = {
             name="ask",
             summary="ask the tech-lead a question about a project and get its read-only answer",
             run=_ask,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
+            # what a typed instruction or a staged proposal can perform: the operator grammar and
+            # the floor's matcher, whose refusals come back as this row's own
+            relays=("resume", "skip", "review", "merge", "adjust", "discard", "stop"),
             required=("project", "question"),
             needs_admin=False,
         ),
@@ -6975,6 +7002,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="diagnose",
             summary="ask the tech-lead why a job is parked and what it would do about it",
             run=_diagnose,
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             needs_admin=False,
         ),
@@ -6990,6 +7018,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="whether the product role can see its corpus at all, and where measured",
             run=_product_status,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             needs_admin=False,
         ),
@@ -6998,6 +7027,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="every requirement in the corpus — number, title and status",
             run=_product_requirements,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             needs_admin=False,
         ),
@@ -7007,6 +7037,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="read the product's documents now — one file, or whatever changed since the "
                     "last pass",
             run=_product_ingest,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             optional=("path",),
             params={"path": "a file in the context repository, relative to its root (several "
@@ -7017,6 +7048,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="read the board and report what is wrong with it — writes nothing",
             run=_product_triage,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             needs_admin=False,
         ),
@@ -7026,6 +7058,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="the brownfield first pass — reads the whole codebase and proposes what it "
                     "observed, as a pull request",
             run=_product_baseline,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project",),
             optional=("yes",),
             needs_admin=True,
@@ -7036,6 +7069,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="what is parked and whose problem it is — reads, writes nothing, "
                     "and spends one model call per parked ticket",
             run=_product_needs_action,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project",),
             optional=("limit",),
             needs_admin=False,
@@ -7045,6 +7079,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="the role arrives and says where things stand",
             run=_product_announce,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             needs_admin=False,
         ),
@@ -7053,6 +7088,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="what the product role has staged and is waiting on a person for",
             run=_product_pending,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project",),
             needs_admin=False,
         ),
@@ -7061,6 +7097,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="answer a proposal the product role staged — the pair of product_pending",
             run=_product_answer,
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "token", "answer"),
             optional=("yes", "message_id"),
         ),
@@ -7072,6 +7109,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="one message to the product role — it answers, remembers, and stages what "
                     "it heard as work for a yes; it writes nothing on its own",
             run=_product_say,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE, FAILED),
             # `message` MAY BE EMPTY when the message is files alone (#336): the row refuses
             # one with neither, in a sentence
             required=("project",),
@@ -7085,6 +7123,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="what the product role owes, and to whom — its open loops as an agenda: "
                     "yours and the room's, never anybody else's",
             run=_product_agenda,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             optional=(),
             needs_admin=False,
@@ -7095,6 +7134,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="what is in progress in a conversation with the product role — the open "
                     "intakes, typed: said, asked, drafted, landed",
             run=_product_cases,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             optional=("thread",),
             needs_admin=False,
@@ -7105,6 +7145,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="what was said about something anywhere in this project — by whom, where, "
                     "when; one read over every conversation and the channel",
             run=_product_recall,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project", "query"),
             optional=(),
             needs_admin=False,
@@ -7115,6 +7156,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="your conversations with the product role — the project's room and each of "
                     "your own, newest first",
             run=_product_sessions,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             needs_admin=False,
         ),
@@ -7123,6 +7165,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="name one of your conversations with the product role, or clear its name",
             run=_product_session_rename,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             optional=("session", "title"),
             needs_admin=False,
@@ -7133,6 +7176,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="delete one of your conversations with the product role — what you said in "
                     "it is erased; what it became in the product stays",
             run=_product_session_delete,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             optional=("session",),
             needs_admin=False,
@@ -7143,6 +7187,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="file a file sent in the conversation into the product's documents — "
                     "committed to from-chat/ in the context repository, and read",
             run=_product_file_attachment,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE),
             required=("project", "attachment"),
             optional=("room", "session"),
             needs_admin=False,
@@ -7152,6 +7197,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="discard a file sent in the conversation — it can no longer be opened there",
             run=_product_discard_attachment,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE),
             required=("project", "attachment"),
             optional=("room", "session"),
             needs_admin=False,
@@ -7162,6 +7208,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="the recent turns of a conversation with the product role — the "
                     "project's room, or your own",
             run=_product_thread,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             optional=("thread", "before"),
             needs_admin=False,
@@ -7171,6 +7218,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="record a drafted requirement as a pull request — the sign-off surface",
             run=_product_propose,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project",),
             optional=("answer", "question", "yes"),
         ),
@@ -7179,6 +7227,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="turn a written requirement into a promise the factory defends (ADR-0032)",
             run=_product_accept,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("yes",),
         ),
@@ -7189,6 +7238,7 @@ CATALOG: dict[str, ActionSpec] = {
                     "an acceptance files them on its own, except for a requirement read off the "
                     "code, which describes what is already built",
             run=_product_break_down,
+            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("yes",),
         ),
@@ -7197,6 +7247,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="close one card, naming the one that stays",
             run=_product_close_card,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("in_favour_of", "reason", "yes"),
         ),
@@ -7205,6 +7256,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="the open cards on the board, and one card with what its controls do",
             run=_product_board,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
             required=("project",),
             optional=("card",),
             params={"card": "the number of the one card to open, digits only — its text and what "
@@ -7216,6 +7268,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="close a card, or remove one nobody has started, from the card itself",
             run=_product_withdraw_card,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number", "reason"),
             optional=("remove",),
             params={"remove": "`true` to remove the card instead of closing it — only before the "
@@ -7233,6 +7286,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="send the change waiting on a card back for another pass on the same pull "
                     "request, correcting the card's acceptance criteria with it",
             run=_product_adjust,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number", "instruction"),
             optional=("criteria",),
             # THE MODULE DECIDES WHO (#448, #384's rule): a product admin, or the person who asked
@@ -7250,6 +7304,7 @@ CATALOG: dict[str, ActionSpec] = {
                     "preview, is what they asked for — and put it in when that look is all that "
                     "holds it",
             run=_product_accept_change,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("head",),
             # THE MODULE DECIDES WHO (#448, #384's rule): a product admin, or the person who asked
@@ -7266,6 +7321,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="correct the text or title of a card the product role opened from a request "
                     "or a defect",
             run=_product_correct_card,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("text", "title", "yes"),
             choose_when="when a card the product role opened from a request or a defect says the "
@@ -7277,6 +7333,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="make a card execute the requirement it should — citation and criteria",
             run=_product_align_card,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number", "requirement"),
             optional=("yes",),
         ),
@@ -7285,6 +7342,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="give a backlog ticket something testable to be judged against",
             run=_product_refine_card,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("yes",),
         ),
@@ -7293,6 +7351,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="write a decision taken after acceptance into the requirement's register",
             run=_product_record_decision,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number", "decision"),
             optional=("yes",),
         ),
@@ -7301,6 +7360,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="confirm a business capability across the sources as the product's own",
             run=_product_confirm_capability,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "capability"),
             optional=("yes",),
             params={"capability": "the capability's name — a flow as `.okf/flows/flows.yaml` "
@@ -7312,6 +7372,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="write down one thing somebody said about the business, attributed",
             run=_product_note_fact,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "term", "body"),
             optional=("yes",),
         ),
@@ -7320,6 +7381,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="register a broken promise as work, citing the requirement it violates",
             run=_product_file_defect,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "restated"),
             optional=("violates", "severity", "yes"),
         ),
@@ -7328,6 +7390,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="open a card as the person described it — no requirement behind it",
             run=_product_file_ticket,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "title"),
             optional=("body", "yes"),
         ),
@@ -7336,6 +7399,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="what should start next, in order — and why not the others",
             run=_product_queue,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project",),
             optional=("limit",),
             needs_admin=False,
@@ -7345,6 +7409,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="write the backlog order, top first — the next promote follows it",
             run=_product_reorder,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "numbers"),
             optional=("yes",),
         ),
@@ -7353,6 +7418,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="move approved tickets into the queue — the one act here that spends money",
             run=_product_promote,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "numbers"),
             optional=("yes",),
         ),
@@ -7361,6 +7427,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="the client's approval putting a delivery in front of their own users",
             run=_product_release,
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "issue"),
             optional=("yes",),
         ),
@@ -7369,6 +7436,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="drop a proposed requirement, with the reason recorded beside it",
             run=_product_drop,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("reason", "yes"),
         ),
@@ -7380,6 +7448,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="start a preview of a card's change on this deployment — the product with the "
                     "pull request in it, before it merges",
             run=_preview_start,
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "unit"),
         ),
         ActionSpec(
@@ -7387,6 +7456,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="take a card's preview down now — its logs are kept",
             run=_preview_stop,
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "unit"),
         ),
         ActionSpec(
@@ -7396,6 +7466,7 @@ CATALOG: dict[str, ActionSpec] = {
                     "`preview:` block its pull request edits, at the digest its card shows — and "
                     "build it again with it",
             run=_preview_own_shape,
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "unit"),
             choose_when="only after a person has READ the change's shape on the pull request: "
                         "the compose files and the block it edits. A preview runs the base's "
@@ -7408,6 +7479,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="build a card's preview again from its pull request's head — a fresh checkout "
                     "and fresh data; starts one when none is up",
             run=_preview_rebuild,
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE),
             required=("project", "unit"),
         ),
         ActionSpec(
@@ -7415,6 +7487,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary=f"read a repository and propose what its {namespace.MANIFEST} should say — "
                     f"writes nothing",
             run=_env_read,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("target",),
             needs_admin=False,
         ),
@@ -7423,6 +7496,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="read a repository and show how a preview of it would run — the draft "
                     "`preview propose` would open, every line tiered; writes nothing",
             run=_preview_proposal,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("target",),
             optional=("accept",),
             needs_admin=False,
@@ -7432,6 +7506,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="survey a repository and propose the context an agent will read from then on "
                     "— writes nothing",
             run=_env_context,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("target",),
             optional=("ask", "write", "yes"),
             needs_admin=False,
@@ -7440,6 +7515,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="env_check",
             summary="one verdict on whether a project can be picked up, and where it was measured",
             run=_env_check,
+            refuses=(NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project",),
             needs_admin=False,
         ),
@@ -7447,6 +7523,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="env_apply",
             summary="write the proposed manifest — only the fields a human accepted, only with yes",
             run=_env_apply,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project",),
             optional=("yes", "force", "accept", "answers", "out", "pr"),
         ),
@@ -7455,6 +7532,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="issue a one-time link that registers a person on this deployment, vouched "
                     "for by you",
             run=_people_invite,
+            refuses=(INVALID, DENIED, UNAVAILABLE),
             required=("person",),
             optional=("display", "product", "board"),
             params={
