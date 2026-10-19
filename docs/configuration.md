@@ -192,7 +192,12 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
     `--product` scopes them to the product surface, exactly as a
     `OPENFACTORY_PRODUCT_TOKENS` row would, and `--board` to the board, as an
     `OPENFACTORY_BOARD_TOKENS` row would (an invitation with neither is the administrator's); `openfactory people list` shows who is registered and
-    which links are still open (a link lasts 7 days, a session 30). Not open sign-up: a person
+    which links are still open (a link lasts 7 days, a session 30). `openfactory people revoke
+    <id>` (the `people_revoke` action) takes a person off again — their registration, every
+    session they hold and any link still open for them — and refuses the last person registered
+    while no token variable is set, since the panel would then open to whoever arrives; revoking
+    the last person invited to neither area leaves nobody but the shell to invite an
+    administrator. Not open sign-up: a person
     nobody vouched for would be a name in an audit line nobody stands behind. The people live in
     the metrics store the worker and the panel share (`OPENFACTORY_METRICS_SINK=sqlite` on
     compose); a deployment whose sink keeps nothing is told so at the shell, before a link is
