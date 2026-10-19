@@ -419,7 +419,10 @@ def json_envelope(out: str) -> dict | None:
 
     `None` when there is genuinely no object to find, so the caller can still tell "said nothing
     parseable" from "said a verdict". Trailing prose is tolerated too (`raw_decode` stops at the
-    end of the value), because the same reasoning applies to whatever a CLI appends."""
+    end of the value), because the same reasoning applies to whatever a CLI appends.
+
+    The Claude reviewer now streams and reads `result_event` first; this is its fallback for a CLI
+    that answers with one envelope (an older CLI, every test double)."""
     decoder = json.JSONDecoder()
     for start in _object_starts(out or ""):
         try:

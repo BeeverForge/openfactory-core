@@ -97,6 +97,14 @@ parser. Routing Claude through the generic implementation swapped a production-p
 one with zero miles — on the exact path that had just produced twelve real findings on a live PR.
 Uniform code is not worth an unproven production path.
 
+**Amended (2026-10-19, #755):** the paragraph above describes the reviewer's invocation as it was.
+It now streams like every other Claude role (`--output-format stream-json --verbose`), so a wrapper
+in front of `claude` sees a review's `rate_limit_event`s; it reads the stream's last `type ==
+"result"` event, which carries the same keys as the single envelope (measured on the pinned 2.1.219),
+and falls back to `json_envelope` when a CLI answers with one envelope. It is still the native
+implementation and is still not routed through the generic reviewer, so the decision of this
+section (native-first) stands; only the description of its invocation changed.
+
 The consequence is deliberate: **a Claude deployment behaves exactly as it did before this ADR.**
 
 ### 4. A wall-clock wall, because turn caps are not portable
