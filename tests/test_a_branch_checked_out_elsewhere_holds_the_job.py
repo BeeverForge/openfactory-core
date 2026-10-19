@@ -652,3 +652,17 @@ def test_a_holder_under_a_directory_the_box_cannot_search_still_holds_the_job_on
         assert "is not there" not in str(caught.value), str(caught.value)
     finally:
         closed.chmod(0o755)
+
+
+def test_a_holder_whose_directory_became_a_file_is_reported_gone(held):
+    """An ancestor that is now a regular file is positive evidence the tree is not there."""
+    from openfactory.adapters.sandbox.base import BranchHeldElsewhere
+    repo, review, box = held
+    parent = review.parent / "was-a-dir"
+    parent.mkdir()
+    _git(repo, "worktree", "move", str(review), str(parent / "review"))
+    shutil.rmtree(parent)
+    parent.write_text("")
+    with pytest.raises(BranchHeldElsewhere) as caught:
+        _keep(box, repo)
+    assert "is not there" in str(caught.value), str(caught.value)

@@ -200,7 +200,7 @@ def _not_there(path: Path) -> bool:
     answers False from 3.14 (#827). Not looked at is not "not there"."""
     try:
         os.stat(path)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):  # no such entry, or a parent is now a file
         return True
     except OSError:  # a parent the box cannot search, among others: could not tell
         return False
