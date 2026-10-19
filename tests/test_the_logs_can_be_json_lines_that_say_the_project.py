@@ -198,6 +198,10 @@ OUTSIDE_THE_LOG = {
         "*": "`make eval-product`, a battery run from a terminal"},
     "openfactory/testing/local_flow.py": {
         "FlowRun.print_trace": "the local flow's trace, printed for a person at a terminal"},
+    "openfactory/policy/test_work.py": {
+        "admissible": "the Core, which may not import the log (`test_the_core_boundary.py`) — "
+                      "and nothing in the package calls it: the orchestrator asks `refusal_for` "
+                      "and logs the refusal itself (`orchestrator/machine.py`)"},
 }
 
 #: The commands of a module allowed whole above that become the deployment's own long-running

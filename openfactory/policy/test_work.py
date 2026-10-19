@@ -65,8 +65,6 @@ def admissible(project, issue: str, labels: list[str] | None) -> bool:
     why = refusal_for(project, issue, labels)
     if not why:
         return True
-    from openfactory.observability import logs
-
     log.warning("REFUSED %s", why)
-    logs.announce(log, f"OPENFACTORY_TEST_WORK_REFUSED: {why}", logging.WARNING)
+    print(f"OPENFACTORY_TEST_WORK_REFUSED: {why}", flush=True)
     return False
