@@ -75,6 +75,15 @@ PROBE = "gate_key_probe"
 _VERSION = "v1"
 
 
+class KeyRefused(Exception):  # noqa: N818 — a refusal is the store's answer, not a fault
+    """The gate key the deployment declared is refused by its credential store (#742).
+
+    NOT A `RuntimeError`, ON PURPOSE. The gate's callers read a `RuntimeError` from the engine as
+    "this job is not at that gate", and a refused key read that way told a person their job was not
+    waiting when it was — the store's refusal, folded into "there is nothing". Raised by `_key`,
+    said as itself by every caller that seals an answer."""
+
+
 def key_path() -> Path:
     registry = (os.environ.get("OPENFACTORY_REGISTRY") or "").strip()
     if registry:
@@ -96,8 +105,8 @@ def _key() -> bytes:
 
     found = lookup(VARIABLE)
     if found.refused:
-        raise RuntimeError(f"the gate key {VARIABLE} is refused by the credential store — "
-                           f"{found.refused}; no other key is used in its place")
+        raise KeyRefused(f"the gate key {VARIABLE} is refused by the credential store — "
+                         f"{found.refused}; no other key is used in its place")
     declared = (found.value or "").strip()
     if declared:
         return declared.encode()
@@ -158,7 +167,7 @@ def refusal(token: str, kind: str, workflow_id: str, *fields: str,
         return "the answer's seal has expired — answer the gate again from the panel"
     try:
         key = _key()
-    except (OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError, KeyRefused) as exc:
         return f"the gate key cannot be read ({exc.__class__.__name__}: {exc})"
     expected = hmac.new(key, _message(kind, workflow_id, expires, nonce, tuple(fields)),
                         hashlib.sha256).hexdigest()

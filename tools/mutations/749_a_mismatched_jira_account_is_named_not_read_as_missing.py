@@ -58,9 +58,10 @@ MUTATIONS = [
      "/rest/api/3/myself\", headers=self._headers(),",
      "/rest/api/3/myself\", headers={},"),
 
+    # re-pinned 2026-10-19 (#822): the call hands the credential store's refusal over too
     ("the token is written into the refusal a person and a log read", JIRA,
-     "has_token=bool(self.token)),",
-     "has_token=bool(self.token)) + f\" {self.token}\","),
+     "                                                   refused=self.refused),",
+     "                                                   refused=self.refused) + f\" {self.token}\","),
 
     ("the remedy comes before the cause, and a 120-character park line loses the cause", JIRA,
      "    return (f\"jira: the email {email} and the API token belong to different accounts, "

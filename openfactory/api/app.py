@@ -589,10 +589,14 @@ async def preview_link(project: str, unit: str, request: Request):
     try:
         key = preview.mint(found.project, unit, expires=expires)
     except RuntimeError as exc:
-        # A PREVIEW KEY THE CREDENTIAL STORE REFUSES SIGNS NO LINK (#822), and says so by name:
-        # the reason, with its path, goes to the log; the caller is told what to run.
+        # A PREVIEW KEY THE CREDENTIAL STORE REFUSES SIGNS NO LINK (#822), and the card says so in
+        # the store's own sentence — the key's name and why, a path at most, never a value — the
+        # way it says every other reason a preview cannot be opened. The caller is one the panel
+        # already let in.
         log.error("no preview link for %s/%s: %s", found.project, unit, exc)
-        raise HTTPException(status_code=503, detail=PREVIEW_KEY_UNAVAILABLE) from None
+        body["live"] = False
+        body["why"] = str(exc)
+        return body
     scheme = "https" if _is_secure(request) else "http"
     body["live"] = True
     body["why"] = ""
@@ -734,11 +738,6 @@ def _gate_verdict(path: str, credential: str, query: str = "") -> _Refusal | Non
                       f"{wanted}."})
     return None
 
-
-#: What a preview read says when the preview key cannot be read (#822): the sentence a caller can
-#: act on; the store's reason is in the log line beside it.
-PREVIEW_KEY_UNAVAILABLE = ("no preview link can be signed: this deployment's preview key cannot "
-                           "be read — `openfactory doctor` says why")
 
 #: What a door says when it cannot check anybody. Two causes, one posture — CLOSED — and neither
 #: sentence carries the cause: it goes to a caller nobody has identified, and the cause (a

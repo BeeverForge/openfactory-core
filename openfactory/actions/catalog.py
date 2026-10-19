@@ -920,9 +920,13 @@ async def _approve_prod(*, project: str, issue: str, version: str, approver: str
     from openfactory.runtime.temporal import view as tv
 
     async def signal() -> Outcome | None:
+        from openfactory import gate_seal
+
         try:
             await tv.approve_job(client, found.name, issue, version=version, approver=approver,
                                  comment=comment)
+        except gate_seal.KeyRefused as exc:  # the answer could not be sealed: said as itself
+            return refused(FAILED, first_message(exc))
         except RuntimeError as exc:  # not parked at the approval gate
             return refused(CONFLICT, first_message(exc))
         return None
@@ -1031,9 +1035,15 @@ async def _answer_gate(*, project: str, issue: str, by: Actor, answer: str,
     client, bad = await _connected()
     if bad:
         return None, bad
+    from openfactory import gate_seal
+
     try:
         gate = await tv.answer_merge_gate(client, found.name, issue, answer=answer,
                                           instruction=instruction, by=str(by))
+    except gate_seal.KeyRefused as exc:
+        # THE ANSWER COULD NOT BE SEALED (#742): the job IS waiting, and "not waiting on a merge"
+        # would send the person to do again what they just did. The key's own refusal, by name.
+        return None, refused(FAILED, first_message(exc))
     except tv.GateDeaf as exc:
         # The OPPOSITE of the case below: the job IS waiting on a merge, and its run can never
         # consume an answer (pre-patch replay). Folding this into 'not waiting on a merge' told
@@ -7237,7 +7247,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="merge",
             summary="land the PR a human-gated job is waiting on",
             run=_merge,
-            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             optional=("comment",),
             choose_when="when the gates passed and the review did not reject. The DECISION is "
@@ -7248,7 +7258,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="adjust",
             summary="send the PR back for one repair pass against your own words — same PR",
             run=_adjust,
-            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue", "instruction"),
             choose_when="when the work is nearly right and you can NAME the change: a review "
                         "finding that still applies, a missed case, a wrong shape. Prefer this "
@@ -7261,7 +7271,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="send the PR back for one repair pass against the review comments people "
                     "left on it — same PR",
             run=_address,
-            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             choose_when="when people reviewed the pull request on the forge and their comments "
                         "say what to change: unresolved threads, a request for changes. Prefer "
@@ -7274,7 +7284,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="read the open PR again with the independent reviewer — same PR, no change "
                     "to the code, and the verdict on the card is replaced",
             run=_review,
-            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             choose_when="when the reading you have is out of date or was answered — an `adjust` "
                         "fixed what the review rejected, or a pass rewrote the diff — and "
@@ -7287,7 +7297,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="discard",
             summary="close the PR without merging and free the floor — the branch is untouched",
             run=_discard,
-            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             optional=("reason",),
             choose_when="for work that should not land: the review rejected it, or the change "
@@ -7327,7 +7337,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="approve_prod",
             summary="answer a job's production-release gate — the parked workflow is waiting on it",
             run=_approve_prod,
-            refuses=(DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue", "version", "approver", "password"),
             optional=("comment",),
         ),

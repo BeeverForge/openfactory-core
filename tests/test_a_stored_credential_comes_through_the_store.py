@@ -455,37 +455,52 @@ def test_a_worktree_workload_receives_a_declared_name_held_in_a_file_and_no_othe
     assert DIR_VAR not in env, "the path to every secret reached the workload"
 
 
-def test_a_remote_box_is_handed_a_file_held_secret_as_a_value_and_a_variable_by_name(
-        secrets, monkeypatch):
-    from openfactory.credentials import BOX_TOKEN_ENV, box_credential_env, box_options
+#: Each way a project's forge or tracker secret ends up held in the store: its own reference to a
+#: file, and the deployment's pair moved into one.
+HELD_IN_THE_STORE = {
+    "a project's reference to a file": (
+        {"tracker": ProviderRef(kind="jira", repo="ACME",
+                                options={"token_env": "file:acme-jira", "board": "7"})},
+        lambda put: put("acme-jira", SECRET), False),
+    "the deployment's pair in a file": (
+        {"forge": ProviderRef(kind="github", repo="acme/app")},
+        lambda put: put("OPENFACTORY_BOT_TOKEN", SECRET), True),
+}
 
-    secrets("acme-jira", SECRET)
-    held = Project(name="acme", repo_path="/tmp/acme",
-                   tracker=ProviderRef(kind="jira", repo="ACME",
-                                       options={"token_env": "file:acme-jira",
-                                                "board": "7"}))
-    assert box_options(held, "tracker") == {"token_env": BOX_TOKEN_ENV["tracker"], "board": "7"}
-    # a project that names no forge is its tracker's forge too, so both axes travel
-    assert box_credential_env(held) == {BOX_TOKEN_ENV["tracker"]: SECRET,
-                                        BOX_TOKEN_ENV["forge"]: SECRET}
 
+@pytest.mark.parametrize("case", sorted(HELD_IN_THE_STORE))
+def test_a_remote_box_is_refused_a_secret_the_store_holds_and_handed_a_variable_by_name(
+        case, secrets, monkeypatch):
+    """A REMOTE LAUNCHER IS HANDED SHORT-LIVED MINTED TOKENS ONLY (review of ef084ebd). A launcher
+    may copy its launch environment where others can read it, and a store's secret lives as long
+    as its owner keeps it, so it is refused for a remote box, by name and naming the declaration a
+    launcher would need — never put into `extra_env`, never its value in the sentence."""
+    from openfactory.credentials import (
+        RESOLVES_REFERENCES,
+        CredentialUnavailable,
+        box_credential_env,
+        box_options,
+    )
+
+    axes, put, declares_store = HELD_IN_THE_STORE[case]
+    if declares_store:
+        monkeypatch.setenv(STORE_VAR, "file")
+    put(secrets)
+    held = Project(name="acme", repo_path="/tmp/acme", **axes)
+    with pytest.raises(CredentialUnavailable, match=RESOLVES_REFERENCES) as refused:
+        box_credential_env(held)
+    assert SECRET not in str(refused.value)
+    axis = next(iter(axes))
+    assert box_options(held, axis) == dict(axes[axis].options or {}), \
+        "the options were rewritten for a value that is never handed over"
+
+    monkeypatch.delenv(STORE_VAR, raising=False)
     monkeypatch.setenv("ACME_JIRA_TOKEN", SECRET)
     named = Project(name="acme", repo_path="/tmp/acme",
                     tracker=ProviderRef(kind="jira", repo="ACME",
                                         options={"token_env": "ACME_JIRA_TOKEN"}))
     assert box_options(named, "tracker") == {"token_env": "ACME_JIRA_TOKEN"}
     assert box_credential_env(named) == {}, "a value was written where a name sufficed"
-
-
-def test_a_remote_box_is_handed_the_deployments_pair_when_a_file_holds_it(file_store):
-    from openfactory.credentials import BOX_TOKEN_ENV, box_credential_env, box_options
-
-    file_store("OPENFACTORY_BOT_TOKEN", SECRET)
-    project = Project(name="acme", repo_path="/tmp/acme",
-                      forge=ProviderRef(kind="github", repo="acme/app"))
-
-    assert box_options(project, "forge")["token_env"] == BOX_TOKEN_ENV["forge"]
-    assert box_credential_env(project)[BOX_TOKEN_ENV["forge"]] == SECRET
 
 
 def test_readiness_counts_a_box_env_name_the_store_answers_for_as_set(file_store):
@@ -1094,3 +1109,101 @@ def test_a_stale_refused_token_file_stops_the_harness_though_the_pool_answers(fi
     present, said, *_ = doctor.probes_for(Project(name="acme", repo_path="/tmp/acme")) \
         .agent_credential()
     assert not present and "CLAUDE_CODE_OAUTH_TOKEN" in said and SECRET not in said
+
+    # …AND ONBOARDING DOES NOT OFFER A PASS THE HARNESS WOULD REFUSE (review of ef084ebd)
+    import shutil
+
+    from openfactory.onboarding import context as ctx
+    from openfactory.onboarding import onboard as ob
+
+    monkeypatch.setattr(shutil, "which", lambda _b: "/usr/bin/claude")
+    monkeypatch.setattr("openfactory.adapters.agent.build_asker", lambda p: object())
+    monkeypatch.setattr("openfactory.adapters.sandbox.registry.judging_worktree",
+                        lambda p, root=None: object())
+    monkeypatch.setattr(ctx, "agent_ask", lambda *a, **k: (lambda *_a, **_k: ""))
+    ask_fn, mode = ob.semantic_pass_for(Project(name="acme", repo_path="/tmp/acme"), Path("/tmp"))
+    assert ask_fn is None and "CLAUDE_CODE_OAUTH_TOKEN" in mode, mode
+
+
+def test_the_names_a_harness_refuses_on_are_read_off_its_own_table():
+    """One table (review of ef084ebd): what the doctor and onboarding ask is what the harness reads,
+    walked off its own reader — for every harness that has one."""
+    from openfactory.adapters.agent.claude_code import CREDENTIALS
+    from openfactory.adapters.agent.registry import HARNESS_CREDENTIALS, credential_names
+
+    assert credential_names("claude_code") == list(CREDENTIALS)
+    for kind in HARNESS_CREDENTIALS:
+        assert credential_names(kind), f"{kind}'s credential reader asks no setting"
+
+
+# ── the review of ef084ebd ──────────────────────────────────────────────────────────────────────
+
+def test_what_is_checked_is_the_file_that_is_read_not_the_path(secrets, monkeypatch):
+    """ASKED OF THE OPEN FILE (`fstat`), not of the path: a file swapped in under the name between
+    the open and the check is not the one read. Here the opened file is 0664 and a 0600 one is
+    renamed over its path right after the open — a check of the path would pass and read the
+    refused file's content."""
+    from openfactory.adapters.credential_store.base import CredentialRefused
+
+    path = secrets("acme-token", "fictitious-refused-content", mode=0o664)
+    resolved = os.path.realpath(path)
+    real_open = os.open
+
+    def open_then_swap(target, flags, *a, **kw):
+        fd = real_open(target, flags, *a, **kw)
+        if os.fspath(target) == resolved:
+            fresh = secrets.directory / "fresh"
+            fresh.write_text(SECRET)
+            fresh.chmod(0o600)
+            os.rename(fresh, path)
+        return fd
+
+    monkeypatch.setattr(os, "open", open_then_swap)
+    with pytest.raises(CredentialRefused, match="writable by its group"):
+        FileStore().resolve("acme-token")
+
+
+def test_a_link_put_under_the_name_after_it_was_resolved_is_not_followed(secrets, monkeypatch):
+    """`O_NOFOLLOW`: the name is resolved first and opened second, and a link put there in between
+    is refused when it is opened rather than followed. The resolution is made to miss the link."""
+    from openfactory.adapters.credential_store.base import CredentialRefused
+
+    secrets("acme-other", SECRET)
+    entry = os.path.join(os.path.realpath(secrets.directory), "acme-token")
+    os.symlink("acme-other", entry)
+    real = os.path.realpath
+    monkeypatch.setattr(os.path, "realpath",
+                        lambda p, *a, **kw: os.fspath(p) if os.fspath(p) == entry
+                        else real(p, *a, **kw))
+    with pytest.raises(CredentialRefused, match="could not be opened"):
+        FileStore().resolve("acme-token")
+
+
+def test_an_answer_never_shows_its_value(file_store):
+    """`Answer.value` is out of the repr, so an answer printed or logged by accident says where a
+    secret is and never what it is."""
+    file_store("ACME_SCANNER_TOKEN", SECRET)
+    found = registry.lookup("ACME_SCANNER_TOKEN")
+    assert found.value == SECRET
+    assert SECRET not in repr(found) and SECRET not in str(found)
+    assert "file:ACME_SCANNER_TOKEN" in repr(found)
+
+
+def test_jiras_anonymous_answer_says_a_refused_token_not_the_variable_to_set(secrets):
+    """#749's sentence for a tokenless Jira asked to "Set JIRA_API_TOKEN" — over a reference the
+    store refused, a variable that is not read in its place. The row hands the refusal over, and
+    the sentence says it."""
+    from openfactory.adapters.tracker.jira import _not_one_account
+    from openfactory.adapters.tracker.registry import build_tracker
+
+    secrets("acme-jira", SECRET, mode=0o664)
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      tracker=ProviderRef(kind="jira", repo="ACME",
+                                          options={"token_env": "file:acme-jira",
+                                                   "site": "https://acme.example"}))
+    tracker = build_tracker(project)
+    assert tracker.token is None and "file:acme-jira" in tracker.refused
+    said = _not_one_account("ana@acme.example", "GET", "/rest/api/3/issue/ACME-1",
+                            has_token=False, refused=tracker.refused)
+    assert "refused by the credential store" in said and "file:acme-jira" in said
+    assert "Set JIRA_API_TOKEN" not in said and SECRET not in said

@@ -16,7 +16,10 @@ WHAT IS CHECKED, AND WHY EACH:
     REFUSES WRITES. Whoever can write there can replace a secret, or put a link under a
     secret's name. A cluster mounts its secret volume read-only, so that layout is read whatever
     its bits say, and a sticky bit alone is not enough: it stops a stranger removing a file, not
-    adding one;
+    adding one. The same rule holds for every directory a name's links lead through, up to the
+    credential directory: a secret is as safe as the directory it actually lives in;
+  · a directory others may write to, on a read-only mount, belongs to root or to this process's
+    user, and so does every file read through it — see the next rule;
   · the file, followed through links, stays inside the directory. A cluster's secret volume links
     each name to a dated copy so it can swap them at once, so a link is ordinary, and one that
     leaves the directory is not;
@@ -28,6 +31,8 @@ WHAT IS CHECKED, AND WHY EACH:
     in such a directory a file somebody else created is not the deployment's;
   · the entry under the name, when it is a link, was made by root or by this process's user —
     asked of the entry itself (`lstat`), since what the link leads to says nothing of who made it;
+  · it has one name, unless its mount refuses writes: a file with another name somewhere can be
+    changed through that one, whatever this one's bits say;
   · it is no larger than a credential: a token, a private key or a small pool of tokens.
 
 WRITE BITS ON A READ-ONLY MOUNT ARE NOT A WRITER (review of #822). Compose delivers a `secrets:`
@@ -122,18 +127,30 @@ class FileStore:
         if not stat.S_ISDIR(found.st_mode):
             raise CredentialRefused(f"{DIR_VAR} names {self.directory}, which is not a directory "
                                     f"— point it at the directory the secret files are in")
-        sticky = bool(found.st_mode & stat.S_ISVTX)
+        return root, self._held_through(root, found, shown=self.directory)
+
+    def _held_through(self, here: str, found: os.stat_result, *, shown: str) -> bool:
+        """Whether `here`, a directory a secret is read through, is SHARED — others may write to
+        it, on a mount that refuses writes — or a refusal: others may write to it on a writable
+        mount, or it is shared and neither root's nor this process's user's.
+
+        A STICKY BIT IS NOT A READ-ONLY MOUNT (#822). It keeps a file from being removed by anyone
+        but its owner, and nothing from being ADDED: under a name no file holds yet, whoever may
+        write here can put a file or a link. Only a mount that refuses writes makes the bits moot,
+        which is how a cluster mounts its secret volume — and then what was put there is asked
+        who put it, the directory as each file in it."""
         writers = _writers(found.st_mode)
-        # A STICKY BIT IS NOT A READ-ONLY MOUNT (#822). It keeps a file from being removed by
-        # anyone but its owner, and nothing from being ADDED: under a name no file holds yet,
-        # whoever may write here can put a file or a link. Only a mount that refuses writes makes
-        # the bits moot, which is how a cluster mounts its secret volume.
-        if writers and not _mount_refuses_writes(path=root):
-            raise CredentialRefused(f"{self.directory} is writable by {writers}, so anyone who "
-                                    f"can write there can replace a secret — `chmod 700 "
-                                    f"{self.directory}`, or mount it read-only, as a cluster "
-                                    f"mounts its secret volume")
-        return root, sticky and bool(found.st_mode & stat.S_IWOTH)
+        if not writers:
+            return False
+        if not _mount_refuses_writes(path=here):
+            raise CredentialRefused(f"{shown} is writable by {writers}, so anyone who can write "
+                                    f"there can replace a secret — `chmod 700 {here}`, or mount "
+                                    f"it read-only, as a cluster mounts its secret volume")
+        if found.st_uid not in (0, getattr(os, "geteuid", lambda: 0)()):
+            raise CredentialRefused(f"{shown} may be written by {writers} and belongs to another "
+                                    f"user — deliver the secrets in a directory of root's or of "
+                                    f"this deployment's user")
+        return True
 
     def _located(self, name: str) -> tuple[str, bool]:
         """`(the file's resolved path, whether the directory is one anyone can write to)`, or a
@@ -159,6 +176,17 @@ class FileStore:
             raise CredentialRefused(f"the file `{name}` in {self.directory} leads outside it — "
                                     f"put the secret itself in the directory, or link it to a "
                                     f"file inside it")
+        # EVERY DIRECTORY THE NAME LEADS THROUGH, by the same rule as the credential directory
+        # (#822): a link into a subdirectory others may write to is a secret they can replace.
+        here = os.path.dirname(path)
+        while here != root:
+            try:
+                found = os.stat(here)
+            except OSError:
+                break  # nothing to read there: `resolve` says so when it opens
+            shared = self._held_through(here, found, shown=f"{here}, where the file `{name}` in "
+                                                           f"{self.directory} leads,") or shared
+            here = os.path.dirname(here)
         return path, shared
 
     def unusable(self) -> str:
@@ -189,10 +217,14 @@ class FileStore:
             raise CredentialRefused(f"{where} is writable by {writers}, and a secret somebody "
                                     f"else can rewrite is not this deployment's — "
                                     + _UNWRITABLE.format(path=path))
+        if found.st_nlink > 1 and not _mount_refuses_writes(fd=fd):
+            raise CredentialRefused(f"{where} has {found.st_nlink} names, so it can be changed "
+                                    f"through another of them — put a copy of the secret there, "
+                                    f"not a link to it")
         owner = getattr(os, "geteuid", lambda: 0)()
         if shared and found.st_uid not in (0, owner):
-            raise CredentialRefused(f"{where} belongs to another user, in a directory anyone "
-                                    f"can write to — remove it, and deliver the secret as this "
+            raise CredentialRefused(f"{where} belongs to another user, in a directory others "
+                                    f"may write to — remove it, and deliver the secret as this "
                                     f"deployment's own user or as root")
         if found.st_size > MAX_BYTES:
             raise CredentialRefused(f"{where} holds {found.st_size} bytes, and a credential is "

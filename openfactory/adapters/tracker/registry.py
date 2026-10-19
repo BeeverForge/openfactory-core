@@ -30,6 +30,7 @@ from openfactory import plugins
 def _github(project, **kw):
     from openfactory.adapters.board.factory import declared_columns
     from openfactory.adapters.tracker.github import GitHubIssuesTracker
+    from openfactory.credentials import github_refusal
 
     options = (getattr(project.tracker, "options", None) or {})
     return GitHubIssuesTracker(
@@ -38,6 +39,8 @@ def _github(project, **kw):
         board_number=options.get("board_number"),
         token=kw.get("token"),
         token_provider=kw.get("token_provider"),
+        # with no token, never the machine's own login after a refusal (#742)
+        refused="" if kw.get("token") else github_refusal(project, "tracker"),
         # the client's own column names (C-14) — same registry row the Jira status_map uses,
         # and PARSED where the board registry parses it (#231): this row handed the raw option
         # to a board that does `(columns or {}).items()` on it, so a deployment that declared

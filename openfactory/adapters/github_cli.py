@@ -30,6 +30,26 @@ GUESSED = {
 }
 
 
+class LoginRefused(RuntimeError):
+    """The credential a GitHub adapter was built to use is REFUSED by the credential store, so it
+    runs nothing (#742): with no token, `gh` would run on whatever login the machine has — the
+    ambient `GH_TOKEN`, a person's `gh auth login` — and a refusal is never answered by a login.
+    A `RuntimeError`, as every other failure of a `gh` call these adapters raise is."""
+
+
+def credential_of(adapter) -> str | None:
+    """`adapter`'s token, read now — its provider's, else its static one — or a `LoginRefused`
+    when there is none and the store refused the one meant (`adapter.refused`). What each GitHub
+    adapter's `token` is, so every `gh` call, every board read and every push asks it."""
+    provider = getattr(adapter, "_token_provider", None)
+    found = provider() if provider else getattr(adapter, "_static_token", None)
+    refused = getattr(adapter, "refused", "")
+    if not found and refused:
+        raise LoginRefused(f"the GitHub credential {refused} — `gh` is not run on this machine's "
+                           f"own login in its place")
+    return found
+
+
 def nothing_named(args: list[str]) -> str:
     """Why this `gh` call must not run, or `""` when it may: it passes one of `GUESSED`'s flags
     with nothing in it, which `gh` would fill in by guessing rather than refuse."""

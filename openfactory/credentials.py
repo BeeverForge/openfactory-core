@@ -248,6 +248,26 @@ def _axis_credential(project, axis: str, generic, *,
     return (found.reference, found.value) if found.value else ("", None)
 
 
+def app_key_refusal() -> str:
+    """Why the GitHub App key is refused, or `""` — the content first, then the path, the order
+    `app_private_key` reads them in (#742)."""
+    for name in ("OPENFACTORY_GH_APP_KEY_CONTENT", "OPENFACTORY_GH_APP_KEY"):
+        found = credential_store.lookup(name, quiet=True)
+        if found.refused:
+            return f"`{found.reference}` is refused: {found.refused}"
+        if found.value:
+            return ""
+    return ""
+
+
+def github_refusal(project, axis: str) -> str:
+    """Why a GitHub adapter of `project`'s `axis`, built with no token, must not fall back to the
+    machine's own login: the axis's own credential is refused, or the App key it would mint from
+    is (#742). `""` when nothing was refused — the ambient login is then the development path it
+    always was."""
+    return axis_refusal(project, axis) or app_key_refusal()
+
+
 def pair_refusal(axis: str) -> str:
     """Why this deployment's own pair for `axis` (`OPENFACTORY_<AXIS>_TOKEN`, then
     `OPENFACTORY_BOT_TOKEN`) is refused, or `""` — for a reader that asks about the DEPLOYMENT's
@@ -648,25 +668,32 @@ def _generic_reference(axis: str) -> str:
     return found.reference if found.value else ""
 
 
-def _handed_over(project, axis: str) -> str | None:
-    """`axis`'s stored secret when a store OTHER THAN THE ENVIRONMENT holds it, resolved here on
-    the worker; None when the box reads its own variable, as it always did (#742).
+#: What a remote box's launcher would have to declare to be handed a secret the credential store
+#: holds: that it resolves a credential reference itself, on its own side. No launcher declares it
+#: yet, so none is handed one (#742).
+RESOLVES_REFERENCES = "it resolves credential references itself"
 
-    A REMOTE BOX CANNOT READ THE WORKER'S FILES. It resolves its credential from the variables it
-    is launched with, by the name the axis's options carry, so a secret the worker reads from a
-    mounted file would reach it as a name with nothing behind it. The worker resolves it and the
-    box is handed the value under its own variable (`BOX_TOKEN_ENV`), which is how a minted
-    identity already travels. A variable the box can read for itself is still handed over by name
-    only, so no value is written into a launch where a name sufficed."""
+
+def _held_in_a_store(project, axis: str) -> str:
+    """The reference of `axis`'s secret when a store OTHER THAN THE ENVIRONMENT holds it — `""`
+    when the box reads its own variable, as it always did, or there is none (#742).
+
+    A REMOTE BOX CANNOT READ THE WORKER'S FILES, and it is not handed what they hold either. A
+    launcher may copy its launch environment where others can read it (a task's overrides, a pod's
+    spec), and a minted token lives an hour there while a stored secret lives as long as its
+    owner keeps it. So a remote launcher is handed only short-lived minted tokens, and a secret a
+    store holds is refused for it by name, until a launcher can declare `RESOLVES_REFERENCES` and
+    be handed the reference instead. A variable the box can read for itself is handed over by name
+    only, as before."""
     generic = tracker_token if axis == "tracker" else forge_token
     found, value = _axis_credential(project, axis, generic, announce=False)
     if not value:
-        return None
+        return ""
     if found.startswith("generic:"):
         found = _generic_reference(axis)
     if found.startswith("env:") or not _stored_secret(found):
-        return None
-    return value
+        return ""
+    return found
 
 
 # ── a box is handed a value, never the declaration (#373) ─────────────────────────────────────────
@@ -697,9 +724,8 @@ def box_options(project, axis: str) -> dict[str, str]:
     if problem:
         return options
     if not declared:
-        # A SECRET A STORE HOLDS TRAVELS AS A VALUE TOO (#742), under the box's own variable.
-        if _handed_over(project, axis) is not None:
-            options["token_env"] = BOX_TOKEN_ENV[axis]
+        # A SECRET A STORE HOLDS IS NOT HANDED TO A REMOTE BOX (#742): `box_credential_env` refuses
+        # it by name, so its options stay what the project wrote.
         return options
     from openfactory.adapters.credential.registry import (
         IDENTITY_CLIENT_ID_OPTION,
@@ -715,17 +741,25 @@ def box_options(project, axis: str) -> dict[str, str]:
 def box_credential_env(project) -> dict[str, str]:
     """`{variable: token}` a remote box needs for every axis that declares the machine's own
     identity — minted HERE, on the worker, freshly, so the box starts with the most life the token
-    has — and for every axis whose stored secret a store other than the environment holds
-    (`_handed_over`, #742). RAISES `CredentialUnavailable` when a declared identity does not
-    answer: a box launched without its credential would fail inside with a sentence about the
-    wrong thing."""
+    has. RAISES `CredentialUnavailable` when a declared identity does not answer: a box launched
+    without its credential would fail inside with a sentence about the wrong thing.
+
+    AND WHEN AN AXIS'S SECRET IS HELD IN THE CREDENTIAL STORE (#742): a remote launcher is handed
+    short-lived minted tokens only, and no launcher declares `RESOLVES_REFERENCES` yet, so a
+    store's long-lived secret is refused for it by name rather than written into its launch."""
     out: dict[str, str] = {}
     for axis in BOX_TOKEN_ENV:
         ref = getattr(project, axis, None)
         declared, problem = _declared(ref)
         if not (declared or problem):
-            if (value := _handed_over(project, axis)) is not None:
-                out[BOX_TOKEN_ENV[axis]] = value
+            if held := _held_in_a_store(project, axis):
+                raise CredentialUnavailable(
+                    f"{getattr(project, 'name', '?')}'s {axis} credential `{held}` is held in the "
+                    f"credential store, and a remote box's launcher is handed only short-lived "
+                    f"minted tokens: none declares that {RESOLVES_REFERENCES}, so the store's "
+                    f"secret is not put into a launch environment — hold it in a variable the box "
+                    f"reads for itself, which is handed over by name, or declare the machine's own "
+                    f"identity (`identity: workload`)")
             continue
         provider = _deployment_provider(ref)
         token = provider() if provider is not None else None

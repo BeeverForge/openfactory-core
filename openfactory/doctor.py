@@ -1680,25 +1680,6 @@ REFUSED_REMEDY = ("fix what the refusal names, where the secret is kept — unti
                   "own credential, not a mint")
 
 
-def _names_read_by(kind: str) -> list[str]:
-    """Every setting the harness `kind` reads its credential from, in its order — asked by walking
-    `harness_credential` over a mapping that holds nothing and records what it is asked."""
-    from openfactory.adapters.agent.registry import harness_credential
-
-    class _Asked(dict):
-        def __init__(self) -> None:
-            super().__init__()
-            self.names: list[str] = []
-
-        def get(self, name, default=None):
-            self.names.append(name)
-            return default
-
-    asked = _Asked()
-    harness_credential(kind, asked)
-    return asked.names
-
-
 def refused_said(what: str, refused: dict[str, str]) -> str:
     """`what`, refused: each name and the store's reason, never a value."""
     return (f"{what} {REFUSED_BY_THE_STORE}: "
@@ -2573,13 +2554,9 @@ def probes_for(project) -> Probes:
         # THE HARNESS SAYS WHAT IT AUTHENTICATES WITH (#582) — the one reading the preflight
         # asks too, where each kept a list: this one three names and an `if kind ==`, that one
         # two names, and a deployment on the token pool alone passed here and failed there.
-        from openfactory.adapters.agent.registry import harness_credential
+        from openfactory.adapters.agent.registry import harness_credential, harness_refusals
         from openfactory.adapters.agent.registry import harness_kind as _hk
-        from openfactory.adapters.credential_store.registry import (
-            Stored,
-            refusals,
-            stored_answer,
-        )
+        from openfactory.adapters.credential_store.registry import Stored, stored_answer
 
         kind = _hk(project, "executor")
         # ASKED OF THE CREDENTIAL STORE (#742), the way the harness reads it: a token mounted as a
@@ -2589,7 +2566,7 @@ def probes_for(project) -> Probes:
         # …AND EVERY NAME THE HARNESS READS, not only the walk's (review of #822): a pool that
         # answers ends the walk, and a refused file named like the token it travels under still
         # starves every job. The names are the harness's own, asked by walking it over nothing.
-        refused = {**settings.refused, **refusals(_names_read_by(kind))}
+        refused = harness_refusals(kind)
         if refused:
             # A REFUSAL, NOT AN ABSENCE: the harness runs on nothing rather than on the next name,
             # and "set CLAUDE_CODE_OAUTH_TOKEN" would send the operator to set a variable that is
