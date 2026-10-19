@@ -32,6 +32,7 @@ FILE = "openfactory/adapters/credential_store/file.py"
 CONTAINER = "openfactory/adapters/sandbox/container.py"
 WORKTREE = "openfactory/adapters/sandbox/worktree.py"
 PULL = "openfactory/adapters/sandbox/pull.py"
+ACTIVITIES = "openfactory/runtime/temporal/activities.py"
 
 MUTATIONS = [
     # ── the sweep sees every reader go back to its variable ─────────────────────────────────────
@@ -111,8 +112,9 @@ MUTATIONS = [
      "        if not stat.S_ISREG(found.st_mode):",
      "        if False:"),
     # re-pinned 2026-10-19 (#822): a read-only mount is asked beside the bits
+    # re-pinned 2026-10-19 (#822, second round): a sticky bit no longer excuses a writable directory
     ("a directory anyone may write to is trusted", FILE,
-     "        if writers and not sticky and not _mount_refuses_writes(path=root):",
+     "        if writers and not _mount_refuses_writes(path=root):",
      "        if False:"),
     ("a file far larger than a credential is read whole", FILE,
      "        if found.st_size > MAX_BYTES:",
@@ -243,9 +245,10 @@ MUTATIONS = [
     ("a mapping walk goes on past a refusal", REGISTRY,
      "        if self.refused:\n            return default\n        found = lookup(name)",
      "        if False:\n            return default\n        found = lookup(name)", FAMILY),
+    # re-pinned 2026-10-19 (#822, second round): any refused name stops it, the pool answering or not
     ("the harness runs when its credential was refused, and the CLI reads the next variable",
      ADAPTER,
-     '        if getattr(self, "_refused", None) and not self._pool:',
+     '        if getattr(self, "_refused", None):',
      "        if False:", FAMILY),
     ("the container box passes a refused harness default's variable", CONTAINER,
      "            if var in seen or (found := lookup(var)).refused:\n                continue",
@@ -263,8 +266,9 @@ MUTATIONS = [
      "openfactory/runtime/temporal/connection.py",
      "    if api_key.refused:\n        raise RuntimeError(",
      "    if False:\n        raise RuntimeError(", FAMILY),
+    # re-pinned 2026-10-19 (#822, second round): every name the harness reads is asked
     ("the doctor's harness line asks for a variable that is set", "openfactory/doctor.py",
-     "        if settings.refused:\n            # A REFUSAL, NOT AN ABSENCE",
+     "        if refused:\n            # A REFUSAL, NOT AN ABSENCE",
      "        if False:\n            # A REFUSAL, NOT AN ABSENCE", FAMILY),
     ("the doctor's forge line says 'not configured' over a refusal", "openfactory/doctor.py",
      '        if refused := axis_refusal(project, "forge"):',
@@ -277,10 +281,11 @@ MUTATIONS = [
      '        if refused:\n            wrong.append(refused_said("the deployment credential", refused))',
      '        if False:\n            wrong.append(refused_said("the deployment credential", refused))',
      FAMILY),
+    # re-pinned 2026-10-19 (#822, second round): a listing store is walked by its listing alone
     ("the doctor walks only the names the code reads, so a planted file goes unsaid",
      "openfactory/doctor.py",
-     "        refused = store.refusals(sorted(deployment | set(store.listed(first))))",
-     "        refused = store.refusals(sorted(deployment))"),
+     "        listing = store.listed(first)\n",
+     "        listing = None\n"),
     ("readiness says 'not set' over a refusal", "openfactory/onboarding/readiness.py",
      '    if refused:\n        return _fail("env_names",',
      '    if False:\n        return _fail("env_names",', FAMILY),
@@ -304,9 +309,10 @@ MUTATIONS = [
     ("MAJOR: a compose secret on Ubuntu's umask is refused on its read-only mount", FILE,
      "        if writers and not _mount_refuses_writes(fd=fd):",
      "        if writers:"),
+    # re-pinned 2026-10-19 (#822, second round): a sticky bit no longer excuses a writable directory
     ("a read-only directory's write bits refuse every secret in it", FILE,
-     "        if writers and not sticky and not _mount_refuses_writes(path=root):",
-     "        if writers and not sticky:"),
+     "        if writers and not _mount_refuses_writes(path=root):",
+     "        if writers:"),
     ("a refusal names its cause and not its repair", FILE,
      '                                    f"else can rewrite is not this deployment\'s — "\n'
      "                                    + _UNWRITABLE.format(path=path))",
@@ -347,4 +353,109 @@ MUTATIONS = [
     ("the sweep stops seeing the environment handed to a reader of names it does not spell", SWEEP,
      "                table_readers.add(fn.name)\n                break",
      "                break", SWEEP),
+
+    # ── the review of 493875d3: the store's rules for a shared directory and for a link ─────────
+    ("a shared directory on a writable mount is read again because it is sticky", FILE,
+     "        if writers and not _mount_refuses_writes(path=root):",
+     "        if writers and not sticky and not _mount_refuses_writes(path=root):", FAMILY),
+    ("a link another user made under a credential's name is followed", FILE,
+     "        if linked is not None and stat.S_ISLNK(linked.st_mode) \\\n"
+     "                and linked.st_uid not in (0, owner):",
+     "        if False:", FAMILY),
+
+    # ── a refusal is final at every construction point ──────────────────────────────────────────
+    ("the worker's tracker takes the App minter after a refused reference", ACTIVITIES,
+     'token_provider=None if tok else bot_token_provider_for(project, "tracker"))',
+     "token_provider=None if tok else _bot_token_provider())", FAMILY),
+    ("the worker's forge takes the App minter after a refused reference", ACTIVITIES,
+     'token_provider=None if tok else bot_token_provider_for(project, "forge"))',
+     "token_provider=None if tok else _bot_token_provider())", FAMILY),
+    ("the board poll mints a token after a refused reference", ACTIVITIES,
+     '        prov = bot_token_provider_for(project, "tracker")',
+     "        prov = _bot_token_provider()", FAMILY),
+    ("the checks a card shows are read with the minter after a refused reference",
+     "openfactory/runtime/temporal/view.py",
+     '                                                else bot_token_provider_for(proj, "forge")))',
+     "                                                else _bot_token_provider()))", FAMILY),
+    ("the product board takes the minter after a refused reference", "openfactory/product/board.py",
+     '                                             else bot_token_provider_for(project, "tracker")))',
+     "                                             else _bot_token_provider()))", FAMILY),
+    ("the product module's tracker takes the minter after a refused reference",
+     "openfactory/product/module.py",
+     '                                                  bot_token_provider_for(self.project, "tracker")))',
+     "                                                  _bot_token_provider()))", FAMILY),
+    ("the factory's board takes the deployment's pair and the minter",
+     "openfactory/ops/impediment.py",
+     "    tok = tracker_token_for(on_the_board)\n",
+     "    tok = __import__(\"openfactory.credentials\", fromlist=[\"x\"]).tracker_token()\n",
+     FAMILY),
+    ("Jira's row answers a refused reference with JIRA_API_TOKEN",
+     "openfactory/adapters/tracker/registry.py",
+     '    token = kw.get("token") or (None if axis_refusal(project, "tracker")\n'
+     '                                else vendor_default(getattr(project, "tracker", None)))',
+     '    token = kw.get("token") or vendor_default(getattr(project, "tracker", None))', FAMILY),
+    ("the remote box takes the deployment's pair after a refused reference",
+     "openfactory/runtime/boxed_job.py",
+     '                 or (None if axis_refusal(carried, "forge")\n'
+     "                     else forge_token())",
+     "                 or forge_token()", FAMILY),
+    ("the doctor's deployment forge credential mints over a refused pair", "openfactory/doctor.py",
+     '    return forge_token() or (None if pair_refusal("forge") else github_app_token_from_env())',
+     "    return forge_token() or github_app_token_from_env()", FAMILY),
+    ("board creation takes the deployment's pair before the project's own", "openfactory/cli.py",
+     "                token=tracker_token_for(project) or deployment_tracker_token(project))",
+     "                token=tracker_token() or deployment_tracker_token(project))", FAMILY),
+    ("the guarded minter mints whatever the refusal", "openfactory/factory.py",
+     "    if axis_refusal(project, axis):\n        return None\n    return _bot_token_provider()",
+     "    return _bot_token_provider()", FAMILY),
+
+    # ── every reader asks the store ─────────────────────────────────────────────────────────────
+    ("readiness reads the door's tokens from the environment alone",
+     "openfactory/onboarding/readiness.py",
+     '        return any(str(env.get(n, "") or "").strip() or stored(n) for n in names)',
+     '        return any(str(env.get(n, "") or "").strip() for n in names)'),
+    ("readiness says nothing of a refused door token", "openfactory/onboarding/readiness.py",
+     '    if refused:\n        return _fail(\n            "product_role",',
+     '    if False:\n        return _fail(\n            "product_role",'),
+    ("certify fails a panel whose tokens are held in files", "openfactory/certify/controls.py",
+     "    held = _panel_in_the_store(r)\n",
+     "    held = None\n", FAMILY),
+    ("certify fails a store it cannot read where it ran", "openfactory/certify/controls.py",
+     "    if store.deployment_store() != declared or store.unusable(declared):",
+     "    if False:"),
+    ("certify reads a refused panel token as a panel open to anybody",
+     "openfactory/certify/controls.py",
+     "        if found.refused:\n            return UNKNOWN, (f\"the credential store refuses {name}",
+     "        if False:\n            return UNKNOWN, (f\"the credential store refuses {name}", FAMILY),
+    ("certify's redactor misses what the store holds", "openfactory/certify/pack.py",
+     "            | _held_values(named))",
+     "            | set())"),
+    ("the sweep reads through no mapping but the environment's", SWEEP,
+     "    return sorted({(path, line, name) for path, line, name, who in\n"
+     "                   _reads_through_mappings(root, exempt) if who not in declared})",
+     "    return []", SWEEP),
+    ("the sweep stops following a reader's arguments", SWEEP,
+     "                    if isinstance(table, ast.Name) and table.id == vararg:\n"
+     "                        spots.add(\"*\")",
+     "                    if False:\n"
+     "                        spots.add(\"*\")", SWEEP),
+    ("certify reads the panel's tokens through a mapping no declaration accounts for", SWEEP,
+     '    ("openfactory/certify/controls.py", "_panel"):\n',
+     '    ("openfactory/certify/controls.py", "_panel_retired"):\n', SWEEP),
+
+    # ── the harness, the preview, the box, the doctor ───────────────────────────────────────────
+    ("a stale refused token file beside an answering pool goes unsaid", ADAPTER,
+     "    return refusals(CREDENTIALS)\n",
+     "    return refusals(CREDENTIALS[:1])\n"),
+    ("the doctor's agent line asks only the harness's walk", "openfactory/doctor.py",
+     "        refused = {**settings.refused, **refusals(_names_read_by(kind))}",
+     "        refused = dict(settings.refused)"),
+    ("a refused preview key answers the card's preview with a raw 500", "openfactory/api/app.py",
+     "        key = preview.mint(found.project, unit, expires=expires)\n"
+     "    except RuntimeError as exc:",
+     "        key = preview.mint(found.project, unit, expires=expires)\n"
+     "    except LookupError as exc:", "tests/test_a_card_can_be_previewed.py"),
+    ("the box is created without the client environment a file-held name needs", CONTAINER,
+     "        rc, out = _host(run_cmd) if client_env is None else _host(run_cmd, env=client_env)",
+     "        rc, out = _host(run_cmd)"),
 ]

@@ -149,7 +149,8 @@ mounted secret files. A reference names its store (`file:acme-jira`, `acme:<entr
 stranger's), and a deployment names the store its own credentials are asked of first
 (`OPENFACTORY_CREDENTIAL_STORE`). The `credential` axis above says how a vendor turns what it holds
 into a token; this one says where a held secret is read from, and every credential the core reads
-asks it (`tests/test_every_stored_credential_is_read_through_the_store.py`).*
+by a name it spells asks it, from the environment or through any other mapping
+(`tests/test_every_stored_credential_is_read_through_the_store.py`).*
 
 **The code is small; the commitment is not.** Adopting in-process as *the* extension model
 closes the door on providers written in C# or Go, and on plugging one in without a
