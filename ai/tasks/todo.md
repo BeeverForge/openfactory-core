@@ -103,7 +103,7 @@ marked as such.
   `-n auto -p no:randomly`, and record both counts in `ai/tasks/baseline.md` (the known docker
   preview flake in ordered `-n auto` gets a note, not a fix). The red counts in tasks 1–3 are
   measured in this worktree before task 4 touches `jira.py`.
-- [ ] 1. Write `tests/test_a_jira_description_keeps_its_headings_and_bullets.py` (C1, C2, C4, C5).
+- [x] 1. Write `tests/test_a_jira_description_keeps_its_headings_and_bullets.py` (C1, C2, C4, C5).
   Build ADF fixtures in the shape the Jira editor stores, taken from task 10's recorded document
   where it exists and from the ADF schema otherwise: `heading` with `attrs.level`; `bulletList` /
   `orderedList` → `listItem` → `paragraph` → `text` with `marks`; nested `bulletList` inside a
