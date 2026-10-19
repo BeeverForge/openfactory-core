@@ -87,6 +87,8 @@ class _Site:
         #: the JQL of every search, in order, as parsed out of the request
         self.searches: list[str] = []
         self.requests: list[tuple[str, str]] = []
+        #: every search request as sent: (method, full URL, body bytes)
+        self.sent: list[tuple[str, str, bytes | None]] = []
 
     def _jql_of(self, req) -> str:
         if req.get_method() == "GET":
@@ -117,6 +119,7 @@ class _Site:
         if route == "search/jql":
             jql = self._jql_of(req)
             self.searches.append(jql)
+            self.sent.append((method, req.full_url, req.data))
             self._check(jql)
             if self.refuse:
                 raise urllib.error.HTTPError(
@@ -289,3 +292,54 @@ def test_a_scope_jira_refuses_is_named_and_the_read_stays_unreadable(site, tmp_p
     said = [r.getMessage() for r in caplog.records
             if r.name in ("openfactory.board.jira", "openfactory.tracker.jira")]
     assert len([m for m in said if "scope_jql" in m and broken in m]) == 2, said
+
+
+def test_a_scope_outside_ascii_reaches_jira_unchanged(site, tmp_path):
+    """Environment variance: a pt-BR deployment labels its slices in its own words
+    (`labels = "fábrica-api"`). The board's GET carries the scope percent-encoded — the URL stays
+    ASCII, which `urllib` requires — and it decodes back to the same characters; the tracker's
+    POST body carries it intact through JSON. On main no scope was sent, and the strict site fails
+    the first search."""
+    accented = 'labels = "fábrica-api"'
+    jira = site(accented)
+    tracker, board = _built(_project(tmp_path, scope_jql=accented))
+
+    _every_read(tracker, board)
+
+    gets = [url for method, url, _ in jira.sent if method == "GET"]
+    posts = [body for method, _, body in jira.sent if method == "POST"]
+    assert gets and posts, jira.sent
+    for url in gets:
+        assert url.isascii(), url
+        jql = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["jql"][0]
+        assert jql.startswith(f'project = "{KEY}" AND ({accented})'), jql
+    for body in posts:
+        assert json.loads(body)["jql"].startswith(f'project = "{KEY}" AND ({accented})'), body
+
+
+def test_the_documented_scope_arrives_intact_from_a_registry_file(tmp_path):
+    """Environment variance: a JQL condition quotes with `"`, so the documented example is
+    single-quoted YAML. The Jira example of `docs/reference/configuration.md`, written into a
+    registry file and read back by `ProjectRegistry`, reaches the tracker the registry row builds
+    with its double quotes intact. On main the example had no `scope_jql` and the tracker no such
+    attribute."""
+    import textwrap
+    from pathlib import Path
+
+    import yaml
+
+    from openfactory.adapters.tracker.registry import build_tracker
+    from openfactory.registry import ProjectRegistry
+
+    docs = Path(__file__).resolve().parents[1] / "docs" / "reference" / "configuration.md"
+    blocks = re.findall(r"```yaml\n(.*?)```", docs.read_text(), flags=re.S)
+    jira = [b for b in blocks if "kind: jira" in b]
+    assert len(jira) == 1, f"one Jira example in the configuration reference, found {len(jira)}"
+    entry = yaml.safe_load(textwrap.dedent(jira[0]))
+    registry = tmp_path / "registry.yaml"
+    registry.write_text(yaml.safe_dump(
+        {"projects": {"api": {"name": "api", "repo_path": str(tmp_path / "api"), **entry}}}))
+
+    tracker = build_tracker(ProjectRegistry(registry).get("api"), token="t")
+
+    assert getattr(tracker, "scope_jql", None) == 'labels = "of-api"'
