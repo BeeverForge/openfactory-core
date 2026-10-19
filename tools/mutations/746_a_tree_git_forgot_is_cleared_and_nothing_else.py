@@ -55,6 +55,12 @@ MUTATIONS = [
      "        return (Path(repo_path) / out.strip()).resolve()\n",
      "        return Path(out.strip()).resolve()\n"),
 
+    ("THE ISSUE'S OWN FIX: whatever is at the path is removed, a clone, a person's directory or "
+     "another repository's tree included", BOX,
+     "        if _a_tree_this_repository_forgot(repo_path, wt, trees):\n",
+     "        if os.path.lexists(wt):\n",
+     NOT_OURS),
+
     # RETIRED 2026-10-18: "`.is_file()` on `wt/.git` becomes `.exists()`, so a clone counts". An
     # EQUIVALENT MUTANT, measured: it survived (task 3's file, 110 passed). A clone's `.git` is a
     # directory, and `open()` on it raises IsADirectoryError, which `_gitdir_named_by` already
