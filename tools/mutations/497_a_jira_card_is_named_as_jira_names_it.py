@@ -151,8 +151,10 @@ MUTATIONS = [
      'foi avisado e resolve.",'),
 
     ("the board's words ignore the conversation's language", VOICE,
-     "    return _pick(_BOARD_MOVE_SAID[reason], language).format(ref=ref_label(ref))",
-     '    return _pick(_BOARD_MOVE_SAID[reason], "pt-BR").format(ref=ref_label(ref))'),
+     "    return _pick(_BOARD_MOVE_SAID[reason], language).format(ref=ref_label(ref), "
+     "project=project)",
+     '    return _pick(_BOARD_MOVE_SAID[reason], "pt-BR").format(ref=ref_label(ref), '
+     'project=project)'),
 
     # ── for the guard alone ─────────────────────────────────────────────────────────────────────
     ("a new catalogue writes `#{ref}` — no sentence under test renders it", VOICE, "",
