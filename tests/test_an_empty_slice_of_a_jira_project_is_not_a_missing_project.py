@@ -12,6 +12,12 @@ told UNREADABLE about a board that is merely empty. The review of the closed PR 
 
 The other half is engineering lesson 2. A project that does not exist is unreadable whatever the
 scope: a scope must not turn the `None` of a missing project into the `[]` of an empty slice.
+Since #749 (6a87018) that 404 costs one more request: `_call` asks `GET myself` once after any
+404, to tell a missing project from a credential Jira took as nobody's. The fake answers `myself`
+200 (a pair Jira accepts), so the 404 stays a missing project, and the test holds the whole
+sequence: search, `project/DAR`, `myself`. Without the route the fake's AssertionError was read
+by `_who_is_asking` as a probe that could not be made, and the last request was `myself`, not
+the probe the assertion named (red in both orders after the rebase onto 52025ee, 2026-10-19).
 
 MEASURED ON `main` (1be1835) WITH THIS FILE: both tests fail, because the registry dropped
 `scope_jql` and the search carried no scope (`'project = "DAR" ORDER BY updated DESC'`).
@@ -49,7 +55,8 @@ class _Answer:
 
 class _Site:
     """A Jira site whose every search is an empty page. `project_exists`: whether `GET
-    project/DAR` answers the project (200) or Jira's 404 for a missing or invisible one."""
+    project/DAR` answers the project (200) or Jira's 404 for a missing or invisible one. `GET
+    myself` answers 200, the account the pair signs in as, so a 404 is never #749's refusal."""
 
     def __init__(self, *, project_exists: bool) -> None:
         self.project_exists = project_exists
@@ -71,6 +78,8 @@ class _Site:
             raise urllib.error.HTTPError(
                 req.full_url, 404, "Not Found", hdrs=None,
                 fp=io.BytesIO(b'{"errorMessages":["No project could be found with key \'DAR\'."]}'))
+        if (method, route) == ("GET", "myself"):
+            return _Answer({"accountId": "557058:alice", "emailAddress": "alice@acme.ai"})
         raise AssertionError(f"the adapter called {method} {route}, a route this site never had")
 
 
@@ -105,11 +114,14 @@ def test_an_empty_slice_is_read_as_empty_and_the_project_is_asked_unscoped(tmp_p
 def test_a_missing_project_is_unreadable_whatever_the_scope(tmp_path, monkeypatch):
     """AC4, lesson 2: when the project itself answers 404, the empty slice is not an empty board:
     `list_tickets` answers `None`, unreadable, even though a scope was declared and its search
-    carried it. On main the search had no scope."""
+    carried it, and the probe and #749's `myself` that follow it carry none. On main the search
+    had no scope."""
     tracker, site = _scoped_tracker(tmp_path, monkeypatch, project_exists=False)
 
     assert tracker.list_tickets() is None
 
-    assert [r for r in site.requests if r[1] == "search/jql"] == [
-        ("POST", "search/jql", None, f'project = "{KEY}" AND ({SCOPE}) ORDER BY updated DESC')]
-    assert site.requests[-1] == ("GET", f"project/{KEY}", None, None)
+    assert site.requests == [
+        ("POST", "search/jql", None, f'project = "{KEY}" AND ({SCOPE}) ORDER BY updated DESC'),
+        ("GET", f"project/{KEY}", None, None),
+        ("GET", "myself", None, None),
+    ]
