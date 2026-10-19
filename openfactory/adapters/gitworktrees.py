@@ -31,8 +31,8 @@ class WorkingTree:
     `branch` is the short name (`openfactory/28`), or `""` for a detached HEAD or a bare
     repository. `main` is the repository's own working tree (the first block), which git cannot
     remove. `locked` was set by `git worktree lock`, or by a `git worktree add` still running or
-interrupted, which writes `locked` before its checkout and removes it after (#746); `git worktree
-remove` refuses either.
+    interrupted, which writes `locked` before its checkout and removes it after (#746); `git
+    worktree remove` refuses either.
 
     NO `prunable` FIELD: git's word for a tree whose directory is gone is absent from a LOCKED one
     (listed `locked` only, 2.34.1 and 2.43.0), so whether a directory is there is asked of the
