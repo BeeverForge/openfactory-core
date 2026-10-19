@@ -512,7 +512,8 @@ def test_a_review_tree_deleted_by_hand_says_the_directory_is_gone(held, locked):
 
 
 def test_the_box_s_own_tree_a_person_locked_is_left_with_what_is_in_it(tmp_path):
-    """The platform never locks a tree, so a lock on the box's own tree is a person's "keep this".
+    """A lock on the box's own tree that the box cannot prove its own interrupted add's (#746) is
+    a person's "keep this".
     One `--force` does not remove a locked tree (rc 128, 2.34.1 and 2.43.0), and the `rmtree` after
     it deleted the directory anyway, then said nothing in it was touched."""
     repo = _repository(tmp_path / "myapp")
