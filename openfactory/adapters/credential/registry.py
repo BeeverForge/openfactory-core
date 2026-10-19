@@ -28,7 +28,8 @@ each optional:
               it, so the doctor and the adapter answer from ONE function
     installed_on  the ONE account this deployment's own credential is confined to, read from
               the vendor (a GitHub App installation's organisation), for the doctor's
-              `installation_scope` line to compare with the registry (#743)
+              `installation_scope` line to compare with the registry (#743). Read for the
+              reference (GitHub) row ONLY: an add-on row that declares it is never asked
 
 and what to SAY when the credential is the problem — `when_missing`, `when_refused` — because a
 remedy is the vendor's own words (its variable, its login, its console, its recipe) and the
@@ -158,6 +159,12 @@ class CredentialRow:
     #: and which credential is confined to one account, and how to ask it, is the vendor's to say.
     #: A GitHub App installation belongs to one organisation or personal account, and the process
     #: holds one installation id; that is why one deployment serves one organisation.
+    #:
+    #: READ FOR THE REFERENCE (GITHUB) ROW ONLY, so it is not an extension point:
+    #: `credentials.app_installation_account` asks `_row(_REFERENCE_KIND)` and no other row, and
+    #: the line compares with `registry.github_owners`, which reads only `github` axes. An add-on
+    #: row that declares `installed_on` is never asked (review round 1, 2026-10-19), which is why
+    #: `docs/writing-an-addon.md`'s table of row fields does not list it.
     installed_on: Callable[[], tuple[str | None, str] | None] | None = None
 
 
