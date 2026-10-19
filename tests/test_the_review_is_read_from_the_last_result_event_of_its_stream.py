@@ -19,12 +19,15 @@ the values a review is read from changed. The box is a double that hands back `(
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from openfactory.adapters.reviewer.base import ReviewInput
 from openfactory.adapters.reviewer.claude_code import ClaudeCodeReviewer
 from openfactory.contracts import AcceptanceCriterion, Ticket
 from tests import claude_cli_output as cli
+from tests.test_a_banner_line_does_not_kill_the_review import REAL_BANNER
 
 
 class _Box:
@@ -141,3 +144,49 @@ def test_the_same_run_streamed_or_enveloped_reports_the_same_cost_turns_and_toke
 
     assert (review.cost_usd, review.num_turns, review.input_tokens, review.output_tokens) == (
         0.2591, 7, 8123, 1456), (shape, review)
+
+
+# ── what must survive: a single envelope, and a failed run's refusal ─────────────────────────────
+# Green on main BY DESIGN: this is main's behaviour, and the change must not lose it. A red run
+# cannot prove these; the mutation plan for this issue does
+# (`tools/mutations/755_the_review_streams_and_reads_its_last_result_event.py`).
+
+
+def test_a_single_envelope_without_a_type_is_still_read_through_json_envelope():
+    """The shape every existing test double prints, and an older CLI's: one envelope with no `type`
+    key, with a banner above it. No result event is in it, so only the fallback to `json_envelope`
+    reads it. Green on main; turned red by the cut that drops the fallback (cut 4)."""
+    out = REAL_BANNER + "\n" + json.dumps({
+        "is_error": False, "num_turns": 3, "total_cost_usd": 0.12, "result": APPROVAL,
+        "usage": {"input_tokens": 10, "output_tokens": 20}})
+
+    review = _review(out)
+
+    assert (review.decision, review.score) == ("approved", 88), review.summary
+    assert (review.cost_usd, review.num_turns) == (0.12, 3), review
+
+
+def test_the_envelope_the_pinned_cli_prints_for_json_is_still_read():
+    """2.1.219's `--output-format json` output, verbatim but for an approving `result` and its cost.
+    It carries `type: "result"`, so the result-event reader and the fallback both read it. Green on
+    main; its cost assertion is turned red by the cut that stops reading `total_cost_usd` (cut 7)."""
+    review = _review(cli.stdout(cli.envelope(APPROVAL, cost=0.05, turns=2, tokens=(40, 9))))
+
+    assert (review.decision, review.score) == ("approved", 88), review.summary
+    assert (review.cost_usd, review.num_turns, review.input_tokens, review.output_tokens) == (
+        0.05, 2, 40, 9), review
+
+
+def test_a_failed_result_event_is_still_a_rejection_that_says_it_could_not_be_read():
+    """2.1.219's stream with no credential, verbatim, exit 1: its result event is
+    `is_error: true`, `"Not logged in · Please run /login"` — prose, not a verdict. That stays a
+    REJECTION (an unread review never proceeds as reviewed) whose sentence says it could not be
+    read, not that the reviewer never ran. Green on main (it said "could not be parsed (rc=1)" too,
+    from the init event); turned red by the cut that softens the refusal to an approval (cut 8)."""
+    out = (cli.FIXTURES / "stream-json-verbose.stdout.jsonl").read_text(encoding="utf-8")
+
+    review = _review(out, rc=1)
+
+    assert (review.decision, review.score) == ("rejected", 0), review
+    assert review.summary == "reviewer output could not be parsed (rc=1)", review.summary
+    assert "never ran" not in review.summary
