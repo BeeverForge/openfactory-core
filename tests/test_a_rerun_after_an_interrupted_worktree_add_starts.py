@@ -43,7 +43,9 @@ guarantee) and is left with what is in it.
 
 Every interrupted state is made the way it happens: a real child process runs `prepare` (or plain
 `git worktree add`) in a session of its own, a smudge filter holds the checkout open, and the test
-kills only the process group it started. No `locked` file is written by hand.
+kills only the process group it started. No `locked` file is written by hand. The wait for that
+group to end reads EPERM as "not gone yet": macOS answers it while the group's last members are
+zombies awaiting reaping (#901).
 """
 
 from __future__ import annotations
@@ -129,6 +131,8 @@ def _wait_for(what, why: str) -> None:
 
 
 def _group_gone(pgid: int) -> bool:
+    """True once no process of the group is left; EPERM, macOS's answer for a group of unreaped
+    zombies, is not gone."""
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:
@@ -141,6 +145,8 @@ def _group_gone(pgid: int) -> bool:
 
 
 def _kill_group(pgid: int) -> None:
+    """SIGKILL the group, for cleanup only: a group that answers EPERM or is already gone is
+    left as it is, without raising."""
     # Cleanup only: a group that answers EPERM (macOS, zombies) or vanished since it was checked
     # must not replace the test's real failure with an unrelated error.
     with contextlib.suppress(ProcessLookupError, PermissionError):
