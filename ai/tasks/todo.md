@@ -180,7 +180,7 @@ marked as such.
   - M11 a heading with no or invalid level is drawn as `"#"*0`/`"## "` → no-level test
   Run `.venv/bin/python tools/mutate.py tools/mutations/751_….py` (never two `mutate.py` at once;
   it rewrites files in place). Every cut must be killed, and the summary goes into the PR body.
-- [ ] 6. Re-pin check. Run `git grep -l "tracker/jira.py" tools/mutations/`, which names 11 plans:
+- [x] 6. Re-pin check. Run `git grep -l "tracker/jira.py" tools/mutations/`, which names 11 plans:
   162j, 166b, 203, 414a, 480, 543, a_malformed_fence_is_not_a_dead_tracker,
   a_withdrawn_card_lands_in_the_sites_own_status_on_jira, public_core_names_no_forge,
   public_identity_guard_has_no_names, the_doctrine_says_what_is_now_true. None of them anchors
