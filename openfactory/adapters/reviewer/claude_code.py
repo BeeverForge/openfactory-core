@@ -17,6 +17,7 @@ import shlex
 from openfactory.adapters.agent.base import (
     PromptTooLarge,
     json_envelope,
+    prose_only,
     result_event,
     stage_prompt,
 )
@@ -125,7 +126,12 @@ class ClaudeCodeReviewer(ReviewerAdapter):
             # refusing to proceed as if reviewed is the safe default and must not soften — but
             # the sentence now names which of the two happened, because they need opposite
             # actions: fix the diff, or fix the box.
-            never_ran = rc == 127 or "not found" in (out or "").lower()
+            # Over PROSE, not the stream: the stream now carries the reviewer's tool output, and a
+            # page or log it read ("404 Not Found", "file not found") would call an
+            # unreadable review one that never ran — the text match over a raw stream that
+            # `prose_only` documents. A CLI missing from the box prints `sh: 1: claude: not found`
+            # on a line of its own, which `prose_only` keeps.
+            never_ran = rc == 127 or "not found" in prose_only(out).lower()
             summary = (
                 f"the reviewer never ran: its harness exited {rc} inside the box, so this diff "
                 "has NOT been reviewed. Nothing here is a judgement about the code — check the "
