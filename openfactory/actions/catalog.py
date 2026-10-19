@@ -4725,7 +4725,7 @@ def _stage(proj, board, issue: str) -> _Stage:
     board without the capability, or with no slice declared, answers as before."""
     from openfactory.adapters.board.base import stage_key, stage_option
     from openfactory.contracts.refs import canonical_ref
-    from openfactory.product.voice import card_unmapped
+    from openfactory.product.voice import card_outside_the_slice, card_unmapped
 
     if board is None:
         return _Stage()      # tickets only, no columns at all: nothing can have moved it
@@ -4747,14 +4747,12 @@ def _stage(proj, board, issue: str) -> _Stage:
             # column it is in, and whether a job holds it, is that project's to answer. `is False`,
             # not falsiness: only the row's own answer refuses, as `stage_key` believes only a real
             # one — a test double's board answers a `MagicMock` and keeps reading as before
+            # In the project's language (review of PR #884, point 4): the product view's close
+            # and remove show this sentence, and a pt-BR project read it in English
             named = getattr(board, "scope_named", None)
-            within = named() if callable(named) else ""
-            return _Stage(cannot_tell=(
-                f"{issue} is not in {proj.name}'s slice of its board"
-                f"{f' ({within})' if within else ''}, so {proj.name} cannot tell whether the "
-                f"factory has taken it up. Nothing was changed — if it is another project's, act "
-                f"on it from there; if it is {proj.name}'s own, put it in the scope and try "
-                f"again."))
+            return _Stage(cannot_tell=card_outside_the_slice(
+                ref=issue, project=proj.name, within=named() if callable(named) else "",
+                language=getattr(proj, "language", None)))
         return _Stage()      # not on the board: nobody has moved it anywhere
     # THE BOARD ROW ANSWERS, NOT AN OPTION NAME READ FROM HERE (#231). This was
     # `key_for(column, renamed=proj.tracker.options.get("columns"))`, and `ProviderRef.options` is

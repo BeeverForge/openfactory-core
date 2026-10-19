@@ -27,7 +27,9 @@ The claims, each held by a test this plan cuts under:
     read, asked about like any other (review of PR #884, points 1 and 6);
   - the product role's order asks the slice about each card it ranks, refuses another project's
     card by name and one it could not ask about as an unreachable board, and an unscoped board
-    is asked nothing (review of PR #884, point 3).
+    is asked nothing (review of PR #884, point 3);
+  - the gate's refusal of a card outside the slice speaks the project's language, on the product
+    view's close and remove too (review of PR #884, point 4).
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
@@ -140,9 +142,10 @@ MUTATIONS = [
      "",
      f"{SLICE}::test_a_slice_that_cannot_be_asked_about_a_card_refuses_as_unreadable"),
 
+    # re-pinned 2026-10-19: the sentence moved into the voice catalogue (PR #884, point 4)
     ("the refusal of a card outside the slice no longer names the scope", CATALOG,
-     "f\"{f' ({within})' if within else ''}, so {proj.name} cannot tell",
-     "f\", so {proj.name} cannot tell",
+     'ref=issue, project=proj.name, within=named() if callable(named) else "",',
+     'ref=issue, project=proj.name, within="",',
      f"{SLICE}::test_a_card_outside_the_slice_is_refused_by_name_naming_the_scope"),
 
     ("the scope the refusal names keeps its leading space, and reads `( within scope_jql …)`",
@@ -194,6 +197,14 @@ MUTATIONS = [
      "        if not self._scope():\n            return True\n        key = canonical_ref(ref)\n",
      "        key = canonical_ref(ref)\n",
      f"{SLICE}::test_an_unscoped_order_asks_the_slice_nothing"),
+
+    ("the gate's refusal of a card outside the slice is said in English whatever the project "
+     "speaks, and the product view's close shows a pt-BR project English", CATALOG,
+     "                ref=issue, project=proj.name, within=named() if callable(named) else \"\",\n"
+     "                language=getattr(proj, \"language\", None)))",
+     "                ref=issue, project=proj.name, within=named() if callable(named) else \"\",\n"
+     "                language=None))",
+     f"{SLICE}::test_the_product_views_refusal_of_a_card_outside_the_slice_speaks_the_projects_language"),
 
     ("the pt-BR refusal of a card outside the slice loses its middle, and no longer says nothing "
      "was changed nor how to act on the card", VOICE,

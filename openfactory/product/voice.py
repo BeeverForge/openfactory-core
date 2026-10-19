@@ -4994,6 +4994,33 @@ def card_unmapped(*, ref: str, column: str, option: str = "", language: str | No
                                                   repair=repair)
 
 
+#: A CARD OUTSIDE THIS PROJECT'S SLICE OF A SHARED BOARD (#752): the edit/close/remove gate's
+#: refusal (`actions/catalog.py::_stage`). It was English only, and the product view's close and
+#: remove show it (`_withdraw_refusal`), so a pt-BR project read it in English while the queueing's
+#: refusal of the same card (`board_move_said("outside_the_slice")`) spoke Portuguese (review of
+#: PR #884, point 4). `{within}` is the board's own naming of its option (`scope_named`), kept as
+#: the row spells it so the person can find the line to edit.
+_CARD_OUTSIDE_THE_SLICE = {
+    "pt-BR": ("O {ref} não está na fatia do quadro de {project}{within}, então {project} não tem "
+              "como saber se a fábrica já pegou esse card. Nada foi alterado — se ele é de outro "
+              "projeto, aja sobre ele por lá; se é do próprio {project}, inclua-o no escopo e "
+              "tente de novo."),
+    "en": ("{ref} is not in {project}'s slice of its board{within}, so {project} cannot tell "
+           "whether the factory has taken it up. Nothing was changed — if it is another "
+           "project's, act on it from there; if it is {project}'s own, put it in the scope and "
+           "try again."),
+}
+
+
+def card_outside_the_slice(*, ref: str, project: str, within: str = "",
+                           language: str | None = None) -> str:
+    """Why card `ref` may not be edited, closed or removed from `project`: it is not in the
+    project's slice of a shared board. `within` is the board's `scope_named()`, `""` when the row
+    names none."""
+    return _pick(_CARD_OUTSIDE_THE_SLICE, language).format(
+        ref=ref_label(ref), project=project, within=f" ({within})" if within else "")
+
+
 #: WHAT THE PRODUCT ROLE OWES, AS ONE LINE ON THE CARD ITSELF (ADR-0055 D11). The person cannot act
 #: on a promise, so it is not on the list of what waits on them; it is on the card it is about.
 _CARD_OWED = {

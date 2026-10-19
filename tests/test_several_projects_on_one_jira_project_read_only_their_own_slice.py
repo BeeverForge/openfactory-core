@@ -827,3 +827,34 @@ def test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_rank_it(tmp_path, 
     assert not result.ok, "a card the slice could not be asked about was ranked"
     assert result.detail == board_move_said("unreachable", ref="DAR-2"), result.detail
     assert site.ranked == []
+
+
+def _withdrawn(project, board, ref: str, monkeypatch) -> dict[str, str]:
+    """What the product view's close and remove answer for `ref` (`_withdraw_refusal`, the gate
+    `product_withdraw_card` asks), with the engine saying no job is on any card."""
+    import asyncio
+
+    from openfactory.actions import catalog
+
+    async def no_job(project, issue):
+        return catalog._JobOnTheCard()
+
+    monkeypatch.setattr(catalog, "_job_on_the_card", no_job)
+    return {act: asyncio.run(catalog._withdraw_refusal(project, board, ref,
+                                                        remove=act == "remove"))[1]
+            for act in ("close", "remove")}
+
+
+def test_the_product_views_refusal_of_a_card_outside_the_slice_speaks_the_projects_language(
+        site, tmp_path, monkeypatch):
+    """The product view's close and remove reach the gate's refusal through `_withdraw_refusal`,
+    and at 3c7fbcf a pt-BR project read it in English — "DAR-2 is not in api's slice …" — while
+    the queueing's refusal of the same card was in Portuguese (review of PR #884, point 4)."""
+    site(API)
+    project = _project(tmp_path, scope_jql=API).model_copy(update={"language": "pt-BR"})
+    _, board = _built(project)
+
+    for act, sentence in _withdrawn(project, board, "DAR-2", monkeypatch).items():
+        assert sentence.startswith("O DAR-2 não está na fatia do quadro de api"), (act, sentence)
+        assert f"(within scope_jql {API!r})" in sentence, (act, sentence)
+        assert sentence.count("api") == 3 + API.count("api"), (act, sentence)
