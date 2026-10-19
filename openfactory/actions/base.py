@@ -71,6 +71,10 @@ BAD_PARAMETERS = "bad_parameters"
 BAD_REF = "bad_ref"
 #: the credential is scoped away from the area the row belongs to
 OUT_OF_SCOPE = "out_of_scope"
+#: the row changes the installation, and the credential is scoped to an area (#741) — DENIED like
+#: `out_of_scope`, and told apart from it because the remedy differs: a credential of another area
+#: will not do, only the deployment's administrator will
+NOT_THE_INSTALLATIONS = "not_the_installations"
 #: the row needs an admin and the actor is not one
 NOT_ADMIN = "not_admin"
 #: the row needs the project's code and the project started before it (#992): its product has a
@@ -85,10 +89,10 @@ REPORTED_NOTHING = "reported_nothing"
 
 #: What `perform` itself may refuse ANY row with, before or around its runner — in the order it
 #: checks them. `actions.reasons` narrows it per row: `bad_ref` only for a row that takes an
-#: `issue`, `not_admin` only for one that `needs_admin`, `no_code_yet` only for one that
-#: `needs_code` and takes a `project`.
-AROUND_EVERY_ROW = (BAD_PARAMETERS, BAD_REF, OUT_OF_SCOPE, NOT_ADMIN, NO_CODE_YET,
-                    ENGINE_UNREACHABLE, RAISED, REPORTED_NOTHING)
+#: `issue`, `not_the_installations` only for one that changes the `installation`, `not_admin` only
+#: for one that `needs_admin`, `no_code_yet` only for one that `needs_code` and takes a `project`.
+AROUND_EVERY_ROW = (BAD_PARAMETERS, BAD_REF, OUT_OF_SCOPE, NOT_THE_INSTALLATIONS, NOT_ADMIN,
+                    NO_CODE_YET, ENGINE_UNREACHABLE, RAISED, REPORTED_NOTHING)
 
 #: Every reason a refusal may carry. Closed, like `CODES`, so a typo is an error at the refusal
 #: rather than a word no program was told to expect.

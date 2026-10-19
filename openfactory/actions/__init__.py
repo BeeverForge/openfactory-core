@@ -58,6 +58,7 @@ from openfactory.actions.base import (
     NO_CODE_YET,
     NOT_ADMIN,
     NOT_FOUND,
+    NOT_THE_INSTALLATIONS,
     OK,
     OUT_OF_SCOPE,
     PRODUCT,
@@ -202,6 +203,7 @@ def reasons(name: str) -> tuple[str, ...]:
         seen.add(key)
         around = [r for r in AROUND_EVERY_ROW
                   if (r != BAD_REF or "issue" in found.parameters)
+                  and (r != NOT_THE_INSTALLATIONS or found.installation)
                   and (r != NOT_ADMIN or found.needs_admin)
                   and (r != NO_CODE_YET or waits_for_code(found))]
         out += [r for r in (*around, *found.refuses) if r not in out]
@@ -343,6 +345,7 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
             f"{key} changes this installation, which is the administrator's; this credential is "
             f"scoped to {', '.join(sorted(by.scopes)) or 'nothing'}. Nothing was done — ask "
             f"somebody who administers this deployment.",
+            reason=NOT_THE_INSTALLATIONS,
         )
 
     if found.needs_admin and not by.admin:
