@@ -1171,9 +1171,8 @@ def test_a_link_put_under_the_name_after_it_was_resolved_is_not_followed(secrets
     secrets("acme-other", SECRET)
     entry = os.path.join(os.path.realpath(secrets.directory), "acme-token")
     os.symlink("acme-other", entry)
-    real = os.path.realpath
-    monkeypatch.setattr(os.path, "realpath",
-                        lambda p, *a, **kw: os.fspath(p) if os.fspath(p) == entry
+    real, other = os.lstat, os.path.join(os.path.dirname(entry), "acme-other")
+    monkeypatch.setattr(os, "lstat", lambda p, *a, **kw: real(other) if os.fspath(p) == entry
                         else real(p, *a, **kw))
     with pytest.raises(CredentialRefused, match="could not be opened"):
         FileStore().resolve("acme-token")

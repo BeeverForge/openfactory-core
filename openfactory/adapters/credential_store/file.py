@@ -16,21 +16,24 @@ WHAT IS CHECKED, AND WHY EACH:
     REFUSES WRITES. Whoever can write there can replace a secret, or put a link under a
     secret's name. A cluster mounts its secret volume read-only, so that layout is read whatever
     its bits say, and a sticky bit alone is not enough: it stops a stranger removing a file, not
-    adding one. The same rule holds for every directory a name's links lead through, up to the
-    credential directory: a secret is as safe as the directory it actually lives in;
+    adding one. The same rule holds for the directory the file is in, for each directory one of
+    the name's links is in, and for every directory between either and the credential directory:
+    whoever may write in one can swap the file or a link to it;
   · a directory others may write to, on a read-only mount, belongs to root or to this process's
     user, and so does every file read through it — see the next rule;
-  · the file, followed through links, stays inside the directory. A cluster's secret volume links
-    each name to a dated copy so it can swap them at once, so a link is ordinary, and one that
-    leaves the directory is not;
+  · the name is followed one link at a time (`readlink`, through at most `_MAX_LINKS` links),
+    and the file it ends at is inside the directory. A cluster's secret volume links each name to
+    a dated copy so it can swap them at once, so a link is ordinary, and one that ends outside
+    the directory is not;
   · it is a regular file, opened without blocking, so a pipe or a device named like a secret
     cannot hang the worker;
   · neither its group nor anyone else may write to it, for the reason the directory may not be
     writable by them — UNLESS THE MOUNT IT IS READ THROUGH REFUSES WRITES (see below);
   · in a directory anyone can write to, it belongs to root or to this process's user, because
     in such a directory a file somebody else created is not the deployment's;
-  · the entry under the name, when it is a link, was made by root or by this process's user —
-    asked of the entry itself (`lstat`), since what the link leads to says nothing of who made it;
+  · each link on the way, the entry under the name first, was made by root or by this
+    process's user — asked of the link itself (`lstat`), since what a link leads to says nothing
+    of who made it;
   · it has one name, unless its mount refuses writes: a file with another name somewhere can be
     changed through that one, whatever this one's bits say;
   · it is no larger than a credential: a token, a private key or a small pool of tokens.
@@ -57,6 +60,7 @@ from __future__ import annotations
 import os
 import re
 import stat
+from collections import deque
 
 from openfactory.adapters.credential_store.base import CredentialRefused
 
@@ -72,6 +76,10 @@ MAX_BYTES = 64 * 1024
 #: What a reference may name: one file, no path. The same characters a cluster allows in a secret's
 #: key, without the leading dot its volume uses for its own bookkeeping.
 _NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,254}")
+
+#: How many links a name may lead through: the kernel's own bound on one path (`MAXSYMLINKS` on
+#: Linux), far past a cluster's two (the name, then `..data`).
+_MAX_LINKS = 40
 
 
 def _writers(mode: int) -> str:
@@ -160,34 +168,76 @@ class FileStore:
                                     f"hold: letters, digits, `.`, `_` and `-`, not starting with "
                                     f"`.` — name the file, not a path to it")
         root, shared = self._root()
-        entry = os.path.join(root, name)
-        try:
-            linked = os.lstat(entry)
-        except OSError:
-            linked = None  # nothing there, or nothing to ask: `resolve` says which when it opens
-        owner = getattr(os, "geteuid", lambda: 0)()
-        if linked is not None and stat.S_ISLNK(linked.st_mode) \
-                and linked.st_uid not in (0, owner):
-            raise CredentialRefused(f"the file `{name}` in {self.directory} is a link another "
-                                    f"user made — put the secret itself there, or a link made by "
-                                    f"this deployment's user or by root")
-        path = os.path.realpath(entry)
+        #: every directory asked by `_held_through` on the way → whether it is shared
+        asked = {root: shared}
+        path = self._followed(name, root, asked)
         if os.path.commonpath([root, path]) != root or path == root:
             raise CredentialRefused(f"the file `{name}` in {self.directory} leads outside it — "
                                     f"put the secret itself in the directory, or link it to a "
                                     f"file inside it")
-        # EVERY DIRECTORY THE NAME LEADS THROUGH, by the same rule as the credential directory
-        # (#822): a link into a subdirectory others may write to is a secret they can replace.
-        here = os.path.dirname(path)
-        while here != root and os.path.commonpath([root, here]) == root:
+        # THE DIRECTORY THE FILE IS IN, and every one up to the credential directory, by the same
+        # rule as the credential directory (#822): a file in a subdirectory others may write to is
+        # a secret they can replace.
+        self._held_up_to(os.path.dirname(path), root, name, asked)
+        return path, any(asked.values())
+
+    def _followed(self, name: str, root: str, asked: dict[str, bool]) -> str:
+        """Where the name ends, its links followed one at a time: each asked who made it, and the
+        directory it is in — with every directory up to the credential directory — asked by
+        `_held_through`, because whoever may write in a directory a link is in can swap the link.
+        Where nothing is there to follow, the path so far, which `resolve` finds missing when it
+        opens it."""
+        owner = getattr(os, "geteuid", lambda: 0)()
+        here, parts, links = root, deque([name]), 0
+        while parts:
+            part = parts.popleft()
+            if part in ("", "."):
+                continue
+            if part == "..":
+                here = os.path.dirname(here)
+                continue
+            step = os.path.join(here, part)
+            try:
+                found = os.lstat(step)
+            except OSError:
+                return step
+            if not stat.S_ISLNK(found.st_mode):
+                here = step
+                continue
+            links += 1
+            if links > _MAX_LINKS:
+                raise CredentialRefused(f"the file `{name}` in {self.directory} leads through "
+                                        f"more than {_MAX_LINKS} links — link it to the secret "
+                                        f"file itself")
+            if found.st_uid not in (0, owner):
+                raise CredentialRefused(f"the file `{name}` in {self.directory} leads through a "
+                                        f"link another user made, {step} — put the secret itself "
+                                        f"there, or links made by this deployment's user or by "
+                                        f"root")
+            self._held_up_to(here, root, name, asked)
+            try:
+                target = os.readlink(step)
+            except OSError:
+                return step
+            if os.path.isabs(target):
+                here = os.sep
+            parts.extendleft(reversed(target.split(os.sep)))
+        return here
+
+    def _held_up_to(self, here: str, root: str, name: str, asked: dict[str, bool]) -> None:
+        """`_held_through` of `here` and of each directory above it up to the credential directory
+        (`here` alone, outside it), each asked once and its answer kept in `asked`."""
+        while here not in asked:
             try:
                 found = os.stat(here)
             except OSError:
                 break  # nothing to read there: `resolve` says so when it opens
-            shared = self._held_through(here, found, shown=f"{here}, where the file `{name}` in "
-                                                           f"{self.directory} leads,") or shared
-            here = os.path.dirname(here)
-        return path, shared
+            asked[here] = self._held_through(here, found, shown=f"{here}, where the file `{name}` "
+                                                                f"in {self.directory} leads,")
+            parent = os.path.dirname(here)
+            if parent == here or os.path.commonpath([root, parent]) != root:
+                break
+            here = parent
 
     def unusable(self) -> str:
         """Why no file can be read from this store at all, or `""` — what `openfactory doctor`

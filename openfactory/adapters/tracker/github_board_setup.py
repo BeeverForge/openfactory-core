@@ -158,6 +158,18 @@ class GitHubBoardSetup:
                 "cannot tell where to create the board — a GitHub Projects v2 board lives under a "
                 "user or an organisation. Pass --board-owner, or set the project's tracker repo "
                 "to `owner/name`")
+        if not token:
+            # A REFUSAL IS FINAL HERE TOO (#742): handed no token because the project's tracker
+            # credential, or the App key, is refused, the board is not created on `GH_TOKEN` or
+            # on the machine's own login in its place — asked before any `gh` call
+            from openfactory.credentials import github_refusal
+
+            refusal = github_refusal(project, "tracker")
+            if refusal:
+                raise BoardSetupError(
+                    f"the tracker credential {refusal}. Nothing is used in its place; fix what "
+                    f"it names and re-run `openfactory project init` — the board step is "
+                    f"idempotent")
         return create_board(owner=owner, title=title, token=token)
 
 

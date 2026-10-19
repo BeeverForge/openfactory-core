@@ -41,10 +41,14 @@ AXIS = "ci"
 #: forge/CI kind → the observer it implies.
 def _github_actions(project, **kw):
     from openfactory.adapters.environment.github_actions import GitHubActionsObserver
+    from openfactory.credentials import github_refusal
 
     return GitHubActionsObserver(
         (project.forge.repo if getattr(project, "forge", None) else None) or "",
         token=kw.get("token"),
+        # the FORGE's refusal, whose CI this is: handed no token after one, the observer runs no
+        # `gh` on the machine's own login (#742), as the forge's own row does
+        refused="" if kw.get("token") else github_refusal(project, "forge"),
     )
 
 

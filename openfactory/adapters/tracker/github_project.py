@@ -11,9 +11,10 @@ import json
 import logging
 import os
 import subprocess
+from collections.abc import Callable
 
 from openfactory.adapters.board.columns import CANONICAL_COLUMNS
-from openfactory.adapters.github_cli import credential_of, nothing_named, refused
+from openfactory.adapters.github_cli import LoginRefused, credential_of, nothing_named, refused
 from openfactory.adapters.tracker.base import Budget, BudgetUnreadable
 from openfactory.contracts import JobState
 from openfactory.contracts.refs import qualify_ref, ref_number, split_repo_ref
@@ -214,7 +215,7 @@ def _gh_host() -> str:
     return (os.environ.get("GH_HOST") or os.environ.get("GITHUB_HOST") or "github.com").strip()
 
 
-def _owner_kind(owner: str) -> str:
+def _owner_kind(owner: str, credential: Callable[[], str | None] = lambda: None) -> str:
     """`"orgs"` or `"users"` for a GitHub login — asked, never assumed.
 
     A FAILED PROBE ANSWERS `users`, because that is the shape which also works for a personal
@@ -224,12 +225,16 @@ def _owner_kind(owner: str) -> str:
     cached = _OWNER_KIND.get(owner)
     if cached:
         return cached
+    # the board's own credential, read only when the answer is not cached: a refused one raises
+    # `LoginRefused` here, before `gh`, and nothing is cached
+    token = credential()
     kind = "users"
     try:
         import subprocess
 
         out = subprocess.run(["gh", "api", f"users/{owner}", "--jq", ".type"],
-                             capture_output=True, text=True, timeout=15, check=False)
+                             capture_output=True, text=True, timeout=15, check=False,
+                             env=_env(token))
         if out.returncode == 0 and (out.stdout or "").strip().lower() == "organization":
             kind = "orgs"
     except Exception as exc:  # noqa: BLE001 — a link is never worth failing a page over
@@ -602,7 +607,15 @@ class GitHubProjectBoard:
         """
         if not (self.owner and self.number):
             return ""
-        return f"https://{_gh_host()}/{_owner_kind(self.owner)}/{self.owner}/projects/{self.number}"
+        try:
+            # ASKED ON THE BOARD'S OWN CREDENTIAL, never on the machine's login after a refusal
+            # (#742): then the link is the shape a failed probe answers, and nothing is cached
+            kind = _owner_kind(self.owner, lambda: self.token)
+        except LoginRefused as exc:
+            log.info("the board's credential is refused (%s) — linking %r as a user", exc,
+                     self.owner)
+            kind = "users"
+        return f"https://{_gh_host()}/{kind}/{self.owner}/projects/{self.number}"
 
     #: The client's own names arrive in `columns` on this axis (C-14) — see
     #: `board/base.py::Staged` for why the row names the option rather than generic code assuming

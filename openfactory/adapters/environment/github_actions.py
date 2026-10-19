@@ -8,6 +8,7 @@ import subprocess
 import httpx
 
 from openfactory.adapters.environment.base import CheckStatus, EnvironmentObserver, Status
+from openfactory.adapters.github_cli import credential_of
 
 _CONCLUSION: dict[str, Status] = {
     "success": "success", "failure": "failure", "cancelled": "failure",
@@ -16,16 +17,26 @@ _CONCLUSION: dict[str, Status] = {
 
 
 class GitHubActionsObserver(EnvironmentObserver):
-    def __init__(self, repo: str, *, token: str | None = None) -> None:
+    def __init__(self, repo: str, *, token: str | None = None, refused: str = "") -> None:
         self.repo = repo  # "owner/name"
-        self.token = token
+        self._static_token = token
+        #: why the credential store refused the credential this observer was meant to use (#742) —
+        #: then it runs nothing on the machine's own login, as the forge it watches
+        self.refused = refused
+
+    @property
+    def token(self) -> str | None:
+        return credential_of(self)
 
     def _api(self, path: str) -> object:
         import os
 
+        # ASKED BEFORE THE ENVIRONMENT IS BUILT: a refused credential raises `LoginRefused` (a
+        # `RuntimeError`, as a failed call is) and `gh` never starts on the ambient login
+        token = self.token
         env = dict(os.environ)
-        if self.token:
-            env["GH_TOKEN"] = self.token
+        if token:
+            env["GH_TOKEN"] = token
         p = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=30, env=env)
         if p.returncode != 0:
             raise RuntimeError(f"gh api {path} failed: {p.stderr}")

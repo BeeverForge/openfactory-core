@@ -260,23 +260,56 @@ def _a_hard_link_in_a_shared_writable_directory(b: Bench, name: str) -> None:
     os.link(_the_deployments_other_secret(b), b.directory / name)
 
 
-def _a_link_another_user_made(b: Bench, name: str) -> None:
-    """On a read-only mount, a link under the name whose own owner (its `lstat`) is somebody else:
-    what it leads to is the deployment's, and says nothing of who put the link there."""
-    _read_only_mount(b)
-    entry = b.directory / name
-    entry.symlink_to(_the_deployments_other_secret(b).name)
+def _made_by_another_user(b: Bench, link: pathlib.Path) -> None:
+    """`link`'s own owner (its `lstat`) is somebody else."""
     real = os.lstat
 
     def lstat(path, *a, **kw):
         found = real(path, *a, **kw)
-        if os.fspath(path) == os.fspath(entry):
+        if os.fspath(path) == os.fspath(link):
             fields = list(found)
             fields[stat.ST_UID] = 54321
             return os.stat_result(fields)
         return found
 
     b.monkeypatch.setattr(os, "lstat", lstat)
+
+
+def _a_link_another_user_made(b: Bench, name: str) -> None:
+    """On a read-only mount, a link under the name whose own owner (its `lstat`) is somebody else:
+    what it leads to is the deployment's, and says nothing of who put the link there."""
+    _read_only_mount(b)
+    entry = b.directory / name
+    entry.symlink_to(_the_deployments_other_secret(b).name)
+    _made_by_another_user(b, entry)
+
+
+def _a_link_on_the_way_another_user_made(b: Bench, name: str) -> None:
+    """…and further along: the link under the name is this user's, the one it leads to is not."""
+    _read_only_mount(b)
+    hop = b.directory / "hop"
+    hop.symlink_to(_the_deployments_other_secret(b).name)
+    (b.directory / name).symlink_to("hop")
+    _made_by_another_user(b, hop)
+
+
+def _a_link_through_a_subdirectory_others_may_write_to(b: Bench, name: str) -> None:
+    """The credential directory and the file are the owner's alone; a link on the way is in a
+    subdirectory others may write to, where it can be swapped for one to any other file."""
+    real = b.directory / "real"
+    real.mkdir()
+    (real / "ACME_OTHER_SECRET").write_text("fictitious-other-secret")
+    (real / "ACME_OTHER_SECRET").chmod(0o600)
+    real.chmod(0o700)
+    via = b.directory / "via"
+    via.mkdir()
+    (via / "hop").symlink_to("../real/ACME_OTHER_SECRET")
+    via.chmod(0o777)
+    (b.directory / name).symlink_to("via/hop")
+
+
+def _a_link_that_leads_to_itself(b: Bench, name: str) -> None:
+    (b.directory / name).symlink_to(name)
 
 
 def _unreadable(b: Bench, name: str) -> None:
@@ -330,6 +363,11 @@ REFUSALS = {
     "a hard link in a shared directory anyone may write to":
         _a_hard_link_in_a_shared_writable_directory,
     "a link another user made, on a read-only mount": _a_link_another_user_made,
+    "a link on the way another user made, on a read-only mount":
+        _a_link_on_the_way_another_user_made,
+    "a link through a subdirectory others may write to":
+        _a_link_through_a_subdirectory_others_may_write_to,
+    "a link that leads to itself": _a_link_that_leads_to_itself,
     "a directory others may write to by its bits (0777), on a read-only mount":
         _shared_by_its_bits(0o777),
     "a directory its group may write to (0770), on a read-only mount": _shared_by_its_bits(0o770),
@@ -775,21 +813,30 @@ def _ambient_login(b: Bench) -> None:
     b.monkeypatch.setenv("GITHUB_TOKEN", FALLBACK)
 
 
+def _gh_trapped(b: Bench) -> list[object]:
+    """Every subprocess started from here on, recorded and never run — the package's `gh` calls
+    all go through the `subprocess` module (`gh_starts` reads them)."""
+    import subprocess
+
+    started: list[object] = []
+    for start in ("run", "Popen"):
+        b.monkeypatch.setattr(subprocess, start,
+                              lambda argv, *a, **kw: started.append((argv, kw.get("env"))))
+    return started
+
+
 def _no_gh_started(b: Bench, forge, tracker) -> None:
     """EVERY SUBPROCESS THE ADAPTERS START (review of ef084ebd): a `gh` call is refused before it
     runs, by the forge as a failed call and by the tracker as a `LoginRefused`."""
-    import openfactory.adapters.forge.github as forge_module
-    import openfactory.adapters.tracker.github as tracker_module
     from openfactory.adapters.github_cli import LoginRefused
 
-    started: list[object] = []
-    for module in (forge_module, tracker_module):
-        b.monkeypatch.setattr(module.subprocess, "run",
-                              lambda argv, **kw: started.append((argv, kw.get("env"))))
+    started = _gh_trapped(b)
     said = forge._gh(["api", "repos/acme/app"])
     assert said.returncode != 0 and "refused" in (said.stderr or ""), said
     with pytest.raises(LoginRefused):
         tracker._gh(["api", "repos/acme/app"])
+    with pytest.raises(LoginRefused):
+        tracker.update_body("#1", "a fictitious body")
     assert not started, started
 
 
@@ -832,6 +879,65 @@ def _github_board(b: Bench, name: str) -> None:
     board = build_board(project, token=None)
     with pytest.raises(LoginRefused):
         board.token  # noqa: B018 — every `gh` call of the board reads it first
+    # …and the two that start `gh`: a read answers "unreadable", and the link is not typed on the
+    # machine's own login (review of 1b5ec71d)
+    import openfactory.adapters.tracker.github_project as github_project
+
+    b.monkeypatch.setattr(github_project, "_OWNER_KIND", {})
+    started = _gh_trapped(b)
+    assert board.columns() is None
+    assert board.url() == "https://github.com/users/acme/projects/7"
+    assert not started and not github_project._OWNER_KIND, started
+
+
+def _ci_observer(b: Bench, name: str) -> None:
+    """The CI observer, built as the production approval and the promotion runner build it, with
+    the forge's credential (review of 1b5ec71d): after a refusal it starts no `gh` on the
+    machine's own login."""
+    from openfactory.adapters.environment.registry import build_observer
+    from openfactory.adapters.github_cli import LoginRefused
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.credentials import _GENERIC, deployment_forge_token, forge_token_for
+
+    _mint_is_fallback(b)
+    _ambient_login(b)
+    b.monkeypatch.setenv(name, FALLBACK)
+    for each in _GENERIC["forge"]:
+        b.monkeypatch.setenv(each, FALLBACK)
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      forge=ProviderRef(kind="github", repo="acme/app",
+                                        options={"token_env": name}))
+    observer = build_observer(project,
+                              token=forge_token_for(project) or deployment_forge_token(project))
+    started = _gh_trapped(b)
+    with pytest.raises(LoginRefused):
+        observer.ci_status(repo="", ref="main")
+    assert not started, started
+
+
+def _board_creation(b: Bench, name: str) -> None:
+    """`openfactory project init`'s board, created with what the project resolves (review of
+    1b5ec71d): after a refusal it is not created on `GH_TOKEN` or the machine's own login."""
+    from openfactory.adapters.board_setup.base import BoardSetupError
+    from openfactory.adapters.board_setup.registry import board_creator
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.credentials import _GENERIC, deployment_tracker_token, tracker_token_for
+
+    _mint_is_fallback(b)
+    _ambient_login(b)
+    b.monkeypatch.setenv(name, FALLBACK)
+    for each in _GENERIC["tracker"]:
+        b.monkeypatch.setenv(each, FALLBACK)
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      tracker=ProviderRef(kind="github", repo="acme/app",
+                                          options={"token_env": name}))
+    creator = board_creator("github")
+    assert creator is not None
+    started = _gh_trapped(b)
+    with pytest.raises(BoardSetupError, match="refused") as refused:
+        creator.create(project=project, owner="acme", title="acme board",
+                       token=tracker_token_for(project) or deployment_tracker_token(project))
+    assert not started and FALLBACK not in str(refused.value), started
 
 
 def _a_refused_app_key(b: Bench, name: str) -> None:
@@ -1078,6 +1184,10 @@ CONSUMERS = {
                            _jira_row),
     "the GitHub board": Consumer("openfactory/adapters/board/factory.py", lambda: (PROJECT_NAME,),
                                  _github_board),
+    "the CI observer": Consumer("openfactory/adapters/environment/registry.py",
+                                lambda: (PROJECT_NAME,), _ci_observer),
+    "the board's creation at init": Consumer("openfactory/adapters/tracker/github_board_setup.py",
+                                             lambda: (PROJECT_NAME,), _board_creation),
     "the GitHub forge after a refused App key": Consumer(
         "openfactory/adapters/forge/registry.py", lambda: ("OPENFACTORY_GH_APP_KEY_CONTENT",),
         _a_refused_app_key),
@@ -1287,6 +1397,99 @@ def test_every_module_that_asks_the_store_is_a_consumer_here():
         f"these read a credential through the store, or fall back to the deployment's own, and no "
         f"case here proves a refusal opens nothing there: {sorted(asking - declared)}")
     assert declared <= asking, sorted(declared - asking)
+
+
+# ── every `gh` the package starts: a case above reaches it after a refusal ────────────────────
+
+#: Every `gh` the package starts, read from the code by `gh_starts`, → the consumer above whose
+#: case reaches it from adapters built after a refusal, with a login on the machine to fall back
+#: to, and sees it start nothing (review of 1b5ec71d: the CI observer and board creation did).
+GH_STARTS = {
+    ("openfactory/adapters/forge/github.py", "GitHubForge._gh"): "the worker's tracker and forge",
+    ("openfactory/adapters/tracker/github.py", "GitHubIssuesTracker._gh"):
+        "the worker's tracker and forge",
+    ("openfactory/adapters/tracker/github.py", "GitHubIssuesTracker.update_body"):
+        "the worker's tracker and forge",
+    ("openfactory/adapters/tracker/github_project.py", "_run_gh"): "the GitHub board",
+    ("openfactory/adapters/tracker/github_project.py", "_owner_kind"): "the GitHub board",
+    ("openfactory/adapters/environment/github_actions.py", "GitHubActionsObserver._api"):
+        "the CI observer",
+    ("openfactory/adapters/tracker/github_board_setup.py", "_gh_graphql"):
+        "the board's creation at init",
+}
+#: …and the one no stored credential reaches, with the reason.
+GH_WITH_NO_STORED_CREDENTIAL = {
+    ("openfactory/adapters/forge/github.py", "discover_token"):
+        "`openfactory init` asks whether the PERSON at the terminal is logged in to `gh`, to offer "
+        "their own login while it writes the configuration: it resolves no stored credential, so "
+        "there is no refusal for it to answer",
+}
+
+#: The `subprocess` calls that start a program.
+_STARTS = frozenset({"run", "Popen", "call", "check_call", "check_output"})
+
+
+def gh_starts(root: pathlib.Path = PACKAGE) -> set[tuple[str, str]]:
+    """`(module, function)` of every `gh` the package starts — a `subprocess` call whose argv is a
+    list beginning with `"gh"`, written in the call or bound to a name in the same function —
+    read from the code."""
+    found: set[tuple[str, str]] = set()
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root.parent).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parent = {id(c): n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+        for call in ast.walk(tree):
+            if not (isinstance(call, ast.Call) and call.args and (
+                    getattr(call.func, "attr", "") in _STARTS
+                    or getattr(call.func, "id", "") in _STARTS)):
+                continue
+            scope, here = [], parent.get(id(call))
+            while here is not None:
+                if isinstance(here, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    scope.insert(0, here)
+                here = parent.get(id(here))
+            argv = call.args[0]
+            function = next((s for s in reversed(scope) if not isinstance(s, ast.ClassDef)), None)
+            if isinstance(argv, ast.Name) and function is not None:
+                argv = next((n.value for n in ast.walk(function) if isinstance(n, ast.Assign)
+                             and any(isinstance(t, ast.Name) and t.id == argv.id
+                                     for t in n.targets)), argv)
+            if isinstance(argv, (ast.List, ast.Tuple)) and argv.elts \
+                    and isinstance(argv.elts[0], ast.Constant) and argv.elts[0].value == "gh":
+                found.add((rel, ".".join(s.name for s in scope) or "<module>"))
+    return found
+
+
+def test_every_gh_the_package_starts_is_reached_by_a_case_after_a_refusal():
+    """A NEW `gh` CALL JOINS A CASE (review of 1b5ec71d): the CI observer and board creation still
+    ran `gh` on the machine's own login after a refusal because no case reached them. Each `gh`
+    the package starts is now named, with the consumer whose case proves it starts nothing."""
+    read = gh_starts()
+    declared = set(GH_STARTS) | set(GH_WITH_NO_STORED_CREDENTIAL)
+    assert read <= declared, (
+        f"these start `gh`, and no case here proves they start nothing after a refusal — add the "
+        f"call to a consumer's case and name it in GH_STARTS: {sorted(read - declared)}")
+    assert declared <= read, sorted(declared - read)
+    assert set(GH_STARTS.values()) <= set(CONSUMERS), sorted(set(GH_STARTS.values()) - set(CONSUMERS))
+
+
+def test_the_gh_reading_sees_a_call_written_or_bound_and_nothing_else(tmp_path):
+    pkg = tmp_path / "openfactory"
+    pkg.mkdir()
+    (pkg / "planted.py").write_text(
+        "import subprocess\n"
+        "def written():\n"
+        "    return subprocess.run(['gh', 'api', 'user'])\n"
+        "class Adapter:\n"
+        "    def bound(self):\n"
+        "        cmd = ['gh', 'api', 'graphql']\n"
+        "        return subprocess.run(cmd, env={})\n"
+        "def another_program():\n"
+        "    return subprocess.run(['git', 'status'])\n"
+        "def answered_unrun():\n"
+        "    return subprocess.CompletedProcess(['gh'], 2, '', 'refused')\n")
+    assert gh_starts(pkg) == {("openfactory/planted.py", "written"),
+                              ("openfactory/planted.py", "Adapter.bound")}
 
 
 def test_a_consumer_that_reads_a_name_the_store_answers_is_not_shut_by_this_test(bench):
