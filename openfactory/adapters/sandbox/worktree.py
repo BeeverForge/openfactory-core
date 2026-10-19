@@ -375,6 +375,18 @@ def _write_mark(repo_path, wt: Path) -> Path | None:
                     "runs unmarked", repo_path, wt)
         return None
     mark = _add_mark(wt)
+    # A MARK ALREADY THERE IS NOT THIS ADD'S TO TAKE: it is an earlier interrupted add's, of this
+    # repository (left when the list could not be read, so `_clear_our_own` could not prove it) or
+    # of another one's box in the shared root. Rewritten and unlinked when this add returned, the
+    # tree it proves was then held for a person on the next rerun (measured on ee7ba35,
+    # 2026-10-18). This add runs unmarked instead, and the mark goes with its own tree.
+    try:
+        if os.path.lexists(mark):
+            log.warning("a mark of an earlier worktree add is at %s — left, and the add at %s "
+                        "runs unmarked", mark, wt)
+            return None
+    except OSError:
+        return None
     tmp = mark.with_name(f"{mark.name}.{os.getpid()}.tmp")
     try:
         tmp.write_bytes(_mark_bytes(common, wt))

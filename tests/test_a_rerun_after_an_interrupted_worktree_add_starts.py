@@ -447,3 +447,22 @@ def test_a_lock_the_box_cannot_prove_its_own_says_git_or_a_person_may_have_made_
     assert "worktree unlock" in said, said
     verdict = classify(said)
     assert (verdict.cause, verdict.detail) == (TREE, "another tree holds the branch"), verdict
+
+
+def test_an_interrupted_add_is_still_the_box_s_own_after_a_rerun_that_could_not_read_the_list(
+        tmp_path, monkeypatch):
+    """C6 with lessons §2, one rerun later. A rerun that cannot read the working-tree list leaves
+    the interrupted tree as it is, and runs its own `worktree add`, which git refuses. That add
+    must not take the earlier add's mark with it: measured on ee7ba35 (2026-10-18), the refused
+    add rewrote the mark and unlinked it on return, and the next rerun, with the list readable,
+    held for a person with `BranchHeldElsewhere` ("… which is locked, by a person or by a git
+    worktree add that was interrupted …") over the box's own interrupted add."""
+    slow = Slow(tmp_path / "myapp")
+    root = tmp_path / "boxes"
+    wt = root / NAME
+    _interrupt(slow, root, "process_group_killed")
+    monkeypatch.setattr(worktree_box, "_working_trees", lambda repo_path: None)
+    with pytest.raises(RuntimeError):
+        _again(root, slow)
+    monkeypatch.undo()
+    _assert_started_clean(_again(root, slow), wt, slow, root)
