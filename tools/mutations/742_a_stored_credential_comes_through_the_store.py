@@ -476,7 +476,7 @@ MUTATIONS = [
     ("a refused gate key is a `RuntimeError` again, which every gate reads as 'not waiting'",
      "openfactory/gate_seal.py",
      "class KeyRefused(Exception):",
-     "class KeyRefused(RuntimeError):", GATE),
+     "class KeyRefused(RuntimeError):", FAMILY),
     ("the merge gate says 'not waiting on a merge' over a refused gate key",
      "openfactory/actions/catalog.py",
      "    except gate_seal.KeyRefused as exc:\n        # THE ANSWER COULD NOT BE SEALED",
