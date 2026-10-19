@@ -204,6 +204,7 @@ def test_myself_waits_no_longer_than_the_call_that_404d(site):
     with pytest.raises(JiraRefused):
         _tracker().get_ticket(REF)
 
+    assert len(jira.timeouts) == 2, "the 404 and the probe, one timeout each"
     (call, probe) = jira.timeouts
     assert call and probe == call, jira.timeouts
 
