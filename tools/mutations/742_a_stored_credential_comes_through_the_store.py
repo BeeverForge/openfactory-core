@@ -17,7 +17,8 @@ provider after it, the harness, both boxes, the gate and preview keys, the engin
 doctor, readiness and onboarding line that asks whether a credential is configured (the family
 test, `tests/test_a_refused_credential_opens_no_door.py`). Then the file store on a read-only
 mount, its repairs and a byte-order mark; the pull's redaction, a job that pulls first, and the
-pull reaching the box's daemon; and the sweep reading tables.
+pull reaching the box's daemon; and the sweep reading tables. Last, every `gh` the package starts,
+and every link on a name's way.
 """
 
 TEST = "tests/test_a_stored_credential_comes_through_the_store.py"
@@ -368,10 +369,10 @@ MUTATIONS = [
      "        if not _mount_refuses_writes(path=here):",
      "        if not (found.st_mode & stat.S_ISVTX) and not _mount_refuses_writes(path=here):",
      FAMILY),
+    # re-pinned 2026-10-20 (#822, fourth round): every link on the way is asked who made it
     ("a link another user made under a credential's name is followed", FILE,
-     "        if linked is not None and stat.S_ISLNK(linked.st_mode) \\\n"
-     "                and linked.st_uid not in (0, owner):",
-     "        if False:", FAMILY),
+     "            if found.st_uid not in (0, owner):",
+     "            if False:", FAMILY),
 
     # ── a refusal is final at every construction point ──────────────────────────────────────────
     ("the worker's tracker takes the App minter after a refused reference", ACTIVITIES,
@@ -533,9 +534,10 @@ MUTATIONS = [
     ("a shared directory of another user's is read", FILE,
      '        if found.st_uid not in (0, getattr(os, "geteuid", lambda: 0)()):',
      "        if False:", FAMILY),
+    # re-pinned 2026-10-20 (#822, fourth round): the climb is `_held_up_to`, shared with the links
     ("the directories a name's link leads through are not asked", FILE,
-     "        while here != root and os.path.commonpath([root, here]) == root:",
-     "        while False:", FAMILY),
+     "        self._held_up_to(os.path.dirname(path), root, name, asked)\n",
+     "", FAMILY),
     ("a file with another name elsewhere is read on a writable mount", FILE,
      "        if found.st_nlink > 1 and not _mount_refuses_writes(fd=fd):",
      "        if False:", FAMILY),
@@ -552,4 +554,27 @@ MUTATIONS = [
      "openfactory/onboarding/onboard.py",
      "        refused = (harness_refusals(kind) if harness_credential(kind, {}) is not None",
      "        refused = ({} if harness_credential(kind, {}) is not None"),
+
+    # ── the delta review of 1b5ec71d: every `gh`, and every link on a name's way ────────────────
+    ("the CI observer's row hands it no refusal", "openfactory/adapters/environment/registry.py",
+     '        refused="" if kw.get("token") else github_refusal(project, "forge"),',
+     '        refused="",', FAMILY),
+    ("the CI observer starts `gh` without asking its credential",
+     "openfactory/adapters/environment/github_actions.py",
+     "        token = self.token\n",
+     "        token = self._static_token\n", FAMILY),
+    ("board creation at init asks no refusal before `GH_TOKEN`",
+     "openfactory/adapters/tracker/github_board_setup.py",
+     "            if refusal:\n                raise BoardSetupError(",
+     "            if False:\n                raise BoardSetupError(", FAMILY),
+    ("the board's link types its owner on the machine's own login",
+     "openfactory/adapters/tracker/github_project.py",
+     "            kind = _owner_kind(self.owner, lambda: self.token)",
+     "            kind = _owner_kind(self.owner)", FAMILY),
+    ("a directory a link on the way is in is not asked", FILE,
+     "            self._held_up_to(here, root, name, asked)\n",
+     "", FAMILY),
+    ("only the link under the name is asked who made it", FILE,
+     "            if found.st_uid not in (0, owner):",
+     "            if links == 1 and found.st_uid not in (0, owner):", FAMILY),
 ]

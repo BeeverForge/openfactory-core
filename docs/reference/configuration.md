@@ -407,11 +407,15 @@ held: the PEM for `OPENFACTORY_GH_APP_KEY_CONTENT`, a path for `OPENFACTORY_GH_A
   and a mounted cluster secret volume alike. A reference names one file in it, never a path.
 - **Read at each use, kept by nobody.** A rotated file is the next use's.
 - **Refused by name**, and never replaced by the variable, when:
-  - the directory, or any directory a name's link leads through on the way to the file, may be
-    written by anyone but its owner, on a mount that accepts writes;
+  - a directory on the name's way may be written by anyone but its owner, on a mount that accepts
+    writes. Those directories are the credential directory, the directory the file is in, each
+    directory one of the name's links is in, and every directory between one of those and the
+    credential directory;
   - on a mount that refuses writes, such a directory belongs to anyone but root or the worker's
     user — and then every file read through it must belong to root or the worker's user too;
-  - the name is a link another user made, or it leads out of the directory;
+  - a link on the name's way, the one under the name or one further along, was made by anyone but
+    root or the worker's user. The name is followed one link at a time (`readlink`), and it is
+    refused when it leads through more than 40 links or ends outside the directory;
   - the file is not a regular file, is larger than a credential (64 KB), or is not text;
   - on a mount that accepts writes, the file may be written by anyone but its owner, or it has
     more than one name (a hard link).
@@ -436,8 +440,9 @@ panel closed — every request is answered "identity provider unavailable" (503)
 and the log and `openfactory doctor` name the variable and the reason. A refused harness
 credential stops the agent rather than letting it run on the next one, and a refused `box.env`
 name crosses into neither box. A declared store that cannot be read at all, or a kind nobody
-installed, refuses every credential in the same way. With no token, the GitHub forge, tracker and
-board do not run `gh` on the machine's own login in its place either.
+installed, refuses every credential in the same way. With no token, the GitHub forge, tracker,
+board, CI observer and `openfactory project init`'s board creation do not run `gh` on the
+machine's own login in its place either.
 
 **A remote box** cannot read the worker's files, and it is not handed what they hold either. A
 remote box's launcher is handed short-lived minted tokens only (the machine's own identity, minted
