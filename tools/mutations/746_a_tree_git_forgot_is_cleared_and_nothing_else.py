@@ -94,6 +94,11 @@ MUTATIONS = [
      '        # registration\n        return "forgotten", str(owner), False\n',
      NOT_OURS),  # review of 35ac306
 
+    ("the owner is named as its `.git` directory, not the repository", BOX,
+     '    owner = common.parent if common.name == ".git" else common\n',
+     "    owner = common\n",
+     NOT_OURS),  # review of 35ac306
+
     ("the paths in the sentence are not shell-quoted", BOX,
      '    where, mine = shlex.quote(path), "<a path of yours>"\n',
      '    where, mine = path, "<a path of yours>"\n',

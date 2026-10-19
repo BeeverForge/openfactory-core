@@ -231,6 +231,7 @@ def test_the_refusal_names_the_path_whose_it_is_and_what_moves_it(tmp_path, root
     assert str(wt.resolve()) in said, said
     if case in OWNED:
         assert str(other.resolve()) in said, f"the owning repository is not named: {said!r}"
+        assert f"{other.resolve()}/.git" not in said, said
     assert "left as it is" in said, said
     assert "resume" in said, said
     moves = _commands(said)
