@@ -48,19 +48,24 @@ MUTATIONS = [
      "            raise _branch_held_elsewhere(branch, held, repo_path=repo_path, "
      "rebuilt=rebuilt,\n"
      "                                         ours=wt)\n"
-     "        # WHEN THE REMOTE IS THIS REPOSITORY",
-     "        # WHEN THE REMOTE IS THIS REPOSITORY"),
+     # re-pinned 2026-10-18 (#746): the taken-path refusal now follows this check
+     "        # THE PATH ITSELF MAY BE TAKEN",
+     "        # THE PATH ITSELF MAY BE TAKEN"),
 
     ("the box's own leftover is not cleared first, so it is refused as somebody else's tree",
      BOX,
-     "        self._clear_our_own(repo_path, wt)\n"
+     # re-pinned 2026-10-18 (#746): `_clear_our_own` answers the trees it read; the cut keeps the
+     # read and drops only the clearing
+     "        trees = self._clear_our_own(repo_path, wt)\n"
      "        # DECIDE BEFORE YOU WRITE",
+     "        trees = _working_trees(repo_path)\n"
      "        # DECIDE BEFORE YOU WRITE"),
 
     ("the blanket `worktree prune` is back, and a person's registration on a missing disk goes",
      BOX,
-     "        self._clear_our_own(repo_path, wt)\n",
-     "        self._clear_our_own(repo_path, wt)\n"
+     # re-pinned 2026-10-18 (#746): the call now binds the trees it read
+     "        trees = self._clear_our_own(repo_path, wt)\n",
+     "        trees = self._clear_our_own(repo_path, wt)\n"
      '        _run(["git", "-C", str(repo_path), "worktree", "prune"])\n'),
 
     ("the porcelain is not asked again after git refuses the add, so a branch taken in the "
