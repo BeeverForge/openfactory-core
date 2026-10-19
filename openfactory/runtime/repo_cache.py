@@ -5,7 +5,8 @@ pre-flight sizing gate's code layer). Clone on first touch; per use `fetch` + `r
 origin/<base>` + `clean -fdx` — reset, never pull: a cache must be IDENTICAL to base, not
 merged into. A corrupt cache is deleted and recloned; a reclone failure returns None so the
 caller degrades (text-only gate) instead of blocking. The executor's fresh isolated clone in
-Fargate is untouched — this cache is only ever read.
+Fargate is untouched. Callers read the served tree — except the worktree box, which adds a job's
+worktree to it (below).
 
 THE SERVED TREE IS NEVER MUTATED IN PLACE. The per-key lock covers sync-vs-sync, but a READER
 (the baseline survey, a conversational agent behind the view symlink) holds the returned path for
@@ -17,6 +18,17 @@ rename only when the master's commit moved (or the snapshot was dirtied/corrupte
 snapshot is parked for a grace period before deletion, so a reader that anchored itself (open fd,
 cwd) keeps a complete, self-consistent tree for the whole window; a reader resolving by name flips
 between complete trees, never through a mid-mutation state.
+
+A JOB'S WORKTREE LIVES IN THE SERVED `.git`, SO A SWAP WAITS FOR IT (#747). On the worktree box a
+project registered by clone URL gets this served checkout as its repository, and `prepare` runs
+`git worktree add` in it: the job's admin directory is `<served>/.git/worktrees/<name>`. A swap
+moved that into the trash, and every git command in the job then exited 128, `fatal: not a git
+repository: <root>/<key>/.git/worktrees/<name>`, its push included (82500f9, git 2.43.0). So the
+box marks the worktree it adds (`gitworktrees.mark_as_job`), and a sync that would replace the
+served tree keeps it as it is while a marked worktree still stands on disk, saying so as
+`OPENFACTORY_CACHE_HELD`. Git deletes the marker with the admin directory on `worktree remove` and
+`prune`, and a marker older than a day (`gitworktrees.JOB_MARKER_MAX_AGE`) stops holding, said as
+`OPENFACTORY_CACHE_HOLD_EXPIRED`. A held key is served at its old commit until then.
 
 THE CREDENTIAL NEVER RESTS IN THE CHECKOUT. `git clone <url-with-token>` persists that URL in
 `.git/config`, and agents DO run over this cache — the pre-flight sizer explores it. A sizer reads
@@ -281,7 +293,8 @@ class RepoCache:
 
         The returned path is STABLE across syncs, and its content is only ever replaced by an
         atomic swap — a caller still reading the tree a previous sync returned is never reset,
-        cleaned, or deleted underneath.
+        cleaned, or deleted underneath. And no swap happens while a running job's worktree stands
+        on the served tree (`_needs_publish`): the tree is then returned at its old commit.
 
         `project` is only a cache key, so one project may keep several checkouts under distinct
         keys (its code, its documentation repo) without them colliding."""

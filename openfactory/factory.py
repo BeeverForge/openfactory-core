@@ -108,7 +108,8 @@ def resolve_repo_path(project, *, token: str | None = None, cache_key: str | Non
     stack comes up healthy and cannot run a ticket.
 
     `RepoCache` does the fetching: a stable path across calls, content replaced by atomic swap so a
-    reader is never pulled out from under, and never raising. It was built for the product module's
+    reader is never pulled out from under — nor a job whose worktree the box added to it, which
+    holds the swap until it is removed — and never raising. It was built for the product module's
     documentation repository, which is the same problem.
 
     RAISES when a URL cannot be fetched, rather than returning the cache's `None`. A None reaching
@@ -203,7 +204,9 @@ def _worktree_at(repo: Path, ref: str, key: str) -> Path:
 
     # BESIDE THE URL CACHE, NOT IN IT. `RepoCache.sync` owns `root/<project>` and replaces it by
     # atomic swap; a worktree dropped in that namespace would be a directory it believes it may
-    # discard. Its own prefix keeps the two apart for a reader as well as for the code.
+    # discard. Its own prefix keeps the two apart for a reader as well as for the code. (A job's
+    # worktree the box adds to a served checkout is marked, and holds the swap while it stands;
+    # this measurement worktree is cut from a local repository and needs no mark.)
     dest = default_root() / "worktrees" / key
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():

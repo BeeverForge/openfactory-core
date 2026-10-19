@@ -120,6 +120,15 @@ layer** and gate on text alone (degrade, never block). Worker restarts (deploys)
 re-clone on first touch — acceptable; no EFS until proven needed. The **executor's fresh
 isolated clone in Fargate is unchanged** — the cache is only ever read.
 
+**Amended (2026-10-19, #747):** the cache is not only read. On the worktree box a project
+registered by clone URL is prepared from the cache's served checkout, and the box runs `git
+worktree add` in it, so a running job's admin directory, branch and objects live in the served
+`.git`; a sync that swapped the served tree for a fresh snapshot left the job's worktree pointing
+at nothing (`fatal: not a git repository`, exit 128) and its push failed. The box now marks the
+worktree it adds, and a sync keeps the served tree as it is while a marked worktree stands on disk,
+for at most a day, logging `OPENFACTORY_CACHE_HELD`. The decision stands; this is what a sync
+respects.
+
 ### D8 — A degraded gate must be LOUD (live lesson from #37)
 
 The gate is degrade-safe by design (D7-1) — any failure runs the ticket as before. But the

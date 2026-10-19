@@ -9,6 +9,11 @@ CREATE (#623). Its own is exactly `root / <branch>`, compared resolved. A card's
 other working tree (a review tree, or the person's own checkout) is refused before anything is
 written, with `BranchHeldElsewhere`, read from `git worktree list --porcelain` and not from git's
 sentence, which changes with git's version and the locale.
+
+IT MARKS THE ONE WORKTREE IT ADDS AS A RUNNING JOB'S, AND NEVER ANOTHER (#747). On a project
+registered by clone URL the repository is the cache's served checkout, which a sync would swap
+out from under the job; the marker in that worktree's own admin directory is what holds the swap,
+and git removes it with the worktree.
 """
 
 from __future__ import annotations

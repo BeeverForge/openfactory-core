@@ -17,6 +17,11 @@ split on spaces.
 PORCELAIN, NOT GIT'S SENTENCES: what git says when it refuses a held branch changes with its
 version (2.34.1 "is already checked out at", 2.43.0 "is already used by worktree at") and with the
 locale, and the porcelain does not.
+
+AND WHICH WORKTREE IS A RUNNING JOB'S (#747). The worktree box writes `JOB_MARKER` into the admin
+directory of the one worktree it adds (`mark_as_job`), and the repository cache reads the marks
+(`live_job_marks`, the filesystem only) before it swaps a served checkout a job may stand on. Git
+deletes the marker with the admin directory on `worktree remove` and `prune`.
 """
 
 from __future__ import annotations
