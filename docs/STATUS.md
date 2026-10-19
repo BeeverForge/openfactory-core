@@ -81,9 +81,12 @@ recurring-failure detection and the open-loop ledger work with no DynamoDB. Unti
 the write half was wired: `SqliteMetricsSink.scan()` existed, was tested, and was called by
 nothing, so every reader answered "nothing recorded" over a file that was filling up.
 
-**`openfactory doctor`.** Nine checks always, plus the agent credential, the declared CI checks, the
-box proof and the API budget where those apply — each with its own remedy line. It is the first thing to run and the
-fastest way to find out which of the below applies to you.
+**`openfactory doctor`.** One line per check, each with its own remedy: Docker, the harness, the
+manifest, forge access, the deployment's installation scope, the board's columns, the merge gates
+and the rest always, plus the agent credential, the declared CI checks, the box proof and the API
+budget where those apply ([the CLI reference](reference/cli.md#openfactory-doctor-project) lists
+them). It is the first thing to run and the fastest way to find out which of the below applies to
+you.
 
 ---
 
