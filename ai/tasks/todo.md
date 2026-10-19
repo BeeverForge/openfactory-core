@@ -246,7 +246,7 @@ marked as such.
 - [x] 12. Release-note fragment `changes/751.fix.md`, one line:
   "**A Jira ticket written in Jira's own editor keeps its headings and bullets.** A description with an Acceptance criteria heading and a bulleted or numbered list reached the factory as bare lines, so it found no sections and no criteria and refused the ticket as incomplete; headings and list items now arrive as the sections and criteria they are, and a description the factory wrote to Jira reads back with its blank lines, so a split card's last item no longer swallows the line under it."
   No number in the text.
-- [ ] 13. `make lint` (ruff + shellcheck). Then `.venv/bin/python -m pytest -q -n auto` and
+- [x] 13. `make lint` (ruff + shellcheck). Then `.venv/bin/python -m pytest -q -n auto` and
   `.venv/bin/python -m pytest -q -n auto -p no:randomly`. Record both counts against task 0's
   baseline: the new tests are the only difference in passed, and failed is 0 apart from the known
   docker preview flake, named if it appears.
