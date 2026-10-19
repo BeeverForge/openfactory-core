@@ -252,6 +252,12 @@ def _a_tree_this_repository_forgot(repo_path, wt, trees) -> bool:
     return _admin_dir_of(repo_path, wt) is not None
 
 
+def _say_what_was_not_removed(function, path, exc) -> None:
+    """`shutil.rmtree`'s `onexc`: what could not be removed is logged, never ignored, so a refusal
+    by name that follows does not read as the box having found the path taken by somebody."""
+    log.warning("could not remove %s from the box's forgotten tree (%s)", path, exc)
+
+
 def _holder(repo_path, branch: str) -> gitworktrees.WorkingTree | None:
     """The working tree that has `branch` out, or `None`.
 
@@ -564,21 +570,31 @@ class WorktreeSandbox(SandboxAdapter):
                          base_commit=base_commit)
 
     @staticmethod
-    def _clear_our_own(repo_path: Path, wt: Path) -> None:
-        """Remove the box's own worktree at `wt`, by the path git lists it under, registration and
-        directory. Nothing else is removed, pruned or forced.
+    def _clear_our_own(repo_path: Path, wt: Path) -> list[gitworktrees.WorkingTree] | None:
+        """Remove the box's own worktree at `wt`, registration and directory, and answer the
+        working trees it read (`None`: the list could not be read), so `prepare` does not ask git
+        for them again. Nothing else is removed, pruned or forced.
 
-        A DIRECTORY AT `wt` THAT THIS REPOSITORY DOES NOT LIST IS LEFT ALONE. The default root is
-        `.openfactory-worktrees` under the working directory, shared by every project the process
-        serves, so `wt` can be another repository's worktree of a branch with the same name; git
-        refuses the `worktree add` over it, as it always did, rather than this deleting it."""
+        ITS OWN IS WHAT THIS REPOSITORY LISTS AT `wt`, OR WHAT IT HAS FORGOTTEN THERE (#746). A
+        tree git no longer lists stays on disk, and `worktree add` over it fails with `fatal:
+        '<wt>' already exists` (rc 128, 2.34.1 and 2.43.0). The common cause is the repository
+        cache: `RepoCache._publish` replaces the served checkout with a snapshot that has no
+        `.git/worktrees/`, so every tree the box made from the old one is forgotten at once. Such a
+        directory is removed only when `wt/.git` names THIS repository's `<common>/worktrees/` and
+        the list, read, does not list `wt` (`_a_tree_this_repository_forgot`).
+
+        ANYTHING ELSE AT `wt` IS LEFT ALONE. The default root is `.openfactory-worktrees` beside
+        the served checkouts, shared by every project the process serves, so `wt` can be another
+        repository's worktree of a branch with the same name, or a person's directory; `prepare`
+        refuses by name over it rather than this deleting it."""
         trees = _working_trees(repo_path)
         if trees is None:
             # Could not read the list: remove by our own path, whether or not its directory is
             # still there (rc 0 on a missing one). Git removes only a working tree of THIS
-            # repository, so the path names nothing but ours.
+            # repository, so the path names nothing but ours. A forgotten tree is NOT removed
+            # here: unread is not "not listed" (engineering lessons §2).
             _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", str(wt)])
-            return
+            return None
         for tree in trees:
             if not tree.main and _same_dir(tree.path, wt):
                 if tree.locked:
@@ -592,6 +608,11 @@ class WorktreeSandbox(SandboxAdapter):
                 # what a failed remove left on disk is ours too: git listed it as this box's tree
                 if wt.exists():
                     shutil.rmtree(wt, ignore_errors=True)
+        if _a_tree_this_repository_forgot(repo_path, wt, trees):
+            log.warning("the box's own tree %s is one git has forgotten (its .git file names "
+                        "this repository, which no longer lists it) — removed", wt)
+            shutil.rmtree(wt, onexc=_say_what_was_not_removed)
+        return trees
 
     @staticmethod
     def _read_the_forges_base(*, repo_path: Path, wt: Path, base_branch: str, branch: str,
