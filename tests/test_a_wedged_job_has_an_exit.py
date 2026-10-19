@@ -301,10 +301,12 @@ def test_the_ENGINE_decides_what_wedged_means_and_uses_ONE_constant():
     # THE ASSIGNMENT, NOT THE SUBSTRING (guard audit, 2026-08-17): `"is_wedged(" in getsource`
     # was satisfied by this file's own comment inside `list_jobs` mentioning the call — the row
     # could stop carrying the answer while a comment kept the guard green.
+    # THE FUNCTION THAT BUILDS THE ROW: `_enriched` since #754 moved the per-row body out of
+    # `list_jobs` so the rows are asked about side by side; `list_jobs` no longer assigns a key.
     import ast
     import inspect as _inspect
 
-    tree = ast.parse(_inspect.cleandoc("\n" + _inspect.getsource(tv.list_jobs)))
+    tree = ast.parse(_inspect.cleandoc("\n" + _inspect.getsource(tv._enriched)))
     carried = any(
         isinstance(n, ast.Assign)
         and any(isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant)

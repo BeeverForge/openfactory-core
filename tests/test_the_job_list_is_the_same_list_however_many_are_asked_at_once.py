@@ -241,3 +241,24 @@ async def test_the_limit_counts_the_jobs_shown_not_the_jobs_asked_about(monkeypa
     rows = await _list(monkeypatch, setting, engine, limit=5)
 
     assert [r["issue"] for r in rows] == ["0", "2", "4", "5", "6"]
+
+
+@pytest.mark.parametrize("setting", ["1", "8", None])
+async def test_a_row_that_cannot_be_built_fails_the_list_with_its_own_error(monkeypatch, setting):
+    """Criterion 3, the failure side: one after another, a row whose building raised failed the
+    list with THAT error, and every caller (`_within`, the routes, the floor) is written against
+    the SDK's errors. Asked side by side inside a TaskGroup, the same failure arrives wrapped in an
+    `ExceptionGroup` no caller catches, unless the list unwraps it. Passes on the sequential list;
+    the mutation plan's "the group reaches the caller" cut turns it red."""
+    engine, _ = _floor()
+    real_row = tv._row
+
+    def unreadable(wf, namespace):
+        if wf.run_id == "run-4":
+            raise ValueError("a listing this tree cannot read")
+        return real_row(wf, namespace)
+
+    monkeypatch.setattr(tv, "_row", unreadable)
+
+    with pytest.raises(ValueError, match="a listing this tree cannot read"):
+        await _list(monkeypatch, setting, engine)

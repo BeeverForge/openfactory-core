@@ -37,6 +37,6 @@ MUTATIONS = [
 
     ("the row stops carrying is_wedged's answer",
      "openfactory/runtime/temporal/view.py",
-     '        row["wedged"] = is_wedged(row, live=live)',
-     '        row["wedged"] = False'),
+     '    row["wedged"] = is_wedged(row, live=live)',
+     '    row["wedged"] = False'),
 ]

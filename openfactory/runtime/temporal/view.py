@@ -1078,59 +1078,113 @@ def _watcher_schedule_ids() -> list[str]:
     return ids
 
 
+async def _enriched(client: Client, wf, namespace: str) -> dict | None:
+    """One listed workflow as the job list's row, every engine question it needs asked; `None`
+    when visibility still lists a workflow that aged out (`gone`), which is not a card."""
+    row = _row(wf, namespace)
+    row["state"], row["action"], live = await _domain_state(client, wf)
+    if row["state"] == "gone":
+        return None  # visibility still lists it but the workflow aged out — not a real card
+    # The merge gate carries its refusal in `action`; the approval gate has no action, so
+    # its refusal travels on the row.
+    row["refused"] = (await _gate_refusal(client, wf.id, wf.run_id)
+                      if row["state"] == "awaiting_prod_approval" else "")
+    # WHETHER `address` IS REAL AT THIS GATE (#330) is the forge's to say, and the job cannot:
+    # a workflow does not know its project's forge row. Asked only of a job at a merge gate,
+    # and asking builds the row without a call.
+    if row["state"] == "awaiting_your_merge" and isinstance(row["action"], dict):
+        row["action"] = {**row["action"],
+                         "can_address": _lists_review_comments(row.get("project") or "")}
+    # Reconcile the visibility status (which LAGS) with the truth: the panel paints an
+    # 'in production' machine card for any job whose status=='running', so a lagged
+    # 'running' on an already-closed workflow was the frozen ghost. Only a genuinely live
+    # workflow keeps 'running'; a closed one is stamped 'closed' so the card clears.
+    if not live and row["status"] == "running":
+        row["status"] = "closed"
+    # ATTENTION means "a human must act on a LIVE job". A closed workflow (completed/
+    # terminated/gone) can still carry a cached parked-ish state (e.g. a run that was
+    # on_hold then terminated, or needs_refinement then completed) — gate on `live` so a
+    # finished job never shows a phantom "needs attention" in the panel/Slack count.
+    row["attention"] = live and row["state"] in ATTENTION_STATES
+    row["title"] = await _memo_title(wf)  # panel shows it beside the #number
+    # WEDGED: running, at no gate, for longer than any real pass takes (#127). A job in this
+    # state holds the single-slot floor and no verb could reach it — `resume`/`skip` answer a
+    # park and the engine refuses them, the merge verbs answer a gate — so the honest exit was
+    # "open Temporal and terminate", a raw-engine operation on the one surface this product
+    # promises an operator will never need.
+    #
+    # DECIDED HERE, not in the browser, and against the SAME constant the tech-lead's rounds
+    # use to raise the alarm. Two readings of "stuck" would disagree by next month, and the
+    # one on the button is the one that matters.
+    row["wedged"] = is_wedged(row, live=live)
+    # surface the post-merge deploy outcome (ADR-0005) so the watch isn't invisible when
+    # no external notifier is configured — only merged jobs can have a deploy running.
+    row["deploy"] = await _deploy_state(client, row["project"], row["issue"]) \
+        if row["state"] == "merged" and row["project"] and row["issue"] else None
+    return row
+
+
+async def _enriched_in_order(client: Client, batch: list, namespace: str,
+                             room: asyncio.Semaphore) -> list[dict | None]:
+    """`batch`'s rows, asked about side by side and handed back IN THE BATCH'S ORDER.
+
+    A TaskGroup, so a deadline or a caller that went away cancels every question still asked
+    (nothing outlives the read: a query a silent worker never answers waits until the SDK gives
+    up). A row that raised is raised as itself, the first in list order, as the sequential walk
+    raised it: callers catch the SDK's errors, not an `ExceptionGroup`."""
+
+    async def one(wf):
+        async with room:
+            return await _enriched(client, wf, namespace)
+
+    tasks: list[asyncio.Task] = []
+    try:
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(one(wf)) for wf in batch]
+    except BaseExceptionGroup as failed:
+        raised = [t.exception() for t in tasks if t.done() and not t.cancelled()
+                  and t.exception() is not None]
+        raise (raised[0] if raised else failed.exceptions[0]) from None
+    return [t.result() for t in tasks]
+
+
 @_bounded_read("the job list")
 async def list_jobs(
     client: Client, namespace: str, *, limit: int = 50, query: str | None = None
 ) -> list[dict]:
     """Recent jobs, newest first, each enriched with its domain `state`. `query` is an
-    optional Temporal list filter (e.g. a StartTime range) for searchable history."""
+    optional Temporal list filter (e.g. a StartTime range) for searchable history.
+
+    ASKED SIDE BY SIDE, `list_concurrency()` at a time (#754). One after another, the list cost
+    the sum of every running row's round trips (a describe and up to three worker queries each)
+    and a busy floor ran past `read_deadline()`, which then refused every reader in the process.
+    The workflows are taken from the listing in batches of `k`; each batch is asked about at once
+    and kept IN LIST ORDER, so the order the engine answers in never reaches the rows: the same
+    rows are chosen, and the newest-first sort below breaks ties as the listing does. THE COST:
+    the last batch may ask about up to `k-1` jobs past `limit` that are then dropped."""
     base = 'WorkflowType = "JobWorkflow"'
     full = f"{base} AND ({query})" if query else base
+    k = list_concurrency()
+    # Made per call, never at module level: a semaphore belongs to the loop it was first awaited on.
+    room = asyncio.Semaphore(k)
     rows: list[dict] = []
+    batch: list = []
+
+    async def keep(asked: list) -> None:
+        for row in await _enriched_in_order(client, asked, namespace, room):
+            if row is not None and len(rows) < limit:
+                rows.append(row)
+
     async for wf in client.list_workflows(full):
-        row = _row(wf, namespace)
-        row["state"], row["action"], live = await _domain_state(client, wf)
-        if row["state"] == "gone":
-            continue  # visibility still lists it but the workflow aged out — not a real card
-        # The merge gate carries its refusal in `action`; the approval gate has no action, so
-        # its refusal travels on the row.
-        row["refused"] = (await _gate_refusal(client, wf.id, wf.run_id)
-                          if row["state"] == "awaiting_prod_approval" else "")
-        # WHETHER `address` IS REAL AT THIS GATE (#330) is the forge's to say, and the job cannot:
-        # a workflow does not know its project's forge row. Asked only of a job at a merge gate,
-        # and asking builds the row without a call.
-        if row["state"] == "awaiting_your_merge" and isinstance(row["action"], dict):
-            row["action"] = {**row["action"],
-                             "can_address": _lists_review_comments(row.get("project") or "")}
-        # Reconcile the visibility status (which LAGS) with the truth: the panel paints an
-        # 'in production' machine card for any job whose status=='running', so a lagged
-        # 'running' on an already-closed workflow was the frozen ghost. Only a genuinely live
-        # workflow keeps 'running'; a closed one is stamped 'closed' so the card clears.
-        if not live and row["status"] == "running":
-            row["status"] = "closed"
-        # ATTENTION means "a human must act on a LIVE job". A closed workflow (completed/
-        # terminated/gone) can still carry a cached parked-ish state (e.g. a run that was
-        # on_hold then terminated, or needs_refinement then completed) — gate on `live` so a
-        # finished job never shows a phantom "needs attention" in the panel/Slack count.
-        row["attention"] = live and row["state"] in ATTENTION_STATES
-        row["title"] = await _memo_title(wf)  # panel shows it beside the #number
-        # WEDGED: running, at no gate, for longer than any real pass takes (#127). A job in this
-        # state holds the single-slot floor and no verb could reach it — `resume`/`skip` answer a
-        # park and the engine refuses them, the merge verbs answer a gate — so the honest exit was
-        # "open Temporal and terminate", a raw-engine operation on the one surface this product
-        # promises an operator will never need.
-        #
-        # DECIDED HERE, not in the browser, and against the SAME constant the tech-lead's rounds
-        # use to raise the alarm. Two readings of "stuck" would disagree by next month, and the
-        # one on the button is the one that matters.
-        row["wedged"] = is_wedged(row, live=live)
-        # surface the post-merge deploy outcome (ADR-0005) so the watch isn't invisible when
-        # no external notifier is configured — only merged jobs can have a deploy running.
-        row["deploy"] = await _deploy_state(client, row["project"], row["issue"]) \
-            if row["state"] == "merged" and row["project"] and row["issue"] else None
-        rows.append(row)
+        batch.append(wf)
+        if len(batch) < k:
+            continue
+        await keep(batch)
+        batch = []
         if len(rows) >= limit:
             break
+    if batch and len(rows) < limit:
+        await keep(batch)
     # stable order (newest first) so the SSE frame doesn't churn on list reordering — an
     # unstable order made the panel re-render (and reset) a running job's card each tick.
     rows.sort(key=lambda r: r.get("start_time") or "", reverse=True)
