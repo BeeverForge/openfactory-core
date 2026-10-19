@@ -194,7 +194,8 @@ class JiraProjectBoard:
         """Whether the card `ref` is in this project's slice: `True`, `False`, or `None` when the
         site could not be asked. Read by the edit/close/remove gate (`actions/catalog.py::_stage`)
         and by the product role's queueing (`product/module.py::ProductModule.promote`), through
-        `getattr`, and only for a card `columns()` did not return.
+        `getattr`, and only for a card `columns()` did not return — or, in the queueing, for every
+        card when `columns()` itself was refused.
 
         WHY THE GATE NEEDS IT (review of #752). `columns()` is the slice, but an edit, a close or a
         removal acts by key and unscoped, so a card of another project's slice was absent from

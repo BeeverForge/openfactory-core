@@ -572,3 +572,140 @@ def test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_queue_it(tmp_path,
     assert not result.ok, "a card the slice could not be asked about was queued"
     assert result.detail == board_move_said("unreachable", ref="DAR-2"), result.detail
     assert moved == []
+
+
+def test_a_board_read_refused_once_does_not_queue_another_projects_card(tmp_path, monkeypatch):
+    """`promote` asks `holds` only about a card its batch read did not return. When that read is
+    refused (a 429 among many pollers on one site), the door reads the board again, and if Jira
+    answers then, another project's running card reads as one no board places and is queued."""
+    from openfactory.adapters.board import build_board
+    from openfactory.adapters.tracker.registry import build_tracker
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.product.config import ProductLink
+    from openfactory.product.loader import ProductContext
+    from openfactory.product.module import ProductModule
+    from tests.test_card_maintenance import COMMIT, REQUIREMENTS_DIR, _corpus, _Harness
+
+    where = {"DAR-1": ("of-api", "Backlog"), "DAR-2": ("of-web", "Em andamento")}
+    moved: list[str] = []
+    refused: list[str] = []
+
+    def urlopen(req, timeout=0):
+        split = urllib.parse.urlsplit(req.full_url)
+        if "search/jql" in split.path:
+            jql = (urllib.parse.parse_qs(split.query)["jql"][0] if req.get_method() == "GET"
+                   else json.loads(req.data)["jql"])
+            if jql.endswith("ORDER BY Rank ASC") and " status = " not in jql and not refused:
+                refused.append(jql)
+                raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", hdrs=None,
+                                             fp=io.BytesIO(b'{"errorMessages":["x"]}'))
+            label = re.search(r'labels = "([^"]+)"', jql)
+            key = re.search(r'key = "([^"]+)"', jql)
+            keys = [k for k, (lab, _) in where.items()
+                    if (label is None or lab == label.group(1)) and (key is None or k == key.group(1))]
+            return _Answer({"isLast": True, "issues": [
+                {"key": k, "fields": {"status": {"name": where[k][1]}}} for k in keys]})
+        issue = re.search(r"issue/(DAR-\d+)(/transitions)?$", split.path)
+        if issue is None:
+            return _Answer({})
+        if issue.group(2) and req.get_method() == "POST":
+            moved.append(issue.group(1))
+            return _Answer({})
+        if issue.group(2):
+            return _Answer({"transitions": [{"id": "11", "name": "A Fazer",
+                                             "to": {"name": "A Fazer"}}]})
+        lab, status = where[issue.group(1)]
+        return _Answer({"key": issue.group(1), "fields": {
+            "summary": "web's card", "description": None, "labels": [lab],
+            "status": {"name": status, "statusCategory": {"key": "indeterminate"}}}})
+
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "metrics.db"))
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    sm = {"backlog": "Backlog", "todo": "A Fazer", "in_progress": "Em andamento", "done": "Concluído"}
+    api = Project(name="api", repo_path=str(tmp_path), tracker=ProviderRef(
+        kind="jira", repo="DAR", options={"site": SITE, "email": "a@b.c",
+                                          "status_map": json.dumps(sm), "scope_jql": API}),
+        product=ProductConfig(docs_repo="acme/acme-docs", admins=["ana"], agent_name="Nina"))
+    ctx = ProductContext(link=ProductLink(active=True, docs_repo="acme/acme-docs", kind="ok",
+                                          reason="fine"),
+                         corpus=_corpus(), docs_path=str(tmp_path), docs_commit=COMMIT,
+                         requirements_dir=REQUIREMENTS_DIR)
+    module = ProductModule(api, context=ctx, agent=_Harness("{}"),
+                           tracker=build_tracker(api, token="t"), board=build_board(api, token="t"))
+
+    [result] = module.promote(["DAR-2"], actor="ana")
+
+    assert refused, "the fake never refused the batch's board read"
+    assert not result.ok, "another project's running card was queued after one refused read"
+    assert moved == []
+
+
+def test_an_empty_slice_does_not_queue_another_projects_card(tmp_path, monkeypatch):
+    """A newly scoped project starts with an empty slice: the batch's read answers `{}`, and every
+    card is one it did not return, so each is asked about (`holds`) — an empty answer is a read,
+    not a refused one. Green at 3c7fbcf; the cut `where is not None and …` → `where and …` (review
+    of PR #884, point 6) skips the question on `{}`, and the door queues web's running card."""
+    from openfactory.adapters.board import build_board
+    from openfactory.adapters.tracker.registry import build_tracker
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.product.config import ProductLink
+    from openfactory.product.loader import ProductContext
+    from openfactory.product.module import ProductModule
+    from openfactory.product.voice import board_move_said
+    from tests.test_card_maintenance import COMMIT, REQUIREMENTS_DIR, _corpus, _Harness
+
+    where = {"DAR-2": ("of-web", "Em andamento")}  # nothing on the site carries `of-api` yet
+    moved: list[str] = []
+    asked: list[str] = []
+
+    def urlopen(req, timeout=0):
+        split = urllib.parse.urlsplit(req.full_url)
+        if "search/jql" in split.path:
+            jql = (urllib.parse.parse_qs(split.query)["jql"][0] if req.get_method() == "GET"
+                   else json.loads(req.data)["jql"])
+            asked.append(jql)
+            label = re.search(r'labels = "([^"]+)"', jql)
+            key = re.search(r'key = "([^"]+)"', jql)
+            keys = [k for k, (lab, _) in where.items()
+                    if (label is None or lab == label.group(1)) and (key is None or k == key.group(1))]
+            return _Answer({"isLast": True, "issues": [
+                {"key": k, "fields": {"status": {"name": where[k][1]}}} for k in keys]})
+        issue = re.search(r"issue/(DAR-\d+)(/transitions)?$", split.path)
+        if issue is None:
+            return _Answer({})
+        if issue.group(2) and req.get_method() == "POST":
+            moved.append(issue.group(1))
+            return _Answer({})
+        if issue.group(2):
+            return _Answer({"transitions": [{"id": "11", "name": "A Fazer",
+                                             "to": {"name": "A Fazer"}}]})
+        lab, status = where[issue.group(1)]
+        return _Answer({"key": issue.group(1), "fields": {
+            "summary": "web's card", "description": None, "labels": [lab],
+            "status": {"name": status, "statusCategory": {"key": "indeterminate"}}}})
+
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "metrics.db"))
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    sm = {"backlog": "Backlog", "todo": "A Fazer", "in_progress": "Em andamento", "done": "Concluído"}
+    api = Project(name="api", repo_path=str(tmp_path), tracker=ProviderRef(
+        kind="jira", repo="DAR", options={"site": SITE, "email": "a@b.c",
+                                          "status_map": json.dumps(sm), "scope_jql": API}),
+        product=ProductConfig(docs_repo="acme/acme-docs", admins=["ana"], agent_name="Nina"))
+    ctx = ProductContext(link=ProductLink(active=True, docs_repo="acme/acme-docs", kind="ok",
+                                          reason="fine"),
+                         corpus=_corpus(), docs_path=str(tmp_path), docs_commit=COMMIT,
+                         requirements_dir=REQUIREMENTS_DIR)
+    module = ProductModule(api, context=ctx, agent=_Harness("{}"),
+                           tracker=build_tracker(api, token="t"), board=build_board(api, token="t"))
+
+    [result] = module.promote(["DAR-2"], actor="ana")
+
+    assert f'project = "{KEY}" AND ({API}) AND key = "DAR-2"' in asked, asked
+    assert not result.ok, "another project's running card was queued from an empty slice"
+    assert result.detail == board_move_said("outside_the_slice", ref="DAR-2", project="api"), \
+        result.detail
+    assert moved == []

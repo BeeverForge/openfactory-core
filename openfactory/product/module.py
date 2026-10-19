@@ -4404,9 +4404,10 @@ class ProductModule:
         it (`voice.board_move_said`, #497): `CONT-412` on Jira, never `#CONT-412`.
 
         A CARD THE BOARD DID NOT RETURN IS ASKED ABOUT, as the edit/close/remove gate asks
-        (`actions/catalog.py::_stage`, #752): under a Jira `scope_jql` the read is this project's
-        slice, and a card outside it — another project's, perhaps running — is refused by name
-        (`holds` answers `False`) or as an unreachable board (`None`), never queued."""
+        (`actions/catalog.py::_stage`, #752), and so is every card when the batch's read was
+        refused: under a Jira `scope_jql` the read is this project's slice, and a card outside it —
+        another project's, perhaps running — is refused by name (`holds` answers `False`) or as an
+        unreachable board (`None`), never queued. A card the read returned is asked nothing more."""
         from openfactory.product.voice import board_move_said
 
         lang = getattr(self.project, "language", None)
@@ -4436,8 +4437,12 @@ class ProductModule:
         out: list[WriteResult] = []
         for number in numbers:
             # ANOTHER PROJECT'S CARD (review round 2 of #752): `where` is this project's slice of a
-            # shared tracker, and the move below reaches the card by key — what `_stage` asks, asked
-            if where is not None and not where.get(str(number)):
+            # shared tracker, and the move below reaches the card by key — as `_stage` asks.
+            # AN UNREAD BATCH ASKS TOO (PR #884 review, 2026-10-19): with `where is None` skipped,
+            # one 429 on the batch read sent the card to the door, whose own read of the board then
+            # succeeded and placed web's running card nowhere — `PROMOTED`, ok=True. Unscoped and
+            # `holds`-less boards answer True with no request, and go to the door as before
+            if where is None or not where.get(str(number)):
                 holds = getattr(board, "holds", None)
                 inside = holds(str(number)) if callable(holds) else True
                 if inside is not True:

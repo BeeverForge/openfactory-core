@@ -21,7 +21,10 @@ The claims, each held by a test this plan cuts under:
     refuses another project's card rather than move it back into the queue (review round 2),
     and refuses as an unreachable board when that search cannot be made (review round 3);
   - the pt-BR refusal of a card outside the slice names the project and both ways out, as the
-    en one does (review round 3).
+    en one does (review round 3);
+  - the queueing asks the slice about a card when the batch's board read was refused, so one 429
+    followed by a good read cannot queue another project's card, and an empty slice (`{}`) is a
+    read, asked about like any other (review of PR #884, points 1 and 6).
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
@@ -156,6 +159,18 @@ MUTATIONS = [
      "                if inside is not True:\n",
      "                if inside is False:\n",
      f"{SLICE}::test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_queue_it"),
+
+    ("the queueing skips the slice when its board read was refused, and after one 429 the door's "
+     "own read queues another project's running card", PRODUCT,
+     "            if where is None or not where.get(str(number)):\n",
+     "            if where is not None and not where.get(str(number)):\n",
+     f"{SLICE}::test_a_board_read_refused_once_does_not_queue_another_projects_card"),
+
+    ("an empty slice reads as an unread one, the card is not asked about, and the door queues "
+     "another project's card", PRODUCT,
+     "            if where is None or not where.get(str(number)):\n",
+     "            if where and not where.get(str(number)):\n",
+     f"{SLICE}::test_an_empty_slice_does_not_queue_another_projects_card"),
 
     ("the pt-BR refusal of a card outside the slice loses its middle, and no longer says nothing "
      "was changed nor how to act on the card", VOICE,
