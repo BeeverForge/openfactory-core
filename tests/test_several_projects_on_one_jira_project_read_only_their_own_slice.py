@@ -454,6 +454,7 @@ def test_another_projects_running_card_is_not_queued_from_this_one(tmp_path, mon
     from openfactory.product.config import ProductLink
     from openfactory.product.loader import ProductContext
     from openfactory.product.module import ProductModule
+    from openfactory.product.voice import board_move_said
     from tests.test_card_maintenance import COMMIT, REQUIREMENTS_DIR, _corpus, _Harness
 
     where = {"DAR-1": ("of-api", "Backlog"), "DAR-2": ("of-web", "Em andamento")}
@@ -504,6 +505,7 @@ def test_another_projects_running_card_is_not_queued_from_this_one(tmp_path, mon
     assert not result.ok, "another project's running card was queued from this one"
     assert "DAR-2" in result.detail and "api" in result.detail, result.detail
     assert moved == []
+    assert board_move_said("outside_the_slice", ref="DAR-2", project="api", language="pt-BR").count("api") == 3
 
 
 def test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_queue_it(tmp_path, monkeypatch):

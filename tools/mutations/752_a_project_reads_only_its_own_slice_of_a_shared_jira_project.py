@@ -19,7 +19,9 @@ The claims, each held by a test this plan cuts under:
     (review round 1 of #752);
   - the product role's queueing asks the same of a card its board read did not return, and
     refuses another project's card rather than move it back into the queue (review round 2),
-    and refuses as an unreachable board when that search cannot be made (review round 3).
+    and refuses as an unreachable board when that search cannot be made (review round 3);
+  - the pt-BR refusal of a card outside the slice names the project and both ways out, as the
+    en one does (review round 3).
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
@@ -29,6 +31,7 @@ REGISTRY = "openfactory/adapters/tracker/registry.py"
 DOCS = "docs/reference/configuration.md"
 CATALOG = "openfactory/actions/catalog.py"
 PRODUCT = "openfactory/product/module.py"
+VOICE = "openfactory/product/voice.py"
 SLICE = TEST
 EMPTY = "tests/test_an_empty_slice_of_a_jira_project_is_not_a_missing_project.py"
 FILED = "tests/test_a_ticket_another_project_filed_on_one_jira_project_is_not_read_as_already_filed.py"
@@ -153,4 +156,11 @@ MUTATIONS = [
      "                if inside is not True:\n",
      "                if inside is False:\n",
      f"{SLICE}::test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_queue_it"),
+
+    ("the pt-BR refusal of a card outside the slice loses its middle, and no longer says nothing "
+     "was changed nor how to act on the card", VOICE,
+     '"saber se a fábrica já pegou esse card. Nada foi alterado — se ele é de outro "\n'
+     '                  "projeto, mova-o por lá; se é do próprio {project}, inclua-o no escopo e tente "\n',
+     '"saber. "\n',
+     f"{SLICE}::test_another_projects_running_card_is_not_queued_from_this_one"),
 ]
