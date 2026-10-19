@@ -494,6 +494,12 @@ def probe(port: int, path: str = READY_PATH, *, host: str = LOOPBACK,
     except OSError as exc:
         print(f"{path} on port {port} did not answer: {exc}", file=sys.stderr)
         return 1
+    except http.client.HTTPException as exc:
+        # NOT AN `OSError` (fourth review of #818, measured: a malformed status line ended the
+        # probe in a `BadStatusLine` traceback). Whatever answers this is not the process asked.
+        print(f"{path} on port {port} answered something that is not HTTP: "
+              f"{type(exc).__name__} {str(exc)[:200]}", file=sys.stderr)
+        return 1
     finally:
         connection.close()
     if response.status == 200:

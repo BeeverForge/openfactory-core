@@ -431,7 +431,9 @@ async def born() -> None:
     exited (1) — stopping the rest`, and the line above that one should say why.
 
     AND THE LOG IS SET UP HERE, for the same reason (#675): one format with a time, a level and a
-    name, and the platform's INFO kept, whichever way the worker was started."""
+    name, and the platform's INFO kept, whichever way the worker was started. With JSON lines,
+    any other failure that ends the start is one JSON line too, its traceback inside it:
+    `configure` hands the exception nobody catches to the log (fourth review of #818)."""
     from openfactory.observability import logs
 
     logs.configure()

@@ -70,7 +70,12 @@ class _AboutWhileStreaming:
     record the body logs said nothing (second review of #818: `/api/jobs/{project}/{issue}/stream`).
     PER STEP, NOT ONE BLOCK AROUND THE WHOLE ITERATION: a `with` held open across `yield` would be
     closed by whoever finalises the generator — possibly another task, whose context the variable
-    was never set in — while a step sets and resets it inside one call, in one task."""
+    was never set in — while a step sets and resets it inside one call, in one task.
+
+    NO `aclose` OF ITS OWN (fourth review of #818: one stood here, and no test could reach it).
+    Nothing in the stack calls it: a `StreamingResponse` only iterates its body
+    (`starlette/responses.py::stream_response`). The body it wraps is still closed as any async
+    generator is — cancelled inside the step a disconnect interrupts, or finalised by the loop."""
 
     def __init__(self, body: Any, project: str) -> None:
         self._body: AsyncIterator[Any] = body.__aiter__()
@@ -82,8 +87,3 @@ class _AboutWhileStreaming:
     async def __anext__(self) -> Any:
         with logs.about(project=self._project):
             return await self._body.__anext__()
-
-    async def aclose(self) -> None:
-        close = getattr(self._body, "aclose", None)
-        if close is not None:
-            await close()

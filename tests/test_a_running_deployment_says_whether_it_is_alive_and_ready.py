@@ -487,6 +487,71 @@ async def test_a_hung_check_starves_no_request_and_blames_no_other_check(deploym
     assert entered() == 1, f"the hung dependency was asked {entered()} times"
 
 
+#: How many supervisors' polls give up on one hung dependency in a case below, one after another.
+POLLS = 3
+
+
+async def _until(entered) -> None:
+    """Until the hung dependency is being asked — the event the case waits for, never a guess at
+    how long that takes."""
+    for _ in range(200):
+        if entered():
+            return
+        await asyncio.sleep(0.01)
+
+
+@pytest.mark.parametrize("hung", sorted(health.CHECKS))
+async def test_polls_that_give_up_on_a_hung_check_share_its_one_question(deployment, engine,
+                                                                        monkeypatch, hung):
+    """A CHECK THAT HANGS HOLDS ONE QUESTION, NOT ONE PER POLL (fourth review of #818, cut U: with
+    the question dropped from its slot when a poll gave up, three polls in a row asked a hung
+    registry three times and left three threads waiting on it — the old starvation at one thread
+    per deadline). Each poll gives up at the deadline and names the check; the question it gave up
+    on keeps the slot, so the next poll joins it: the dependency is asked once, and at most one
+    thread of readiness's waits on it, however many polls give up."""
+    monkeypatch.setattr(health, "deadline", lambda: 0.3)
+    entered, release = HANG[hung](monkeypatch, engine)
+    try:
+        for _ in range(POLLS):
+            assert (await health.ready())["failing"] == [hung]
+        await _until(entered)
+        asked = entered()
+        waiting = [t.name for t in threading.enumerate() if t.name == "openfactory-ready-hangs"]
+    finally:
+        release()
+    await health.ready()
+
+    assert asked == 1, f"the hung dependency was asked {asked} times by {POLLS} polls"
+    assert len(waiting) <= 1, f"threads left waiting on it: {waiting}"
+
+
+@pytest.mark.parametrize("hung", sorted(health.CHECKS))
+async def test_a_check_that_hangs_is_said_once_however_many_polls_give_up(deployment, engine,
+                                                                          monkeypatch, caplog,
+                                                                          hung):
+    """A DEPENDENCY THAT HANGS IS LOGGED, ONCE (fourth review of #818, cut O: with a poll that gave
+    up skipping the log, a dependency that hung was never logged at all — the one failure whose
+    cause an operator has nowhere else to read). Polls in new windows each give up and name it;
+    readiness says why once."""
+    monkeypatch.setattr(health, "deadline", lambda: 0.3)
+    clock = [1000.0]
+    monkeypatch.setattr(health, "_clock", lambda: clock[0])
+    entered, release = HANG[hung](monkeypatch, engine)
+    try:
+        with caplog.at_level(logging.INFO, logger=health.log.name):
+            for _ in range(WINDOWS):
+                assert (await health.ready())["failing"] == [hung]
+                clock[0] += health.WINDOW_S
+        await _until(entered)
+    finally:
+        release()
+
+    said = [r.getMessage() for r in caplog.records
+            if r.name == health.log.name and r.levelno >= logging.WARNING]
+    assert len(said) == 1, said
+    assert f"NOT_READY the {hung} check failed: no answer within" in said[0], said
+
+
 @pytest.mark.parametrize("path", health.PATHS)
 async def test_a_supervisors_question_takes_no_pooled_thread(deployment, engine, path):
     """With every pooled thread a handler could wait for held — the default executor's one, and
@@ -1020,6 +1085,45 @@ def test_the_probe_gives_up_on_a_listener_that_never_answers(monkeypatch, capfd)
 
     assert said == [1] and waited < health.probe_timeout() + 2.0, (said, waited)
     assert "did not answer" in capfd.readouterr().err
+
+
+#: What a listener that is not the process asked may answer, by what it is. Each is a failure the
+#: probe says in one line and exits 1 on, never a traceback.
+NOT_AN_ANSWER = {
+    "not HTTP at all": b"SSH-2.0-a different service\r\n",
+    "a status that is no number": b"HTTP/1.1 OK fine\r\n\r\n",
+}
+
+
+@pytest.mark.parametrize("answer", sorted(NOT_AN_ANSWER))
+def test_the_probe_says_an_answer_that_is_not_http_in_one_line(capfd, answer):
+    """Fourth review of #818, measured: a malformed status line ended the probe in a
+    `BadStatusLine` traceback, which is an `HTTPException` and not the `OSError` it caught."""
+    import socket
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def _answer_wrongly():
+        conn, _addr = listener.accept()
+        with conn:
+            conn.recv(4096)
+            conn.sendall(NOT_AN_ANSWER[answer])
+
+    answering = threading.Thread(target=_answer_wrongly, daemon=True)
+    answering.start()
+    try:
+        said = health.probe(port, timeout=5.0)
+    finally:
+        answering.join(5)
+        listener.close()
+
+    err = [line for line in capfd.readouterr().err.splitlines() if line.strip()]
+    assert said == 1
+    assert len(err) == 1 and err[0].startswith(f"{health.READY_PATH} on port {port} answered "
+                                               "something that is not HTTP"), err
 
 
 def test_the_probe_a_healthcheck_runs_imports_no_engine_client(tmp_path):

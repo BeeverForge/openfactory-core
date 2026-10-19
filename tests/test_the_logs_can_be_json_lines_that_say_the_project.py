@@ -12,6 +12,12 @@ THE RULES THIS FILE HOLDS:
     `level`, `logger` and `message`, keeps the platform's INFO and drops the libraries'; a traceback
     stays one line; `deployment` is there exactly when `OPENFACTORY_DEPLOYMENT` names one; the
     lines a process prints for a person, and the sentence it ends with, follow the format;
+  · NOTHING THE PACKAGE RUNS WRITES PAST THE FORMAT (fourth review of #818): every write to a
+    process's own stdout or stderr in `openfactory/` — read off each module's syntax tree — goes
+    through `logs.announce`, or sits where only a box's own program, a command run from a terminal
+    or a process of its own reaches it, each with its reason; and Python's own lines — a warning,
+    an exception nobody caught, in any thread, and one nobody could raise — are JSON lines too, a
+    start that fails included;
   · without it — unset, or any other value — the line is #675's, unchanged;
   · a record concerns a project when it is logged inside work about one, and then its line says the
     project and the product the project belongs to: EVERY worker activity whose input names a
@@ -36,11 +42,15 @@ import inspect
 import io
 import json
 import logging
+import os
 import re
+import subprocess
+import sys
 import threading
 import time
 import types
 import typing
+from pathlib import Path
 
 import pytest
 import yaml
@@ -60,6 +70,7 @@ from tests.test_every_process_the_deployment_starts_logs_with_a_time_a_level_and
     _a_fresh_process,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
 TS = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
 FIELDS = ("ts", "level", "logger", "message")
 
@@ -150,25 +161,395 @@ def test_the_panel_says_where_it_serves_in_the_format_it_was_asked_for(monkeypat
         line for line in _json_lines(written.err) if "panel:" in line["message"]).items()
 
 
-#: The functions a process runs to start, whose every line goes through `logs.announce` — the
-#: worker's `main` and the panel's `serve`, the two entry points #675's guard drives.
-def _entry_points():
-    from openfactory import cli
-    from openfactory.runtime.temporal import worker
+# ── nothing the package runs writes past the format (fourth review of #818) ─────────────────────
 
-    return {"worker.main": worker.main, "cli.serve": cli.serve}
+#: Where the package writes to its process's own stdout or stderr by itself, by file and by the
+#: function the write is in (`*`: the whole module), each with the reason that code is never the
+#: worker's or the panel's. Every other such write is a plain line among the JSON ones: the fourth
+#: review of #818 measured seven in the code a worker's jobs run, the pre-flight that could not size
+#: among them, which a log store that drops what it cannot parse drops first. A module's
+#: `if __name__ == "__main__":` block runs only as a process of its own, and needs no row.
+OUTSIDE_THE_LOG = {
+    "openfactory/cli.py": {
+        "*": "the CLI, which answers a person at a terminal — save the commands that become the "
+             "deployment's own processes (`BECOME_A_PROCESS`)"},
+    "openfactory/cli_refusals.py": {"*": "the CLI's refusals, which only the CLI imports"},
+    "openfactory/observability/logs.py": {
+        "announce": "the one door for a line for a person: it prints only where the process's "
+                    "lines are not JSON",
+        "configure": "hands stderr to the log's own handler"},
+    "openfactory/observability/health.py": {
+        "probe": "the probe a healthcheck runs, a process of its own (`python -m "
+                 "openfactory.observability.health`) whose stderr `docker inspect` shows"},
+    "openfactory/runtime/boxed_job.py": dict.fromkeys(
+        ("_options", "_no_identity", "_a_count", "run_boxed", "run_ci_repair", "run_review_pass",
+         "_emit"),
+        "the program a remote box runs (`python -m openfactory.runtime.boxed_job`), reached from "
+        "its `main` only: its stdout is the box's log, whose result line the host parses"),
+    "openfactory/runtime/temporal/schedule.py": {
+        "main": "`python -m openfactory.runtime.temporal.schedule`, an operator's command"},
+    "openfactory/runtime/temporal/starter.py": {
+        "main": "`python -m openfactory.runtime.temporal.starter`, an operator's command"},
+    "openfactory/api/openapi.py": {
+        "main": "`python -m openfactory.api.openapi`, which writes the contract's document"},
+    "openfactory/adapters/extract/pdf.py": {
+        "main": "the extraction's child process, whose stdout is the pipe its parent reads"},
+    "openfactory/product/evaluation/__main__.py": {
+        "*": "`make eval-product`, a battery run from a terminal"},
+    "openfactory/testing/local_flow.py": {
+        "FlowRun.print_trace": "the local flow's trace, printed for a person at a terminal"},
+}
+
+#: The commands of a module allowed whole above that become the deployment's own long-running
+#: processes — the panel's `serve` and `openfactory worker` — where nothing may write past it.
+BECOME_A_PROCESS = {"openfactory/cli.py": ("serve", "worker_cmd")}
+
+_STREAMS = {"stdout", "stderr", "__stdout__", "__stderr__"}
+_ECHOES = {"typer", "click"}
 
 
-@pytest.mark.parametrize("name", sorted(_entry_points()))
-def test_no_entry_point_prints_past_the_format(name):
-    """Read off each entry point's syntax tree: nothing in it writes to stdout by itself."""
-    tree = ast.parse(inspect.getsource(_entry_points()[name]).lstrip())
-    printed = [ast.unparse(n)[:80] for n in ast.walk(tree) if isinstance(n, ast.Call)
-               and (getattr(n.func, "id", "") == "print"
-                    or (getattr(n.func, "attr", "") == "echo"
-                        and getattr(n.func.value, "id", "") == "typer"))]
+def _is_main_block(node: ast.AST) -> bool:
+    return (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Name) and node.test.left.id == "__name__"
+            and any(isinstance(c, ast.Constant) and c.value == "__main__"
+                    for c in node.test.comparators))
 
-    assert not printed, f"{name} prints past the log format: {printed}"
+
+def _what_writes(node: ast.AST) -> str:
+    """What `node` writes to its process's own stdout or stderr, or `""`."""
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        if node.value.id == "sys" and node.attr in _STREAMS:
+            return f"sys.{node.attr}"
+    if isinstance(node, ast.ImportFrom) and node.module == "sys":
+        named = [alias.name for alias in node.names if alias.name in _STREAMS]
+        return f"from sys import {', '.join(named)}" if named else ""
+    if not isinstance(node, ast.Call):
+        return ""
+    func = node.func
+    if isinstance(func, ast.Name) and func.id == "print":
+        return "print(…)"
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        owner, name = func.value.id, func.attr
+        if owner in _ECHOES and name in ("echo", "secho"):
+            return f"{owner}.{name}(…)"
+        if owner == "traceback" and name.startswith("print_"):
+            return f"traceback.{name}(…)"
+        if (owner, name) == ("os", "write") and node.args and isinstance(
+                node.args[0], ast.Constant) and node.args[0].value in (1, 2):
+            return f"os.write({node.args[0].value}, …)"
+    return ""
+
+
+def _writes(tree: ast.AST) -> list[tuple[str, int, str]]:
+    """Every write `tree` makes to its process's stdout or stderr by itself, as `(where, line,
+    what)` — `where` is the function it sits in (`Class.method`, `outer.inner`), `__main__` for
+    the module's main block, `""` for the module's own top level."""
+    found: list[tuple[str, int, str]] = []
+
+    def visit(node: ast.AST, where: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            what = _what_writes(child)
+            if what:
+                found.append((where, child.lineno, what))
+            inner = where
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                inner = f"{where}.{child.name}" if where else child.name
+            elif not where and _is_main_block(child):
+                inner = "__main__"
+            visit(child, inner)
+
+    visit(tree, "")
+    return found
+
+
+def _the_package_writes() -> list[tuple[str, str, int, str]]:
+    return [(path.relative_to(ROOT).as_posix(), where, line, what)
+            for path in sorted((ROOT / "openfactory").rglob("*.py"))
+            for where, line, what in _writes(ast.parse(path.read_text(encoding="utf-8")))]
+
+
+def _allowed(path: str, where: str) -> bool:
+    outermost = where.split(".", 1)[0]
+    if outermost in BECOME_A_PROCESS.get(path, ()):
+        return False
+    if outermost == "__main__":
+        return True
+    rows = OUTSIDE_THE_LOG.get(path, {})
+    return "*" in rows or any(where == row or where.startswith(f"{row}.") for row in rows)
+
+
+def test_nothing_the_worker_or_the_panel_runs_writes_past_the_log():
+    """Read off every module's syntax tree: each write to the process's own stdout or stderr goes
+    through `logs.announce`, which prints or logs as the process's lines are — or it sits where
+    the worker and the panel never run it, said in `OUTSIDE_THE_LOG`. A `print` added to an
+    activity tomorrow is named here before it is a plain line in a deployment's log."""
+    past = [f"{path}:{line} in {where or 'the module'}: {what}"
+            for path, where, line, what in _the_package_writes() if not _allowed(path, where)]
+
+    assert not past, ("these write past the log format — send each through `logs.announce` at "
+                      "its level, or say in OUTSIDE_THE_LOG why no deployment process runs it:\n"
+                      + "\n".join(past))
+
+
+#: Every way of writing to the process's own streams the sweep must see, as a statement. A sweep
+#: blind to one of them would pass the package above with that one in it.
+WAYS_OF_WRITING = {
+    "print": "print('a line')",
+    "print to stderr": "print('a line', file=sys.stderr)",
+    "a stream written": "sys.stdout.write('a line')",
+    "Python's own stream": "sys.__stderr__.write('a line')",
+    "a stream imported": "from sys import stderr",
+    "typer": "typer.echo('a line')",
+    "click": "click.secho('a line')",
+    "a traceback": "traceback.print_exc()",
+    "a descriptor": "os.write(2, b'a line')",
+}
+
+
+@pytest.mark.parametrize("way", sorted(WAYS_OF_WRITING))
+def test_the_sweep_sees_every_way_of_writing_and_where_it_is(way):
+    said = WAYS_OF_WRITING[way]
+    placed = {
+        "f": f"def f():\n    {said}\n",
+        "C.m": f"class C:\n    def m(self):\n        {said}\n",
+        "f.inner": f"async def f():\n    def inner():\n        {said}\n",
+        "__main__": f"if __name__ == '__main__':\n    {said}\n",
+        "": f"{said}\n",
+    }
+    for where, module in placed.items():
+        found = {w for w, _line, _what in _writes(ast.parse(
+            "import click, os, sys, traceback, typer\n" + module))}
+        assert found == {where}, (way, where, found)
+
+
+def test_every_place_the_sweep_lets_write_still_writes():
+    """A row with no write left under it is a door left open for whatever comes next; a process's
+    command that no longer exists guards nothing."""
+    found: dict[str, set[str]] = {}
+    for path, where, _line, _what in _the_package_writes():
+        found.setdefault(path, set()).add(where)
+    stale = [f"{path} :: {row}" for path, rows in OUTSIDE_THE_LOG.items() for row in rows
+             if not any(row == "*" or where == row or where.startswith(f"{row}.")
+                        for where in found.get(path, ()))]
+    commands = {path: {node.name for node in ast.parse((ROOT / path).read_text()).body
+                       if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+                for path in BECOME_A_PROCESS}
+
+    assert not stale, f"rows that allow a write nothing makes any more: {stale}"
+    assert all(set(names) <= commands[path] for path, names in BECOME_A_PROCESS.items()), (
+        BECOME_A_PROCESS, commands)
+
+
+@pytest.mark.parametrize("level", [logging.INFO, logging.WARNING])
+def test_a_line_for_a_person_is_printed_or_is_a_json_line_at_its_level(monkeypatch, capsys,
+                                                                       level):
+    said = "OPENFACTORY_PREFLIGHT: DEGRADED for acme#7 — sizer: the harness token is not set"
+    logger = logging.getLogger("openfactory.test.announce")
+    with _a_fresh_process():
+        logs.configure()
+        logs.announce(logger, said, level)
+    written = capsys.readouterr()
+    assert written.out.splitlines() == [said] and not written.err.strip(), written
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    with _a_fresh_process():
+        logs.configure()
+        logs.announce(logger, said, level)
+    written = capsys.readouterr()
+    assert not written.out.strip(), written.out
+    (line,) = _json_lines(written.err)
+    assert (line["level"], line["logger"], line["message"]) == (
+        logging.getLevelName(level), logger.name, said), line
+
+
+def test_a_process_that_never_set_up_its_log_prints_whatever_the_variable_says(monkeypatch,
+                                                                              capsys):
+    """A box's own program never calls `configure`, and its stdout is the box's log, whose last
+    line the host parses: the variable reaching it changes nothing there."""
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    said = "OPENFACTORY_RESUME: continuing build session 7f0c"
+    with _a_fresh_process():
+        logs.announce(logging.getLogger("openfactory.test.announce"), said, logging.WARNING)
+
+    written = capsys.readouterr()
+    assert written.out.splitlines() == [said] and not written.err.strip(), written
+
+
+class _RunsItsBody:
+    """Below the worker's interceptor: the activity's body, run as the activity runs it."""
+
+    async def execute_activity(self, input: ExecuteActivityInput):
+        return await input.fn(*input.args)
+
+
+async def test_what_a_job_says_for_a_person_is_a_json_line_about_its_project(monkeypatch,
+                                                                             capsys):
+    """THE FOURTH REVIEW'S MEASUREMENT. The worker's real `_do_coordinate` — what
+    `coordinator_advise` runs on its thread — through the worker's own interceptor, with the judge
+    failing: the path where a parked decision gets no advice. It printed a plain line on stdout,
+    saying no project, beside the warning a JSON line said with one."""
+    from openfactory.runtime.temporal import activities
+    from openfactory.runtime.temporal.interceptors import AboutItsProject
+    from openfactory.runtime.temporal.io import CoordinatorItem
+
+    def _no_judge(_project):
+        raise RuntimeError("no judge is configured on this bench")
+
+    async def _coordinator(item):
+        return await asyncio.to_thread(activities._do_coordinate, item)
+
+    monkeypatch.setattr(activities, "_judge_for", _no_judge)
+    item = CoordinatorItem(project="acme", issue="7", job_id="of-acme-7")
+    inbound = AboutItsProject().intercept_activity(_RunsItsBody())
+    for asked in (None, "json"):
+        if asked:
+            monkeypatch.setenv(logs.FORMAT_VARIABLE, asked)
+        with _a_fresh_process():
+            logs.configure()
+            assert await inbound.execute_activity(ExecuteActivityInput(
+                fn=_coordinator, args=[item], executor=None, headers={})) == {}
+        written = capsys.readouterr()
+        if not asked:
+            assert "OPENFACTORY_COORDINATOR: no parseable advice for acme#7" in (
+                written.out.splitlines()), written.out
+            continue
+        assert not written.out.strip(), f"a plain line beside the JSON: {written.out!r}"
+        lines = _json_lines(written.err)
+        said = [line for line in lines if "OPENFACTORY_COORDINATOR" in line["message"]]
+        assert len(said) == 1 and said[0]["level"] == "WARNING", lines
+        assert all(line.get("project") == "acme" for line in lines), lines
+
+
+def test_the_live_feed_keeps_its_envelope_inside_a_json_line(monkeypatch, capsys):
+    """The pre-flight's live feed has no box: the worker streams it through the stdout sink
+    (`activities._pf_emit`). With JSON lines the envelope is the message of one, prefix and all,
+    so a reader of the feed finds it whole; a box's program prints it as it always did."""
+    from openfactory.observability.events import JobEvent, StdoutEventSink, now_iso
+
+    event = JobEvent(ts=now_iso(), job_id="openfactory-acme-7", ticket_id="7", kind="state",
+                     message="sizing")
+    envelope = "OPENFACTORY_EVENT:" + event.model_dump_json()
+    with _a_fresh_process():
+        StdoutEventSink().emit(event)
+    assert capsys.readouterr().out.splitlines() == [envelope]
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    with _a_fresh_process():
+        logs.configure()
+        StdoutEventSink().emit(event)
+    written = capsys.readouterr()
+    assert not written.out.strip(), written.out
+    (line,) = _json_lines(written.err)
+    assert (line["level"], line["logger"], line["message"]) == (
+        "INFO", "openfactory.journal", envelope), line
+
+
+# ── Python's own lines (fourth review of #818) ──────────────────────────────────────────────────
+
+#: What Python writes on stderr by itself, by what causes it: the code; the logger, level and
+#: exception its JSON line says; and what Python itself writes for it in the readable format. Each
+#: runs in a process of its own, after `logs.configure()`, as a process of the deployment would.
+PYTHONS_OWN = {
+    "a warning": ("import warnings\nwarnings.warn('a library warned')\n",
+                  "py.warnings", "WARNING", "UserWarning", "UserWarning: a library warned"),
+    "an exception nobody caught": ("raise RuntimeError('nobody caught this')\n",
+                                   logs.UNCAUGHT_LOGGER, "ERROR", "RuntimeError",
+                                   "Traceback (most recent call last)"),
+    "one that ends a thread": (
+        "import threading\n"
+        "sweep = threading.Thread(target=lambda: 1 / 0, name='a-sweep')\n"
+        "sweep.start()\nsweep.join()\n", logs.UNCAUGHT_LOGGER, "ERROR", "ZeroDivisionError",
+        "Exception in thread a-sweep"),
+    "one nobody could raise": (
+        "class _Gone:\n    def __del__(self):\n        raise ValueError('raised in a finaliser')\n"
+        "_Gone()\n", logs.UNCAUGHT_LOGGER, "WARNING", "ValueError", "Exception ignored in"),
+}
+
+
+def _a_process_of_its_own(script: str, *, asked: str | None) -> subprocess.CompletedProcess:
+    env = {k: v for k, v in os.environ.items()
+           if k not in (logs.FORMAT_VARIABLE, logs.LEVEL_VARIABLE, logs.DEPLOYMENT_VARIABLE)}
+    if asked:
+        env[logs.FORMAT_VARIABLE] = asked
+    return subprocess.run([sys.executable, "-c", script], cwd=ROOT, env=env,
+                          capture_output=True, text=True, timeout=120)
+
+
+def _every_line_is_json(ran: subprocess.CompletedProcess) -> list[dict]:
+    """Every line the process wrote, on either stream, parsed: one JSON object with the four
+    fields first, or the case fails naming the line."""
+    lines = []
+    for line in (*ran.stdout.splitlines(), *ran.stderr.splitlines()):
+        if not line.strip():
+            continue
+        try:
+            said = json.loads(line)
+        except ValueError:
+            said = None
+        assert isinstance(said, dict) and list(said)[:4] == list(FIELDS), (
+            f"a line that is not one JSON object: {line!r}")
+        lines.append(said)
+    return lines
+
+
+@pytest.mark.parametrize("cause", sorted(PYTHONS_OWN))
+def test_what_python_writes_by_itself_is_a_json_line(cause):
+    code, logger, level, kind, _python_says = PYTHONS_OWN[cause]
+    ran = _a_process_of_its_own(
+        "from openfactory.observability import logs\nlogs.configure()\n" + code, asked="json")
+
+    lines = _every_line_is_json(ran)
+    said = [line for line in lines if line["logger"] == logger]
+    assert len(said) == 1 and said[0]["level"] == level, (cause, lines)
+    assert kind in said[0]["message"] + said[0].get("exception", ""), said[0]
+    assert ran.returncode == (1 if cause == "an exception nobody caught" else 0), ran.returncode
+
+
+def test_without_json_python_writes_as_it_always_did():
+    """`configure` hands Python's hooks to the log only for JSON lines; the readable format leaves
+    every one of them as Python has it: Python's own words, and no line of the log's format."""
+    ran = _a_process_of_its_own(
+        "from openfactory.observability import logs\nlogs.configure()\n"
+        + "".join(code for cause, (code, *_said) in sorted(PYTHONS_OWN.items())
+                  if cause != "an exception nobody caught")
+        + PYTHONS_OWN["an exception nobody caught"][0], asked=None)
+
+    logged = [line for line in ran.stderr.splitlines() if LINE.match(line) or line.startswith("{")]
+    assert not logged, f"Python's own lines went through the log: {logged}"
+    for cause, (*_how, kind, python_says) in PYTHONS_OWN.items():
+        assert python_says in ran.stderr and kind in ran.stderr, (cause, ran.stderr)
+    assert ran.returncode == 1
+
+
+#: The two doors a worker is started through, and the line that starts it there: the module's
+#: own `-m` block, run as compose and `openfactory up` run it, and the CLI's command.
+WORKER_DOORS = {
+    "python -m openfactory.runtime.temporal.worker": (
+        "import runpy\n"
+        "runpy.run_module('openfactory.runtime.temporal.worker', run_name='__main__')\n"),
+    "openfactory worker": (
+        "from openfactory import cli\ncli.app(['worker'], prog_name='openfactory')\n"),
+}
+
+
+@pytest.mark.parametrize("door", sorted(WORKER_DOORS))
+def test_a_start_that_fails_for_any_other_reason_ends_as_one_json_line(door):
+    """`born` says an engine that never listened as a sentence; any other failure of the start —
+    here the app key the boot writes first — escapes it. With JSON lines it must still end as
+    one line, its traceback inside it, and exit 1, through either door."""
+    ran = _a_process_of_its_own(
+        "import dotenv\n"
+        "dotenv.load_dotenv = lambda *_a, **_k: False\n"
+        "from openfactory.runtime import boxed_job\n"
+        "def _cannot(*_a, **_k):\n"
+        "    raise RuntimeError('the app key could not be written')\n"
+        "boxed_job.materialize_app_key = _cannot\n" + WORKER_DOORS[door], asked="json")
+
+    lines = _every_line_is_json(ran)
+    ended = [line for line in lines if line["level"] in ("ERROR", "CRITICAL")]
+    assert len(ended) == 1 and ended[0]["logger"] == logs.UNCAUGHT_LOGGER, lines
+    assert "RuntimeError: the app key could not be written" in ended[0]["exception"], ended[0]
+    assert ran.returncode == 1, ran.returncode
 
 
 @pytest.mark.parametrize("asked", ["json", None])
@@ -837,7 +1218,7 @@ async def _nothing_at_all() -> None:
 
 @pytest.mark.owns_its_engine
 async def test_a_core_warning_arrives_as_a_json_line_after_another_client_is_gone(
-        monkeypatch, capsys):
+        monkeypatch, capfd):
     """THE THIRD REVIEW'S MEASUREMENT, ON A REAL ENGINE. The worker drops one-shot clients at boot
     (`schedule.ensure_all`), and with one shared runtime that silenced its core for good: the
     bridge aborts a runtime's one forwarder when any client of it is dropped. So: a client made
@@ -848,7 +1229,12 @@ async def test_a_core_warning_arrives_as_a_json_line_after_another_client_is_gon
 
     THE WORKER IS STOPPED HERE ON EVERY PATH, AND WAITED FOR WITHIN A BOUND: a case that failed
     with its worker still polling a dead engine left it to the loop's teardown, and one mutation
-    run of this file hung for hours there."""
+    run of this file hung for hours there.
+
+    WHAT IS READ IS FILE DESCRIPTORS 1 AND 2, NOT PYTHON'S STREAMS (fourth review of #818): the
+    core is native code, and a core that wrote its own lines would write them to the descriptors,
+    where `capsys` sees nothing. The time-skipping engine is started with the capture off, so its
+    own process writes where it always did, and only this process's lines are read."""
     import gc
     import uuid
 
@@ -864,7 +1250,8 @@ async def test_a_core_warning_arrives_as_a_json_line_after_another_client_is_gon
     strays: list[str] = []
     core: list[dict] = []
     stopped = False
-    env = await WorkflowEnvironment.start_time_skipping()
+    with capfd.disabled():
+        env = await WorkflowEnvironment.start_time_skipping()
     engine_up = True
     try:
         with _a_fresh_process():
@@ -878,11 +1265,11 @@ async def test_a_core_warning_arrives_as_a_json_line_after_another_client_is_gon
                             activities=[_nothing_at_all])
             polling = asyncio.create_task(worker.run())
             try:
-                core = await _the_cores_lines(capsys, seen, strays, within=5.0)
+                core = await _the_cores_lines(capfd, seen, strays, within=5.0)
                 if not core and not strays:
                     await env.shutdown()
                     engine_up = False
-                    core = await _the_cores_lines(capsys, seen, strays, within=30.0)
+                    core = await _the_cores_lines(capfd, seen, strays, within=30.0)
             finally:
                 polling.cancel()
                 finished, _pending = await asyncio.wait({polling}, timeout=15.0)
@@ -897,7 +1284,7 @@ async def test_a_core_warning_arrives_as_a_json_line_after_another_client_is_gon
     assert core[0]["level"] == "WARNING", core[0]
 
 
-async def _the_cores_lines(capsys, seen: list[dict], strays: list[str], *,
+async def _the_cores_lines(capfd, seen: list[dict], strays: list[str], *,
                            within: float) -> list[dict]:
     """Read what was written until a line from the engine client's core is among the JSON lines,
     a line that is not JSON is (`strays`), or `within` seconds pass; `seen` keeps every JSON line
@@ -906,7 +1293,7 @@ async def _the_cores_lines(capsys, seen: list[dict], strays: list[str], *,
 
     deadline = time.monotonic() + within
     while True:
-        written = capsys.readouterr()
+        written = capfd.readouterr()
         for line in (*written.out.splitlines(), *written.err.splitlines()):
             if not line.strip():
                 continue

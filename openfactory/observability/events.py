@@ -17,6 +17,8 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from openfactory.observability import logs
+
 log = logging.getLogger("openfactory.journal")
 
 EventKind = Literal[
@@ -161,14 +163,19 @@ class FileEventSink(EventSink):
 
 class StdoutEventSink(EventSink):
     """Stream events to stdout (→ CloudWatch in a Fargate task), so a remote job is
-    never silent: every state change / action shows up live in the logs."""
+    never silent: every state change / action shows up live in the logs.
+
+    THE WORKER STREAMS THROUGH IT TOO — the pre-flight's and the split's live feed, which have no
+    box (`activities._pf_emit`) — so in a process that writes JSON lines the envelope is the
+    message of one, prefix and all, rather than a plain line beside them (fourth review of #818).
+    A box's own program never configures its log, and prints the envelope as it always did."""
 
     def __init__(self, prefix: str = "OPENFACTORY_EVENT:") -> None:
         self.prefix = prefix
 
     @_never_raises
     def emit(self, event: JobEvent) -> None:
-        print(self.prefix + event.model_dump_json(), flush=True)
+        logs.announce(log, self.prefix + event.model_dump_json())
 
 
 class TeeEventSink(EventSink):

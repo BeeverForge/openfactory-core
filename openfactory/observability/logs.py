@@ -49,6 +49,21 @@ process's copy of what the registry says each project belongs to:
     and asks for nothing;
   · THE COPY IS BOUNDED BY THE REGISTRY: it holds the projects the registry names, never the names
     a URL carries.
+
+WITH JSON LINES, NOTHING A PROCESS WRITES BY ITSELF IS A PLAIN LINE (fourth review of #818,
+measured: a worker that ran jobs printed `OPENFACTORY_COORDINATOR: no parseable advice …` and six
+other plain lines on stdout beside its JSON, the degraded pre-flight among them, which a log store
+that drops what it cannot parse drops first; and Python's own warning and a thread's uncaught
+traceback bypassed the formatter). So:
+
+  · A LINE FOR A PERSON GOES THROUGH `announce`: printed as it always was, or, in a process that
+    writes JSON lines, logged at its level. The question is what THIS process's log is, not what
+    the variable says: a box's own program never configures its log, and its stdout — the box's
+    log, whose last line the host parses — stays as it was whatever the deployment set;
+  · PYTHON'S OWN LINES GO THROUGH THE LOG TOO: a warning (`logging.captureWarnings`), an exception
+    nobody caught, in the main thread or in any other, and one Python could not raise (`__del__`)
+    — `configure` hands each of its hooks to the log when the lines are JSON, and leaves Python's
+    own otherwise.
 """
 
 from __future__ import annotations
@@ -61,6 +76,7 @@ import os
 import sys
 import threading
 import time
+import types
 from collections.abc import Iterator
 
 FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -240,13 +256,22 @@ def forget() -> None:
     _PRODUCTS.forget()
 
 
-def announce(logger: logging.Logger, line: str) -> None:
-    """A line a process prints for a person when it starts — `panel: http://…`, `openfactory
-    worker up · …` — printed on stdout as it always was, or, with JSON lines, logged at INFO: a
-    container's log is stdout and stderr together, and one plain line in it is a line a log store
-    cannot read (review of #818). Called once the log is configured."""
-    if structured():
-        logger.info(line)
+def writes_json() -> bool:
+    """Whether THIS process writes JSON lines: `configure` gave its log the JSON format. Not the
+    variable alone — a process that never configured its log, as a box's own program never does,
+    has no JSON to write, and a line logged there would reach nobody or reach stderr bare."""
+    return any(isinstance(handler.formatter, _JSON) for handler in logging.getLogger().handlers)
+
+
+def announce(logger: logging.Logger | logging.LoggerAdapter, line: str,
+             level: int = logging.INFO) -> None:
+    """A line printed for a person reading a process's output — when it starts (`panel: http://…`,
+    `openfactory worker up · …`) or from the work it runs (a pre-flight that could not size, a
+    leftover box removed, a resumed session) — on stdout as it always was, or, in a process that
+    writes JSON lines, logged at `level`: a container's log is stdout and stderr together, and one
+    plain line in it is a line a log store cannot read (reviews of #818)."""
+    if writes_json():
+        logger.log(level, line)
     else:
         print(line, flush=True)
 
@@ -255,10 +280,52 @@ def exiting(logger: logging.Logger, sentence: str) -> SystemExit:
     """The `SystemExit` a process raises to end with a sentence for a person. Python prints its
     message as a plain line, so with JSON lines the sentence is logged at ERROR instead, and the
     process ends with code 1 all the same."""
-    if structured():
+    if writes_json():
         logger.error(sentence)
         return SystemExit(1)
     return SystemExit(sentence)
+
+
+#: The logger Python's own reports are said through once the lines are JSON: an exception nobody
+#: caught, and one raised where nobody could catch it. Python's warnings keep the logger the
+#: standard library gives them, `py.warnings`.
+UNCAUGHT_LOGGER = "openfactory.uncaught"
+
+
+def _uncaught(kind: type[BaseException], value: BaseException,
+              traceback: types.TracebackType | None) -> None:
+    """`sys.excepthook`: the exception that ends the process, as one line with its traceback."""
+    logging.getLogger(UNCAUGHT_LOGGER).error(
+        "the process ends on an exception nobody caught: %s: %s", kind.__name__, value,
+        exc_info=(kind, value, traceback))
+
+
+def _uncaught_in_a_thread(said: threading.ExceptHookArgs) -> None:
+    """`threading.excepthook`: the exception that ended a thread. A `SystemExit` ends a thread
+    quietly, as Python's own hook has it."""
+    if said.exc_type is SystemExit:
+        return
+    name = said.thread.name if said.thread is not None else "a thread"
+    logging.getLogger(UNCAUGHT_LOGGER).error(
+        "an exception nobody caught ended the thread %s: %s: %s", name, said.exc_type.__name__,
+        said.exc_value, exc_info=(said.exc_type, said.exc_value, said.exc_traceback))
+
+
+def _unraisable(said: sys.UnraisableHookArgs) -> None:
+    """`sys.unraisablehook`: an exception raised where nobody could catch it — a `__del__`, a
+    finaliser — which Python reports and goes on."""
+    logging.getLogger(UNCAUGHT_LOGGER).warning(
+        "%s: %r", said.err_msg or "Exception ignored in", said.object,
+        exc_info=((said.exc_type, said.exc_value, said.exc_traceback)
+                  if said.exc_type is not None else None))
+
+
+def _pythons_own_lines_through_the_log() -> None:
+    """What Python writes on stderr by itself, through the log's format instead."""
+    logging.captureWarnings(True)
+    sys.excepthook = _uncaught
+    threading.excepthook = _uncaught_in_a_thread
+    sys.unraisablehook = _unraisable
 
 
 def level() -> int:
@@ -272,11 +339,14 @@ def configure() -> bool:
     root = logging.getLogger()
     if root.handlers:
         return False
+    in_json = structured()
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(_JSON((os.environ.get(DEPLOYMENT_VARIABLE) or "").strip())
-                         if structured() else _UTC(FORMAT))
+                         if in_json else _UTC(FORMAT))
     root.addHandler(handler)
     root.setLevel(logging.WARNING)
     for name in OURS:
         logging.getLogger(name).setLevel(level())
+    if in_json:
+        _pythons_own_lines_through_the_log()
     return True

@@ -41,7 +41,13 @@ The claims, each a row:
      (third review) — and without them the library's default is left alone;
   11. the probe's own guards (third review): liveness takes no pooled thread, neither answer is
      cached, each sentence is its own, the probe gives up on a port that never answers, it
-     imports no engine client, and the healthcheck's timeout outlasts the probe's wait.
+     imports no engine client, and the healthcheck's timeout outlasts the probe's wait;
+  12. with JSON lines nothing a process writes by itself is a plain line (fourth review): every
+     write to stdout or stderr in the package goes through `logs.announce` or sits where no
+     deployment process runs it, a line for a person follows what this process's log is, and
+     Python's own warning, uncaught exception (in any thread) and unraisable one are JSON lines;
+     a poll that gives up on a hung check keeps its one question and still says why once; and the
+     probe says an answer that is not HTTP in one line.
 """
 
 READY = "tests/test_a_running_deployment_says_whether_it_is_alive_and_ready.py"
@@ -62,6 +68,8 @@ INTERCEPTORS = "openfactory/runtime/temporal/interceptors.py"
 WORKER = "openfactory/runtime/temporal/worker.py"
 COMPOSE = "docker-compose.yml"
 DEADLINES = "openfactory/runtime/temporal/deadlines.py"
+ACTIVITIES = "openfactory/runtime/temporal/activities.py"
+EVENTS = "openfactory/observability/events.py"
 
 MUTATIONS = [
     # 1. liveness reads nothing
@@ -217,8 +225,9 @@ MUTATIONS = [
      'VERSION_PATH = "/api/v1/version"', 'VERSION_PATH = "/v1/version"', VERSION),
 
     # 8. the JSON lines
+    # RE-PINNED 2026-10-19 (fourth review): `configure` reads the setting once, as `in_json`.
     ("the setting never makes a line JSON", LOGGING,
-     "                         if structured() else _UTC(FORMAT))",
+     "                         if in_json else _UTC(FORMAT))",
      "                         if False else _UTC(FORMAT))", LOGS),
     ("any value of the setting makes the lines JSON", LOGGING,
      '    return (os.environ.get(FORMAT_VARIABLE) or "").strip().lower() == "json"',
@@ -262,17 +271,20 @@ MUTATIONS = [
      '    product = getattr(value, "product", None)', "    product = None", LOGS),
     ("the worker is built without its interceptor", WORKER,
      "        interceptors=[AboutItsProject()],\n", "", LOGS),
+    # RE-PINNED 2026-10-19 (fourth review): `announce` asks what this process's log is, and logs
+    # at the line's own level.
     ("a line for a person is printed past the format", LOGGING,
-     "    if structured():\n        logger.info(line)", "    if False:\n        logger.info(line)",
-     LOGS),
+     "    if writes_json():\n        logger.log(level, line)",
+     "    if False:\n        logger.log(level, line)", LOGS),
     ("the worker prints its line itself again", WORKER,
      '    logs.announce(log, f"openfactory worker up · {address()} · ns={namespace()} · "\n',
      '    print(f"openfactory worker up · {address()} · ns={namespace()} · "\n', LOGS),
     ("serve echoes its line itself again", "openfactory/cli.py",
      '    logs.announce(log, f"panel: http://{host}:{port}")',
      '    typer.echo(f"panel: http://{host}:{port}")', LOGS),
+    # RE-PINNED 2026-10-19 (fourth review): the same question as `announce`.
     ("a worker that cannot start ends in a plain line", LOGGING,
-     "    if structured():\n        logger.error(sentence)",
+     "    if writes_json():\n        logger.error(sentence)",
      "    if False:\n        logger.error(sentence)", LOGS),
 
     # 9. the product costs nobody anything (second review of #818)
@@ -362,4 +374,45 @@ MUTATIONS = [
     ("the worker's healthcheck gives up before the probe does", COMPOSE,
      "      timeout: 10s\n      retries: 3\n      start_period: 5m\n",
      "      timeout: 8s\n      retries: 3\n      start_period: 5m\n"),
+
+    # 12. with JSON lines nothing a process writes by itself is a plain line (fourth review)
+    ("an activity prints a plain line", ACTIVITIES,
+     "    v0 advisory — returns {summary, recommend, rationale, watch_outs} (or {} if it can't "
+     "opine).\"\"\"\n",
+     "    v0 advisory — returns {summary, recommend, rationale, watch_outs} (or {} if it can't "
+     "opine).\"\"\"\n    print(f\"a plain line from an activity for {item.project}\", flush=True)\n",
+     LOGS),
+    ("the coordinator prints its line itself again", ACTIVITIES,
+     '        logs.announce(activity.logger, f"OPENFACTORY_COORDINATOR: no parseable advice for "\n'
+     '                                       f"{item.project}#{item.issue}", logging.WARNING)\n',
+     '        print(f"OPENFACTORY_COORDINATOR: no parseable advice for "\n'
+     '              f"{item.project}#{item.issue}", flush=True)\n', LOGS),
+    ("the live feed prints its envelope past the format", EVENTS,
+     "        logs.announce(log, self.prefix + event.model_dump_json())",
+     "        print(self.prefix + event.model_dump_json(), flush=True)", LOGS),
+    ("a line for a person follows the variable, not this process's log", LOGGING,
+     "    return any(isinstance(handler.formatter, _JSON) for handler in "
+     "logging.getLogger().handlers)",
+     "    return structured()", LOGS),
+    ("Python's warnings bypass the log", LOGGING,
+     "    logging.captureWarnings(True)\n", "", LOGS),
+    ("an exception nobody caught prints its traceback", LOGGING,
+     "    sys.excepthook = _uncaught\n", "", LOGS),
+    ("an exception that ends a thread prints its traceback", LOGGING,
+     "    threading.excepthook = _uncaught_in_a_thread\n", "", LOGS),
+    ("an exception nobody could raise prints its traceback", LOGGING,
+     "    sys.unraisablehook = _unraisable\n", "", LOGS),
+    ("Python's own lines go to the log in the readable format too", LOGGING,
+     "    if in_json:\n        _pythons_own_lines_through_the_log()",
+     "    if True:\n        _pythons_own_lines_through_the_log()", LOGS),
+    ("a poll that gives up drops its question from the slot", HEALTH,
+     "    except TimeoutError:\n        said, cause",
+     "    except TimeoutError:\n        _SLOTS[name].read.forget()\n        said, cause"),
+    ("a poll that gives up never says why", HEALTH,
+     '        said, cause = f"{SAID[name]} within {bound:g}s", f"no answer within {bound:g}s"\n'
+     "    if not said:",
+     '        return {"ok": False, "detail": f"{SAID[name]} within {bound:g}s"}\n'
+     "    if not said:"),
+    ("the probe ends on a traceback when the answer is not HTTP", HEALTH,
+     "    except http.client.HTTPException as exc:", "    except ArithmeticError as exc:"),
 ]

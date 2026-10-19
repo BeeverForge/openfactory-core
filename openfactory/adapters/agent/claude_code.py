@@ -45,6 +45,7 @@ from openfactory.adapters.agent.stream import reading_of
 from openfactory.adapters.sandbox.base import SandboxAdapter, Workspace
 from openfactory.adapters.sandbox.timeouts import AGENT_TIMEOUT, timed_out
 from openfactory.contracts import AgentRunResult
+from openfactory.observability import logs
 
 log = logging.getLogger("openfactory.agent.claude")
 
@@ -387,17 +388,21 @@ def _snapshot_session(
                         filter=lambda m: _only_this_session(m, session))
         blob = buf.getvalue()
         if len(blob) > _MAX_SNAPSHOT_BYTES:
-            print(f"OPENFACTORY_RESUME: the session snapshot is {len(blob) // (1 << 20)}MB — over "
-                  f"the {_MAX_SNAPSHOT_BYTES // (1 << 20)}MB this deployment keeps; the resumed "
-                  "run will start cold rather than fill the disk", flush=True)
+            logs.announce(log, f"OPENFACTORY_RESUME: the session snapshot is "
+                               f"{len(blob) // (1 << 20)}MB — over the "
+                               f"{_MAX_SNAPSHOT_BYTES // (1 << 20)}MB this deployment keeps; the "
+                               "resumed run will start cold rather than fill the disk",
+                          logging.WARNING)
             return ""
         key = session_key(project, issue, session)
         return key if build_session_store().put(key=key, blob=blob) else ""
     except ValueError as exc:  # a store kind this deployment does not have — say so, loudly
-        print(f"OPENFACTORY_RESUME: {exc} — resume is OFF until that is corrected", flush=True)
+        logs.announce(log, f"OPENFACTORY_RESUME: {exc} — resume is OFF until that is corrected",
+                      logging.WARNING)
         return ""
     except Exception as exc:  # noqa: BLE001 — snapshotting is opportunistic
-        print(f"OPENFACTORY_RESUME: session snapshot failed ({str(exc)[:120]})", flush=True)
+        logs.announce(log, f"OPENFACTORY_RESUME: session snapshot failed ({str(exc)[:120]})",
+                      logging.WARNING)
         return ""
 
 
@@ -434,7 +439,8 @@ def _restore_session(
             return sandbox.import_home_dir(workspace=workspace, src=staged,
                                            relative=_SESSION_RELATIVE)
     except Exception as exc:  # noqa: BLE001 — a failed restore just means resume cold
-        print(f"OPENFACTORY_RESUME: session restore failed ({str(exc)[:120]})", flush=True)
+        logs.announce(log, f"OPENFACTORY_RESUME: session restore failed ({str(exc)[:120]})",
+                      logging.WARNING)
         return False
 
 
@@ -918,11 +924,12 @@ class ClaudeCodeAdapter(CodingAgentAdapter):
             # rotation; S3 only backs the cross-container DURABLE resume (C2).
             resume_session = res.resume_handle or resume_session
             prev, self._ti = self._pool[self._ti]["id"], (self._ti + 1) % n
-            print(
+            logs.announce(
+                log,
                 f"OPENFACTORY_TOKEN: token '{prev}' hit {res.pause_reason} — failing over to "
                 f"'{self._pool[self._ti]['id']}' ({self._ti + 1}/{len(self._pool)}), "
                 f"continuing session {resume_session or '(none)'}",
-                flush=True,
+                logging.WARNING,
             )
 
     @staticmethod
@@ -949,10 +956,10 @@ class ClaudeCodeAdapter(CodingAgentAdapter):
             return ""
         # the transcript must be present at <box HOME>/.claude/projects/<dir>/<session>.jsonl
         if not _session_is_in_the_box(sandbox, workspace, h["session"]):
-            print(f"OPENFACTORY_RESUME: restored state lacks session {h['session']} — running cold",
-                  flush=True)
+            logs.announce(log, f"OPENFACTORY_RESUME: restored state lacks session "
+                               f"{h['session']} — running cold", logging.WARNING)
             return ""
-        print(f"OPENFACTORY_RESUME: continuing {phase} session {h['session']}", flush=True)
+        logs.announce(log, f"OPENFACTORY_RESUME: continuing {phase} session {h['session']}")
         return h["session"]
 
     def _invoke_once(

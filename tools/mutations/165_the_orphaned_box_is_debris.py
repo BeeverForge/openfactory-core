@@ -17,9 +17,12 @@ MUTATIONS = [
     ("…and the reverse: the reconcile fires on EVERY start — a delete waiting for a reason", BOX,
      "        if probe_rc == 0:", "        if True:"),
 
+    # RE-PINNED 2026-10-19 (#681, fourth review of #818): the line goes through `logs.announce`,
+    # printed as before or, with JSON lines, logged.
     ("the removal goes silent — debris with no trail", BOX,
-     '            print(f"OPENFACTORY: removing the leftover box {cname!r} from an interrupted "\n'
-     '                  f"attempt before starting fresh", flush=True)\n', ""),
+     '            logs.announce(log, f"OPENFACTORY: removing the leftover box {cname!r} from an "\n'
+     '                               f"interrupted attempt before starting fresh", logging.WARNING)\n',
+     ""),
 
     ("an unremovable corpse is reported as removed", BOX,
      '            rm_rc, rm_out = _host(["docker", "rm", "-f", cname])\n'
