@@ -118,8 +118,9 @@ class GitHubIssuesTracker(TrackerAdapter):
     def _gh(self, args: list[str], timeout: int = 60, *,
             stdin: str | None = None) -> subprocess.CompletedProcess[str]:
         # A LONG TEXT GOES ON STDIN (`stdin=`, with `--body-file -`), never as one argv element:
-        # Linux refuses an element over MAX_ARG_STRLEN (131,072 bytes) with E2BIG, raised by
-        # `subprocess.run` as `OSError: [Errno 7] Argument list too long: 'gh'` before gh starts.
+        # Linux refuses an element of 131,072 bytes or more (MAX_ARG_STRLEN, the terminating NUL
+        # counted) with E2BIG, raised by `subprocess.run` as
+        # `OSError: [Errno 7] Argument list too long: 'gh'` before gh starts.
         # GitHub's limit is in characters (65,536), so a 3-byte script crossed the byte ceiling at
         # about 43,690 characters (#807). Stdin has no per-element ceiling; both runs below send it.
         #
