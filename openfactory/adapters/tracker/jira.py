@@ -236,24 +236,92 @@ class JiraTracker:
 
     @staticmethod
     def _text(adf: dict | None) -> str:
-        """Jira stores rich text as Atlassian Document Format; the framework wants plain text.
+        """Jira stores rich text as Atlassian Document Format; the framework reads markdown.
 
-        Walks the tree collecting text nodes rather than assuming a shape — a description written
-        with tables or panels must not come back empty, because that empty body is what the sizing
-        gate would judge."""
+        The parser reads markdown shapes: a section is a `## ` line, a criterion a `- ` line. Jira's
+        editor stores exactly those shapes as nodes (`heading`, `bulletList`, `orderedList`), so
+        walking the tree for its text alone lost them: on 2026-10-19 a level-2 heading over a bullet
+        with a `code` run read as `'Acceptance criteria\\nthe \\nx\\n is created'`, and the parser
+        found no criterion (`[]`), so the sizing gate refused the card. This draws each block in the
+        shape the parser reads:
+
+        - a `heading` is `#` × its level (1..6) plus all of its inline text on one line; a missing
+          or out-of-range level is a plain line, never an invented heading;
+        - every list item, bulleted or numbered, nested or not, is a flat `- ` line, the rule
+          `azure_devops._HtmlToMarkdown` already follows, so the vendors agree; an item's further
+          paragraphs sit on the lines below it, where lazy continuation (#163) joins them;
+        - a list ends on a blank line, or that same lazy continuation would read the paragraph the
+          editor puts right after a list into its last criterion; the editor's own empty paragraph
+          after a list is that blank, not a second one;
+        - an empty paragraph is a blank line, because `_adf` writes a blank line as one, so a body
+          the factory wrote reads back as it wrote it; a `hardBreak` is a line break.
+
+        Anything else (panels, tables, expands, quotes, a node this walk has never seen) is walked
+        for its blocks rather than assuming a shape: a description written with tables or panels
+        must not come back empty, because that empty body is what the sizing gate would judge."""
         out: list[str] = []
+        # Index in `out` of the blank line a finished list appended, so the empty paragraph the
+        # editor stores right after a list (KAN-4, recorded 2026-10-19) is not a second blank.
+        list_blank: list[int] = [-1]
 
-        def walk(node):
-            if isinstance(node, dict):
-                if node.get("type") == "text":
-                    out.append(str(node.get("text", "")))
-                for child in node.get("content") or []:
-                    walk(child)
-            elif isinstance(node, list):
+        def inline(node) -> str:
+            if isinstance(node, list):
+                return "".join(inline(child) for child in node)
+            if not isinstance(node, dict):
+                return ""
+            kind = node.get("type")
+            if kind == "text":
+                return str(node.get("text", ""))
+            if kind == "hardBreak":
+                return "\n"
+            return inline(node.get("content") or [])
+
+        def item(node) -> None:
+            first = True
+            for child in node.get("content") or []:
+                if first and isinstance(child, dict) and child.get("type") == "paragraph":
+                    out.append("- " + inline(child))
+                else:
+                    blocks(child, nested=True)
+                first = False
+
+        def blocks(node, nested: bool = False) -> None:
+            if isinstance(node, list):
                 for child in node:
-                    walk(child)
+                    blocks(child, nested)
+                return
+            if not isinstance(node, dict):
+                return
+            kind = node.get("type")
+            if kind == "paragraph":
+                line = inline(node)
+                if line == "" and list_blank[0] == len(out) - 1:
+                    list_blank[0] = -1
+                    return
+                out.append(line)
+            elif kind == "heading":
+                level = (node.get("attrs") or {}).get("level")
+                prefix = ("#" * level + " ") if type(level) is int and 1 <= level <= 6 else ""
+                out.append(prefix + inline(node))
+            elif kind in ("bulletList", "orderedList"):
+                for child in node.get("content") or []:
+                    if isinstance(child, dict) and child.get("type") == "listItem":
+                        item(child)
+                    else:
+                        blocks(child, nested=True)
+                if not nested:
+                    out.append("")
+                    list_blank[0] = len(out) - 1
+            elif kind == "codeBlock":
+                out.extend(str(t.get("text", "")) for t in node.get("content") or []
+                           if isinstance(t, dict) and t.get("type") == "text")
+            elif kind == "text":
+                # A bare text node at block level is a malformed document; it still gives its text.
+                out.append(str(node.get("text", "")))
+            else:
+                blocks(node.get("content") or [], nested)
 
-        walk(adf or {})
+        blocks(adf or {})
         return "\n".join(out).strip()
 
     @staticmethod

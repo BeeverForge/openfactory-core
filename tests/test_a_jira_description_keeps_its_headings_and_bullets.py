@@ -12,8 +12,8 @@ heading plus a one-item bullet whose text carries a `code` mark read as
 so the sizing gate refused a complete ticket as having "no sections at all".
 
 Every assertion is on one of two values: the exact string `JiraTracker._text` returns for a given
-document, and what `parse` reads from that string (`criteria`, `section_names`,
-`criteria_heading`). The rendering is pinned only where the parser reads it.
+document, and what `parse` reads from that string (`criteria`, `section_names`). The rendering
+is pinned only where the parser reads it.
 
 The fixtures are the shapes Jira's browser editor stores. `KAN_4_DESCRIPTION` below is a recorded
 document; the shapes it does not carry (a `code` mark, an `expand`, a heading with no level) are
@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 
 from openfactory.adapters.tracker.jira import JiraTracker
-from openfactory.adapters.tracker.parse import criteria, criteria_heading, section_names
+from openfactory.adapters.tracker.parse import criteria, section_names
 
 # ── recorded shape: Jira Cloud ──────────────────────────────────────────────────────────────────
 
@@ -175,7 +175,9 @@ def test_a_heading_written_with_bold_and_code_is_one_line(heading, expected):
     body = JiraTracker._text(_doc(heading))  # noqa: SLF001
 
     assert body == expected
-    assert criteria_heading(body) == expected.removeprefix("## ")
+    # The whole heading is the section the parser reads, not its first run. `section_names`, not
+    # `criteria_heading`: "Acceptance criteria for make" is not an alias of the criteria section.
+    assert section_names(body) == [expected.removeprefix("## ")]
 
 
 @pytest.mark.parametrize("attrs", [

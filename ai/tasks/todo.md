@@ -143,7 +143,7 @@ marked as such.
   `parse_ticket_body` gives on the raw markdown, which the test computes rather than hardcodes. On
   main it is red: blank lines are dropped, and the auto-split line is glued into the out-of-scope
   item. Record it.
-- [ ] 4. Code: replace the body of `JiraTracker._text` (`openfactory/adapters/tracker/jira.py:237-257`)
+- [x] 4. Code: replace the body of `JiraTracker._text` (`openfactory/adapters/tracker/jira.py:237-257`)
   with a block renderer. Keep the signature and the `@staticmethod`, because tests call
   `JiraTracker._text` directly. Shape:
   - `_inline(node) -> str`: concatenates the `text` of `text` nodes in document order, `hardBreak`
