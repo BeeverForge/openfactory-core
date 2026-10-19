@@ -478,6 +478,21 @@ class WorktreeSandbox(SandboxAdapter):
                 raise _branch_held_elsewhere(branch, held, repo_path=repo_path, rebuilt=rebuilt,
                                              ours=wt)
             raise RuntimeError(f"worktree add failed: {out}")
+        # THIS WORKTREE IS A JOB'S, AND THE REPOSITORY CACHE MUST KNOW IT (#747). For a project
+        # registered by clone URL `repo_path` is the cache's served checkout, so the job's admin
+        # directory, branch and objects live in the served `.git`. A sync that found the base
+        # moved swapped that tree into `.trash/<key>~<hex>`, and every git command in the job then
+        # exited 128, `fatal: not a git repository: <root>/<key>/.git/worktrees/<name>` — the
+        # push included (82500f9, git 2.43.0). The marker goes into THIS worktree's own admin
+        # directory and nowhere else, right after the add, so the forge read below is covered and
+        # its `worktree remove --force` on failure takes the marker with it.
+        try:
+            gitworktrees.mark_as_job(wt)
+        except OSError as exc:
+            # the job still starts: refusing it would cost the work the marker protects
+            log.warning("could not mark %s as a running job's worktree (%s) — a repository "
+                        "cache sync may swap the checkout it stands on while it runs",
+                        wt, exc)
         base_commit = None
         if not keep and remote_url and not _is_this_repo(remote_url, repo_path):
             base_commit = self._read_the_forges_base(
