@@ -132,14 +132,18 @@ class JiraProjectBoard:
         `None` versus `[]` is the protocol's hardest rule and this is where it is decided: an
         unreachable Jira and an empty backlog are the same shape to a caller that collapses
         them, and the collapse reads as "nothing is queued"."""
+        from openfactory.adapters.tracker.jira import scope_named
+
         query = urllib.parse.urlencode({
             "jql": jql, "maxResults": _MAX_ISSUES, "fields": "status",
         })
         try:
             data = self._tracker._call("GET", f"{_SEARCH_PATH}?{query}")
         except Exception as exc:  # noqa: BLE001 — unreadable is never "empty"
-            log.warning("could not search %s (%s) — the caller must treat this as UNREADABLE, "
-                        "never as an empty board", self.project_key, str(exc)[:200])
+            # the scope is named: a condition Jira cannot parse answers 400 and lands here (#752)
+            log.warning("could not search %s%s (%s) — the caller must treat this as UNREADABLE, "
+                        "never as an empty board", self.project_key,
+                        scope_named(self._scope()), str(exc)[:200])
             return None
         issues = data.get("issues")
         if issues is None:
@@ -154,12 +158,25 @@ class JiraProjectBoard:
                         "the queue may be missing items", self.project_key, jql, _MAX_ISSUES)
         return issues
 
+    def _scope(self) -> str:
+        """The tracker's `scope_jql`, through `getattr` so the port does not learn it (#752)."""
+        return str(getattr(self._tracker, "scope_jql", "") or "")
+
+    def _issues_where(self) -> str:
+        """`project = "<KEY>"`, narrowed to the project's slice of a shared Jira project (#752).
+
+        About nineteen repositories registered against one Jira project each read all of it as
+        their queue, and one ticket was picked up by three of them in one night (v0.6.0-rc.2)."""
+        from openfactory.adapters.tracker.jira import within_scope
+
+        return within_scope(f'project = "{self.project_key}"', self._scope())
+
     @staticmethod
     def _status_of(issue: dict) -> str:
         return str(((issue.get("fields") or {}).get("status") or {}).get("name") or "")
 
     def columns(self) -> dict[str, str] | None:
-        issues = self._search(f'project = "{self.project_key}" ORDER BY Rank ASC')
+        issues = self._search(f"{self._issues_where()} ORDER BY Rank ASC")
         if issues is None:
             return None
         return {str(i.get("key")): self._status_of(i) for i in issues if i.get("key")}
@@ -170,7 +187,8 @@ class JiraProjectBoard:
         Asked of the project rather than derived from `columns()`, deliberately: a status nothing
         currently sits in still exists, and `openfactory doctor` asking "is there a "
                                                                         "TO-DO?" must not be
-        answered "no" by an empty backlog."""
+        answered "no" by an empty backlog. Unscoped by `scope_jql`: the workflow is the project's,
+        and a status no issue of this slice sits in is still one of its columns (#752)."""
         try:
             types = self._tracker._call("GET", f"project/{self.project_key}/statuses")
         except Exception as exc:  # noqa: BLE001 — unreadable is NOT "has no columns"
@@ -261,7 +279,8 @@ class JiraProjectBoard:
 
     def _statuses_of_the_type(self) -> list[tuple[str, str]] | None:
         """`(name, category key)` of each status of the issue type the tracker creates, in the
-        site's order — every type's, when that one is not listed — or None when unreadable."""
+        site's order — every type's, when that one is not listed — or None when unreadable. Unscoped
+        by `scope_jql`: where the workflow creates an issue is not a property of a slice (#752)."""
         try:
             types = self._tracker._call("GET", f"project/{self.project_key}/statuses")
         except Exception as exc:  # noqa: BLE001 — unreadable is NOT "born on no column"
@@ -282,8 +301,7 @@ class JiraProjectBoard:
         `scan_todo` already treats an empty queue as "nothing to do this tick". The warning in
         `_search` is what says which of the two happened."""
         safe = str(status).replace('"', '\\"')
-        issues = self._search(
-            f'project = "{self.project_key}" AND status = "{safe}" ORDER BY Rank ASC')
+        issues = self._search(f'{self._issues_where()} AND status = "{safe}" ORDER BY Rank ASC')
         return [str(i.get("key")) for i in (issues or []) if i.get("key")]
 
     def add_item(self, *, issue_url: str) -> None:
@@ -300,7 +318,10 @@ class JiraProjectBoard:
         THE ENDPOINT, NOT THE FIELD. Jira's rank is a LexoRank in a custom field whose id differs
         per site, and writing it by hand is how two cards end up with the same rank. The Agile
         API's `issue/rank` takes a neighbour and computes the value, which is what the board's own
-        drag does."""
+        drag does.
+
+        The column's first card is read through `items_in_status`, so within the scope; the rank
+        itself is written by key (#752)."""
         payload: dict = {"issues": [issue]}
         if after:
             payload["rankAfterIssue"] = after
@@ -322,7 +343,10 @@ class JiraProjectBoard:
 
         Goes through the tracker's own transition logic, so a workflow that does not offer the
         move is refused rather than forced — and refused the same way for the board and for the
-        state machine, which is the point of not writing a second REST client here."""
+        state machine, which is the point of not writing a second REST client here.
+
+        By key, so unscoped by `scope_jql`: the caller already holds an issue of this project, and
+        the scope narrows which issues are found, not which can be moved (#752)."""
         target = str(name or "")
         if not target:
             return False
