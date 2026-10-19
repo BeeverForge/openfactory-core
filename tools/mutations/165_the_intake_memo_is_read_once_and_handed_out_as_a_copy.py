@@ -11,6 +11,7 @@ storing an unread answer, dropped on a blip); its anchors on these lines were re
 
 TEST = "tests/test_the_intake_memo_is_read_once_and_handed_out_as_a_copy.py"
 READING = "openfactory/floor/reading.py"
+SINGLE_FLIGHT = "openfactory/util/single_flight.py"
 
 MUTATIONS = [
     # RE-PINNED 2026-09-19: the single flight moved into `_OneAtATime`, which the budget
@@ -45,27 +46,34 @@ MUTATIONS = [
     # The redundant copy is gone and the two rows above carry the property.
 
     # ── #166: there is no single flight at all ──────────────────────────────────────────────────
-    ("nobody joins a read in flight — six browsers at the window's expiry are six reads", READING,
-     "    if flight is None or flight.loop is not loop:",
-     "    if True:"),
+    # RE-PINNED 2026-10-19 (#754): `_Flight` and `_OneAtATime` moved to `util/single_flight.py`
+    # so the engine's job list can share them, and a reader joins only a flight asking its own
+    # question (`key`). The rows on the class's lines name the new file; the claims are unchanged.
+    ("nobody joins a read in flight — six browsers at the window's expiry are six reads",
+     SINGLE_FLIGHT,
+     "        if flight is None or flight.loop is not loop or flight.key != key:",
+     "        if True:"),
 
     # ── …or it is there and wrong ───────────────────────────────────────────────────────────────
-    ("a read in flight on ANOTHER loop is joined, and the reader awaits a task it cannot", READING,
-     "    if flight is None or flight.loop is not loop:",
-     "    if flight is None:"),
+    ("a read in flight on ANOTHER loop is joined, and the reader awaits a task it cannot",
+     SINGLE_FLIGHT,
+     "        if flight is None or flight.loop is not loop or flight.key != key:",
+     "        if flight is None or flight.key != key:"),
 
-    ("one reader going away cancels the read under everybody waiting on it", READING,
+    ("one reader going away cancels the read under everybody waiting on it",
+     SINGLE_FLIGHT,
      "        return await asyncio.shield(flight.task)",
      "        return await flight.task"),
 
-    ("a read that ended stays in the slot, and every later reader is handed its result", READING,
+    ("a read that ended stays in the slot, and every later reader is handed its result",
+     SINGLE_FLIGHT,
      "        if self.flight is flight:\n            self.flight = None",
      "        if self.flight is flight:\n            pass"),
 
     # What a `finally` in the read's own body amounts to: a task cancelled before its first step
     # never enters the coroutine, so nothing gives the slot up for it.
     ("a read cancelled before it began keeps the slot, and every later reader on its loop is "
-     "handed its cancellation", READING,
+     "handed its cancellation", SINGLE_FLIGHT,
      "            flight.task.add_done_callback(lambda _task, landed=flight: "
      "self._give_up(landed))",
      "            flight.task.add_done_callback(lambda _task, landed=flight: "
