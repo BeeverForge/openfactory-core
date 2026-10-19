@@ -4268,11 +4268,14 @@ def _auth_credential() -> str:
     Read from the environment this process shares with the worker (compose forwards the whole
     `.env.compose` to both). Empty when neither variable is visible here, because the honest
     answer to "which of these two is paying" is sometimes "I cannot see from here"."""
-    from openfactory.adapters.credential_store.registry import stored
+    from openfactory.adapters.credential_store.registry import lookup
 
-    if stored("CLAUDE_CODE_OAUTH_TOKEN"):
+    # A REFUSED SUBSCRIPTION TOKEN IS NOT AN API KEY PAYING (#822): the harness runs on neither
+    # then (`claude_code._load_agent_token_pool`), and "I cannot see from here" is the answer.
+    subscription = lookup("CLAUDE_CODE_OAUTH_TOKEN")
+    if subscription.value:
         return "subscription"
-    if stored("ANTHROPIC_API_KEY"):
+    if not subscription.refused and lookup("ANTHROPIC_API_KEY").value:
         return "api key"
     return ""
 

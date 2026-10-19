@@ -87,9 +87,18 @@ def key_path() -> Path:
 def _key() -> bytes:
     # A deployment credential, read through the credential store (#742): a key mounted as a file is
     # the one both processes seal and verify with.
-    from openfactory.adapters.credential_store.registry import stored
+    #
+    # A REFUSED KEY IS NOT REPLACED BY THE GENERATED ONE (review of #822). The generated key is
+    # for a deployment that declares none; one that declared a key the store will not trust would
+    # seal with a key the other half does not hold, and the doctor would send the operator to set
+    # a variable that is already set. Raised, so `seal` refuses by name and `refusal` says it.
+    from openfactory.adapters.credential_store.registry import lookup
 
-    declared = (stored(VARIABLE) or "").strip()
+    found = lookup(VARIABLE)
+    if found.refused:
+        raise RuntimeError(f"the gate key {VARIABLE} is refused by the credential store — "
+                           f"{found.refused}; no other key is used in its place")
+    declared = (found.value or "").strip()
     if declared:
         return declared.encode()
     path = key_path()

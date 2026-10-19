@@ -1641,6 +1641,10 @@ def _forge(p: Probes) -> Finding:
     # Azure DevOps included. Only the probe knows the row (`BoardUnreadable` says the same of the
     # board), so the probe is asked — and with no probe to ask, what is said names no vendor.
     ask = p.forge_remedy
+    if REFUSED_BY_THE_STORE in detail:
+        return Finding("forge_access", False,
+                       f"{detail} — the factory cannot push a branch or open a PR",
+                       REFUSED_REMEDY)
     if "no forge credential" in detail:
         # THE DECLARATION'S OWN PROBLEM, when that is why (#373): its sentence is the remedy.
         _, _, declared = detail.partition("its options — ")
@@ -1663,6 +1667,23 @@ def _forge(p: Probes) -> Finding:
         ((ask("when_refused") if ask is not None else "") or CREDENTIAL_REFUSED_REMEDY)
         + ". The coordinates the probe used are the project's registry entry",
     )
+
+
+#: What a line says when the CREDENTIAL STORE refused a credential (review of #822) — produced by
+#: the probes and recognised by the findings through this one value, never through prose.
+REFUSED_BY_THE_STORE = "is refused by the credential store"
+
+#: …and how that is repaired. The store's own sentence names the file and its repair; what this
+#: adds is what NOT to do, because the variable of the same name is not read in its place.
+REFUSED_REMEDY = ("fix what the refusal names, where the secret is kept — until then nothing is "
+                  "used in its place: not the variable of the same name, not the deployment's "
+                  "own credential, not a mint")
+
+
+def refused_said(what: str, refused: dict[str, str]) -> str:
+    """`what`, refused: each name and the store's reason, never a value."""
+    return (f"{what} {REFUSED_BY_THE_STORE}: "
+            + "; ".join(f"`{name}` — {why}" for name, why in sorted(refused.items())))
 
 
 #: What to do about a credential the forge REFUSED, when its vendor's row says nothing: no vendor
@@ -2539,7 +2560,13 @@ def probes_for(project) -> Probes:
         kind = _hk(project, "executor")
         # ASKED OF THE CREDENTIAL STORE (#742), the way the harness reads it: a token mounted as a
         # file is present, and the line says which reference answered.
-        reading = harness_credential(kind, Stored())
+        settings = Stored()
+        reading = harness_credential(kind, settings)
+        if settings.refused:
+            # A REFUSAL, NOT AN ABSENCE (review of #822): the harness runs on nothing rather than
+            # on the next name, and "set CLAUDE_CODE_OAUTH_TOKEN" would send the operator to set a
+            # variable that is already set.
+            return False, refused_said("the harness credential", settings.refused), REFUSED_REMEDY
         if reading is None:
             return True, (f"presence is not checkable for {kind!r} from here — "
                           f"`openfactory box prove` exercises the real call")
@@ -2553,6 +2580,7 @@ def probes_for(project) -> Probes:
     def _forge() -> tuple[bool, str]:
         from openfactory.adapters.forge.registry import build_forge
         from openfactory.credentials import (
+            axis_refusal,
             credential_problem,
             describe_source,
             forge_credential_source,
@@ -2568,6 +2596,10 @@ def probes_for(project) -> Probes:
         if problem:
             return False, (f"no forge credential is configured for the {forge_vendor(project)} "
                            f"forge: its options — {problem}")
+        # A REFUSED REFERENCE IS SAID AS ITSELF (review of #822), before "not configured", which
+        # would name the variable to set — the one that is set, under a file the store refused.
+        if refused := axis_refusal(project, "forge"):
+            return False, f"the forge credential {REFUSED_BY_THE_STORE}: {refused}"
         token = forge_token_for(project)
         # PRESENCE first, reachability second. With no static token and no App variables the old
         # probe still "reached" the forge (a 404 on a public endpoint reads as allowed-to-ask) and
@@ -2665,10 +2697,17 @@ def probes_for(project) -> Probes:
         with no board pays nothing: `build_board` returns None before anything is resolved.
         """
         from openfactory.adapters.board.factory import build_board
+        from openfactory.credentials import axis_refusal
 
         board = build_board(project, token_provider=_board_credential(project))
         if board is None:
             return None  # no board configured — a legitimate setup, and the ONLY meaning of None
+        # A REFUSED TRACKER CREDENTIAL IS WHY, AND SAID SO (review of #822): the read would fail
+        # unauthenticated and the remedy would ask for the variable that is set.
+        if refused := axis_refusal(project, "tracker"):
+            raise BoardUnreadable(_board_coordinates(project),
+                                  remedy=f"the tracker credential {REFUSED_BY_THE_STORE}: "
+                                         f"{refused} — {REFUSED_REMEDY}")
         names = board.column_names()
         if names is None:  # the port's "could not read", which is not "does not exist"
             raise BoardUnreadable(_board_coordinates(project),
@@ -3220,7 +3259,14 @@ def credential_store_line(project) -> tuple[bool, str, str]:
     A REFERENCE THAT CAN NEVER ANSWER IS RED HERE (a store nobody installed, a file the store
     refuses), and so is a box image pull credential that does not answer, which no other line
     asks about. One that simply holds nothing is said and left to the line that needs it — the
-    forge's, the board's — which knows what it costs."""
+    forge's, the board's — which knows what it costs.
+
+    AND SO IS EVERY DEPLOYMENT CREDENTIAL THE STORE REFUSES (review of #822), named or not: each
+    credential the core reads by name (`environ.names_read`, by `environ.holds_a_credential`)
+    and each entry the declared store says it holds (`listed`). This line was green over a
+    refused `OPENFACTORY_BOT_TOKEN` and over a planted panel-token file, which is the refusal that
+    keeps the panel shut — and the one line a person reads to learn why."""
+    from openfactory import environ
     from openfactory.adapters.credential_store import registry as store
     from openfactory.adapters.sandbox.pull import problem as pull_problem
     from openfactory.adapters.sandbox.pull import pull_credential_of
@@ -3254,11 +3300,17 @@ def credential_store_line(project) -> tuple[bool, str, str]:
             said.append(f"{what} `{reference}` ← {store.source(reference) or 'nothing answers'}")
     if pull is not None and not store.refusal(pull.reference) and (why := pull_problem(pull)):
         wrong.append(why)
+    if first != store.ENV:
+        # the environment refuses nothing, so only a declared store is walked
+        deployment = {n for n in environ.names_read() if environ.holds_a_credential(n)}
+        refused = store.refusals(sorted(deployment | set(store.listed(first))))
+        if refused:
+            wrong.append(refused_said("the deployment credential", refused))
     if wrong:
         return (False, f"{order}; " + "; ".join(wrong),
-                f"a reference is a variable name, or `<store>:<name>` with a store this "
-                f"deployment can read ({', '.join(store.known())}); fix the one named, in the "
-                f"project's registry entry or where the store keeps it")
+                f"{REFUSED_REMEDY}. A reference is a variable name, or `<store>:<name>` with a "
+                f"store this deployment can read ({', '.join(store.known())}); fix the one named, "
+                f"in the project's registry entry or where the store keeps it")
     return (True, f"{order}; " + ("; ".join(said) or "this project names no credential of its own"),
             "")
 

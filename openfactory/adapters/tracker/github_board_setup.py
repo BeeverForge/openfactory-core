@@ -170,9 +170,17 @@ def create_board(*, owner: str, title: str, token: str | None = None) -> tuple[s
     way and silence would hide where the retry must start)."""
     # `gh`'s own variable is a deployment credential like any other (#742): read through the
     # store, and handed to every `gh` call below as the token, so one held in a file works too.
-    from openfactory.adapters.credential_store.registry import stored
+    from openfactory.adapters.credential_store.registry import lookup
 
-    token = token or stored("GH_TOKEN")
+    found = lookup("GH_TOKEN") if not token else None
+    if found is not None and found.refused:
+        # SAID AS ITSELF (review of #822): "no credential is configured" would send the operator
+        # to set a variable that is set, under a file the store will not trust.
+        raise BoardSetupError(
+            f"the tracker credential `GH_TOKEN` is refused by the credential store — "
+            f"{found.refused}. Nothing is used in its place; fix what it names and re-run "
+            f"`openfactory project init` — the board step is idempotent")
+    token = token or (found.value if found is not None else None)
     if not token:
         # REFUSE IN OUR VOCABULARY, BEFORE the subprocess. With no token, `gh` answers "run
         # `gh auth login` … or populate GH_TOKEN" — the vendor tool's remedy, in a container

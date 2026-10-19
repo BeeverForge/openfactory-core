@@ -315,9 +315,16 @@ def _secret() -> bytes:
     a restart sends an open preview's viewer back through the panel. Read through the credential
     store (#742), imported here and not at the top: the workflow sandbox imports this package."""
     global _PROCESS_SECRET
-    from openfactory.adapters.credential_store.registry import stored
+    from openfactory.adapters.credential_store.registry import lookup
 
-    configured = (stored("OPENFACTORY_PREVIEW_SECRET") or "").strip()
+    found = lookup("OPENFACTORY_PREVIEW_SECRET")
+    if found.refused:
+        # NOT THE PROCESS'S OWN IN ITS PLACE (review of #822): the fallback is for a deployment
+        # that configured no key, and this one configured a key the store will not trust.
+        raise RuntimeError(f"the preview key OPENFACTORY_PREVIEW_SECRET is refused by the "
+                           f"credential store — {found.refused}; no preview link is signed or "
+                           f"admitted until it is fixed")
+    configured = (found.value or "").strip()
     if configured:
         return configured.encode()
     if _PROCESS_SECRET is None:
@@ -341,6 +348,12 @@ def mint(project: str, token: str, *, expires: int) -> str:
 def admits(key: str, *, project: str, token: str, now: float | None = None) -> bool:
     """Whether `key` opens this unit of this project right now. A key for another unit, or the
     same unit number of another project, opens nothing."""
+    try:
+        _secret()
+    except RuntimeError as exc:
+        # A KEY THAT CANNOT BE READ ADMITS NOBODY, and says why once per refusal, by name.
+        log.error("a preview key was not checked: %s", exc)
+        return False
     parts = (key or "").split(".")
     if len(parts) != 4 or parts[0] != "v1" or parts[1] != token or not parts[2].isdigit():
         return False

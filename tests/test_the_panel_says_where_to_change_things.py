@@ -121,19 +121,16 @@ def test_what_the_panel_REPORTS_is_what_the_harness_will_USE(monkeypatch):
     that disagrees with the code is worse than one that says nothing: it tells an operator his
     subscription is paying while the API key is billed. Pinned against the adapter's own
     resolution order rather than against a comment about it."""
-    import inspect
-
     from openfactory.adapters.agent import claude_code
     from openfactory.api.app import _auth_credential
 
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-x")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+    monkeypatch.delenv(claude_code.POOL, raising=False)
 
-    # read through the credential store since #742, in the same order
-    src = inspect.getsource(claude_code)
-    oauth_at = src.index('stored("CLAUDE_CODE_OAUTH_TOKEN")')
-    apikey_at = src.index('stored("ANTHROPIC_API_KEY")')
-
-    assert oauth_at < apikey_at, (
+    # THE ADAPTER'S OWN CHOICE, ASKED, not its source read (#822: the source moved and the text
+    # this pinned against went with it, which is the drift CONTRIBUTING warns a text guard has)
+    chosen = claude_code._load_agent_token_pool()
+    assert [t["type"] for t in chosen] == ["subscription"], (
         "the adapter no longer prefers the subscription — the panel's answer is now wrong")
     assert _auth_credential() == "subscription"

@@ -14,6 +14,17 @@ A CONFIGURATION THIS MODULE WRITES, NOT `docker login`. `docker login` into a fr
 the secret to the machine's credential helper when one is installed (a desktop keychain), and the
 helper keeps it after the directory is gone. A configuration that already holds the login is read
 as it is, and nothing outlives the pull.
+
+THE SAME DAEMON AS THE BOX (review of #822). Which daemon a docker client talks to is part of its
+configuration: `currentContext` in `config.json`, resolved through the `contexts` directory beside
+it (`docker context use desktop-linux`, rootless, colima). A fresh configuration has neither, so
+the pull went to the default socket while `docker image inspect` and `docker run` — which keep the
+person's own configuration — went to their context: the image landed in a daemon the box never
+uses, and `docker run` pulled again without the login. The private configuration therefore
+carries the person's `currentContext` and links their `contexts` directory, and nothing else of
+theirs: not `auths`, not `credsStore`, not `credHelpers`, which are logins this pull must neither
+read nor feed. `DOCKER_HOST` and `DOCKER_CONTEXT` in the environment reach the pull as they reach
+the box, because the pull inherits the same environment.
 """
 
 from __future__ import annotations
@@ -74,6 +85,31 @@ def problem(credential: PullCredential) -> str:
     return ""
 
 
+def user_config_dir() -> str:
+    """Where the docker client keeps this person's configuration: `DOCKER_CONFIG`, else
+    `~/.docker` — the client's own rule, so the box's docker calls and this read agree."""
+    return os.environ.get("DOCKER_CONFIG") or os.path.join(os.path.expanduser("~"), ".docker")
+
+
+def _context_of(user_dir: str) -> dict[str, str]:
+    """The person's `currentContext`, as their `config.json` says it, or `{}`."""
+    try:
+        with open(os.path.join(user_dir, "config.json"), encoding="utf-8") as fh:
+            current = json.load(fh).get("currentContext")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {"currentContext": current} if isinstance(current, str) and current else {}
+
+
+def _carry_the_daemon(config: str, user_dir: str) -> dict[str, str]:
+    """Link the person's `contexts` into the private configuration `config`, and return what its
+    `config.json` must say for the client to resolve the same daemon: the `currentContext`."""
+    contexts = os.path.join(user_dir, "contexts")
+    if os.path.isdir(contexts):
+        os.symlink(contexts, os.path.join(config, "contexts"), target_is_directory=True)
+    return _context_of(user_dir)
+
+
 def pull(image: str, credential: PullCredential, *, timeout: int = 900,
          run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> tuple[bool, str]:
     """Pull `image` with `credential`, resolved now. `(pulled, what the client said)`; the secret
@@ -89,10 +125,12 @@ def pull(image: str, credential: PullCredential, *, timeout: int = 900,
     auth = base64.b64encode(f"{credential.username}:{secret}".encode()).decode()
     config = tempfile.mkdtemp(prefix="openfactory-pull-")  # 0700, this process's alone
     try:
+        daemon = _carry_the_daemon(config, user_config_dir())
         fd = os.open(os.path.join(config, "config.json"), os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                      0o600)
         with os.fdopen(fd, "w") as fh:
-            json.dump({"auths": {_HUB_KEY if registry == HUB else registry: {"auth": auth}}}, fh)
+            json.dump({**daemon,
+                       "auths": {_HUB_KEY if registry == HUB else registry: {"auth": auth}}}, fh)
         try:
             done = run(["docker", "--config", config, "pull", "--quiet", image],
                        capture_output=True, text=True, timeout=timeout)

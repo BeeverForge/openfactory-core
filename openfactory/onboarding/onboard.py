@@ -648,15 +648,17 @@ def semantic_pass_for(project, source: Path, *,
     AND A MISSING BINARY IS ITS OWN SENTENCE. One branch served both, so a machine that had simply
     not installed the harness was sent looking for a credential it already had.
     """
-    import os
-
     from openfactory.onboarding import context as ctx
 
     try:
         import shutil as which_mod
 
         from openfactory.adapters.agent import build_asker
-        from openfactory.adapters.agent.registry import harness_binary, harness_kind
+        from openfactory.adapters.agent.registry import (
+            harness_binary,
+            harness_credential,
+            harness_kind,
+        )
         from openfactory.adapters.agent.routes import resolve_route
         from openfactory.adapters.sandbox.base import Workspace
         from openfactory.adapters.sandbox.registry import judging_worktree
@@ -664,12 +666,27 @@ def semantic_pass_for(project, source: Path, *,
         kind = harness_kind(project, "techlead")
         binary = harness_binary(kind)
         route = resolve_route(project, role="techlead")
-        missing = route.missing(dict(os.environ))
+        # THROUGH THE CREDENTIAL STORE, as the harness reads it (review of #822): a token held in
+        # a file is present, and a refused one is not. WHETHER A REFUSAL STOPS THE HARNESS is its
+        # own walk's question — the pool, the token, the key, in its order, as the doctor asks it
+        # — and a harness that cannot say from here is asked over its route's names.
+        from openfactory.adapters.credential_store.registry import Stored, held, refusals
+
+        names = sorted({name for group in route.requires for name in group})
+        missing = route.missing(held(names))
+        walk = Stored()
+        refused = (walk.refused if harness_credential(kind, walk) is not None
+                   else refusals(names))
 
         if not which_mod.which(binary):
             return None, (f"deterministic (the {kind} binary `{binary}` is not on this machine's "
                           f"PATH — the survey still reads the repository; run "
                           f"`env context --ask` later for the prose pass)")
+        if refused:
+            return None, (f"deterministic (the harness credential "
+                          f"{', '.join(sorted(refused))} is refused by the credential "
+                          f"store — `openfactory doctor` says why; the survey still reads the "
+                          f"repository; run `env context --ask` once it is fixed)")
         if missing:
             return None, (f"deterministic (no harness credential on this machine for the "
                           f"{route.name} route — it needs {' and '.join(missing)}; the survey "

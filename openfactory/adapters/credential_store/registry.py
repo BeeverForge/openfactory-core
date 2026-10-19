@@ -21,6 +21,15 @@ an installation moves its secrets one at a time and a variable it has not moved 
 store that REFUSES what it holds (`CredentialRefused`) is never a fallback, and neither is an
 unknown kind: a secret the deployment did not choose is not replaced by another one in silence.
 
+A REFUSAL IS AN ANSWER, AND IT IS FINAL (review of #822). `stored` answers None for it, as for a
+name nothing holds, and that fold is what opened the panel: the identity provider read "no
+closing variable is held" as "nothing is configured", and a project whose reference was refused
+was handed the deployment's own token by the next step of its chain. So the store says a refusal
+as itself — `lookup` returns an `Answer` whose `refused` names why — and the two shapes a reader
+asks in keep it: `chain` walks a fallback and stops AT a refusal, never past it, and `Stored`, a
+mapping read as one walk, answers nothing from its first refusal on. A reader that asks "is a
+credential configured?" asks `refusals` too, and a door a refused name would close stays closed.
+
 NAMES AND REFERENCES, NEVER VALUES. What this module logs, and what `describe` and `source`
 answer, say where a secret is and whether it is there. A value leaves only through `stored` and
 `resolve`, to the caller that uses it, and nothing here keeps one.
@@ -35,6 +44,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 
 from openfactory import plugins
 from openfactory.adapters.credential_store.base import CredentialRefused, CredentialStore
@@ -101,39 +111,59 @@ def deployment_store() -> str:
     return (os.environ.get(STORE_VAR) or "").strip().lower() or ENV
 
 
-def _ask(kind: str, name: str) -> tuple[str, str | None, bool]:
-    """`(reference, value, refused)` from the store `kind` for `name`. Never raises: an unknown kind
-    and a store that refuses or fails are said, by reference, and answer nothing."""
+@dataclass(frozen=True)
+class Answer:
+    """What the store said for one name: the reference that answered and its value, or why it
+    refused — never both. `value` stays out of the repr, so an answer printed or logged by
+    accident says where a secret is and never what it is."""
+
+    #: `env:X`, `file:x`, …: what answered, or what refused; `""` when nothing did either
+    reference: str = ""
+    value: str | None = field(default=None, repr=False)
+    #: why the store will not hand over what it holds, in its own sentence; `""` when it did not
+    #: refuse. Holding nothing is not a refusal.
+    refused: str = ""
+
+
+#: Nothing answered and nothing refused.
+NOTHING = Answer()
+
+
+def _ask(kind: str, name: str, *, quiet: bool = False) -> Answer:
+    """What the store `kind` answers for `name`. Never raises: an unknown kind and a store that
+    refuses or fails are an `Answer` that says why, by reference, and holds nothing. `quiet` is
+    for a reader that asks only WHETHER it refuses (the doctor) and says so itself."""
     reference = f"{kind}:{name}"
     try:
         store = build_store(kind)
     except ValueError as exc:
-        log.warning("the credential `%s` cannot be read: %s — nothing is used in its place",
-                    reference, exc)
-        return reference, None, True
+        if not quiet:
+            log.warning("the credential `%s` cannot be read: %s — nothing is used in its place",
+                        reference, exc)
+        return Answer(reference=reference, refused=str(exc))
     try:
         value = store.resolve(name)
     except CredentialRefused as exc:
-        log.warning("the credential `%s` is refused: %s — nothing is used in its place",
-                    reference, exc)
-        return reference, None, True
-    except Exception:  # noqa: BLE001 — an add-on's store may not take a credential path down
+        if not quiet:
+            log.warning("the credential `%s` is refused: %s — nothing is used in its place",
+                        reference, exc)
+        return Answer(reference=reference, refused=str(exc))
+    except Exception as exc:  # noqa: BLE001 — an add-on's store may not take a credential path down
         log.warning("the %s credential store failed reading `%s`; it is treated as a refusal and "
                     "nothing is used in its place", kind, name, exc_info=True)
-        return reference, None, True
-    return reference, (value or None), False
+        return Answer(reference=reference,
+                      refused=f"the {kind} store failed reading `{name}` ({type(exc).__name__})")
+    return Answer(reference=reference, value=value) if value else NOTHING
 
 
-def _declared(name: str) -> tuple[str, str | None] | None:
-    """What the declared store answers for `name`: `(reference, value)` when it holds it,
-    `("", None)` when it refused, and None when the environment is the next to ask."""
+def _declared(name: str, *, quiet: bool = False) -> Answer | None:
+    """What the declared store answers for `name` — its value, or its refusal — and None when it
+    holds nothing there and the environment is the next to ask."""
     kind = deployment_store()
     if kind == ENV:
         return None
-    reference, value, refused = _ask(kind, name)
-    if refused:
-        return "", None
-    return (reference, value) if value is not None else None
+    found = _ask(kind, name, quiet=quiet)
+    return found if (found.value or found.refused) else None
 
 
 def stored(name: str) -> str | None:
@@ -145,37 +175,73 @@ def stored(name: str) -> str | None:
     a workload, exactly as it was when that module read the variable itself."""
     declared = _declared(name)
     if declared is not None:
-        return declared[1]
+        return declared.value
     return os.environ.get(name) or None
+
+
+def lookup(name: str, *, quiet: bool = False) -> Answer:
+    """What answers for the deployment credential `name` — the declared store's value or refusal,
+    else the variable — as an `Answer`, so a reader can tell "refused" from "not held"."""
+    declared = _declared(name, quiet=quiet)
+    if declared is not None:
+        return declared
+    value = os.environ.get(name) or None
+    return Answer(reference=f"{ENV}:{name}", value=value) if value else NOTHING
 
 
 def stored_answer(name: str) -> tuple[str, str | None]:
     """`(the reference that answered, value)` for the deployment credential `name`; `("", None)`
     when nothing answered. The reference is what a reader keys a credential by and what the doctor
-    says, so two credentials can be told apart without comparing their values."""
-    declared = _declared(name)
-    if declared is not None:
-        return declared
-    value = os.environ.get(name) or None
-    return (f"{ENV}:{name}", value) if value else ("", None)
+    says, so two credentials can be told apart without comparing their values. `lookup`'s, so the
+    identity is built in one place."""
+    found = lookup(name)
+    return (found.reference, found.value) if found.value else ("", None)
+
+
+def chain(names: Iterable[str]) -> Answer:
+    """The first of `names` that answers — and NOTHING AFTER A REFUSAL: a refused name ends the
+    walk with its refusal, because the next name is another credential, and a secret the
+    deployment did not choose is not replaced by one it did not name for this (review of #822:
+    a refused `OPENFACTORY_TRACKER_TOKEN` became `OPENFACTORY_BOT_TOKEN`). Spelled as a table at
+    the call, `chain(("A", "B"))`, which is how `environ.names_read` keeps both names reserved."""
+    for name in names:
+        found = lookup(name)
+        if found.value or found.refused:
+            return found
+    return NOTHING
 
 
 def held(names: Iterable[str]) -> dict[str, str]:
     """`{name: value}` for each of `names` that answers now — a snapshot for a reader that takes
-    its settings once, as a mapping (the panel's identity provider)."""
+    its settings once, as a mapping (the panel's identity provider). A refused name is not in it;
+    ask `refusals` for those, and keep the door they would close shut."""
     return {name: value for name in names if (value := stored(name)) is not None}
 
 
-def answer(reference: object) -> tuple[str, str | None]:
-    """`(the reference that answered, value)` for `reference`, or `("", None)`. A bare name is a
-    deployment credential; `<kind>:<name>` asks that store alone."""
+def refusals(names: Iterable[str]) -> dict[str, str]:
+    """`{name: why}` for each of `names` the deployment's store refuses now — never a value. Asked
+    quietly: the reader that asks says it, once, in its own words."""
+    return {name: found.refused for name in names
+            if (found := lookup(name, quiet=True)).refused}
+
+
+def look(reference: object, *, quiet: bool = False) -> Answer:
+    """What answers for `reference`: a bare name is a deployment credential (`lookup`), and
+    `<kind>:<name>` asks that store alone."""
     kind, name = parse(reference)
     if not name:
-        return "", None
+        return NOTHING
     if not kind:
-        return stored_answer(name)
-    found, value, _refused = _ask(kind, name)
-    return (found, value) if value else ("", None)
+        return lookup(name, quiet=quiet)
+    return _ask(kind, name, quiet=quiet)
+
+
+def answer(reference: object) -> tuple[str, str | None]:
+    """`(the reference that answered, value)` for `reference`, or `("", None)` — for a refusal
+    too, which `look` tells apart. A bare name is a deployment credential; `<kind>:<name>` asks
+    that store alone."""
+    found = look(reference)
+    return (found.reference, found.value) if found.value else ("", None)
 
 
 def resolve(reference: object) -> str | None:
@@ -233,41 +299,58 @@ def refusal(reference: object) -> str:
     """Why `reference` can never answer as it stands — a store nobody installed, or one that
     refuses what it holds — or `""` when it can be asked. Holding nothing is not a refusal: that
     is a missing secret, which the reader that needs it reports."""
-    kind, name = parse(reference)
-    asked = [kind] if kind else [k for k in (deployment_store(),) if k != ENV]
-    for each in asked:
-        try:
-            store = build_store(each)
-        except ValueError as exc:
-            return str(exc)
-        try:
-            store.resolve(name)
-        except CredentialRefused as exc:
-            return str(exc)
-        except Exception as exc:  # noqa: BLE001 — an add-on's store may not take the doctor down
-            log.warning("the %s credential store failed reading `%s`", each, name,
-                        exc_info=True)
-            return f"the {each} store failed reading `{name}` ({type(exc).__name__})"
-    return ""
+    return look(reference, quiet=True).refused
+
+
+def listed(kind: str) -> list[str]:
+    """The names the store `kind` holds, when it can say — an optional `names()` on the row, asked
+    when the row defines it, as `unusable()` is — and `[]` when it cannot. What the doctor walks
+    to find a refused file nobody named: a planted panel-token file is refused, and is a
+    credential no reader asked for by a name the doctor would think of."""
+    try:
+        store = build_store(kind)
+    except ValueError:
+        return []
+    asked = getattr(store, "names", None)
+    if not callable(asked):
+        return []
+    try:
+        return sorted(str(n) for n in (asked() or ()))
+    except Exception:  # noqa: BLE001 — an add-on's listing may not take the doctor down
+        log.warning("the %s credential store could not list what it holds", kind, exc_info=True)
+        return []
 
 
 class Stored:
-    """The deployment's credentials as a mapping of names, each looked up through `stored` when it
-    is asked: for a reader that takes a mapping of settings (`claude_code.credential_in`) and is
-    asked about THIS deployment rather than about a file of settings.
+    """The deployment's credentials as a mapping of names, for a reader that takes a mapping of
+    settings (`claude_code.credential_in`, an auth route's `missing`) and is asked about THIS
+    deployment rather than about a file of settings.
 
-    LOOKUPS ONLY: `get`, `[]` and `in`. A store can be asked for a name and cannot always list its
-    names, so this does not pretend to iterate."""
+    ONE WALK, AND IT ENDS AT A REFUSAL. Such a reader asks its names in its own order and takes
+    the first that answers — the token pool, then one token, then a key — so a refusal in the
+    middle would be passed over for the next name exactly as `chain` refuses to. From the first
+    refused name on, every name answers nothing, and `refused` says which and why: build one per
+    walk. LOOKUPS ONLY: `get`, `[]` and `in`. A store can be asked for a name and cannot always
+    list its names, so this does not pretend to iterate."""
+
+    def __init__(self) -> None:
+        #: `{name: why}` of the refusal that ended this walk — never a value
+        self.refused: dict[str, str] = {}
 
     def get(self, name: str, default: str | None = None) -> str | None:
-        value = stored(name)
-        return value if value is not None else default
+        if self.refused:
+            return default
+        found = lookup(name)
+        if found.refused:
+            self.refused[name] = found.refused
+            return default
+        return found.value if found.value is not None else default
 
     def __getitem__(self, name: str) -> str:
-        value = stored(name)
+        value = self.get(name)
         if value is None:
             raise KeyError(name)
         return value
 
     def __contains__(self, name: object) -> bool:
-        return isinstance(name, str) and stored(name) is not None
+        return isinstance(name, str) and self.get(name) is not None
