@@ -123,7 +123,7 @@ marked as such.
   Run it on this tree before any code changes. Record "N failed, M passed" and confirm that each
   failure is the missing `#`/`- `, or the split inline runs. The table/expand test is expected to
   pass (a guard), and the docstring says so.
-- [ ] 2. Write `tests/test_a_card_written_in_jiras_editor_passes_the_gate_it_passes_on_github.py`
+- [x] 2. Write `tests/test_a_card_written_in_jiras_editor_passes_the_gate_it_passes_on_github.py`
   (C3, C3b). Reuse `_Gh`, `_Jira`, `_ado_tracker` from `tests/test_the_tracker_has_a_read_side.py`,
   as `test_the_tracker_reads_what_a_person_wrote.py` does. Parametrize one card (Objective
   section plus a two-item criteria list, including a `code` mark) as each vendor's editor stores it:
