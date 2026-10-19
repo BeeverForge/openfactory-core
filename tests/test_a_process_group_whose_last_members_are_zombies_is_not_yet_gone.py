@@ -99,3 +99,38 @@ def test_the_cleanup_of_a_group_that_answers_EPERM_or_has_just_gone_does_not_rai
     monkeypatch.setattr(os, "killpg", fake)
     _kill_group(12345)
     assert calls == [(12345, signal.SIGKILL)]
+
+
+def test_the_interrupt_s_cleanup_keeps_its_real_failure_when_the_group_answers_EPERM(
+        monkeypatch, tmp_path):
+    """`_interrupt`'s `finally` goes through `_kill_group`: a failure inside it surfaces as itself,
+    not as the `PermissionError` a zombie group's SIGKILL answers on macOS. The helper alone was
+    guarded on 2d5c3cd; putting the bare `os.killpg` back at the call site left the file 5 passed
+    (review round 1)."""
+    from types import SimpleNamespace
+
+    from tests import test_a_rerun_after_an_interrupted_worktree_add_starts as module
+
+    class Child:
+        pid = 12345
+        stdout = SimpleNamespace(close=lambda: None)
+        _waited = False
+
+        def wait(self, timeout=None):
+            if not self._waited:
+                self._waited = True
+                raise RuntimeError("the real failure")
+            return 0
+
+        def poll(self):
+            return 0
+
+    (tmp_path / "started").touch()
+    slow = SimpleNamespace(repo=tmp_path / "repo", started=tmp_path / "started",
+                           release=tmp_path / "release")
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *a, **kw: Child())
+    fake, calls = _killpg_answering(_eperm())
+    monkeypatch.setattr(os, "killpg", fake)
+    with pytest.raises(RuntimeError, match="the real failure"):
+        module._interrupt(slow, tmp_path / "root", "add_timed_out")
+    assert calls == [(12345, 0), (12345, signal.SIGKILL)]

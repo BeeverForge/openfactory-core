@@ -9,7 +9,8 @@ TWO CLAIMS, both about the helpers of
      while a killed group's last members are zombies awaiting reaping, so the wait keeps polling
      instead of raising, and never stops while the group still holds processes.
   2. **`_kill_group`, the module's `finally` cleanup, raises nothing** for a group that answers
-     EPERM or vanished since it was checked, so a cleanup never replaces a test's real failure.
+     EPERM or vanished since it was checked, and `_interrupt`'s `finally` goes through it, so a
+     cleanup never replaces a test's real failure.
 
 The guard is `tests/test_a_process_group_whose_last_members_are_zombies_is_not_yet_gone.py`, in a
 file of its own (as #121's): a fake `os.killpg` drives the EPERM answer no Linux host gives, and a
@@ -45,4 +46,8 @@ MUTATIONS = [
     ("the cleanup's kill lets a just-vanished group escape", INTERRUPTED,
      "    with contextlib.suppress(ProcessLookupError, PermissionError):\n",
      "    with contextlib.suppress(PermissionError):\n"),
+
+    ("the interrupt's cleanup kills the group bare again", INTERRUPTED,
+     "            _kill_group(child.pid)\n",
+     "            os.killpg(child.pid, signal.SIGKILL)\n"),
 ]
