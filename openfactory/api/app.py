@@ -1132,25 +1132,57 @@ def _subject(request: Request):
     deployment's panel to close an audit gap would close it by locking everyone out; instead the
     gap appears in the audit line as the word `anonymous`, which is a thing you can grep for.
 
-    `X-OpenFactory-Actor` remains a LABEL and is only honoured for a caller the provider could not name —
-    a person it DID name must not be able to rename themselves in the audit trail."""
-    token = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
-    subject = _subject_of(token)
+    AN ANONYMOUS SUBJECT IS THE CREDENTIAL'S OWN, WHATEVER THE REQUEST SAYS ABOUT ITSELF. It has
+    no id, and it keeps the groups the credential asserts — the shared board and product tokens
+    are anonymous AND scoped (`identity/local.py`). This used to answer `UNKNOWN` when no
+    `X-OpenFactory-Actor` was sent, and `UNKNOWN` asserts no group: measured on 2026-10-19, the
+    shared board token without that header reached `preview_start`, a row of the product area,
+    and the shared product token was vouched for as an operator on the product rows that ask
+    `may_enter(FLOOR)`. With the header, the same tokens were scoped. Leaving a header out must
+    never widen a credential, so the header no longer reaches the subject at all: it is a label,
+    read by `_actor` only, and only as `Actor.label` (`_label_of`).
+
+    AND THE CREDENTIAL IS THE ONE THE GATE ADMITTED (`_credential_of`): the Bearer header, else
+    the credential cookie, else `?token=`. This read the Bearer header alone, so a request the
+    gate let in by its cookie or its query resolved no credential at all — `UNKNOWN` again, the
+    same widening by another transport: measured on 2026-10-19, `GET /api/whoami` with the shared
+    board token answered `scopes: ["floor"]` by header and `null` by cookie and by `?token=`. A
+    route behind `require_auth` presents the header, which `_credential_of` reads first, so for
+    those nothing changes."""
+    subject = _subject_of(_credential_of(request))
     if subject.known:
         return subject
     from openfactory.identity.base import UNKNOWN
 
-    label = (request.headers.get("x-openfactory-actor") or "").strip()[:80]
-    return UNKNOWN if not label else type(subject)(
-        id="", display=label, via=subject.via, groups=subject.groups)
+    return type(subject)(id="", display=subject.display or UNKNOWN.display,
+                         via=subject.via or UNKNOWN.via,
+                         groups=tuple(getattr(subject, "groups", ()) or ()))
+
+
+#: How long a label may be: it is written into the audit line, and a header is not a document.
+_LABEL_MAX = 80
+
+
+def _label_of(request) -> str:
+    """What an anonymous caller SAYS it is — `X-OpenFactory-Actor` — and nothing more.
+
+    A DISPLAY HINT, NEVER AN IDENTITY. A script or a bot on a shared token may say what it is, and
+    the action layer's audit line prints it beside the credential it actually used. It is never an
+    id, a `by`, a voucher or the person a gate is asked about: until 2026-10-19 the label became
+    the subject's display, the answer route recorded `id or display` as who answered and handed it
+    to the product gate as the person deciding, and `run_staged` recorded it as who pressed — so a
+    shared token sending a product admin's id was asked about AS that admin. Read here and nowhere
+    else (`tests/test_a_shared_credential_is_who_it_is.py` holds that)."""
+    return (request.headers.get("x-openfactory-actor") or "").strip()[:_LABEL_MAX]
 
 
 def _subject_of(credential: str):
     """WHO one credential names, or `UNKNOWN` — the provider's answer, asked the one way.
 
-    `_subject` asks it for a request's Bearer header; the product socket asks it for whatever
-    `_credential_of` read at its handshake (a browser cannot set a header on a socket, so that is
-    the cookie), because the person a socket speaks as must be the person the gate admitted."""
+    `_subject` asks it for whatever `_credential_of` read from a request; the product socket asks
+    it for whatever `_credential_of` read at its handshake (a browser cannot set a header on a
+    socket, so that is the cookie), because the person a request or a socket speaks as must be the
+    person the gate admitted."""
     from openfactory.identity import build_identity
     from openfactory.identity.base import UNKNOWN
 
@@ -1181,21 +1213,32 @@ def _actor(request: Request) -> actions.Actor:
     becomes `Actor.scopes` — so the holder is an admin OF THE PRODUCT AREA (they must be; accepting
     a requirement is the most consequential act there) and is refused `merge`, `skip` and every
     other floor row by name. A credential asserting no groups is unscoped, which is every actor
-    that existed before this and is why the mapping is `None` rather than an empty set."""
-    return _actor_of(request, _subject(request))
+    that existed before this and is why the mapping is `None` rather than an empty set.
+
+    A CALLER NOBODY NAMED MAY LABEL ITSELF, and the label is carried as `Actor.label` — beside the
+    actor, never in its id or its display (`_label_of`). A person the provider named carries none:
+    they must not be able to rename themselves in the audit trail."""
+    return _actor_of(request, _subject(request), label=_label_of(request))
 
 
-def _actor_of(connection, subject) -> actions.Actor:
+def _actor_of(connection, subject, *, label: str = "") -> actions.Actor:
     """`_actor`, for a subject already resolved — a request's, or a socket's (`HTTPConnection`
     either way, so the conversation is keyed off the same cookies).
 
     AN ANONYMOUS SUBJECT STAYS ANONYMOUS (#759): its id is empty, and "panel" is only what it is
-    CALLED. An id of "panel" let the shared token vouch for an invitation as if it were somebody."""
+    CALLED. An id of "panel" let the shared token vouch for an invitation as if it were somebody.
+    Asked by `known`, the one spelling of "anonymous" (`identity/base.py`), so a subject a provider
+    marked anonymous carries no id here even if it filled one in.
+
+    `label` is what the request said about itself (`_label_of`): kept for an anonymous subject, as
+    a hint beside it, and dropped for a named one."""
     scopes = _scopes_of(subject)
-    return actions.Actor(id=subject.id or "",
+    known = getattr(subject, "known", False)
+    return actions.Actor(id=(subject.id or "") if known else "",
                          display=subject.display or subject.id or "panel",
                          via="panel", admin=True, scopes=scopes,
-                         conversation=_conversation_of(connection, subject))
+                         conversation=_conversation_of(connection, subject),
+                         label="" if known else label)
 
 
 #: The cookie a browser nobody has identified carries, so that ITS conversation with the product
@@ -2337,14 +2380,21 @@ def answer_channel_message(project: str, body: dict, request: Request) -> dict:
     version read `by` from the request body: the panel sent none — so every answer's audit row
     named nobody — and any caller holding a panel credential could write somebody ELSE's name
     into the append-only record, the precise spoofing `_subject`'s named-person rule exists to
-    prevent. The body's `by` is now ignored; identity comes from the credential, and an
-    anonymous caller may at most label itself via X-OpenFactory-Actor, which carries no id."""
+    prevent. The body's `by` is now ignored; identity comes from the credential, and so does the
+    name an anonymous caller is recorded under: the one its credential is known by. A label it
+    sends in X-OpenFactory-Actor is not who answered, and not who the product gate is asked
+    about."""
     from openfactory.memory import messages as channel
 
     token = str((body or {}).get("token") or "").strip()
     answer = str((body or {}).get("answer") or "").strip().lower()
     who = _subject(request)
-    by = who.id or who.display
+    # TWO DIFFERENT QUESTIONS. `user` is WHO DECIDES — the id the product gate checks against its
+    # allowlist and against the proposal's requester — and a credential that names nobody is
+    # asked about as nobody. `by` is THE RECORD: the id, or for an anonymous caller the name the
+    # provider gives its credential. Neither is ever something the request said about itself.
+    user = who.id if who.known else ""
+    by = user or who.display
     if not token:
         raise HTTPException(status_code=400, detail="which question — the token is missing")
     if answer not in ("approve", "reject"):
@@ -2380,7 +2430,7 @@ def answer_channel_message(project: str, body: dict, request: Request) -> dict:
 
         proj = _project_or_404(project)
         code, sentence = staged_gate.answer_staged(
-            proj, token=token, approved=(answer == "approve"), user=by, via="panel")
+            proj, token=token, approved=(answer == "approve"), user=user, via="panel")
         if code == "unauthorized":
             raise HTTPException(status_code=403, detail=sentence)
         if code == "expired":

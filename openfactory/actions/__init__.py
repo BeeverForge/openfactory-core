@@ -328,8 +328,12 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
         # row's refusals off its source; this is for the one they could not see.
         log.error("action %s refused with an undeclared reason %r — it declares %s", key,
                   outcome.data.get("reason"), ", ".join(reasons(key)))
-    log.info("action=%s by=%s ok=%s code=%s params=%s", key, by, outcome.ok,
-             outcome.code or "-", _loggable(params))
+    # A LABEL IS PRINTED AS ONE (`Actor.label`): what an anonymous caller says it is, beside the
+    # credential it used — never in `by=`, which is who that credential is.
+    label = str(getattr(by, "label", "") or "")
+    log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,
+             f" label={label!r}" if label else "", outcome.ok, outcome.code or "-",
+             _loggable(params))
     return outcome
 
 

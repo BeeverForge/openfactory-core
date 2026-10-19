@@ -158,6 +158,12 @@ class Actor:
     #: nobody has identified yet — and a product row uses it when the caller passed no thread.
     #: Empty means the transport keys nothing, which is every actor that predates this.
     conversation: str = ""
+    #: WHAT AN ANONYMOUS CALLER SAYS IT IS — a script's or a bot's own name for itself, sent on a
+    #: shared token. A DISPLAY HINT AND NOTHING ELSE: it is not `id`, not `display`, and `str()`
+    #: leaves it out, because those are what a row records as who acted, vouched or decided. Only
+    #: `perform`'s audit line prints it, as `label=`, beside the credential that was really used.
+    #: Empty for a named person, whose name is the provider's and not theirs to change.
+    label: str = ""
 
     def may_enter(self, scope: str) -> bool:
         """Whether this actor may act in `scope`. Unscoped actors may enter anywhere."""

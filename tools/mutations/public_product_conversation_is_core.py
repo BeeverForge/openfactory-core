@@ -210,11 +210,13 @@ MUTATIONS = [
      "    offered = gestures(ex, answer) or staging(ex, answer)\n",
      "    offered = gestures(ex, answer)\n"),
     # ── after the second review: the VALUE at every hop, keyword kept ─────────────────────────
+    # re-pinned 2026-10-19: the route hands the gate `user` (the answering credential's id) now,
+    # not `by` (the record's name) — the claim, the transport's value, is unchanged
     ("the panel's own route tells the gate 'slack' for a click on the panel — the reviewer's cut "
      "the whole suite survived",
      APP,
-     "            proj, token=token, approved=(answer == \"approve\"), user=by, via=\"panel\")\n",
-     "            proj, token=token, approved=(answer == \"approve\"), user=by, via=\"slack\")\n"),
+     "            proj, token=token, approved=(answer == \"approve\"), user=user, via=\"panel\")\n",
+     "            proj, token=token, approved=(answer == \"approve\"), user=user, via=\"slack\")\n"),
     ("the token gate builds the module it was handed none of with its default, not with the "
      "transport it was told",
      CONFIRM,

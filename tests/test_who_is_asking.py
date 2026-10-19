@@ -305,10 +305,15 @@ def test_a_NAMED_person_cannot_rename_themselves_in_the_audit_trail(app, monkeyp
     assert _actor(_Req()).id == "alice"
 
 
-def test_an_ANONYMOUS_caller_may_still_label_itself(app, monkeypatch):
+def test_an_ANONYMOUS_caller_may_still_label_itself(app, monkeypatch, caplog):
     """The label keeps its one honest use: a script or a bot on the shared token can say what it
-    is, and the audit line reads better than "panel". It carries no id, so nothing downstream can
-    mistake it for an authenticated person."""
+    is, and the audit line prints it. It is carried BESIDE the actor — not as its id and not as
+    its display, which is what a row records as who acted — so nothing downstream can mistake it
+    for a person: the display stays the name the provider gives the credential."""
+    import asyncio
+    import logging
+
+    from openfactory import actions
     from openfactory.api.app import _actor
 
     monkeypatch.setenv("OPENFACTORY_PANEL_TOKEN", "shared")
@@ -318,8 +323,16 @@ def test_an_ANONYMOUS_caller_may_still_label_itself(app, monkeypatch):
 
     who = _actor(_Req())
 
-    assert who.display == "nightly-deploy"
+    assert who.label == "nightly-deploy"
     assert who.id == "", "a labelled anonymous caller must not acquire an identity"
+    assert who.display == UNKNOWN.display, who
+    assert "nightly-deploy" not in str(who), "the label reached what a row records as `by`"
+
+    with caplog.at_level(logging.INFO, logger="openfactory.actions"):
+        asyncio.run(actions.perform("env_check", by=who, project="no-such-project-here"))
+    audit = [r.getMessage() for r in caplog.records if r.getMessage().startswith("action=")]
+    assert audit and "label='nightly-deploy'" in audit[-1], audit
+    assert f"by={who}" in audit[-1], audit
 
 
 # ── the SECOND gate — the middleware C-26 missed, found by the adversarial review ───────────────

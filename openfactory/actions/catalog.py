@@ -1640,6 +1640,10 @@ async def run_staged(*, project: str, by: Actor, token: str = "") -> Outcome:
     # THE DECISION IS RECORDED WHATEVER THE OUTCOME — it retires the button either way. A refusal
     # is an answer, and a proposal somebody has pressed and been refused must not sit there
     # inviting the same click. What went wrong travels in the thread beside it.
+    #
+    # WHO PRESSED IS THE ACTOR'S ID, or for an anonymous actor the name its credential is known by
+    # (`display`). Never `by.label`: that is what the caller said about itself, and recording it
+    # here wrote a shared token's label into the record as the person who pressed.
     channel.answer(project, token=message.token, answer="approve", by=str(by.id or by.display))
     channel.say(project, outcome.message, channel=project)
     return Outcome(ok=outcome.ok, message=outcome.message, code=outcome.code,
