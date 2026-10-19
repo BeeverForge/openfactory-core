@@ -15,9 +15,12 @@ scope: a scope must not turn the `None` of a missing project into the `[]` of an
 Since #749 (6a87018) that 404 costs one more request: `_call` asks `GET myself` once after any
 404, to tell a missing project from a credential Jira took as nobody's. The fake answers `myself`
 200 (a pair Jira accepts), so the 404 stays a missing project, and the test holds the whole
-sequence: search, `project/DAR`, `myself`. Without the route the fake's AssertionError was read
-by `_who_is_asking` as a probe that could not be made, and the last request was `myself`, not
-the probe the assertion named (red in both orders after the rebase onto 52025ee, 2026-10-19).
+sequence: search, `project/DAR`, `myself`. Without the route the fake raised AssertionError,
+which `_who_is_asking` does not catch (it catches OSError and HTTPException): it passed through
+`_call` and was caught by `_project_exists`'s `except Exception`, whose warning named it ("cannot
+show the project itself (the adapter called GET myself …)", measured 2026-10-19). The `None`
+held, but the last request was `myself`, not the probe the assertion named (red in both orders
+after the rebase onto 52025ee, 2026-10-19).
 
 MEASURED ON `main` (1be1835) WITH THIS FILE: both tests fail, because the registry dropped
 `scope_jql` and the search carried no scope (`'project = "DAR" ORDER BY updated DESC'`).
