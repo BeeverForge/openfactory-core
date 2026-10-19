@@ -99,6 +99,25 @@ from openfactory.adapters.tracker.base import (  # noqa: E402
 from openfactory.adapters.tracker.base import column_key as _column_key  # noqa: E402
 
 
+def _not_one_account(email: str, method: str, path: str, *, has_token: bool) -> str:
+    """What a person reads when Jira took a call as nobody's: the 404 it answered, and `GET myself`
+    401. THE CAUSE COMES FIRST, because the job's preflight and the card's door keep only the
+    first 120 characters of it; the path, which can be long, comes after. The token is never in it.
+
+    "or the token was revoked" because a mismatched pair and a revoked token are not told apart
+    by anything here; with no token at all the request was anonymous for a reason of its own,
+    and calling it "different accounts" would send a person looking for the wrong mistake."""
+    seen = (f"Jira answered {method} {path} 404 as it does an anonymous request, and GET myself "
+            f"401.")
+    if not has_token:
+        return (f"jira: no API token reached this tracker for {email} — {seen} Set the variable "
+                f"the project's tracker.options.token_env names.")
+    return (f"jira: the email {email} and the API token belong to different accounts, or the "
+            f"token was revoked — {seen} Pair the email with an API token created by that same "
+            f"account (id.atlassian.com → Security → API tokens), or replace a token that was "
+            f"revoked.")
+
+
 def _jql_since(stamp: str) -> str:
     """An ISO-8601 timestamp as a JQL date literal — a RELATIVE one, `"-90m"`.
 
@@ -231,8 +250,36 @@ class JiraTracker:
             return json.loads(body) if body.strip() else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode()[:300] if hasattr(exc, "read") else ""
+            # Jira Cloud answers a Basic pair whose token is not the email's account as an
+            # ANONYMOUS request: 404 on the issue, never 401 (#749, reported 2026-10-14 against
+            # v0.6.0-rc.2). Only `myself` says nobody signed in, so a 404 asks it once.
+            if exc.code == 404 and self._who_is_asking():
+                raise JiraRefused(_not_one_account(self.email, method, path,
+                                                   has_token=bool(self.token)),
+                                  code=401) from exc
             raise JiraRefused(f"jira {method} {path} failed: {exc.code} {detail}",
                               code=int(exc.code)) from exc
+
+    def _who_is_asking(self) -> bool:
+        """True only when `GET /rest/api/3/myself`, asked with this tracker's credential, answers
+        401: Jira took the request as nobody's. `api/3` always — `myself` exists under no other
+        family, and the call that 404'd may have been `agile/1.0`. Straight to `urlopen`, not
+        through `_call`, so a `myself` that itself answers 404 cannot ask again.
+
+        A 2xx, any other status, and a probe that could not be made at all are False: the caller
+        then raises the 404 it already had, so a site that cannot answer is never read as a
+        mismatched pair."""
+        req = urllib.request.Request(f"{self.site}/rest/api/3/myself", headers=self._headers(),
+                                     method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=45):  # noqa: S310 — fixed https site
+                return False
+        except urllib.error.HTTPError as exc:
+            return exc.code == 401
+        except OSError as exc:   # URLError, TimeoutError, ConnectionResetError
+            log.info("jira answered a 404 and GET myself could not be asked (%s) — keeping the "
+                     "404, since nothing says the credential was not accepted", str(exc)[:200])
+            return False
 
     @staticmethod
     def _text(adf: dict | None) -> str:
