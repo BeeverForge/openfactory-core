@@ -188,3 +188,15 @@ def test_a_github_axis_that_still_uses_the_app_asks_the_app(monkeypatch):
 
     assert asked == ["7"]
     assert finding.ok is False and "othercorp" in finding.message, finding.message
+
+
+def test_a_scope_probe_that_raises_is_a_red_line_not_a_crash():
+    """The line's probe reads the whole registry, and a malformed sibling project makes `list()`
+    raise `ValueError`. Measured in review round 1 on d744ba8: `doctor demo --json` then fails the
+    line with `project 'broken' is invalid`; a cut that removed the `_guarded` wrapper survived
+    every test, and would have crashed `doctor` with a traceback instead."""
+    def boom():
+        raise ValueError("registry.yaml: project 'x' is invalid")
+    report = doctor.diagnose(a_fully_pinned_probe_set(installation_scope=boom))
+    finding = next(f for f in report.findings if f.check == doctor.INSTALLATION_SCOPE)
+    assert finding.ok is False and "is invalid" in finding.message

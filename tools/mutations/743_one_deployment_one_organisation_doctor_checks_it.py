@@ -10,9 +10,10 @@ The claims, each held by one named test and broken here by one cut:
 - a registry that spans organisations fails the line in exactly the sentence the load path logs
   (`registry.spanning_message`), with or without an App;
 - the read is `GET /app/installations/{id}` signed with the App's own JWT — nothing is minted —
-  and bounded at ten seconds;
+  and bounded at ten seconds; it never raises (a refused connection, a key that does not sign)
+  and a 200 with no `account.login` is not an account; an incomplete App trio asks nothing (Q4);
 - the line is reachable: the live probe set builds it and `diagnose` emits it under its own id,
-  the id `registry.py`'s docstring promises;
+  the id `registry.py`'s docstring promises, guarded, so a probe that raises is a red line;
 - `docs/configuration.md` §5 has the section that states the rule.
 
 Every row names the one test it must turn red, so a cut that some OTHER test happens to catch
@@ -23,6 +24,7 @@ ADAPTER = "openfactory/adapters/github_app.py"
 REGISTRY = "openfactory/registry.py"
 DOCTOR = "openfactory/doctor.py"
 CREDENTIALS = "openfactory/credentials.py"
+ROW = "openfactory/adapters/credential/registry.py"
 CONFIGURATION = "docs/configuration.md"
 
 LINE = "tests/test_the_doctor_asks_the_app_which_organisation_it_is_installed_on.py"
@@ -101,6 +103,36 @@ MUTATIONS = [
      "installation_id: str, timeout: float = 10.0",
      "installation_id: str, timeout: float = 60.0",
      f"{READ}::test_a_read_that_times_out_is_a_reason_and_not_a_raise"),
+
+    # ── the five cuts review round 1 found surviving, each now held ─────────────────────────────
+    ("an incomplete App trio still asks GitHub (Q4)", ROW,
+     "        if not (aid and key and inst):\n            return None",
+     "        if not (aid or key or inst):\n            return None",
+     f"{READ}::test_an_incomplete_app_trio_is_no_app_and_asks_nothing"),
+
+    ("a transport error other than a timeout raises out of the read", ADAPTER,
+     "    except Exception as exc:  # noqa: BLE001 — every transport failure is a reason the "
+     "doctor says",
+     "    except ValueError as exc:  # noqa: BLE001 — every transport failure is a reason the "
+     "doctor says",
+     f"{READ}::test_a_refused_connection_is_a_reason_and_not_a_raise"),
+
+    ("a key that does not sign raises out of the read", ADAPTER,
+     "    except Exception as exc:  # noqa: BLE001 — a key that does not sign is a reason, not a "
+     "crash",
+     "    except ValueError as exc:  # noqa: BLE001 — a key that does not sign is a reason, not a "
+     "crash",
+     f"{READ}::test_a_key_that_does_not_sign_is_a_reason_and_asks_nothing"),
+
+    ("a 200 with no login answers an empty account", ADAPTER,
+     '        return None, "200, but the answer names no account login"',
+     '        return "", ""',
+     f"{READ}::test_a_200_that_names_no_login_is_not_an_account"),
+
+    ("the line is emitted unguarded, so a probe that raises crashes the doctor", DOCTOR,
+     "        *([_guarded(INSTALLATION_SCOPE, lambda: _installation_scope(probes))]",
+     "        *([_installation_scope(probes)]",
+     f"{LINE}::test_a_scope_probe_that_raises_is_a_red_line_not_a_crash"),
 
     # ── reachability (doctor) ───────────────────────────────────────────────────────────────────
     ("the live probe set no longer builds the line's probe", DOCTOR,

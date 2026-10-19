@@ -162,3 +162,49 @@ def test_the_live_probes_ask_the_installation_and_doctor_reports_it(monkeypatch,
     assert finding.ok is False
     assert "othercorp" in finding.message and "acme" in finding.message, finding.message
     assert github.gets and github.posts == []
+
+
+@pytest.mark.parametrize("missing", ["OPENFACTORY_GH_APP_ID", "OPENFACTORY_GH_APP_KEY_CONTENT",
+                                     "OPENFACTORY_GH_APP_INSTALLATION_ID"])
+def test_an_incomplete_app_trio_is_no_app_and_asks_nothing(monkeypatch, pem, missing):
+    """Q4 (decided 2026-10-19): an incomplete trio is no App, by `token_from_env`'s own rule, so
+    nothing is asked. Review round 1 measured that no test held it: a cut that asked GitHub with
+    two of the three survived."""
+    from openfactory import credentials
+    trio = {"OPENFACTORY_GH_APP_ID": APP_ID, "OPENFACTORY_GH_APP_KEY_CONTENT": pem,
+            "OPENFACTORY_GH_APP_INSTALLATION_ID": INSTALLATION}
+    for name, value in trio.items():
+        if name != missing:
+            monkeypatch.setenv(name, value)
+    github = _answering(monkeypatch, body={"account": {"login": "acme"}})
+    assert credentials.app_installation_account() is None
+    assert github.gets == []
+
+
+def test_a_refused_connection_is_a_reason_and_not_a_raise(monkeypatch, pem):
+    """NEVER RAISES: a transport failure other than a timeout (`ConnectError`, a refused port) is
+    a reason the doctor says. Review round 1: a cut that let it raise survived the timeout test."""
+    url = f"https://api.github.com/app/installations/{INSTALLATION}"
+    _answering(monkeypatch, raises=httpx.ConnectError("[Errno 111] Connection refused",
+                                                      request=httpx.Request("GET", url)))
+    login, reason = _ask(pem)
+    assert login is None and "ConnectError" in reason, reason
+
+
+def test_a_key_that_does_not_sign_is_a_reason_and_asks_nothing(monkeypatch):
+    """A private key that does not sign is a reason, and nothing is sent. Measured in review round
+    1 against api.github.com: `the App's private key does not sign a JWT (InvalidKeyError)`."""
+    github = _answering(monkeypatch, body={"account": {"login": "acme"}})
+    login, reason = ga.installation_account(app_id=APP_ID, private_key="not a key",
+                                            installation_id=INSTALLATION)
+    assert login is None and "private key" in reason, reason
+    assert github.gets == []
+
+
+@pytest.mark.parametrize("body", [{}, {"account": None}, {"account": {"login": ""}}, ["a", "list"]])
+def test_a_200_that_names_no_login_is_not_an_account(monkeypatch, pem, body):
+    """A 200 that names no `account.login` is "could not read", never an empty account: the line
+    would otherwise say "is on , and the registry names acme" (review round 1)."""
+    _answering(monkeypatch, body=body)
+    login, reason = _ask(pem)
+    assert login is None and reason.startswith("200"), (login, reason)
