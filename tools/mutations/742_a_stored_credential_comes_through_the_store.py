@@ -534,7 +534,7 @@ MUTATIONS = [
      '        if found.st_uid not in (0, getattr(os, "geteuid", lambda: 0)()):',
      "        if False:", FAMILY),
     ("the directories a name's link leads through are not asked", FILE,
-     "        while here != root:",
+     "        while here != root and os.path.commonpath([root, here]) == root:",
      "        while False:", FAMILY),
     ("a file with another name elsewhere is read on a writable mount", FILE,
      "        if found.st_nlink > 1 and not _mount_refuses_writes(fd=fd):",
