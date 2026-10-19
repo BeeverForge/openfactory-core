@@ -22,12 +22,13 @@ THE LOAD IS ASSEMBLED BY HAND, so what `yaml.safe_load` did by its name is held 
 both readers of the file (the product module's and the preview's). A tag that would build a Python
 object is refused and never built, wherever it is written. That family is every tag a loader
 PyYAML ships adds to the safe one. A file with no document in it reads as an empty mapping, as it
-did before.
+did before. A file of several documents is refused, never read in part.
 """
 
 from __future__ import annotations
 
 import ast
+import itertools
 import json
 import re
 import textwrap
@@ -75,28 +76,41 @@ SPELLINGS: dict[str, tuple[str, ...]] = {
     "tag:yaml.org,2002:pairs": ("!!pairs [a: 1]",),
 }
 
-#: every way a key reaches the top level of the file. The key is on line 2 in each.
+#: every way a key reaches the top level of the file. The key is written on line 2 in each.
 LAYOUTS: dict[str, str] = {
     "written": "product: books\n{key}: x\n",
     "complex-key": "product: books\n? {key}\n: x\n",
     "merged": "product: books\n<<: {{? {key} : x}}\n",
+    "merged as a sequence": "product: books\n<<: [{{? {key} : x}}]\n",
+    "merged through an alias": "product: books\nx-base: &m {{? {key} : x}}\n<<: *m\n",
+    "an alias as a key": "product: books\nx-key: &k {key}\n*k : x\n",
+    "a flow-style root": "{{product: books,\n {key}: x}}\n",
 }
+
+#: a layout that names the key otherwise than as it is spelled. An alias is named where its anchor
+#: writes the key: the composer hands back the anchored node, so where `*k` stands is gone.
+NAMED_AS = {"an alias as a key": "&k {key}"}
+
+#: the layouts that cannot write an empty key: `: x` alone is not YAML, in block or in flow style
+NO_EMPTY_KEY = ("written", "a flow-style root")
 
 SPELLED = [(tag, key) for tag, keys in SPELLINGS.items() for key in keys]
 
-#: each spelling in each layout that can hold it. `: x` is no key YAML can write, so the empty key
-#: is left out of `written` only; the first test holds that this is YAML's limit, not the test's.
+#: each spelling in each layout that can hold it. The empty key is left out of `NO_EMPTY_KEY` only,
+#: and the first test holds that this is YAML's limit, not the test's.
 CASES = [pytest.param(tag, key, layout, id=f"{layout}-{tag.rsplit(':', 1)[1]}:{key}")
-         for layout in LAYOUTS for tag, key in SPELLED if key or layout != "written"]
+         for layout in LAYOUTS for tag, key in SPELLED if key or layout not in NO_EMPTY_KEY]
 
 
 def _shape(tag: str) -> str:
     return "!!" + tag.rsplit(":", 1)[1]
 
 
-def _named(key: str) -> str:
-    """How the sentence names a key: as written and quoted, or `an empty key` when nothing is."""
-    return repr(key) if key else "an empty key"
+def _named(key: str, layout: str) -> str:
+    """How the sentence names a key in `layout`: as written and quoted, or `an empty key` when
+    nothing is written."""
+    written = " ".join(NAMED_AS.get(layout, "{key}").format(key=key).split())
+    return repr(written) if written else "an empty key"
 
 
 def _invalid_at() -> str:
@@ -114,8 +128,9 @@ def test_every_shape_the_loader_builds_has_a_spelling_and_each_spelling_is_that_
         for key in keys:
             root = yaml.compose(f"? {key}\n: x\n", Loader=yaml.SafeLoader)
             assert root.value[0][0].tag == tag, f"{key!r} is not {tag}"
-    with pytest.raises(yaml.YAMLError):
-        yaml.compose(LAYOUTS["written"].format(key=""), Loader=yaml.SafeLoader)
+    for layout in NO_EMPTY_KEY:
+        with pytest.raises(yaml.YAMLError):
+            yaml.compose(LAYOUTS[layout].format(key=""), Loader=yaml.SafeLoader)
 
 
 @pytest.mark.parametrize(("tag", "key", "layout"), CASES)
@@ -123,7 +138,7 @@ def test_a_key_that_is_not_a_string_is_an_error_naming_the_file_and_the_key(tag,
     docs, error = parse_docs_manifest(LAYOUTS[layout].format(key=key))
     assert docs is None
     assert error.startswith(f"{DOCS_MANIFEST} ")
-    assert error == (f"{_invalid_at()}{_named(key)} (line 2): a key must be a string, "
+    assert error == (f"{_invalid_at()}{_named(key, layout)} (line 2): a key must be a string, "
                      f"not {_shape(tag)}{REMEDY}")
 
 
@@ -168,6 +183,12 @@ def test_a_key_written_across_lines_is_named_on_one_line_without_its_comments(ta
                      f"not {_shape(tag)}{REMEDY}")
 
 
+#: the longest the sentence may be, however long the key. It is a health line, a panel row and a
+#: chat message. This is a fixed number, the bound the first review set, so the cap cannot grow
+#: past it unseen: the boundary rows read the cap itself.
+AT_MOST = 300
+
+
 def _long_keys() -> list[str]:
     """Keys at the cap and on either side of it, and one far past it: a flow mapping of 2,000
     entries, which was named whole in a sentence of 23,866 characters."""
@@ -187,6 +208,7 @@ def test_a_long_key_is_named_by_its_beginning_and_the_sentence_stays_short(key):
         assert named.endswith("…") and key.startswith(named.removesuffix("…"))
     _, short = parse_docs_manifest(LAYOUTS["complex-key"].format(key="[]"))
     assert len(error) <= len(short) - len("[]") + _KEY_SHOWN
+    assert len(error) <= AT_MOST
 
 
 @pytest.mark.parametrize("layout", LAYOUTS)
@@ -214,7 +236,7 @@ def _read(reader: str, root: Path, text: str):
 
 
 #: a file with no document in it: no text, a space, line breaks, a byte-order mark, a comment
-NOTHING = ("", " ", "\n\n", "\r\n", "﻿", "# only a comment\n", "﻿  # a comment\r\n\n")
+NOTHING = ("", " ", "\n\n", "\r\n", "\ufeff", "# only a comment\n", "\ufeff  # a comment\r\n\n")
 #: an empty document, said with its markers
 AN_EMPTY_DOCUMENT = ("---\n", "--- # a comment\n...\n")
 
@@ -231,6 +253,29 @@ def test_nothing_and_an_empty_document_are_what_yaml_reads_them_as():
 @pytest.mark.parametrize("text", NOTHING + AN_EMPTY_DOCUMENT)
 def test_a_file_with_nothing_in_it_reads_as_an_empty_mapping(tmp_path, reader, text):
     assert _read(reader, tmp_path, text) == parse_docs_manifest("{}\n")
+
+
+#: documents a file may hold, each one readable on its own: one that loads, one that does not
+#: validate, and one whose key is not a string
+DOCUMENTS = ("product: books\n", "sources: [a/b]\n", "1: x\n")
+#: how one document ends and the next begins
+BETWEEN = ("---\n", "...\n---\n")
+#: two and three of them, in every order, with either way between them
+SEVERAL = [between.join(docs) for between in BETWEEN
+           for n in (2, 3) for docs in itertools.permutations(DOCUMENTS, n)]
+
+
+def test_several_documents_are_what_yaml_reads_them_as():
+    for text in SEVERAL:
+        assert len(list(yaml.compose_all(text, Loader=yaml.SafeLoader))) > 1, repr(text)
+
+
+@pytest.mark.parametrize("reader", READERS)
+@pytest.mark.parametrize("text", SEVERAL)
+def test_a_file_of_several_documents_is_refused_never_read_in_part(tmp_path, reader, text):
+    docs, error = _read(reader, tmp_path, text)
+    assert docs is None
+    assert error.startswith(f"{DOCS_MANIFEST} is not valid YAML: expected a single document")
 
 
 #: every tag a loader that builds Python objects adds to the safe one, each spelled so that such a
@@ -316,4 +361,5 @@ def test_a_key_with_a_tag_the_loader_cannot_build_is_named_with_its_tag(spelling
     docs, error = parse_docs_manifest(LAYOUTS[layout].format(key=spelling))
     assert docs is None
     tag = spelling.split()[0]
-    assert error == f"{_invalid_at()}{spelling!r} (line 2): a key must be a string, not {tag}{REMEDY}"
+    assert error == (f"{_invalid_at()}{_named(spelling, layout)} (line 2): a key must be a string, "
+                     f"not {tag}{REMEDY}")

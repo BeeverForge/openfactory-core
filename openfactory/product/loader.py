@@ -156,7 +156,9 @@ def _safe_load(text: str) -> tuple[object, str]:
 
     WHAT `yaml.safe_load` DID BY ITS NAME IS NOW DONE HERE BY HAND, and a test holds each part.
     The class is `SafeLoader`, so a tag that would build a Python object is refused and never
-    built. A file with no document in it reads as None."""
+    built. A file with no document in it reads as None. A file of several documents is refused
+    (`get_single_node`), never read in part: reading only the first dropped the rest of the file
+    without a word (measured on review, 2026-10-19)."""
     loader = yaml.SafeLoader(text)
     try:
         root = loader.get_single_node()

@@ -7,9 +7,9 @@ composed nodes, after `<<` is merged and before anything is built, and every one
 `!!str` is one sentence naming the file, the key as written, its line, its shape and the remedy.
 
 The load is assembled by hand, so the last block of rows holds what `yaml.safe_load` did by its
-name: the safe class, and None for a file with no document in it. Both cuts survived the first
-version of this plan (300 passed, on review, 2026-10-19). Each row below is one way that could come
-undone, and the guard must go red on each.
+name: the safe class, None for a file with no document in it, and a refusal for a file of several
+documents. Each of those cuts survived a version of this plan (on review, 2026-10-19). Each row
+below is one way that could come undone, and the guard must go red on each.
 """
 
 TEST = "tests/test_product_yaml_names_a_key_that_is_not_a_string.py"
@@ -118,4 +118,20 @@ MUTATIONS = [
 
     ("a text that is not empty is counted as a file with nothing in it",
      TEST, "\"# only a comment\\n\", ", "\"x  # not only a comment\\n\", "),
+
+    # added after the re-review of 027d4b0, 2026-10-19: these three survived it
+    ("ONE DOCUMENT IS READ AND THE REST IGNORED: `product: books\\n---\\nsources: [a/b]` loads "
+     "with `sources` dropped without a word (the first-document idiom `load_all` uses)",
+     _LOADER, "        root = loader.get_single_node()\n",
+     "        root = loader.get_node() if loader.check_node() else None\n"),
+
+    ("the cap grows past what a sentence can carry, so the 2,000-entry key is named whole again",
+     _LOADER, "_KEY_SHOWN = 80\n", "_KEY_SHOWN = 100_000\n"),
+
+    ("a flow-style root (`{product: books, on: push}`) is not checked",
+     _LOADER, "        if isinstance(root, yaml.MappingNode):\n",
+     "        if isinstance(root, yaml.MappingNode) and not root.flow_style:\n"),
+
+    ("a text of one document is counted as several",
+     TEST, "BETWEEN = (\"---\\n\", ", "BETWEEN = (\"\", "),
 ]
