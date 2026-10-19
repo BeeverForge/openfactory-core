@@ -115,7 +115,14 @@ class GitHubIssuesTracker(TrackerAdapter):
 
     _RATE_MARKERS = ("rate limit", "abuse detection", "submitted too quickly", "retry your request")
 
-    def _gh(self, args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    def _gh(self, args: list[str], timeout: int = 60, *,
+            stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+        # A LONG TEXT GOES ON STDIN (`stdin=`, with `--body-file -`), never as one argv element:
+        # Linux refuses an element over MAX_ARG_STRLEN (131,072 bytes) with E2BIG, raised by
+        # `subprocess.run` as `OSError: [Errno 7] Argument list too long: 'gh'` before gh starts.
+        # GitHub's limit is in characters (65,536), so a 3-byte script crossed the byte ceiling at
+        # about 43,690 characters (#807). Stdin has no per-element ceiling; both runs below send it.
+        #
         # NEVER A GUESSED REPOSITORY, OWNER OR BRANCH (`adapters/github_cli.py`): an empty flag is
         # answered as a failed call before `gh` can fill it in by guessing
         why = nothing_named(args)
@@ -124,7 +131,8 @@ class GitHubIssuesTracker(TrackerAdapter):
             return refused(args, why)
         try:
             p = subprocess.run(
-                ["gh", *args], capture_output=True, text=True, timeout=timeout, env=self._env()
+                ["gh", *args], input=stdin, capture_output=True, text=True, timeout=timeout,
+                env=self._env(),
             )
         except FileNotFoundError:
             # A stranger's first hour must not end in a stack trace about a binary the docs never
@@ -140,7 +148,8 @@ class GitHubIssuesTracker(TrackerAdapter):
         if p.returncode != 0 and any(m in (p.stderr or "").lower() for m in self._RATE_MARKERS):
             time.sleep(8)
             p = subprocess.run(
-                ["gh", *args], capture_output=True, text=True, timeout=timeout, env=self._env()
+                ["gh", *args], input=stdin, capture_output=True, text=True, timeout=timeout,
+                env=self._env(),
             )
         return p
 
