@@ -157,6 +157,7 @@ its administrator named — and localised — everything in it:
                           issue_type: Tarefa,                # default `Task`
                           status_map: '{"backlog": "A Fazer", "todo": "Pronto", "in_progress": "Em andamento", "done": "Concluído"}',
                           intake_status: "A Fazer",          # where Jira creates a new issue
+                          scope_jql: 'labels = "of-api"',    # this project's slice of DAR
                           not_delivered_resolution: "Won't Do" } }
 ```
 
@@ -177,6 +178,36 @@ its columns, so `status_map` is how it knows a card in `Concluído` is delivered
 somebody tries to edit or close that card. **`columns` is not read on a Jira row**: it is the
 option the GitHub, Azure Boards and local rows take (below), and the two maps are never both
 consulted — each board answers for its own columns.
+
+**Several projects can share one Jira project** with `scope_jql`, a JQL condition that selects this
+project's issues out of it. Without it every registry project on `DAR` reads all of `DAR` as its
+queue, and a deployment of about nineteen repositories on one Jira project had one ticket picked up
+by three of them in one night (v0.6.0-rc.2). The condition is ANDed, in parentheses, onto every
+search of the project's issues: the pickup queue, the board the panel, the product role and
+`openfactory forget` read, and the search for an open ticket of the same title that keeps an
+impediment or a product filing from being filed twice. So `labels = "of-api" OR labels = "of-web"`
+reads `project = "DAR" AND (labels = "of-api" OR labels = "of-web")` and cannot widen the read past
+the project. It does **not** narrow what is read or moved by key (a card, its transitions, its
+children by parent), the workflow's statuses, or the check that the project exists: a slice with
+nothing in it reads as an empty board, and a project that is not there still reads as unreadable.
+Single-quote it in YAML, because JQL quotes with `"`. Unset, or blank, the queries are exactly
+those of a project without it.
+
+A condition Jira cannot parse — an unclosed quote, an `ORDER BY` inside it — is answered `400`
+(measured on Jira Cloud 2026-10-19): the board and the ticket list read as unreadable, never as
+empty, the pickup queue picks up nothing, and the warning names the `scope_jql` it searched with.
+A condition that parses but selects nothing is an empty queue, and nothing says so yet.
+
+**The factory's own new tickets must match the scope.** Its create writes only the project, the
+summary, the description and the issue type, so a split's children, the product role's cards and
+an impediment it files carry no label of yours. Outside the scope, the poller never picks them up,
+the panel and the product role do not see them, and the search for an earlier filing does not
+find them, so each retry files another. Scope by something every new issue of this project
+receives on create — a label or a component that a Jira automation rule sets on each issue the
+project's own account creates (one `email` and `token_env` per project, so the rule can tell them
+apart) — rather than by a label nobody writes. This is the Jira counterpart of
+the team area paths an Azure Boards board reads (`docs/setup/azure-devops.md`); there, what the
+factory creates is put in the area, so it stays inside what it reads.
 
 **The queue needs a status of its own.** Jira creates a new issue in its workflow's first status,
 and its create cannot be told another — so where `todo` names that status (`To Do`, `A Fazer`, on
