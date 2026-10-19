@@ -190,3 +190,26 @@ def test_a_failed_result_event_is_still_a_rejection_that_says_it_could_not_be_re
     assert (review.decision, review.score) == ("rejected", 0), review
     assert review.summary == "reviewer output could not be parsed (rc=1)", review.summary
     assert "never ran" not in review.summary
+
+
+# ── "never ran" is read from what the CLI said, not from what the reviewer read ──────────────────
+
+
+def test_a_stream_that_quotes_not_found_in_a_tool_result_is_not_a_review_that_never_ran():
+    """The stream carries the reviewer's tool output, which the envelope never did, so `not found`
+    in it is a file the reviewer read — not a shell that could not find `claude`. A run that exited
+    0 and answered in prose is a review that could not be read. On main the text match over the
+    whole output found `404 Not Found` in the tool result: "the reviewer never ran", and a person
+    was sent to fix a box that worked. The other side (`sh: 1: claude: not found`, exit 127) is held
+    by `tests/test_the_reviewer_can_actually_run.py`."""
+    out = cli.stdout(
+        cli.init_event(),
+        cli.assistant_event("reading the fixtures the diff names"),
+        cli.tool_result_event("cat: x.txt: No such file or directory\n404 Not Found"),
+        cli.result_event("The change looks reasonable, but I could not find x.txt."),
+    )
+
+    review = _review(out, rc=0)
+
+    assert review.decision == "rejected", review
+    assert review.summary == "reviewer output could not be parsed (rc=0)", review.summary
