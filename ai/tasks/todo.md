@@ -164,7 +164,7 @@ marked as such.
   of 2026-10-19, lists drawn `- ` flat to agree with `azure_devops._HtmlToMarkdown`, a list ends on
   a blank line because of #163's lazy continuation, and empty paragraphs are blank lines because
   `_adf` writes them. Keep the ADR-0022 sentence about panels and tables. Re-run tasks 1–3 green.
-- [ ] 5. Mutation plan `tools/mutations/751_a_jira_description_keeps_its_headings_and_bullets.py`.
+- [x] 5. Mutation plan `tools/mutations/751_a_jira_description_keeps_its_headings_and_bullets.py`.
   `TEST` = task 1's file, with a 5th element targeting tasks 2/3 or `test_tracker_is_vendor_neutral.py`
   where named. Each cut must turn a named test red:
   - M1 THE DEFECT ITSELF: the heading is drawn without its `#` marker → C1, C3
