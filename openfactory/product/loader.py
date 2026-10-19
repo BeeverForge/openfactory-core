@@ -14,6 +14,7 @@ channel down for a YAML typo.
 from __future__ import annotations
 
 import logging
+import re
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
@@ -134,6 +135,12 @@ def parse_docs_manifest(text: str) -> tuple[ProductDocs | None, str]:
 #: key (`? [a, b]`) is a key no field of `ProductDocs` can have.
 _A_STRING = "tag:yaml.org,2002:str"
 
+#: how much of a key the sentence quotes. A flow mapping of 2,000 entries is one key, and it was
+#: named whole in a sentence of 23,866 characters (measured on review, 2026-10-19), which then
+#: became the module's health line, a panel row and a chat message. The `not valid YAML` sentence
+#: beside it is capped too. The beginning of the key is enough to find it in the file.
+_KEY_SHOWN = 80
+
 
 def _safe_load(text: str) -> tuple[object, str]:
     """`yaml.safe_load(text)` as `(data, "")`, unless a key of the top-level mapping is not a
@@ -145,7 +152,11 @@ def _safe_load(text: str) -> tuple[object, str]:
     mapping as a key never got that far: the loader refused it as unhashable, naming a position
     and no key (both measured on PyYAML 6.0.3, 2026-10-18). Read from the composed nodes, every
     shape of key gets one sentence, before either can happen. The steps are `yaml.safe_load`'s
-    own (`get_single_node`, then `construct_document`), with the check between them."""
+    own (`get_single_node`, then `construct_document`), with the check between them.
+
+    WHAT `yaml.safe_load` DID BY ITS NAME IS NOW DONE HERE BY HAND, and a test holds each part.
+    The class is `SafeLoader`, so a tag that would build a Python object is refused and never
+    built. A file with no document in it reads as None."""
     loader = yaml.SafeLoader(text)
     try:
         root = loader.get_single_node()
@@ -155,14 +166,46 @@ def _safe_load(text: str) -> tuple[object, str]:
             loader.flatten_mapping(root)
             for key, _ in root.value:
                 if key.tag != _A_STRING:
-                    written = " ".join(text[key.start_mark.index:key.end_mark.index].split())
-                    shape = key.tag.replace("tag:yaml.org,2002:", "!!")
-                    return None, (f"{DOCS_MANIFEST} is invalid at {written!r} "
-                                  f"(line {key.start_mark.line + 1}): a key must be a string, "
-                                  f"not {shape}")
+                    return None, _not_a_string(text, key)
+        # An empty file, or one of only comments, composes to no node at all. Constructing that
+        # raised AttributeError, which is no YAMLError and escaped every caller (measured on
+        # review, 2026-10-19).
         return (loader.construct_document(root) if root is not None else None), ""
     finally:
         loader.dispose()
+
+
+def _not_a_string(text: str, key: yaml.Node) -> str:
+    """The sentence for a top-level key that is not a string. It names the file, the key as the
+    file spells it, its line, and what YAML reads it as. It ends with the remedy, because whoever
+    wrote `on:` meant text and may not know that YAML 1.1 reads it as true."""
+    written = _as_written(text, key)
+    if len(written) > _KEY_SHOWN:
+        written = written[:_KEY_SHOWN - 1] + "…"
+    # `? ` with nothing after it is a key too (YAML reads it as null), and `''` names nothing.
+    named = repr(written) if written else "an empty key"
+    shape = key.tag.replace("tag:yaml.org,2002:", "!!")
+    return (f"{DOCS_MANIFEST} is invalid at {named} (line {key.start_mark.line + 1}): a key must "
+            f"be a string, not {shape}; quote the key if it is meant as text")
+
+
+def _as_written(text: str, node: yaml.Node) -> str:
+    """`node` as the file spells it, on one line and without the comments written inside it.
+
+    The node's marks span everything between its first and last character, so a comment inside a
+    collection key was named as part of it (`'- a # a note - b'`, measured on review). Only the
+    scanner knows which `#` begins a comment, so the key is rebuilt from its tokens. The text
+    between two tokens is space, line breaks and comments, and the comments are dropped from it."""
+    start, end = node.start_mark.index, node.end_mark.index
+    spelled, at = "", start
+    for token in yaml.scan(text, Loader=yaml.SafeLoader):
+        if token.start_mark.index > end:
+            break
+        if token.start_mark.index >= start and token.end_mark.index <= end:
+            spelled += re.sub(r"#.*", "", text[at:token.start_mark.index])
+            spelled += text[token.start_mark.index:token.end_mark.index]
+            at = token.end_mark.index
+    return " ".join(spelled.split())
 
 
 def _source_claim(project) -> str | None:

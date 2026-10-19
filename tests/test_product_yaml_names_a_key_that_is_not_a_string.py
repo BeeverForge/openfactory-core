@@ -15,32 +15,48 @@ shapes are written by hand. The first test holds the table to the loader's own l
 later PyYAML adds is a red test until it has a spelling, and a spelling that no longer means its
 shape is red too. Each spelling is then written in every layout YAML gives a key (`LAYOUTS`), and
 the rule is one sentence for all of them, in the shape the parse already uses for a field it
-cannot read. The guard against overreach is the same spellings quoted: a key that IS a string
-still loads.
+cannot read, ending with the remedy. The guard against overreach is the same spellings quoted: a
+key that IS a string still loads.
+
+THE LOAD IS ASSEMBLED BY HAND, so what `yaml.safe_load` did by its name is held here too, through
+both readers of the file (the product module's and the preview's). A tag that would build a Python
+object is refused and never built, wherever it is written. That family is every tag a loader
+PyYAML ships adds to the safe one. A file with no document in it reads as an empty mapping, as it
+did before.
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import textwrap
+from pathlib import Path
 
 import pytest
 import yaml
 
-from openfactory.product.loader import DOCS_MANIFEST, parse_docs_manifest
+from openfactory.preview.product import read_docs
+from openfactory.product.loader import (
+    _KEY_SHOWN,
+    DOCS_MANIFEST,
+    _read_docs_manifest,
+    parse_docs_manifest,
+)
 
 STR = "tag:yaml.org,2002:str"
+REMEDY = "; quote the key if it is meant as text"
 
 
 def _resolver_words(tag: str) -> tuple[str, ...]:
     """Every word the loader's resolver reads as `tag`. The bool and null patterns are lists of
-    words (`yes|Yes|YES|no|…|on|…|off`), and those words are the keys that surprise a person."""
+    words (`yes|Yes|YES|no|…|on|…|off`), and those words are the keys that surprise a person. The
+    null list ends with an empty word: `? ` with nothing after it is a null key."""
     return tuple(sorted({
-        word
+        "".join(word.split())  # the patterns are written with re.X, which ignores the space
         for resolvers in yaml.SafeLoader.yaml_implicit_resolvers.values()
         for resolved, regexp in resolvers if resolved == tag
-        for word in re.findall(r"[\w~]+", regexp.pattern)
+        for word in regexp.pattern.removeprefix("^(?:").removesuffix(")$").split("|")
     }))
 
 
@@ -66,12 +82,21 @@ LAYOUTS: dict[str, str] = {
     "merged": "product: books\n<<: {{? {key} : x}}\n",
 }
 
-CASES = [pytest.param(tag, key, id=f"{tag.rsplit(':', 1)[1]}:{key}")
-         for tag, keys in SPELLINGS.items() for key in keys]
+SPELLED = [(tag, key) for tag, keys in SPELLINGS.items() for key in keys]
+
+#: each spelling in each layout that can hold it. `: x` is no key YAML can write, so the empty key
+#: is left out of `written` only; the first test holds that this is YAML's limit, not the test's.
+CASES = [pytest.param(tag, key, layout, id=f"{layout}-{tag.rsplit(':', 1)[1]}:{key}")
+         for layout in LAYOUTS for tag, key in SPELLED if key or layout != "written"]
 
 
 def _shape(tag: str) -> str:
     return "!!" + tag.rsplit(":", 1)[1]
+
+
+def _named(key: str) -> str:
+    """How the sentence names a key: as written and quoted, or `an empty key` when nothing is."""
+    return repr(key) if key else "an empty key"
 
 
 def _invalid_at() -> str:
@@ -89,15 +114,17 @@ def test_every_shape_the_loader_builds_has_a_spelling_and_each_spelling_is_that_
         for key in keys:
             root = yaml.compose(f"? {key}\n: x\n", Loader=yaml.SafeLoader)
             assert root.value[0][0].tag == tag, f"{key!r} is not {tag}"
+    with pytest.raises(yaml.YAMLError):
+        yaml.compose(LAYOUTS["written"].format(key=""), Loader=yaml.SafeLoader)
 
 
-@pytest.mark.parametrize("layout", LAYOUTS)
-@pytest.mark.parametrize(("tag", "key"), CASES)
+@pytest.mark.parametrize(("tag", "key", "layout"), CASES)
 def test_a_key_that_is_not_a_string_is_an_error_naming_the_file_and_the_key(tag, key, layout):
     docs, error = parse_docs_manifest(LAYOUTS[layout].format(key=key))
     assert docs is None
     assert error.startswith(f"{DOCS_MANIFEST} ")
-    assert error == f"{_invalid_at()}{key!r} (line 2): a key must be a string, not {_shape(tag)}"
+    assert error == (f"{_invalid_at()}{_named(key)} (line 2): a key must be a string, "
+                     f"not {_shape(tag)}{REMEDY}")
 
 
 def _in_block_style(node: yaml.Node) -> yaml.Node:
@@ -109,25 +136,184 @@ def _in_block_style(node: yaml.Node) -> yaml.Node:
     return node
 
 
-COLLECTIONS = [case for case in CASES
-               if isinstance(yaml.compose(case.values[1], Loader=yaml.SafeLoader),
+COLLECTIONS = [(tag, key) for tag, key in SPELLED
+               if isinstance(yaml.compose(key, Loader=yaml.SafeLoader),
                              yaml.SequenceNode | yaml.MappingNode)]
 
+NOTE = "  # a note"
 
+
+def _across_lines(key: str, style: str) -> str:
+    """`key` written across lines: in block style, then the same with a comment ending every line,
+    then in its own flow style broken after every bracket and comma, a comment ending every line."""
+    if style.startswith("block"):
+        block = yaml.serialize(_in_block_style(yaml.compose(key, Loader=yaml.SafeLoader)),
+                               Dumper=yaml.SafeDumper)
+        return block if style == "block" else "".join(f"{ln}{NOTE}\n" for ln in block.splitlines())
+    for mark in "[{,":
+        key = key.replace(mark, f"{mark}{NOTE}\n")
+    return f"{key}{NOTE}\n"
+
+
+@pytest.mark.parametrize("style", ["block", "block, a comment on every line",
+                                   "flow, a comment on every line"])
 @pytest.mark.parametrize(("tag", "key"), COLLECTIONS)
-def test_a_collection_key_written_across_lines_is_named_on_one_line(tag, key):
-    block = yaml.serialize(_in_block_style(yaml.compose(key, Loader=yaml.SafeLoader)),
-                           Dumper=yaml.SafeDumper)
+def test_a_key_written_across_lines_is_named_on_one_line_without_its_comments(tag, key, style):
+    written = _across_lines(key, style)
     docs, error = parse_docs_manifest(
-        "product: books\n? " + textwrap.indent(block, "  ").removeprefix("  ") + ": x\n")
+        "product: books\n? " + textwrap.indent(written, "  ").removeprefix("  ") + ": x\n")
     assert docs is None
-    named = " ".join(block.split())
-    assert error == f"{_invalid_at()}{named!r} (line 2): a key must be a string, not {_shape(tag)}"
+    named = " ".join(written.replace(NOTE, "").split())
+    assert error == (f"{_invalid_at()}{named!r} (line 2): a key must be a string, "
+                     f"not {_shape(tag)}{REMEDY}")
+
+
+def _long_keys() -> list[str]:
+    """Keys at the cap and on either side of it, and one far past it: a flow mapping of 2,000
+    entries, which was named whole in a sentence of 23,866 characters."""
+    around = [_KEY_SHOWN - 1, _KEY_SHOWN, _KEY_SHOWN + 1, 2 * _KEY_SHOWN]
+    return (["[" + "a" * (length - 2) + "]" for length in around]
+            + ["{" + ", ".join(f"k{i}: {i}" for i in range(2000)) + "}"])
+
+
+@pytest.mark.parametrize("key", _long_keys(), ids=lambda key: f"{len(key)} characters")
+def test_a_long_key_is_named_by_its_beginning_and_the_sentence_stays_short(key):
+    _, error = parse_docs_manifest(LAYOUTS["complex-key"].format(key=key))
+    named = ast.literal_eval(re.search(r" is invalid at ('.*') \(line 2\)", error).group(1))
+    assert len(named) <= _KEY_SHOWN
+    if len(key) <= _KEY_SHOWN:
+        assert named == key
+    else:
+        assert named.endswith("…") and key.startswith(named.removesuffix("…"))
+    _, short = parse_docs_manifest(LAYOUTS["complex-key"].format(key="[]"))
+    assert len(error) <= len(short) - len("[]") + _KEY_SHOWN
 
 
 @pytest.mark.parametrize("layout", LAYOUTS)
-@pytest.mark.parametrize(("tag", "key"), CASES)
+@pytest.mark.parametrize(("tag", "key"), SPELLED)
 def test_the_same_key_written_as_a_string_loads(tag, key, layout):
     docs, error = parse_docs_manifest(LAYOUTS[layout].format(key=json.dumps(key)))
     assert error == ""
     assert docs is not None and docs.product == "books"
+
+
+# --- what `yaml.safe_load` did by its name ------------------------------------------------------
+
+#: both readers of the file: the product module's, and the preview's from its own checkout
+READERS = {
+    "the product module": lambda root: _read_docs_manifest(root),
+    "the preview": lambda root: read_docs(str(root)),
+}
+
+
+def _read(reader: str, root: Path, text: str):
+    path = root / DOCS_MANIFEST
+    path.parent.mkdir(parents=True)
+    path.write_bytes(text.encode("utf-8"))
+    return READERS[reader](root)
+
+
+#: a file with no document in it: no text, a space, line breaks, a byte-order mark, a comment
+NOTHING = ("", " ", "\n\n", "\r\n", "﻿", "# only a comment\n", "﻿  # a comment\r\n\n")
+#: an empty document, said with its markers
+AN_EMPTY_DOCUMENT = ("---\n", "--- # a comment\n...\n")
+
+
+def test_nothing_and_an_empty_document_are_what_yaml_reads_them_as():
+    for text in NOTHING:
+        assert yaml.compose(text, Loader=yaml.SafeLoader) is None, repr(text)
+    for text in AN_EMPTY_DOCUMENT:
+        node = yaml.compose(text, Loader=yaml.SafeLoader)
+        assert (node.tag, node.value) == ("tag:yaml.org,2002:null", ""), repr(text)
+
+
+@pytest.mark.parametrize("reader", READERS)
+@pytest.mark.parametrize("text", NOTHING + AN_EMPTY_DOCUMENT)
+def test_a_file_with_nothing_in_it_reads_as_an_empty_mapping(tmp_path, reader, text):
+    assert _read(reader, tmp_path, text) == parse_docs_manifest("{}\n")
+
+
+#: every tag a loader that builds Python objects adds to the safe one, each spelled so that such a
+#: loader builds it. A tag that ends in `:` is a prefix, and what follows it names the object.
+PYTHON: dict[str, str] = {
+    "tag:yaml.org,2002:python/none": "!!python/none ''",
+    "tag:yaml.org,2002:python/bool": "!!python/bool true",
+    "tag:yaml.org,2002:python/str": "!!python/str x",
+    "tag:yaml.org,2002:python/unicode": "!!python/unicode x",
+    "tag:yaml.org,2002:python/bytes": "!!python/bytes aGk=",
+    "tag:yaml.org,2002:python/int": "!!python/int 1",
+    "tag:yaml.org,2002:python/long": "!!python/long 1",
+    "tag:yaml.org,2002:python/float": "!!python/float 1.5",
+    "tag:yaml.org,2002:python/complex": "!!python/complex 1+2j",
+    "tag:yaml.org,2002:python/list": "!!python/list [a]",
+    "tag:yaml.org,2002:python/tuple": "!!python/tuple [a]",
+    "tag:yaml.org,2002:python/dict": "!!python/dict {a: 1}",
+    "tag:yaml.org,2002:python/name:": "!!python/name:os.getcwd ''",
+    "tag:yaml.org,2002:python/module:": "!!python/module:os ''",
+    "tag:yaml.org,2002:python/object:": "!!python/object:argparse.Namespace {a: 1}",
+    "tag:yaml.org,2002:python/object/apply:": "!!python/object/apply:os.getcwd []",
+    "tag:yaml.org,2002:python/object/new:": "!!python/object/new:argparse.Namespace {}",
+}
+
+#: where a value is written: as a field's own value, and as an item under a field
+VALUES = {
+    "a field's value": "product: {spelling}\n",
+    "an item under a field": "product: books\nsources: [{spelling}]\n",
+}
+
+
+def _tags(loader: type) -> set[str]:
+    return {t for t in (*loader.yaml_constructors, *loader.yaml_multi_constructors) if t}
+
+
+def test_every_tag_a_loader_of_python_objects_adds_has_a_spelling_that_it_builds():
+    loaders = [c for c in vars(yaml).values()
+               if isinstance(c, type) and issubclass(c, yaml.constructor.BaseConstructor)]
+    assert set(PYTHON) == set().union(*map(_tags, loaders)) - _tags(yaml.SafeLoader)
+    for tag, spelling in PYTHON.items():
+        built = yaml.compose(spelling, Loader=yaml.SafeLoader).tag
+        assert built == tag or (tag.endswith(":") and built.startswith(tag)), spelling
+        # a spelling the unsafe loader cannot build would try nothing
+        yaml.load(spelling, Loader=yaml.UnsafeLoader)
+
+
+@pytest.mark.parametrize("reader", READERS)
+@pytest.mark.parametrize("where", VALUES)
+@pytest.mark.parametrize("spelling", PYTHON.values())
+def test_a_tag_that_would_build_a_python_object_is_refused_never_built(tmp_path, reader, where,
+                                                                        spelling):
+    docs, error = _read(reader, tmp_path, VALUES[where].format(spelling=spelling))
+    assert docs is None
+    assert error.startswith(
+        f"{DOCS_MANIFEST} is not valid YAML: could not determine a constructor for the tag ")
+    assert yaml.compose(spelling, Loader=yaml.SafeLoader).tag in error
+
+
+@pytest.mark.parametrize("text", ["product: books\n", "product: books\n? [a, b]\n: x\n"])
+def test_every_loader_the_parse_starts_is_the_safe_one(monkeypatch, text):
+    """The class name IS the property, so the class of each loader is read as it is made: every
+    pure-Python loader PyYAML ships starts in `Reader.__init__`. The second text is refused, and
+    naming its key scans the file again."""
+    started: list[type] = []
+    start = yaml.reader.Reader.__init__
+
+    def spy(self, stream):
+        started.append(type(self))
+        start(self, stream)
+
+    monkeypatch.setattr(yaml.reader.Reader, "__init__", spy)
+    parse_docs_manifest(text)
+    assert started and all(issubclass(c, yaml.SafeLoader) for c in started), started
+
+
+#: a key whose tag the safe loader builds nothing for: a tag of the file's own, and every Python one
+UNBUILT = ("!foo x", *PYTHON.values())
+
+
+@pytest.mark.parametrize("layout", LAYOUTS)
+@pytest.mark.parametrize("spelling", UNBUILT)
+def test_a_key_with_a_tag_the_loader_cannot_build_is_named_with_its_tag(spelling, layout):
+    docs, error = parse_docs_manifest(LAYOUTS[layout].format(key=spelling))
+    assert docs is None
+    tag = spelling.split()[0]
+    assert error == f"{_invalid_at()}{spelling!r} (line 2): a key must be a string, not {tag}{REMEDY}"
