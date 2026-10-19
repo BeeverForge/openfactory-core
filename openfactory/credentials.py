@@ -74,9 +74,9 @@ def app_id() -> str | None:
 def app_installation_id() -> str | None:
     """Which installation of the App this process acts as, or None.
 
-    ONE PROCESS, ONE INSTALLATION — and that is a real, undocumented limit rather than a design
-    (#64). The CHANNEL credential is per-project (`factory.notifier_for_project` reads the env var
-    the registry names), so one deployment hosts N projects across N Slack workspaces; the FORGE
+    ONE PROCESS, ONE INSTALLATION — a real limit, found under #64 and documented under #743. The
+    CHANNEL credential is per-project (`factory.notifier_for_project` reads the env var the
+    registry names), so one deployment hosts N projects across N Slack workspaces; the FORGE
     credential is process-wide, so the same deployment authenticates against exactly one GitHub
     App installation. Two orgs need two processes. Until #743 nothing stated that anywhere a person
     onboarding a project would look; `docs/configuration.md` now states the rule and its reason,

@@ -75,12 +75,14 @@ SEED_REGISTRY_PATH = Path("/etc/openfactory/registry.seed.yaml")
 # `contracts/project.py` documents that as deliberate. The FORGE credential is not — the App's
 # installation id is a process-wide environment variable (`credentials.app_installation_id`), and
 # a GitHub App installation belongs to exactly ONE org. So one running process can only ever reach
-# one org's repositories, `Project` has no field that could say otherwise, and nothing said so
-# anywhere a person onboarding a project would look. The failure it produces is a 404 on a repo
-# the operator can see in their browser.
+# one org's repositories, and `Project` has no field that could say otherwise. Until #743 nothing
+# said so anywhere a person onboarding a project would look; `docs/configuration.md` §5 ("One
+# deployment, one GitHub organisation") now does. The failure it produces is a 404 on a repo the
+# operator can see in their browser.
 #
 # One deployment per organisation is the shape the platform is built for, so the limit is
-# defensible — it just has to be TRUE and SAID rather than discovered. This makes it both.
+# defensible — it just has to be TRUE and SAID rather than discovered. `add` refuses a second
+# organisation, `list` logs one, and `openfactory doctor`'s `installation_scope` line fails it.
 
 
 def github_owners(project: Project) -> set[str]:
