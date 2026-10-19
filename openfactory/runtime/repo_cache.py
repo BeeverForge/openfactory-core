@@ -279,6 +279,8 @@ def _one_reason(exc: OSError) -> str:
 class RepoCache:
     def __init__(self, root: Path | None = None) -> None:
         self.root = Path(root) if root else default_root()
+        #: whether the last `_needs_publish` kept the served tree for a running job's worktree
+        self.held = False
 
     def sync(self, project: str, clone_url: str, base_branch: str = "") -> Path | None:
         """Return a checkout of `project` reset hard to origin/<base>, or None when the repo
@@ -350,8 +352,7 @@ class RepoCache:
             self._publish(project, served, master)
         return served
 
-    @staticmethod
-    def _needs_publish(served: Path, master: Path) -> bool:
+    def _needs_publish(self, served: Path, master: Path) -> bool:
         """Whether the served snapshot must be replaced: absent, corrupt, behind the master's
         commit, or dirtied by a scribbler (a cache must be IDENTICAL to base, never merged into).
         When none of that holds the snapshot is left completely untouched, so the routine
@@ -361,7 +362,9 @@ class RepoCache:
         stands on it, so it stays as it is and `OPENFACTORY_CACHE_HELD` says why. The decision
         is taken here, the one place both `RepoCache._sync` and `SparseRepoCache._sync_sparse`
         ask, before `_publish` stages, links or renames anything. The marks are read only when a
-        publish would otherwise happen, so the unmoved sync costs what it did."""
+        publish would otherwise happen, so the unmoved sync costs what it did. `self.held` says
+        which answer a False was, for the sparse cache's freshness window."""
+        self.held = False
         if not (served / ".git").exists():
             return True     # nothing can be marked in a tree that has no `.git`
         head = _head(served)
@@ -375,7 +378,8 @@ class RepoCache:
                 why = "something was written into it"
             else:
                 return False
-        return not RepoCache._held_by_a_job(served, why)
+        self.held = RepoCache._held_by_a_job(served, why)
+        return not self.held
 
     @staticmethod
     def _held_by_a_job(served: Path, why: str) -> bool:
@@ -728,7 +732,11 @@ class SparseRepoCache(RepoCache):
                     # leave the last good sync's window open over a master that moved since
                     self._withdraw_fresh(project)
                     got = self._sync_sparse(project, public, base_branch, env)
-                    if got is not None:
+                    # A HELD TREE IS NOT FRESH (#747): it stands at the commit a job's worktree
+                    # holds, not the forge's, and a window over it served that old commit again
+                    # for `fresh_for` seconds after the job let go (measured: the first sync after
+                    # `cleanup`, 10 s into a 60 s window, still at the held commit)
+                    if got is not None and not self.held:
                         self._remember_fresh(project, base_branch, got)
                     return got
                 finally:

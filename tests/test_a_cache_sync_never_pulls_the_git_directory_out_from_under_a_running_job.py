@@ -316,3 +316,28 @@ def test_an_unmoved_sync_reads_no_marker_and_starts_no_extra_git_process(
 
     assert with_job == without, f"{with_job} git processes with a job's marker, {without} without"
     assert reads == [], f"an unmoved sync read the job marks of {reads}"
+
+
+def test_a_held_sparse_sync_opens_no_freshness_window(tmp_path, origin):
+    """A held sync serves the OLD commit, and the sparse cache's freshness window (`fresh_for`)
+    would stamp that commit as fresh: after the job let go, the next sync inside the window was
+    served the held tree again without asking the forge, for up to `fresh_for` seconds. A held
+    sync opens no window, so the first sync after the release publishes the moved base."""
+    from openfactory.runtime.repo_cache import SparseRepoCache
+
+    now = [1_000_000.0]
+    cache = SparseRepoCache(root=tmp_path / "cache", fresh_for=60, clock=lambda: now[0])
+    served = cache.sync("p", origin.url, "main")
+    assert served is not None, cache.failure
+    before = _head(served)
+    box, ws = _job(tmp_path, served, origin)
+
+    tip = origin.advance()
+    now[0] += 120                       # past the first sync's window: this one asks the forge
+    cache.sync("p", origin.url, "main")
+    assert _head(served) == before, "the sync swapped the served tree while the job stood on it"
+
+    box.cleanup(workspace=ws)
+    now[0] += 10                        # inside the window a held sync would have opened
+    cache.sync("p", origin.url, "main")
+    assert _head(served) == tip, "the held tree was served again from its freshness window"

@@ -12,7 +12,8 @@ THE CLAIMS, each held by a row:
      passed over and said with `OPENFACTORY_CACHE_HOLD_EXPIRED`.
   4. **The unmoved sync reads no mark**: the marks are read only when a publish would happen.
   5. **The hold ends when git removes the worktree**: the box's `cleanup` and `prune` take the
-     marker, and the next sync publishes the moved base.
+     marker, and the next sync publishes the moved base — the sparse cache's freshness window
+     included, which a held sync does not open.
 
 The guards are real git: the real `RepoCache`/`SparseRepoCache` over a local origin and the real
 `WorktreeSandbox.prepare` over the served checkout.
@@ -44,11 +45,11 @@ MUTATIONS = [
 
     # M2 — the cache ignores the marks
     ("M2 _needs_publish ignores the marks and publishes on the old three reasons", CACHE,
-     "        return not RepoCache._held_by_a_job(served, why)\n",
-     "        return True\n"),
+     "        self.held = RepoCache._held_by_a_job(served, why)\n",
+     "        self.held = False\n"),
     ("M2, seen from the release: the first sync already swaps the tree the job stands on", CACHE,
-     "        return not RepoCache._held_by_a_job(served, why)\n",
-     "        return True\n", RELEASE_TEST),
+     "        self.held = RepoCache._held_by_a_job(served, why)\n",
+     "        self.held = False\n", RELEASE_TEST),
 
     # M3 — the "still on disk" test
     ("M3 a marked worktree whose directory is gone still holds the tree", MARKS,
@@ -106,4 +107,10 @@ MUTATIONS = [
      "            pass\n            if False: log.warning(\"could not mark %s as a running job's "
      "worktree (%s) — a repository \"",
      MARK_TEST),
+
+    # M12 — the sparse cache's freshness window (#835) over a held tree
+    ("M12 a held sparse sync opens a freshness window over the old commit, and the release is not "
+     "seen until it closes", CACHE,
+     "                    if got is not None and not self.held:\n",
+     "                    if got is not None:\n"),
 ]
