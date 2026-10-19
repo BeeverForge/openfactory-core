@@ -9,6 +9,11 @@ CREATE (#623). Its own is exactly `root / <branch>`, compared resolved. A card's
 other working tree (a review tree, or the person's own checkout) is refused before anything is
 written, with `BranchHeldElsewhere`, read from `git worktree list --porcelain` and not from git's
 sentence, which changes with git's version and the locale.
+
+ITS OWN INCLUDES WHAT A RE-RUN FINDS LEFT OF IT (#746): its tree that git has forgotten is
+recognised by the `.git` file naming this repository, its own `worktree add` that was interrupted
+by git's lock bytes and the box's own mark, and both are removed; anything else at its path is
+refused by name, and left as it is.
 """
 
 from __future__ import annotations
@@ -685,7 +690,10 @@ class WorktreeSandbox(SandboxAdapter):
         # unmounted disk included — the rule the local forge's scratch rebase already wrote down
         # (`LocalForge._rebase_in_a_scratch_tree`, "NEVER `worktree prune`"). `remove --force`
         # takes our registration whether or not its directory is still there (rc 0 on a missing
-        # directory, git 2.43.0, measured 2026-10-17).
+        # directory, git 2.43.0, measured 2026-10-17). Ours is also the tree git has FORGOTTEN at
+        # `wt` (the repository cache's republish forgets every one) and the tree our own add left
+        # locked when it was interrupted, each removed only on proof (#746, `_clear_our_own`);
+        # anything else at `wt` is refused by name below, before anything is written.
         trees = self._clear_our_own(repo_path, wt)
         # DECIDE BEFORE YOU WRITE (engineering lessons §12). A card's branch somebody else has
         # out — a review tree, or their own checkout — cannot be checked out here, and git says so
@@ -1130,8 +1138,10 @@ class WorktreeSandbox(SandboxAdapter):
                 ["git", "-C", str(self._repo_root), "worktree", "remove", "--force",
                  str(workspace.path)]
             )
-        # A LOCK IS A PERSON'S "KEEP THIS" (#623, review of 83973c2): the platform never locks a
-        # tree, one `--force` refuses a locked one, and the `rmtree` deleted it anyway.
+        # A LOCK IS A PERSON'S "KEEP THIS" (#623, review of 83973c2): one `--force` refuses a
+        # locked tree, and the `rmtree` deleted it anyway. Git's own add locks the tree while it
+        # checks out (#746), but a workspace `cleanup` receives is one whose add returned, so a
+        # lock here is still a person's; nothing here removes one.
         locked = self._repo_root is not None and any(
             t.locked and _same_dir(t.path, workspace.path)
             for t in (_working_trees(self._repo_root) or []))
