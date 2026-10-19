@@ -88,6 +88,12 @@ MUTATIONS = [
      '        git = f"git -C {shlex.quote(owner)} worktree"\n',
      NOT_OURS),
 
+    ("an unreadable owner list reads as forgotten, and another repository's live tree is told to "
+     "`mv`", BOX,
+     '        # registration\n        return "tree", str(owner), False\n',
+     '        # registration\n        return "forgotten", str(owner), False\n',
+     NOT_OURS),  # review of 35ac306
+
     ("the paths in the sentence are not shell-quoted", BOX,
      '    where, mine = shlex.quote(path), "<a path of yours>"\n',
      '    where, mine = path, "<a path of yours>"\n',

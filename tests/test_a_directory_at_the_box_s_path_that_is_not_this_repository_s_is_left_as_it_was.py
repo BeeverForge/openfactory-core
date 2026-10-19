@@ -346,3 +346,20 @@ def test_a_symbolic_link_at_the_box_s_path_is_refused_and_nothing_is_checked_out
     assert "a symbolic link" in said, said
     assert os.path.islink(wt) and os.readlink(wt) == str(theirs)
     assert os.listdir(theirs) == [], "the job checked out into the directory the link names"
+
+
+def test_another_repository_s_tree_whose_list_cannot_be_read_is_told_to_move_with_git_not_mv(
+        tmp_path, monkeypatch):
+    """C3 with lessons §2, for the owner (review of 35ac306). When the other repository's list
+    cannot be read, the box cannot tell its live tree from one it forgot; `worktree move` refuses
+    loudly on a forgotten one, where `mv` would break a live registration, so the sentence gives
+    `git -C <owner> worktree …`."""
+    root = tmp_path / "boxes"
+    door, wt, other = _taken("another-repositorys-live-tree", "fresh", tmp_path, root)
+    real = worktree_box._working_trees
+    monkeypatch.setattr(worktree_box, "_working_trees", lambda repo_path: None
+                        if Path(repo_path).resolve() == other.resolve() else real(repo_path))
+    said = str(_refusal(door))
+    moves = _commands(said)
+    git = f"git -C {shlex.quote(str(other.resolve()))} worktree "
+    assert moves and all(c.startswith(git) for c in moves), said
