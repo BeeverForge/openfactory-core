@@ -857,27 +857,23 @@ async def connect() -> Client:
     0.18 s for the same `gather(EVERYTHING)` called in-process. A restart returned it to ~2 s.
     `reading.py::gather`'s own docstring already stated the rule this broke: *"Reuse matters."*
 
-    HERE AND NOT `connection.connect()`. That one is the one-shot door — `worker.py`, `starter.py`,
-    nine call sites in `schedule.py` — each wanting its own client, most under its own
-    `asyncio.run`. Pooling there would change the worker's behaviour to fix a panel defect. (FIVE
-    IN `activities.py` STOOD IN THAT LIST and did not want one: an activity runs inside a worker
-    that already holds a client, and since #217 it uses that one — `activities.engine_client`.)
-    This is the read side's door: pooling it fixes every caller above with no call-site change,
-    and it is the seam ~40 tests already patch, so the pool is bypassed exactly where connecting
-    already is.
+    HERE, ON TOP OF `connection.connect()`. That door made a client per call when this pool was
+    born, and its callers — `worker.py`, `starter.py`, `schedule.py` — each wanted one of their
+    own; since #681 it holds the process's ONE client and hands it to every caller, on any loop
+    (`connection.connect`). This is the read side's door on top of it: the read side's bound
+    (`_within`), a failure shared among the callers on one loop, and the seam ~40 tests patch, so
+    the pool is bypassed exactly where connecting already is. (Activities never come here: an
+    activity uses the client its worker holds — `activities.engine_client`, #217.)
 
-    KEYED BY THE RUNNING LOOP, AND THAT PART IS NOT OPTIONAL. `techlead/conversation.py::
-    gather_jobs` ran `asyncio.run(_run())` inside the worker, and `_run` awaits this — a NEW loop
-    per call. A client made on a loop that has since closed, handed to the next `asyncio.run`, is a
-    broken read in a path that works today: a regression traded for a panel fix. So an entry is
-    reused only while the running loop IS the one that made it. (The gatherer no longer opens a
-    loop per question — #147, `standing.py`: a loop per question was a client per question, which
-    this key could not help and must not be loosened to help. The key stays for every caller that
-    still brings a loop of its own: the CLI's `asyncio.run` sites, and the standing loop itself,
-    which is replaced if it ever ends.) The comparison is identity against
-    the RUNNING loop and nothing else: an `is_closed()` term here could only ever be evaluated on
-    the running loop, which cannot be closed — a mutation deleting it survived the guard whole
-    (`10 passed`, 2026-09-15), which in this repository means the code was dead.
+    KEYED BY THE RUNNING LOOP, FOR THE LOCK'S SAKE. An entry's `asyncio.Lock` belongs to the loop
+    that made it, so an entry serves only that loop, and a caller on another loop makes an entry of
+    its own. It costs a dict entry, never a client: the client under every entry is the process's
+    one. (This paragraph used to say a client made on a loop that has since closed is a broken read
+    on the next one. Measured since, on temporalio 1.29 and later, it is not — #681,
+    `connection.connect` — and the package requires that version.) The comparison is identity
+    against the RUNNING loop and nothing else: an `is_closed()` term here could only ever be
+    evaluated on the running loop, which cannot be closed — a mutation deleting it survived the
+    guard whole (`10 passed`, 2026-09-15), which in this repository means the code was dead.
 
     AND THE POOL HOLDS AT MOST ONE ENTRY, TOTAL — not one per key. `fingerprint()` reads
     process-wide environment and the TLS files it names, so a process has exactly one engine target
@@ -912,14 +908,6 @@ async def connect() -> Client:
     caller arriving AFTERWARDS tries again — which is what lets a recovered engine be picked up
     without a restart. Nothing is cached: freezing a panel in "the engine did not answer" until
     somebody restarts it is the same class of defect as the one this fixes.
-
-    SINCE #681 THE CLIENT UNDER EVERY ENTRY IS THE PROCESS'S ONE: `connection.connect()` holds one
-    client per target and hands it to every caller, on any loop (sixth review of #818, measured on
-    temporalio 1.32.0: a client made under one `asyncio.run` answered from later loops after that
-    one had closed, and from other threads' loops at once). So an entry made for a new loop costs a
-    dict entry and a lock, never a connection — the worker's readiness on its own loop and a
-    product turn's read on the standing loop take turns at the entry and share one client. The
-    loop key stays because the entry's `asyncio.Lock` belongs to one loop.
 
     WHAT THIS DELIBERATELY DOES NOT DO:
 

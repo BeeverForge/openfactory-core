@@ -56,7 +56,12 @@ The claims, each a row:
      client the process holds — so the worker's readiness asks the worker's own client and no read
      drops one — a target that changes gets its own and the old one's runtime goes at once; the
      worker binds loopback by default; a line carries the documented fields and no others, and is
-     one line for every reader.
+     one line for every reader;
+  15. the one client's single flight (seventh review): a runtime that cannot be built is a failed
+     attempt, not a wedged one; callers who arrive together share one attempt and its outcome,
+     a failure included; a cancelled attempt is nobody's failure, and a waiter that gives up
+     cancels nobody else's; every attempt is bounded, whoever starts it; and the probe asks the
+     address it is given.
 """
 
 READY = "tests/test_a_running_deployment_says_whether_it_is_alive_and_ready.py"
@@ -463,4 +468,25 @@ MUTATIONS = [
      LOGS),
     ("a line boundary is written raw", LOGGING,
      "default=str).translate(_STILL_LINE_BREAKS)", "default=str)", LOGS),
+
+    # 15. the one client's single flight (seventh review)
+    ("a runtime that cannot be built wedges every later connect", CONNECTION,
+     "    runtime = None\n    try:\n", "    runtime = core_runtime()\n    try:\n", LOGS),
+    ("every caller makes an attempt of its own", CONNECTION,
+     "            mine = flight is None\n            if flight is None:",
+     "            mine = True\n            if True:", LOGS),
+    ("a failure is not shared: those behind it try again", CONNECTION,
+     "        flight.set_exception(failure if isinstance(failure, Exception) else _Abandoned())",
+     "        flight.set_exception(_Abandoned())", LOGS),
+    ("a cancelled attempt is handed to its waiters as a failure", CONNECTION,
+     "        flight.set_exception(failure if isinstance(failure, Exception) else _Abandoned())",
+     "        flight.set_exception(failure if isinstance(failure, Exception)\n"
+     "                             else RuntimeError(\"cancelled\"))", LOGS),
+    ("a waiter that gives up can cancel the attempt the others wait on", CONNECTION,
+     "                flight.set_running_or_notify_cancel()\n", "", LOGS),
+    ("an attempt nobody bounded waits as long as the engine takes", CONNECTION,
+     "        ), bound)\n", "        ), None)\n", LOGS),
+    ("the probe asks loopback whatever address it is given", HEALTH,
+     "    return probe(args.port, args.path, host=args.host)",
+     "    return probe(args.port, args.path)"),
 ]

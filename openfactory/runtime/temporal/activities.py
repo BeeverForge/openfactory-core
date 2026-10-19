@@ -141,8 +141,10 @@ def engine_client():
     THE SDK ALREADY HANDS IT OVER. `activity.client()` is the client `worker.py` gave `Worker(…)`,
     made once by `connection.connect()` — so the namespace, the `pydantic_data_converter` and the
     credentials are the deployment's, exactly what each of the five was rebuilding. Nothing to
-    pool, key by loop or release, which is why this is not `view.connect()`: that pool exists
-    for a process with no worker in it.
+    pool, key by loop or release, which is why this is not `view.connect()`, the read side's door.
+    (Since #681 that door, and every other in the process, hands out this same client too:
+    `connection.connect()` holds one per process. An activity still asks the SDK for it, because
+    the SDK says which worker it is running in.)
 
     EVERY ACTIVITY ASKS HERE, and nothing else in this module spells the SDK call or a `connect`
     — `tests/test_an_activity_uses_the_client_its_worker_holds.py` parses the package for both, so

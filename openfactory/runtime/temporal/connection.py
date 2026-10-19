@@ -31,6 +31,7 @@ from temporalio.service import TLSConfig
 
 from openfactory.listeners import ENGINE
 from openfactory.observability import logs
+from openfactory.runtime.temporal.deadlines import read_deadline
 
 #: The one local target, spelled once. Named so a deployment can DECLARE it — which is the whole
 #: difference between "I meant the dev server" and "nobody told me anything" (#163). ASKED OF THE
@@ -223,9 +224,10 @@ class _Abandoned(Exception):  # noqa: N818 — not an error of the engine's: nob
     the caller tries for itself."""
 
 
-async def connect() -> Client:
+async def connect(*, within: float | None = None) -> Client:
     """The durable engine's client for this process: the one it holds, made the first time it is
-    asked for and handed to every caller after that, on any loop and any thread.
+    asked for and handed to every caller after that, on any loop and any thread. An attempt to
+    make it is bounded by `within`, else by the engine's read deadline.
 
     ONE CLIENT PER PROCESS AND TARGET, NEVER DROPPED (fifth and sixth reviews of #818, measured).
     With JSON lines every client is made on a runtime of its own (`core_runtime`), about one thread
@@ -239,16 +241,28 @@ async def connect() -> Client:
     has, so the worker's readiness asks the very client the worker serves on, and #1988's forwarder
     is never aborted, because no runtime with a live client loses a clone.
 
-    A CLIENT IS NOT BOUND TO THE LOOP THAT MADE IT. Measured on temporalio 1.32.0 against a dev
+    A CLIENT IS NOT BOUND TO THE LOOP THAT MADE IT — FROM temporalio 1.29.0, WHICH THE PACKAGE
+    REQUIRES FOR THIS. Up to 1.28.0 every call took an `asyncio.Lock` bound to the first loop that
+    contended for it; 1.29.0 skips it once the client is connected (sdk-python #1606, which still
+    calls other loops "more likely to work", not guaranteed). Measured on 1.32.0 against a dev
     server: a client made under one `asyncio.run` answered health checks, system-info reads and
     workflow listings from two later `asyncio.run`s after the first loop had closed, and from three
-    other threads' loops at the same time as three calls on the main one. The SDK runs each call on
-    its own core and hands the answer to whichever loop is running the caller.
+    other threads' loops at the same time as three calls on the main one; and 1500 concurrent calls
+    from four threads' loops and the main one all answered (seventh review of #818). The SDK runs
+    each call on its own core and hands the answer to whichever loop is running the caller.
 
     A FAILED CONNECT IS SHARED, NOT CACHED, as `view.connect()` has it: the callers queued behind a
     failing attempt take its failure, and a caller arriving afterwards tries again, which is how a
     recovered engine is picked up without a restart. A cancelled attempt is nobody's failure; the
-    callers behind it try for themselves."""
+    callers behind it try for themselves. A runtime that cannot be built is a failed attempt like
+    any other (seventh review: built before the attempt was settled, it wedged every later
+    connect for the life of the process).
+
+    EVERY ATTEMPT IS BOUNDED, whoever starts it: by `within`, else by `OPENFACTORY_ENGINE_DEADLINE`
+    (`deadlines.read_deadline`), the bound every read already waits by. A caller with a bound of
+    its own queues behind the attempt in flight, so an unbounded attempt would hold it: measured,
+    one with no bound against a listener that never answered ran 30.1 s, and three bounded reads
+    during it each gave up without trying."""
     while True:
         key = fingerprint()  # raises for an engine nobody declared, before anything is built
         with _HOLDING:
@@ -262,26 +276,37 @@ async def connect() -> Client:
                 # RUNNING, so a waiter that is cancelled cannot cancel the attempt under the others.
                 flight.set_running_or_notify_cancel()
         if mine:
-            return await _connect_for(key, flight)
+            return await _connect_for(key, flight, read_deadline() if within is None else within)
         try:
             return await asyncio.wrap_future(flight)
         except _Abandoned:
             continue
 
 
-async def _connect_for(key: tuple[str, str, str], flight: concurrent.futures.Future) -> Client:
-    """The one attempt for `key`, on a runtime made for it, its outcome handed to `flight`."""
+async def _connect_for(key: tuple[str, str, str], flight: concurrent.futures.Future,
+                      bound: float) -> Client:
+    """The one attempt for `key`, within `bound`, on a runtime made for it — its outcome, whatever
+    it is, handed to `flight`."""
     where, space, _digest = key
-    runtime = core_runtime()
+    runtime = None
     try:
-        client = await Client.connect(
+        # INSIDE THE `try`, because building it can fail like the connect can (the bridge's
+        # "Failed initializing runtime", for one, when a thread cannot start under a pid limit):
+        # outside, the attempt stayed in flight unsettled and every later connect waited on it.
+        runtime = core_runtime()
+        client = await asyncio.wait_for(Client.connect(
             where, namespace=space, data_converter=pydantic_data_converter,
             **({"runtime": runtime} if runtime is not None else {}), **_auth()
-        )
+        ), bound)
     except BaseException as exc:
+        failure: BaseException = exc
+        if isinstance(exc, TimeoutError):
+            failure = TimeoutError(
+                f"the durable engine at {where} did not take a connection within {bound:g}s "
+                f"(OPENFACTORY_ENGINE_DEADLINE)")
         with _HOLDING:
             _IN_FLIGHT.pop(key, None)
-        flight.set_exception(exc if isinstance(exc, Exception) else _Abandoned())
+        flight.set_exception(failure if isinstance(failure, Exception) else _Abandoned())
         # A FAILED CONNECT KEEPS ITS RUNTIME — a thread per CPU — in a reference cycle only a full
         # collection frees (review on d2ef6149, measured: a panel whose engine was down at its
         # first connect gained twelve threads per healthcheck on 12 CPUs, 146 after twelve, and a
@@ -294,6 +319,8 @@ async def _connect_for(key: tuple[str, str, str], flight: concurrent.futures.Fut
         if runtime is not None:
             del runtime
             gc.collect()
+        if failure is not exc:
+            raise failure from None
         raise
     with _HOLDING:
         _IN_FLIGHT.pop(key, None)
@@ -393,4 +420,6 @@ async def connect_at_birth(*, within: float | None = None, every: float = 0.25) 
                 f"(`openfactory doctor` checks)? An engine that is only slow to start is given "
                 f"longer with `{_STARTS_IN_VAR}`.")
         await asyncio.sleep(every)
-    return await connect()
+    # ITS OWN WAIT IS THE CONNECT'S BOUND, not the read deadline: a process being born may give
+    # its engine longer to answer than a read gives it (`OPENFACTORY_ENGINE_STARTS_IN`).
+    return await connect(within=max(deadline - time.monotonic(), read_deadline()))

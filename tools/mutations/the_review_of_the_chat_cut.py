@@ -62,10 +62,11 @@ MUTATIONS = [
      "`OPENFACTORY_NOTIFIER_FALLBACK=telegram` declares it (with `openfactory-slack` installed). A",
      "the fallback declaration names it (with `openfactory-slack` installed). A"),
     # ── the dev extra is this tree's suite, not a vendor's ──────────────────────────────────────
+    # RE-PINNED 2026-10-19 (#681): the durable runtime's floor is 1.29 now. Same cut.
     ("the core's dev extra carries a cloud SDK again",
      "pyproject.toml",
-     '    "temporalio>=1.7",\n    "pytest-randomly>=3.15",',
-     '    "temporalio>=1.7",\n    "boto3>=1.34",\n    "pytest-randomly>=3.15",',
+     '    "temporalio>=1.29",\n    "pytest-randomly>=3.15",',
+     '    "temporalio>=1.29",\n    "boto3>=1.34",\n    "pytest-randomly>=3.15",',
      "tests/test_the_core_addon_ledger.py"),
     # ── finding 2: the signal is a row ──────────────────────────────────────────────────────────
     ("STATUS loses the addons/ row while four guards test for that path",

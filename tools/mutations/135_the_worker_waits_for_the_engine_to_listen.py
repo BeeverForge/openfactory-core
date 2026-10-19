@@ -16,19 +16,20 @@ MUTATIONS = [
      '        wanted = float(os.environ.get(_STARTS_IN_VAR, "") or _STARTS_IN_S)',
      "        wanted = _STARTS_IN_S"),
 
+    # RE-PINNED 2026-10-19 (#681, seventh review of #818): the one connect is handed the birth's
+    # own wait as its bound. Same cuts.
     ("a refusal that is an ANSWER is waited out and dialled again", CONN,
-     "        await asyncio.sleep(every)\n    return await connect()",
-     "        await asyncio.sleep(every)\n"
+     "    return await connect(within=max(deadline - time.monotonic(), read_deadline()))",
      "    for _ in range(3):\n"
      "        try:\n"
-     "            return await connect()\n"
+     "            return await connect(within=max(deadline - time.monotonic(), read_deadline()))\n"
      "        except RuntimeError:\n"
      "            await asyncio.sleep(every)\n"
-     "    return await connect()"),
+     "    return await connect(within=max(deadline - time.monotonic(), read_deadline()))"),
 
     ("the probe blocks the loop, so the wait cannot be interrupted", CONN,
-     "        await asyncio.sleep(every)\n    return await connect()",
-     "        time.sleep(every * 8)\n    return await connect()"),
+     "        await asyncio.sleep(every)\n    # ITS OWN WAIT IS THE CONNECT'S BOUND",
+     "        time.sleep(every * 8)\n    # ITS OWN WAIT IS THE CONNECT'S BOUND"),
 
     ("the sentence stops naming the address it waited on", CONN,
      '                f"the durable engine at {where} accepted no connection in {bound:.0f}s',

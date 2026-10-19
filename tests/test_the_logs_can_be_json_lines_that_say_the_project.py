@@ -1444,6 +1444,219 @@ async def test_a_client_a_changed_target_lets_go_of_keeps_no_runtime(monkeypatch
     assert first() is None, "the client a changed target let go of still holds its runtime"
 
 
+async def test_a_runtime_that_cannot_be_built_is_a_failed_attempt_and_the_next_one_tries(
+        monkeypatch):
+    """Building a runtime can fail like a connect can — the bridge's "Failed initializing runtime",
+    for one, when a thread cannot start under a pid limit. That attempt fails, is let go of, and the
+    next connect to a healthy engine tries for itself (seventh review of #818: built before the
+    attempt was settled, it stayed in flight, and every later connect waited on it for good)."""
+    from openfactory.runtime.temporal import connection
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    _Runtimes(monkeypatch)
+    making, failed = connection.core_runtime, []
+
+    def _fails_once():
+        if not failed:
+            failed.append(True)
+            raise RuntimeError("Failed initializing runtime: a thread could not start")
+        return making()
+
+    monkeypatch.setattr(connection, "core_runtime", _fails_once)
+    with pytest.raises(RuntimeError, match="Failed initializing runtime"):
+        await asyncio.wait_for(connection.connect(), 5.0)
+
+    client = await asyncio.wait_for(connection.connect(), 5.0)
+    assert client is await asyncio.wait_for(connection.connect(), 5.0)
+
+
+class _Arrivals:
+    """How many callers have reached `connection.connect()`'s door — counted where each asks which
+    target it is for — so a case releases the engine once they are all there, not after a guess."""
+
+    def __init__(self, monkeypatch):
+        from openfactory.runtime.temporal import connection
+
+        self._seen = 0
+        self._changed = threading.Condition()
+        asking = connection.fingerprint
+
+        def _counted():
+            with self._changed:
+                self._seen += 1
+                self._changed.notify_all()
+            return asking()
+
+        monkeypatch.setattr(connection, "fingerprint", _counted)
+
+    def wait_for(self, callers: int) -> None:
+        with self._changed:
+            assert self._changed.wait_for(lambda: self._seen >= callers, timeout=10.0), (
+                f"{self._seen} of {callers} callers reached the door")
+
+
+class _HeldEngine:
+    """The library's connect, the FIRST attempt held until the case releases it — then answering, or
+    failing with `fails` — and every later attempt answering at once. Counts the attempts."""
+
+    def __init__(self, monkeypatch):
+        from openfactory.runtime.temporal import connection
+
+        monkeypatch.setenv("TEMPORAL_ADDRESS", "localhost:7233")
+        self.client, self.attempts, self.fails = object(), 0, None
+        self.entered, self.release = threading.Event(), threading.Event()
+        counting = threading.Lock()
+
+        async def _connect(*_args, **_kwargs):
+            with counting:
+                self.attempts += 1
+                first = self.attempts == 1
+            self.entered.set()
+            if first:
+                await asyncio.get_running_loop().run_in_executor(None, self.release.wait, 10.0)
+                if self.fails is not None:
+                    raise self.fails
+            return self.client
+
+        monkeypatch.setattr(connection.Client, "connect", _connect)
+
+    async def is_asked(self) -> None:
+        """Until the first attempt has reached the library, without holding this loop."""
+        entered = await asyncio.get_running_loop().run_in_executor(None, self.entered.wait, 10.0)
+        assert entered, "no attempt reached the library within 10 s"
+
+
+def _on_a_loop_of_its_own(said: list) -> threading.Thread:
+    """A caller of `connection.connect()` on a thread and a loop of its own, its answer — or what it
+    raised — appended to `said`."""
+    from openfactory.runtime.temporal import connection
+
+    def _ask():
+        try:
+            said.append(asyncio.run(connection.connect()))
+        except BaseException as exc:  # noqa: BLE001 — the case reads what each caller was told
+            said.append(exc)
+
+    caller = threading.Thread(target=_ask, daemon=True)
+    caller.start()
+    return caller
+
+
+@pytest.mark.parametrize("outcome", ["answers", "fails"])
+async def test_callers_who_arrive_together_share_one_attempt_and_its_outcome(monkeypatch,
+                                                                             outcome):
+    """THE SINGLE FLIGHT, ACROSS LOOPS AND THREADS (seventh review of #818: each rule survived
+    every test that reached the door). Callers on three loops arrive while one attempt is in
+    flight: the library is asked once, and each of them is told what that one attempt said — its
+    client, or its failure, which nobody behind it repeats. A caller arriving after a failure
+    tries again, which is how a recovered engine is picked up."""
+    from openfactory.runtime.temporal import connection
+
+    engine, arrivals = _HeldEngine(monkeypatch), _Arrivals(monkeypatch)
+    if outcome == "fails":
+        engine.fails = RuntimeError("the engine refused the handshake")
+    said: list = []
+    callers = [_on_a_loop_of_its_own(said)]
+    try:
+        await engine.is_asked()
+        callers += [_on_a_loop_of_its_own(said), _on_a_loop_of_its_own(said)]
+        here = asyncio.create_task(connection.connect())
+        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 4)
+    finally:
+        engine.release.set()
+    try:
+        said.append(await here)
+    except RuntimeError as exc:
+        said.append(exc)
+    for caller in callers:
+        await asyncio.get_running_loop().run_in_executor(None, caller.join, 10.0)
+
+    assert engine.attempts == 1, f"{engine.attempts} attempts for four callers who came together"
+    expected = engine.client if outcome == "answers" else engine.fails
+    assert len(said) == 4 and all(answer is expected for answer in said), said
+    if outcome == "fails":
+        assert await connection.connect() is engine.client and engine.attempts == 2
+
+
+async def test_a_cancelled_attempt_is_nobodys_failure_and_those_behind_it_try(monkeypatch):
+    """The caller whose attempt is in flight goes away — a bounded read that gave up, a request a
+    browser closed. That says nothing about the engine, so the callers queued behind it try for
+    themselves and are given a client, never the cancellation as if the engine had failed."""
+    from openfactory.runtime.temporal import connection
+
+    engine, arrivals = _HeldEngine(monkeypatch), _Arrivals(monkeypatch)
+    said: list = []
+    owner = asyncio.create_task(connection.connect())
+    try:
+        await engine.is_asked()
+        callers = [_on_a_loop_of_its_own(said), _on_a_loop_of_its_own(said)]
+        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 3)
+        owner.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await owner
+        for caller in callers:
+            await asyncio.get_running_loop().run_in_executor(None, caller.join, 10.0)
+    finally:
+        engine.release.set()
+
+    assert said == [engine.client, engine.client], said
+
+
+async def test_a_waiter_that_gives_up_cancels_nobody_elses_attempt(monkeypatch):
+    """A caller queued behind an attempt is cancelled. Only its own wait ends: the attempt goes on,
+    its owner is handed the client it made, and the callers still waiting are given it too."""
+    from openfactory.runtime.temporal import connection
+
+    engine, arrivals = _HeldEngine(monkeypatch), _Arrivals(monkeypatch)
+    owner_said: list = []
+    others_said: list = []
+    callers = [_on_a_loop_of_its_own(owner_said)]
+    try:
+        await engine.is_asked()
+        callers.append(_on_a_loop_of_its_own(others_said))
+        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 2)
+        gives_up = asyncio.create_task(connection.connect())
+        # ITS WAIT HAS BEGUN: it reached the door in the same step that awaits the attempt.
+        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 3)
+        gives_up.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await gives_up
+    finally:
+        engine.release.set()
+    for caller in callers:
+        await asyncio.get_running_loop().run_in_executor(None, caller.join, 10.0)
+
+    assert owner_said == [engine.client], owner_said
+    assert others_said == [engine.client], others_said
+    assert engine.attempts == 1
+
+
+async def test_an_attempt_nobody_bounded_is_bounded_and_the_reads_behind_it_get_its_end(
+        monkeypatch):
+    """A caller with no bound of its own (a release, a preview stop, a schedule command) starts the
+    first connect, and a bounded read queues behind it. The attempt is bounded all the same — by
+    `OPENFACTORY_ENGINE_DEADLINE` — so neither waits on an engine that never answers for longer
+    than the deployment said (seventh review of #818, measured: unbounded, it ran 30.1 s against a
+    listener that never answered, and the reads behind it gave up without trying)."""
+    from openfactory.runtime.temporal import connection
+
+    monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", "0.5")
+    engine = _HeldEngine(monkeypatch)
+    try:
+        unbounded = asyncio.create_task(connection.connect())
+        await engine.is_asked()
+        behind = asyncio.create_task(connection.connect())
+        done, _ = await asyncio.wait({unbounded, behind}, timeout=5.0)
+    finally:
+        engine.release.set()
+
+    assert done == {unbounded, behind}, "an attempt nobody bounded is still waiting on the engine"
+    for ended in (unbounded, behind):
+        assert isinstance(ended.exception(), TimeoutError), ended.exception()
+        assert "did not take a connection within 0.5s" in str(ended.exception())
+    assert await connection.connect() is engine.client
+
+
 @pytest.mark.parametrize("asked", [None, "text"])
 async def test_without_json_the_engines_runtime_is_left_as_it_was(monkeypatch, asked):
     from openfactory.runtime.temporal import connection

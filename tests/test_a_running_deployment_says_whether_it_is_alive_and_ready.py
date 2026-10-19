@@ -1135,6 +1135,31 @@ def test_the_probe_says_an_answer_that_is_not_http_in_one_line(capfd, answer):
                                                "something that is not HTTP"), err
 
 
+async def test_the_probe_asks_the_address_it_is_given(deployment):
+    """A worker told to answer on one address that is not loopback is asked there: the probe
+    takes `--host` (seventh review of #818: the shipped probe could only ever ask 127.0.0.1). The
+    address here is the IPv6 loopback, which the default does not reach."""
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET6) as sock:
+            sock.bind(("::1", 0))
+    except OSError:
+        pytest.skip("this machine has no IPv6 loopback to answer on")
+    server = await health.listen(0, host="::1")
+    port = server.sockets[0].getsockname()[1]
+    try:
+        asked = await asyncio.to_thread(health.main, ["--port", str(port), "--host", "::1",
+                                                      "--path", health.LIVE_PATH])
+        default = await asyncio.to_thread(health.main, ["--port", str(port),
+                                                        "--path", health.LIVE_PATH])
+    finally:
+        server.close()
+
+    assert asked == 0, "the probe did not ask the address it was given"
+    assert default == 1, "the default reached an address that is not 127.0.0.1"
+
+
 def test_the_probe_a_healthcheck_runs_imports_no_engine_client(tmp_path):
     """It runs every fifteen seconds in two containers, so it pays only for what it asks (review
     on f48b79fd, measured: importing the engine's client to read one variable was 158 ms of its

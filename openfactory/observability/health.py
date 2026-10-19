@@ -518,12 +518,15 @@ def parser() -> argparse.ArgumentParser:
                             f"{PORT_VARIABLE}")
     asked.add_argument("--path", default=READY_PATH, choices=PATHS,
                        help=f"what to ask (default {READY_PATH})")
+    asked.add_argument("--host", default=LOOPBACK,
+                       help=f"the address to ask it at (default {LOOPBACK}): the worker's "
+                            f"{HOST_VARIABLE}, when that names one address that is not loopback")
     return asked
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    return probe(args.port, args.path)
+    return probe(args.port, args.path, host=args.host)
 
 
 if __name__ == "__main__":
