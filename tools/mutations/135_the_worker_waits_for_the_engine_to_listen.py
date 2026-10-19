@@ -18,14 +18,24 @@ MUTATIONS = [
 
     # RE-PINNED 2026-10-19 (#681, seventh review of #818): the one connect is handed the birth's
     # own wait as its bound. Same cuts.
+    # RE-PINNED 2026-10-20 (#681, delta review of #818): the connect sits in a `try` that turns
+    # its timeout into a sentence. Same cut.
     ("a refusal that is an ANSWER is waited out and dialled again", CONN,
-     "    return await connect(within=max(deadline - time.monotonic(), read_deadline()))",
-     "    for _ in range(3):\n"
-     "        try:\n"
-     "            return await connect(within=max(deadline - time.monotonic(), read_deadline()))\n"
-     "        except RuntimeError:\n"
-     "            await asyncio.sleep(every)\n"
-     "    return await connect(within=max(deadline - time.monotonic(), read_deadline()))"),
+     "        return await connect(within=within)\n",
+     "        for _ in range(3):\n"
+     "            try:\n"
+     "                return await connect(within=within)\n"
+     "            except RuntimeError:\n"
+     "                await asyncio.sleep(every)\n"
+     "        return await connect(within=within)\n"),
+
+    # #681, delta review of #818: the birth connect's own bound, and the sentence it ends in.
+    ("the birth connect is given a read's few seconds, not the start-up wait", CONN,
+     "    within = max(deadline - time.monotonic(), read_deadline())\n",
+     "    within = read_deadline()\n"),
+    ("a birth connect that never answers ends in the read deadline's words", CONN,
+     "    except TimeoutError:\n        # SAID AS THE OTHER TIMING FAILURE IS",
+     "    except ArithmeticError:\n        # SAID AS THE OTHER TIMING FAILURE IS"),
 
     ("the probe blocks the loop, so the wait cannot be interrupted", CONN,
      "        await asyncio.sleep(every)\n    # ITS OWN WAIT IS THE CONNECT'S BOUND",

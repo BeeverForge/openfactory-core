@@ -421,5 +421,17 @@ async def connect_at_birth(*, within: float | None = None, every: float = 0.25) 
                 f"longer with `{_STARTS_IN_VAR}`.")
         await asyncio.sleep(every)
     # ITS OWN WAIT IS THE CONNECT'S BOUND, not the read deadline: a process being born may give
-    # its engine longer to answer than a read gives it (`OPENFACTORY_ENGINE_STARTS_IN`).
-    return await connect(within=max(deadline - time.monotonic(), read_deadline()))
+    # its engine longer to answer than a read gives it (`OPENFACTORY_ENGINE_STARTS_IN`). Until
+    # #681 the connect after the socket accepted had no bound at all; now it has what is left of
+    # the wait, and at least the read deadline.
+    within = max(deadline - time.monotonic(), read_deadline())
+    try:
+        return await connect(within=within)
+    except TimeoutError:
+        # SAID AS THE OTHER TIMING FAILURE IS, naming the setting that bounded it — the read
+        # deadline's sentence would send its reader to the wrong variable (delta review of #818).
+        raise EngineNotListening(
+            f"the durable engine at {where} took the connection but did not answer it in "
+            f"{within:.0f}s — this process dials it as it starts. Is the engine still starting, "
+            f"or is something else listening at `{_ADDRESS_VARS[0]}`? An engine that is only "
+            f"slow to start is given longer with `{_STARTS_IN_VAR}`.") from None

@@ -142,6 +142,40 @@ def test_an_engine_that_NEVER_listens_is_a_bounded_wait_and_a_sentence(dialled, 
         assert owed in said, f"the refusal does not say {owed!r}: {said}"
 
 
+def test_an_engine_that_takes_the_socket_and_never_answers_is_given_the_start_up_wait(
+        dialled, monkeypatch):
+    """The socket accepts, so the wait above is over — and the connect after it does not answer.
+    A process being born gives that connect what is left of `OPENFACTORY_ENGINE_STARTS_IN`, not the
+    few seconds a read gets (`OPENFACTORY_ENGINE_DEADLINE`), and gives up as the start-up wait runs
+    out, in one sentence naming the setting that bounded it (delta review of #818: no case could
+    tell a birth connect from a read's, and the sentence named the read deadline)."""
+    port = _a_free_port()
+    monkeypatch.setenv("TEMPORAL_ADDRESS", f"127.0.0.1:{port}")
+    monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", "0.2")
+    monkeypatch.setenv("OPENFACTORY_ENGINE_STARTS_IN", "2.5")
+
+    async def never_answers(*_args, **_kwargs):
+        dialled.append(time.monotonic())
+        await asyncio.get_running_loop().create_future()   # an answer that never comes
+
+    monkeypatch.setattr(connection.Client, "connect", never_answers)
+
+    async def born():
+        return await asyncio.wait_for(connection.connect_at_birth(), timeout=15.0)
+
+    began = time.monotonic()
+    with _ListensAfter(port, delay=0.0), pytest.raises(connection.EngineNotListening) as gone:
+        asyncio.run(born())
+    took = time.monotonic() - began
+
+    assert len(dialled) == 1, f"the engine was dialled {len(dialled)} times"
+    assert took >= 2.0, f"it gave up after {took:.1f}s, as a read would, not at the start-up wait"
+    assert took < 8.0, f"a 2.5 s start-up wait took {took:.1f}s"
+    said = str(gone.value)
+    for owed in (f"127.0.0.1:{port}", "OPENFACTORY_ENGINE_STARTS_IN"):
+        assert owed in said, f"the sentence does not say {owed!r}: {said}"
+
+
 def test_a_listener_that_says_NO_is_not_retried(monkeypatch, dialled):
     """A bad key or a missing namespace is an ANSWER. Waiting it out would turn a misconfiguration
     into thirty seconds of silence followed by the same error."""

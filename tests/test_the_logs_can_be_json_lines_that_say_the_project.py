@@ -1471,28 +1471,32 @@ async def test_a_runtime_that_cannot_be_built_is_a_failed_attempt_and_the_next_o
 
 
 class _Arrivals:
-    """How many callers have reached `connection.connect()`'s door — counted where each asks which
-    target it is for — so a case releases the engine once they are all there, not after a guess."""
+    """How many callers are waiting on the attempt in flight — counted where each one's wait
+    begins, when `asyncio.wrap_future` hangs its callback on the flight — so a case releases the
+    engine once they all hold it, not after a guess (delta review of #818: counted earlier, at the
+    door, a caller could still be on its way to the flight when the engine was released)."""
 
     def __init__(self, monkeypatch):
         from openfactory.runtime.temporal import connection
 
         self._seen = 0
         self._changed = threading.Condition()
-        asking = connection.fingerprint
+        arrivals = self
 
-        def _counted():
-            with self._changed:
-                self._seen += 1
-                self._changed.notify_all()
-            return asking()
+        class _Flight(concurrent.futures.Future):
+            def add_done_callback(self, fn):
+                super().add_done_callback(fn)
+                with arrivals._changed:
+                    arrivals._seen += 1
+                    arrivals._changed.notify_all()
 
-        monkeypatch.setattr(connection, "fingerprint", _counted)
+        monkeypatch.setattr(connection, "concurrent", types.SimpleNamespace(
+            futures=types.SimpleNamespace(Future=_Flight)))
 
-    def wait_for(self, callers: int) -> None:
+    def wait_for(self, waiting: int) -> None:
         with self._changed:
-            assert self._changed.wait_for(lambda: self._seen >= callers, timeout=10.0), (
-                f"{self._seen} of {callers} callers reached the door")
+            assert self._changed.wait_for(lambda: self._seen >= waiting, timeout=10.0), (
+                f"{self._seen} of {waiting} callers are waiting on the attempt")
 
 
 class _HeldEngine:
@@ -1561,7 +1565,7 @@ async def test_callers_who_arrive_together_share_one_attempt_and_its_outcome(mon
         await engine.is_asked()
         callers += [_on_a_loop_of_its_own(said), _on_a_loop_of_its_own(said)]
         here = asyncio.create_task(connection.connect())
-        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 4)
+        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 3)
     finally:
         engine.release.set()
     try:
@@ -1590,7 +1594,7 @@ async def test_a_cancelled_attempt_is_nobodys_failure_and_those_behind_it_try(mo
     try:
         await engine.is_asked()
         callers = [_on_a_loop_of_its_own(said), _on_a_loop_of_its_own(said)]
-        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 3)
+        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 2)
         owner.cancel()
         with pytest.raises(asyncio.CancelledError):
             await owner
@@ -1614,10 +1618,9 @@ async def test_a_waiter_that_gives_up_cancels_nobody_elses_attempt(monkeypatch):
     try:
         await engine.is_asked()
         callers.append(_on_a_loop_of_its_own(others_said))
-        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 2)
+        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 1)
         gives_up = asyncio.create_task(connection.connect())
-        # ITS WAIT HAS BEGUN: it reached the door in the same step that awaits the attempt.
-        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 3)
+        await asyncio.get_running_loop().run_in_executor(None, arrivals.wait_for, 2)
         gives_up.cancel()
         with pytest.raises(asyncio.CancelledError):
             await gives_up
