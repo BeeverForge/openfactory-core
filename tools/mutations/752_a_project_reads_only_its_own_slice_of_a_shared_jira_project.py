@@ -10,13 +10,16 @@ The claims, each held by a test this plan cuts under:
   - the scope is wrapped in parentheses, so an OR inside it cannot widen the read past the project;
   - an empty slice is an empty board: the existence probe stays unscoped and is not skipped;
   - a project that declares no scope, or only whitespace, sends today's JQL byte for byte;
-  - a search Jira refuses under a scope is named in the warning, and the read stays unreadable.
+  - a search Jira refuses under a scope is named in the warning, and the read stays unreadable;
+  - the configuration reference's Jira example declares the scope single-quoted, and it reaches
+    the tracker intact through a registry file.
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
 BOARD = "openfactory/adapters/board/jira.py"
 JIRA = "openfactory/adapters/tracker/jira.py"
 REGISTRY = "openfactory/adapters/tracker/registry.py"
+DOCS = "docs/reference/configuration.md"
 SLICE = TEST
 EMPTY = "tests/test_an_empty_slice_of_a_jira_project_is_not_a_missing_project.py"
 FILED = "tests/test_a_ticket_another_project_filed_on_one_jira_project_is_not_read_as_already_filed.py"
@@ -92,4 +95,9 @@ MUTATIONS = [
      'return f" within scope_jql {scope!r}" if scope else ""',
      'return ""',
      f"{SLICE}::test_a_scope_jira_refuses_is_named_and_the_read_stays_unreadable"),
+
+    ("the configuration reference's Jira example no longer declares a scope", DOCS,
+     "                          scope_jql: 'labels = \"of-api\"',    # this project's slice of DAR\n",
+     "",
+     f"{SLICE}::test_the_documented_scope_arrives_intact_from_a_registry_file"),
 ]
