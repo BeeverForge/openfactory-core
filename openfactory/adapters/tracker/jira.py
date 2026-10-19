@@ -46,11 +46,20 @@ close, never a state. A deployment may name both; `close_ticket` says which is t
 
 AUTH: Jira Cloud basic auth with an API token (`email` + token). The token arrives the same way
 every other credential does — from the deployment, never from the client's repository.
+
+A PAIR JIRA DOES NOT ACCEPT IS NOT REFUSED, IT IS ANSWERED AS NOBODY'S (#749). Measured 2026-10-19
+on a Jira Cloud site: account A's email with account B's token, and A's email with an empty token,
+both got 404 on `issue/<KEY>` and `project/<KEY>` that exist, 200 `{"issues": [], "isLast": true}`
+on a bounded `search/jql`, and 401 only on `GET /rest/api/3/myself`. The 404's body is the one a
+missing issue gets, so every card read as missing and jobs parked on it. A revoked token was not
+measured. So `_call` asks `myself` once on a 404, and a 401 there becomes a refusal that names the
+pair (`_not_one_account`); the cost is one request per 404 and none on any other answer.
 """
 
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import logging
 import urllib.error
@@ -58,6 +67,7 @@ import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 
+from openfactory.adapters.credential.registry import SHIPPED_ENV
 from openfactory.contracts import JobState, Ticket
 
 log = logging.getLogger("openfactory.tracker.jira")
@@ -69,7 +79,11 @@ class JiraRefused(RuntimeError):
     A `RuntimeError` still, so every caller that parks or diagnoses on one keeps working. The code
     is what lets `close_ticket` tell a site refusing ONE FIELD (400 — the transition's screen does
     not carry `resolution`, or the site has no resolution of that name) from a credential that
-    expired or a site that is down, which must keep raising."""
+    expired or a site that is down, which must keep raising.
+
+    THE CODE IS 401 ON A REFUSAL JIRA ITSELF ANSWERED WITH 404, when `GET myself` then answered 401
+    (#749): Jira answers a pair it does not accept as an anonymous request, so the 404 was about
+    the credential, not the card. The 404 stays the `__cause__`."""
 
     def __init__(self, message: str, *, code: int) -> None:
         super().__init__(message)
@@ -97,6 +111,31 @@ from openfactory.adapters.tracker.base import (  # noqa: E402
     list_state,
 )
 from openfactory.adapters.tracker.base import column_key as _column_key  # noqa: E402
+
+
+def _not_one_account(email: str, method: str, path: str, *, has_token: bool) -> str:
+    """What a person reads when Jira took a call as nobody's: the 404 it answered, and `GET myself`
+    401. THE CAUSE COMES FIRST, because the job's preflight and the card's door keep only the
+    first 120 characters of it; the path, which can be long, comes after. The token is never in it.
+
+    "or the token was revoked" because nothing here tells a mismatched pair from a revoked token,
+    and a revoked one was not measured (2026-10-19: another account's token and an empty one
+    answer alike, 404 and `myself` 401). With no token at all the request was anonymous for a
+    reason of its own, and calling it "different accounts" would send a person looking for the
+    wrong mistake."""
+    seen = (f"Jira answered {method} {path} 404 as it does an anonymous request, and GET myself "
+            f"401.")
+    if not has_token:
+        # The variable a project that names no `token_env` reads is the credential row's default
+        # (review round 1, 2026-10-19: the sentence named only `token_env`, which such a project
+        # does not have).
+        return (f"jira: no API token reached this tracker for {email} — {seen} Set "
+                f"{SHIPPED_ENV['jira']}, or the variable the project's tracker.options.token_env "
+                f"names.")
+    return (f"jira: the email {email} and the API token belong to different accounts, or the "
+            f"token was revoked — {seen} Pair the email with an API token created by that same "
+            f"account (id.atlassian.com → Security → API tokens), or replace a token that was "
+            f"revoked.")
 
 
 def _jql_since(stamp: str) -> str:
@@ -163,7 +202,8 @@ class JiraTracker:
     #: `tracker/base.py::observes`): a close — and why, where the deployment named its "not
     #: delivered" resolution or status (`_closed_reason`); unnamed, a close reads as finished work —
     #: a reopen, and a move between the operator's two columns. Not a deletion: a deleted issue
-    #: answers 404 the way one the credential cannot see does.
+    #: answers 404 the way one the credential cannot see does. A credential Jira did not accept is
+    #: told apart (`_call` asks `myself`, #749); a deleted card and an invisible one still are not.
     observes = frozenset({"closed", "reopened", "promoted", "reordered"})
 
     #: THE LONGEST DESCRIPTION JIRA CLOUD ACCEPTS, in characters (#624; read by the split through
@@ -221,7 +261,16 @@ class JiraTracker:
         nothing.
 
         `api` names the REST family under `/rest/` — `api/3` for everything this tracker did until
-        the board learned to rank, `agile/1.0` for the rank endpoint, which lives nowhere else."""
+        the board learned to rank, `agile/1.0` for the rank endpoint, which lives nowhere else.
+
+        A 404 ASKS `GET myself` ONCE (#749), under `api/3` whatever `api` was, since `myself` lives
+        nowhere else. A 401 there means Jira took the call as nobody's, and the refusal says the
+        email and the token are not one account's (or that no token reached it), with `code=401`.
+        A 2xx, any other status, and a probe that cannot be made keep the 404 exactly as it was.
+        No other answer asks anything. Measured in the tests, requests per call: a card that reads
+        1, a 404 2 (whatever `myself` says); `list_tickets` with issues 1, an empty board whose
+        project answers 2, an empty board whose project 404s 3 (was 2). A slow site can add up to
+        45 s, the probe's own timeout, to a 404 that was already going to fail."""
         url = f"{self.site}/rest/{api.strip('/')}/{path.lstrip('/')}"
         data = json.dumps(payload).encode() if payload is not None else None
         req = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
@@ -231,8 +280,40 @@ class JiraTracker:
             return json.loads(body) if body.strip() else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode()[:300] if hasattr(exc, "read") else ""
+            # Jira Cloud answers a Basic pair whose token is not the email's account as an
+            # ANONYMOUS request: 404 on the issue, never 401 (#749, reported 2026-10-14 against
+            # v0.6.0-rc.2, measured 2026-10-19). Only `myself` says nobody signed in (401), so a
+            # 404 asks it once.
+            if exc.code == 404 and self._who_is_asking():
+                raise JiraRefused(_not_one_account(self.email, method, path,
+                                                   has_token=bool(self.token)),
+                                  code=401) from exc
             raise JiraRefused(f"jira {method} {path} failed: {exc.code} {detail}",
                               code=int(exc.code)) from exc
+
+    def _who_is_asking(self) -> bool:
+        """True only when `GET /rest/api/3/myself`, asked with this tracker's credential, answers
+        401: Jira took the request as nobody's. `api/3` always — `myself` exists under no other
+        family, and the call that 404'd may have been `agile/1.0`. Straight to `urlopen`, not
+        through `_call`, so a `myself` that itself answers 404 cannot ask again.
+
+        A 2xx, any other status, and a probe that could not be made at all are False: the caller
+        then raises the 404 it already had, so a site that cannot answer is never read as a
+        mismatched pair."""
+        req = urllib.request.Request(f"{self.site}/rest/api/3/myself", headers=self._headers(),
+                                     method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=45):  # noqa: S310 — fixed https site
+                return False
+        except urllib.error.HTTPError as exc:
+            return exc.code == 401
+        # URLError, TimeoutError, ConnectionResetError; and what `getresponse()` raises, which
+        # urllib does not wrap: BadStatusLine and LineTooLong are HTTPException, not OSError
+        # (review round 1, 2026-10-19: one replaced the 404 with a non-RuntimeError).
+        except (OSError, http.client.HTTPException) as exc:
+            log.info("jira answered a 404 and GET myself could not be asked (%s) — keeping the "
+                     "404, since nothing says the credential was not accepted", str(exc)[:200])
+            return False
 
     @staticmethod
     def _text(adf: dict | None) -> str:
@@ -718,7 +799,12 @@ class JiraTracker:
         The cost is one extra request per EMPTY answer and none at all otherwise: a board that
         returned issues has proved its own existence. `GET project/{key}` answers 404 for both the
         missing project and the invisible one, which are the same answer to the only question being
-        asked — can this deployment see the board it is configured for.
+        asked — can this deployment see the board it is configured for. A typo, or a token that
+        lost Browse Projects, is still that 404. A pair Jira does not accept arrives instead as
+        the 401 refusal `_call` raises after asking `myself` (#749; measured 2026-10-19, a
+        mismatched pair's bounded `search/jql` is 200 and empty and `project/<KEY>` is 404): the
+        log line names the pair, the board still reads as None, and the empty board costs 3
+        requests instead of 2.
         """
         try:
             self._call("GET", f"project/{self.project_key}")

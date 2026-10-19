@@ -160,6 +160,15 @@ its administrator named — and localised — everything in it:
                           not_delivered_resolution: "Won't Do" } }
 ```
 
+**`email` and the token `token_env` names must be one account's**: the token is created at
+id.atlassian.com by the account whose address `email` holds. Jira Cloud does not refuse a token of
+another account, nor an empty one; it answers as if nobody had signed in, a 404 on every card that
+exists (measured 2026-10-19). The tracker tells that apart by asking Jira who is signed in, and
+refuses by name: *"the email … and the API token belong to different accounts, or the token was
+revoked"*, or *"no API token reached this tracker"* — never "not found". The first sentence names
+a revoked token too, because nothing tells the two apart; a revoked token was not measured. A card
+that is really missing still reads as missing.
+
 `status_map` says which status each lifecycle key (`todo`, `in_progress`, `in_review`,
 `needs_action`, `done`, `backlog`) means; an unmapped key leaves the card where it is, with a
 warning. It is also what the platform READS the board back with — a Jira project's statuses ARE
