@@ -791,7 +791,8 @@ class WorktreeSandbox(SandboxAdapter):
         # THE BOX MARKS ITS OWN ADD (#746, option A, chosen 2026-10-18). Git writes
         # `<admin>/locked` = `initializing\n` before the checkout and unlinks it after; a box killed
         # in between (SIGKILL of its process group, OOM, power loss, or `_run`'s timeout, which
-        # kills the git parent only while its `reset --hard` child finishes) leaves the tree
+        # kills the git parent only; its `reset --hard` child finishes on 2.43.0 and dies with the
+        # closed pipes on 2.55.0, measured 2026-10-19) leaves the tree
         # registered and locked, byte for byte what a person's `git worktree lock --reason
         # initializing` leaves (2.34.1, 2.43.0 and 2.47.3, measured). The mark, written BEFORE the
         # add and removed only once `_run` returned, is what tells the box's own interrupted add

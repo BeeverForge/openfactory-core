@@ -22,8 +22,12 @@ THE SHAPES IT LEAVES, measured on 2.43.0 through the box's own `prepare` (2026-1
 - the whole process group killed during the checkout: the tree is registered, `locked
   initializing`, the admin directory holds `index.lock` and no `index`;
 - the add timed out (`subprocess.run(timeout=…)` kills its direct child only): the git parent
-  dies, the `reset --hard` child finishes the checkout, the admin directory holds `index` and
-  `ORIG_HEAD`, and the lock stays for good;
+  dies and the lock stays for good. What its `reset --hard` child does with the pipes it keeps
+  depends on git's version: on 2.43.0 it finishes the checkout (the admin directory holds `index`
+  and `ORIG_HEAD`); on 2.55.0 (debian:sid, as CI's ubuntu-24.04 runner) it dies once the box's
+  Python exits and the pipes close (no `index`, no `ORIG_HEAD`), 3 of 3 runs, measured
+  2026-10-19 (PR #846's CI). The tree is registered at the box's path and `locked` is
+  `initializing\n` on both;
 - the box's Python alone killed during the checkout: git loses the reader of its output pipe,
   a git process dies of SIGPIPE (strace), and git removes its half-made tree and admin directory
   itself; only the branch is left;
@@ -246,7 +250,10 @@ def _again(root: Path, slow: Slow):
 def test_a_box_killed_while_git_checked_out_its_tree_starts_again_on_the_rerun(
         tmp_path, box_root, shape):
     """C6. On c0a50f3 the re-run raised `BranchHeldElsewhere: … the job's own from an earlier pass,
-    which somebody locked, so it was left as it is …`, for both shapes."""
+    which somebody locked, so it was left as it is …`, for both shapes. The timed-out shape is held
+    only to what every git leaves (the tree registered at `wt`, `locked` = `initializing\n`):
+    whether its checkout finished is git's version's, `index` present on 2.43.0 and absent on
+    2.55.0 (measured 2026-10-19)."""
     slow = Slow(tmp_path / "myapp")
     wt = box_root / NAME
     _interrupt(slow, box_root, shape)
@@ -254,7 +261,9 @@ def test_a_box_killed_while_git_checked_out_its_tree_starts_again_on_the_rerun(
     if shape == "process_group_killed":
         assert (slow.admin / "index.lock").exists() and not (slow.admin / "index").exists()
     else:
-        assert (slow.admin / "index").exists()
+        assert str(wt.resolve()) in [line.split(" ", 1)[1] for line in
+                                     _git(slow.repo, "worktree", "list", "--porcelain").splitlines()
+                                     if line.startswith("worktree ")]
     _assert_started_clean(_again(box_root, slow), wt, slow, box_root)
 
 
