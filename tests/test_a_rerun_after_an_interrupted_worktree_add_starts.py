@@ -48,6 +48,7 @@ kills only the process group it started. No `locked` file is written by hand.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 import shutil
@@ -132,7 +133,18 @@ def _group_gone(pgid: int) -> bool:
         os.killpg(pgid, 0)
     except ProcessLookupError:
         return True
+    except PermissionError:
+        # macOS answers EPERM while the killed group's last members are zombies awaiting reaping
+        # (#846's run, Apple git 2.50.1, Python 3.13: 6/10 red): not gone yet, never "gone".
+        return False
     return False
+
+
+def _kill_group(pgid: int) -> None:
+    # Cleanup only: a group that answers EPERM (macOS, zombies) or vanished since it was checked
+    # must not replace the test's real failure with an unrelated error.
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGKILL)
 
 
 _CHILD = textwrap.dedent("""\
@@ -185,7 +197,7 @@ def _interrupt(slow: Slow, root: Path, shape: str, *, env: dict[str, str] | None
     finally:
         slow.release.touch()
         if not _group_gone(child.pid):
-            os.killpg(child.pid, signal.SIGKILL)
+            _kill_group(child.pid)
         if child.poll() is None:
             child.kill()
         child.wait()
