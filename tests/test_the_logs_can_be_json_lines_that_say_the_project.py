@@ -424,6 +424,30 @@ async def test_what_a_job_says_for_a_person_is_a_json_line_about_its_project(mon
         assert all(line.get("project") == "acme" for line in lines), lines
 
 
+def test_what_the_panel_says_before_it_serves_is_a_json_line(monkeypatch, capsys, tmp_path):
+    """`serve`'s own start, before uvicorn takes the process (fifth review of #818, measured: a
+    build the panel could not record — a state directory that is not one — warned before the log
+    was set up, through Python's last-resort handler, a bare line with no time, level or name)."""
+    import uvicorn
+
+    from openfactory import cli, namespace
+
+    not_a_directory = tmp_path / "state"
+    not_a_directory.write_text("a file where the state directory should be\n")
+    monkeypatch.setenv("OPENFACTORY_STATE_DIR", str(not_a_directory / "deployment"))
+    monkeypatch.setattr(namespace, "build_stamp", lambda: ("3f9a1c0e2b7d", "2026-10-19T00:00Z"))
+    monkeypatch.setattr(uvicorn, "run", lambda *_a, **_k: None)
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    with _a_fresh_process():
+        cli.serve(host="127.0.0.1", port=8787)
+
+    written = capsys.readouterr()
+    assert not written.out.strip(), written.out
+    lines = _json_lines(written.err)
+    assert any(line["logger"] == namespace.log.name and "could not record" in line["message"]
+               for line in lines), lines
+
+
 def test_the_live_feed_keeps_its_envelope_inside_a_json_line(monkeypatch, capsys):
     """The pre-flight's live feed has no box: the worker streams it through the stdout sink
     (`activities._pf_emit`). With JSON lines the envelope is the message of one, prefix and all,
@@ -446,6 +470,96 @@ def test_the_live_feed_keeps_its_envelope_inside_a_json_line(monkeypatch, capsys
     (line,) = _json_lines(written.err)
     assert (line["level"], line["logger"], line["message"]) == (
         "INFO", "openfactory.journal", envelope), line
+
+
+#: The level each line for a person is said at with JSON lines, by where it is said — its file, the
+#: function it sits in, and the first words of the line. A line that says a degraded or failed
+#: path must never be silent, so it is a WARNING: with `OPENFACTORY_LOG_LEVEL=WARNING` an INFO line
+#: is dropped (fifth review of #818: the degraded pre-flight put back at INFO survived every test).
+#: The call sites are read off the package; one that is not here fails the case below, so a line
+#: added tomorrow is classed by whoever adds it.
+NEVER_SILENT, SAID_FOR_THE_RECORD = "WARNING", "INFO"
+LINE_LEVELS = {
+    ("openfactory/runtime/temporal/activities.py", "_do_preflight.degrade",
+     "OPENFACTORY_PREFLIGHT: DEGRADED for "): NEVER_SILENT,
+    ("openfactory/runtime/temporal/activities.py", "_do_preflight",
+     "OPENFACTORY_PREFLIGHT: unparseable verdict ("): NEVER_SILENT,
+    ("openfactory/runtime/temporal/activities.py", "_do_coordinate",
+     "OPENFACTORY_COORDINATOR: no parseable advice for "): NEVER_SILENT,
+    ("openfactory/runtime/temporal/activities.py", "_do_diagnose",
+     "OPENFACTORY_TECHLEAD: no parseable handoff for "): NEVER_SILENT,
+    ("openfactory/adapters/sandbox/container.py", "ContainerSandbox.prepare",
+     "OPENFACTORY: removing the leftover box "): NEVER_SILENT,
+    ("openfactory/adapters/sandbox/container.py", "ContainerSandbox.prepare",
+     "OPENFACTORY: could not remove the leftover box "): NEVER_SILENT,
+    ("openfactory/adapters/agent/claude_code.py", "_snapshot_session",
+     "OPENFACTORY_RESUME: the session snapshot is "): NEVER_SILENT,
+    ("openfactory/adapters/agent/claude_code.py", "_snapshot_session",
+     "OPENFACTORY_RESUME: "): NEVER_SILENT,
+    ("openfactory/adapters/agent/claude_code.py", "_snapshot_session",
+     "OPENFACTORY_RESUME: session snapshot failed ("): NEVER_SILENT,
+    ("openfactory/adapters/agent/claude_code.py", "_restore_session",
+     "OPENFACTORY_RESUME: session restore failed ("): NEVER_SILENT,
+    ("openfactory/adapters/agent/claude_code.py", "ClaudeCodeAdapter._invoke",
+     "OPENFACTORY_TOKEN: token '"): NEVER_SILENT,
+    ("openfactory/adapters/agent/claude_code.py", "ClaudeCodeAdapter._resume_session_for",
+     "OPENFACTORY_RESUME: restored state lacks session "): NEVER_SILENT,
+    ("openfactory/adapters/agent/claude_code.py", "ClaudeCodeAdapter._resume_session_for",
+     "OPENFACTORY_RESUME: continuing "): SAID_FOR_THE_RECORD,
+    ("openfactory/observability/events.py", "StdoutEventSink.emit", ""): SAID_FOR_THE_RECORD,
+    ("openfactory/runtime/temporal/worker.py", "main",
+     "openfactory worker up · "): SAID_FOR_THE_RECORD,
+    ("openfactory/cli.py", "serve", "panel: http://"): SAID_FOR_THE_RECORD,
+}
+
+
+def _first_words(node: ast.AST) -> str:
+    """The first literal text of a line as its call site writes it: an f-string's first part, or
+    `""` when the line is built from names alone."""
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.Constant) and isinstance(inner.value, str):
+            return inner.value
+    return ""
+
+
+def _the_lines_said_for_a_person() -> dict[tuple[str, str, str], list[str]]:
+    """`{(file, function, first words): [level, …]}` for every `logs.announce(…)` in the package,
+    the level as its call site hands it (INFO when it hands none)."""
+    found: dict[tuple[str, str, str], list[str]] = {}
+
+    def visit(node: ast.AST, path: str, where: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
+                    and child.func.attr == "announce" and isinstance(child.func.value, ast.Name)
+                    and child.func.value.id == "logs" and len(child.args) >= 2):
+                given = child.args[2] if len(child.args) > 2 else next(
+                    (k.value for k in child.keywords if k.arg == "level"), None)
+                level = "INFO" if given is None else ast.unparse(given).rsplit(".", 1)[-1]
+                found.setdefault((path, where, _first_words(child.args[1])), []).append(level)
+            inner = where
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                inner = f"{where}.{child.name}" if where else child.name
+            visit(child, path, inner)
+
+    for module in sorted((ROOT / "openfactory").rglob("*.py")):
+        rel = module.relative_to(ROOT).as_posix()
+        visit(ast.parse(module.read_text(encoding="utf-8")), rel, "")
+    return found
+
+
+def test_a_line_that_must_never_be_silent_is_said_at_warning():
+    """Read off every call site of `logs.announce`: each is classed in `LINE_LEVELS`, once, and
+    hands the level its class says — so a degraded or failed path is a WARNING with JSON lines, and
+    survives `OPENFACTORY_LOG_LEVEL=WARNING`."""
+    said = _the_lines_said_for_a_person()
+
+    assert set(said) == set(LINE_LEVELS), (
+        "lines for a person nobody classed:", sorted(set(said) - set(LINE_LEVELS)),
+        "classes with no line left:", sorted(set(LINE_LEVELS) - set(said)))
+    wrong = {where: levels for where, levels in said.items()
+             if levels != [LINE_LEVELS[where]]}
+    assert not wrong, f"said at another level than its class, or twice from one place: {wrong}"
+    assert {NEVER_SILENT, SAID_FOR_THE_RECORD} == set(LINE_LEVELS.values())
 
 
 # ── Python's own lines (fourth review of #818) ──────────────────────────────────────────────────
@@ -507,6 +621,19 @@ def test_what_python_writes_by_itself_is_a_json_line(cause):
     assert len(said) == 1 and said[0]["level"] == level, (cause, lines)
     assert kind in said[0]["message"] + said[0].get("exception", ""), said[0]
     assert ran.returncode == (1 if cause == "an exception nobody caught" else 0), ran.returncode
+
+
+def test_a_thread_that_exits_says_nothing():
+    """A thread ended by `SystemExit` is a thread that chose to stop: Python's own hook says
+    nothing for it, and neither does the log's."""
+    ran = _a_process_of_its_own(
+        "from openfactory.observability import logs\nlogs.configure()\nimport threading\n"
+        "def _done():\n    raise SystemExit(3)\n"
+        "ended = threading.Thread(target=_done, name='a-sweep')\nended.start()\nended.join()\n",
+        asked="json")
+
+    assert not (ran.stdout + ran.stderr).strip(), (ran.stdout, ran.stderr)
+    assert ran.returncode == 0
 
 
 def test_without_json_python_writes_as_it_always_did():
@@ -607,6 +734,28 @@ def test_a_stack_asked_for_is_kept_on_its_one_line(monkeypatch, capsys):
     (line,) = _json_lines(capsys.readouterr().err)
     assert line["stack"].startswith("Stack (most recent call last)"), line
     assert "test_a_stack_asked_for_is_kept_on_its_one_line" in line["stack"], line
+
+
+def _documented_variables() -> set[str]:
+    """Every variable `docs/reference/configuration.md`'s tables name in a row's first cell."""
+    named: set[str] = set()
+    text = (ROOT / "docs" / "reference" / "configuration.md").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.startswith("| `"):
+            named.update(re.findall(r"`([A-Z][A-Z0-9_]+)`", line.split("|")[1]))
+    return named
+
+
+def test_every_variable_the_logs_and_the_probes_read_has_its_row():
+    """Read off the modules: every `*_VARIABLE` the log format and the probes read is a row of the
+    configuration reference, under its own name — a row renamed is a setting nobody can find."""
+    from openfactory.observability import health
+
+    read = {value for module in (logs, health) for name, value in vars(module).items()
+            if name.endswith("_VARIABLE") and isinstance(value, str)}
+
+    assert len(read) >= 6, read
+    assert not read - _documented_variables(), sorted(read - _documented_variables())
 
 
 # ── what a record concerns ──────────────────────────────────────────────────────────────────────
@@ -1213,6 +1362,71 @@ async def test_without_json_the_engines_runtime_is_left_as_it_was(monkeypatch, a
     await connection.connect()
 
     assert runtimes.built == [] and runtimes.clients == [None]
+
+
+def _threads_of_this_process() -> int | None:
+    """This process's threads as the system counts them — the engine client's core's included,
+    which `threading` cannot see — or None where the system does not say."""
+    task = Path("/proc/self/task")
+    if task.is_dir():
+        return len(os.listdir(task))
+    if sys.platform == "darwin":
+        listed = subprocess.run(["ps", "-M", "-p", str(os.getpid())], capture_output=True,
+                                text=True, timeout=30)
+        return len(listed.stdout.splitlines()) - 1 if listed.returncode == 0 else None
+    return None
+
+
+#: How many connects the engine refuses in a row in the case below, after the first.
+REFUSED_CONNECTS = 10
+
+
+@pytest.mark.owns_its_engine  # the real Client.connect, refused by a port nobody listens on
+async def test_a_connect_the_engine_refuses_keeps_no_runtime_alive(monkeypatch):
+    """With JSON lines every client has a runtime of its own, about a thread per CPU. A connect the
+    engine refuses must not keep its runtime until a full collection (review on d2ef6149,
+    measured: a panel whose engine was down at its first connect gained twelve threads per
+    healthcheck on 12 CPUs, 146 after twelve; on 8 CPUs ten refused connects left 91 threads, and
+    one `gc.collect()` brought them back to 10). So: however many connects are refused, at most
+    the last one's runtime is alive, and the process's threads stay within one runtime of what
+    they were after the first."""
+    import socket
+    import weakref
+
+    from openfactory.runtime.temporal import connection
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    for name in ("TEMPORAL_API_KEY", "TEMPORAL_TLS_CERT", "TEMPORAL_TLS_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    with socket.socket() as nobody:
+        nobody.bind(("127.0.0.1", 0))
+        port = nobody.getsockname()[1]
+    monkeypatch.setenv("TEMPORAL_ADDRESS", f"127.0.0.1:{port}")
+    built: list[weakref.ref] = []
+    making = connection.core_runtime
+
+    def _recorded():
+        runtime = making()
+        built.append(weakref.ref(runtime))
+        return runtime
+
+    monkeypatch.setattr(connection, "core_runtime", _recorded)
+
+    async def _refused() -> None:
+        with pytest.raises(RuntimeError):
+            await connection.connect()
+
+    await _refused()
+    after_one = _threads_of_this_process()
+    for _ in range(REFUSED_CONNECTS):
+        await _refused()
+    alive = sum(ref() is not None for ref in built)
+    after_all = _threads_of_this_process()
+
+    assert len(built) == REFUSED_CONNECTS + 1, "every connect is made on a runtime of its own"
+    assert alive <= 1, f"{alive} of {len(built)} refused connects still hold their runtime"
+    if after_one is not None and after_all is not None:
+        assert after_all <= after_one + (os.cpu_count() or 1) + 2, (after_one, after_all)
 
 
 @activity.defn(name="nothing_at_all")

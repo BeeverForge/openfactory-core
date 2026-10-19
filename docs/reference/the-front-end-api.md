@@ -250,6 +250,11 @@ every five seconds, by one question at a time, however many supervisors ask, and
 the authenticated routes need: readiness is not load on a dependency that is already struggling,
 and asking it cannot slow anybody else down.
 
+Each ask is a request like any other, so the panel's log has a line for it: with the compose
+file's healthchecks, one `uvicorn.access` line per probe, every 15 seconds, in either log format.
+The worker's log says once where it answers, and readiness logs one `NOT_READY` warning when a
+check starts failing and one line when it answers again.
+
 ## 4. Streams
 
 Each stream is authorized at the open, like any request, and asked again about every ten seconds

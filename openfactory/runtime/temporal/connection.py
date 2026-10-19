@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import hashlib
 import logging
 import os
@@ -204,10 +205,22 @@ def core_runtime() -> Runtime | None:
 async def connect() -> Client:
     where = address()  # raises for an engine nobody declared, before a runtime is built for it
     runtime = core_runtime()
-    return await Client.connect(
-        where, namespace=namespace(), data_converter=pydantic_data_converter,
-        **({"runtime": runtime} if runtime is not None else {}), **_auth()
-    )
+    try:
+        return await Client.connect(
+            where, namespace=namespace(), data_converter=pydantic_data_converter,
+            **({"runtime": runtime} if runtime is not None else {}), **_auth()
+        )
+    except BaseException:
+        # A FAILED CONNECT KEEPS ITS RUNTIME — a thread per CPU — in a reference cycle only a full
+        # collection frees (review on d2ef6149, measured: a panel whose engine was down at its
+        # first connect gained twelve threads per healthcheck on 12 CPUs, 146 after twelve, and a
+        # steady heap almost never runs that collection). So it is run here, once per failed
+        # connect and only with JSON lines: about 45 ms. NOT REUSED INSTEAD: a runtime a failed
+        # attempt touched forwards nothing afterwards (the bridge's `Drop`, `core_runtime`).
+        if runtime is not None:
+            del runtime
+            gc.collect()
+        raise
 
 
 class EngineNotListening(RuntimeError):

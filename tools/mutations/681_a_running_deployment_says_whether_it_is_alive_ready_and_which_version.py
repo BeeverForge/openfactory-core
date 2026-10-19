@@ -47,7 +47,11 @@ The claims, each a row:
      deployment process runs it, a line for a person follows what this process's log is, and
      Python's own warning, uncaught exception (in any thread) and unraisable one are JSON lines;
      a poll that gives up on a hung check keeps its one question and still says why once; and the
-     probe says an answer that is not HTTP in one line.
+     probe says an answer that is not HTTP in one line;
+  13. what JSON lines cost and say (fifth review, and the review requesting changes on d2ef6149):
+     a connect the engine refuses keeps no runtime alive; the panel sets up its log before it says
+     anything; a line that must never be silent is a WARNING; a thread that exits says nothing;
+     and every variable the log and the probes read has its row in the configuration reference.
 """
 
 READY = "tests/test_a_running_deployment_says_whether_it_is_alive_and_ready.py"
@@ -67,6 +71,7 @@ CONNECTION = "openfactory/runtime/temporal/connection.py"
 INTERCEPTORS = "openfactory/runtime/temporal/interceptors.py"
 WORKER = "openfactory/runtime/temporal/worker.py"
 COMPOSE = "docker-compose.yml"
+CONFIGURATION = "docs/reference/configuration.md"
 DEADLINES = "openfactory/runtime/temporal/deadlines.py"
 ACTIVITIES = "openfactory/runtime/temporal/activities.py"
 EVENTS = "openfactory/observability/events.py"
@@ -415,4 +420,23 @@ MUTATIONS = [
      "    if not said:"),
     ("the probe ends on a traceback when the answer is not HTTP", HEALTH,
      "    except http.client.HTTPException as exc:", "    except ArithmeticError as exc:"),
+
+    # 13. what JSON lines cost and say (fifth review, and the review on d2ef6149)
+    ("a failed connect keeps its runtime", CONNECTION,
+     "            gc.collect()\n", "            pass\n", LOGS),
+    ("the panel says something before its log is set up", "openfactory/cli.py",
+     "    logs.configure()\n    # SAY WHICH BUILD SERVES THIS PAGE",
+     "    from openfactory import namespace as _early\n\n"
+     "    _early.announce_build(PANEL_ROLE)\n"
+     "    logs.configure()\n    # SAY WHICH BUILD SERVES THIS PAGE", LOGS),
+    ("the degraded pre-flight is said at INFO", ACTIVITIES,
+     '                                           f"{inp.project}#{inp.issue} — {reason}",\n'
+     "                          logging.WARNING)",
+     '                                           f"{inp.project}#{inp.issue} — {reason}",\n'
+     "                          logging.INFO)", LOGS),
+    ("a thread that exits is logged as an exception nobody caught", LOGGING,
+     "    if said.exc_type is SystemExit:\n        return\n",
+     "    if False:\n        return\n", LOGS),
+    ("the deployment's variable is documented under another name", CONFIGURATION,
+     "| `OPENFACTORY_DEPLOYMENT` |", "| `OPENFACTORY_DEPLOYMENT_NAME` |", LOGS),
 ]

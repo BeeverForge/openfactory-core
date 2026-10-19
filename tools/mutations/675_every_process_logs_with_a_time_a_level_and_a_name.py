@@ -25,8 +25,10 @@ MUTATIONS = [
     ("serve does not set the log up", CLI,
      # RE-PINNED 2026-10-18 (#681): the panel's first line is announced once the log is set up,
      # so the line after `logs.configure()` is that announcement's comment. Same cut.
-     "    logs.configure()\n    # Printed for a person, as it always was",
-     "    # Printed for a person, as it always was"),
+     # RE-PINNED 2026-10-19 (#681, fifth review of #818): the log is set up right after the
+     # environment loads, so the next line is the build announcement's comment. Same cut.
+     "    logs.configure()\n    # SAY WHICH BUILD SERVES THIS PAGE",
+     "    # SAY WHICH BUILD SERVES THIS PAGE"),
     ("uvicorn sets up a format of its own", CLI,
      "timeout_graceful_shutdown=5,\n                log_config=None)",
      "timeout_graceful_shutdown=5)"),

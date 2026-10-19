@@ -474,6 +474,9 @@ async def test_a_hung_check_starves_no_request_and_blames_no_other_check(deploym
                 if entered():
                     break
                 await asyncio.sleep(0.01)
+            # …AND A WAIT THAT RAN OUT IS SAID, not walked past back into the race it guards
+            # (review on d2ef6149).
+            assert entered(), "the hung dependency was not asked within 2 s"
             operator = await asyncio.wait_for(
                 client.get("/api/whoami", headers={"Authorization": "Bearer the-operator"}), 3.0)
             answers = await asyncio.wait_for(asyncio.gather(*polls), 6.0)
@@ -493,11 +496,12 @@ POLLS = 3
 
 async def _until(entered) -> None:
     """Until the hung dependency is being asked — the event the case waits for, never a guess at
-    how long that takes."""
+    how long that takes — and a wait that runs out is said, not walked past."""
     for _ in range(200):
         if entered():
             return
         await asyncio.sleep(0.01)
+    raise AssertionError("the hung dependency was not asked within 2 s")
 
 
 @pytest.mark.parametrize("hung", sorted(health.CHECKS))
