@@ -770,7 +770,8 @@ class JiraTracker:
         "Donee" (it does) without the platform reading live work as delivered.
         """
         wanted = list_state(state)
-        clauses = [f'project = "{self.project_key}"']
+        # the project's slice of a shared Jira project, not all of it (#752)
+        clauses = [within_scope(f'project = "{self.project_key}"', self.scope_jql)]
         if wanted == "open":
             clauses.append("statusCategory != Done")
         elif wanted == "closed":
@@ -798,8 +799,10 @@ class JiraTracker:
                                 "there is more — the caller is about to judge a partial board",
                                 self.project_key, _MAX_PAGES, len(rows))
         except Exception as exc:  # noqa: BLE001 — an unread board is None, never []
-            log.warning("could not list the tickets of %s (%s) — the caller is being told "
-                        "UNREADABLE, not empty", self.project_key, str(exc)[:200])
+            # the scope is named: a condition Jira cannot parse answers 400 and lands here (#752)
+            log.warning("could not list the tickets of %s%s (%s) — the caller is being told "
+                        "UNREADABLE, not empty", self.project_key, scope_named(self.scope_jql),
+                        str(exc)[:200])
             return None
 
         if not rows and not self._project_exists():
