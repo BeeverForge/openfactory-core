@@ -193,6 +193,13 @@ nothing in it reads as an empty board, and a project that is not there still rea
 Single-quote it in YAML, because JQL quotes with `"`. Unset, or blank, the queries are exactly
 those of a project without it.
 
+**A scoped project acts only on its own cards.** Editing, closing, removing or moving a card first
+asks where it sits, and a card outside the slice is not on this project's board. So the factory
+asks Jira once more, `project = "DAR" AND (<scope>) AND key = "<card>"`, and refuses a card that
+is not in the slice by name: it is another project's card, and only that project can tell whether
+a job is on it — act on it from there. If that search cannot be made, the action is refused as
+for an unreadable board. A project without `scope_jql` makes no extra request.
+
 A condition Jira cannot parse — an unclosed quote, an `ORDER BY` inside it — is answered `400`
 (measured on Jira Cloud 2026-10-19): the board and the ticket list read as unreadable, never as
 empty, the pickup queue picks up nothing, and the warning names the `scope_jql` it searched with.

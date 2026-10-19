@@ -343,3 +343,95 @@ def test_the_documented_scope_arrives_intact_from_a_registry_file(tmp_path):
     tracker = build_tracker(ProjectRegistry(registry).get("api"), token="t")
 
     assert getattr(tracker, "scope_jql", None) == 'labels = "of-api"'
+
+
+def test_a_card_outside_the_slice_is_not_read_as_never_taken_up(tmp_path, monkeypatch):
+    """Under a scope, the edit/close/remove gate must not read another project's running card,
+    which the by-key actions still reach, as a card nobody moved."""
+    import json
+    import re
+    import urllib.parse
+
+    from openfactory.actions.catalog import _stage_refusal
+    from openfactory.adapters.board import build_board
+    from openfactory.contracts.project import Project, ProviderRef
+
+    where = {"DAR-1": ("of-api", "A Fazer"), "DAR-2": ("of-web", "Em andamento")}
+
+    def urlopen(req, timeout=0):
+        assert "search/jql" in req.full_url, req.full_url
+        jql = urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query)["jql"][0]
+        m = re.match(r'project = "DAR" AND \(labels = "([^"]+)"\)', jql)
+        keys = [k for k, (lab, _) in where.items() if m is None or lab == m.group(1)]
+        return _Answer({"isLast": True, "issues": [
+            {"key": k, "fields": {"status": {"name": where[k][1]}}} for k in keys]})
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    sm = {"backlog": "Backlog", "todo": "A Fazer", "in_progress": "Em andamento", "done": "Concluído"}
+    api = Project(name="api", repo_path=str(tmp_path / "api"), tracker=ProviderRef(
+        kind="jira", repo="DAR", options={"site": SITE, "email": "a@b.c",
+                                          "status_map": json.dumps(sm), "scope_jql": API}))
+    board = build_board(api, token="t")
+    for act in ("edit", "close", "remove"):
+        assert _stage_refusal(api, board, "DAR-2", act=act), act
+
+
+def _gate(project, board, ref: str) -> dict[str, str]:
+    """What the edit/close/remove gate answers for `ref`, per act."""
+    from openfactory.actions.catalog import _stage_refusal
+
+    return {act: _stage_refusal(project, board, ref, act=act)
+            for act in ("edit", "close", "remove")}
+
+
+def test_a_card_outside_the_slice_is_refused_by_name_naming_the_scope(site, tmp_path):
+    """Review round 1, point 1 (Q6): the refusal says why — the card is not in this project's
+    slice, which scope, and where to act instead — and costs the gate one search beyond
+    `columns()`. At 5e70d47 the gate answered `''` to all three acts."""
+    jira = site(API)
+    project = _project(tmp_path, scope_jql=API)
+    _, board = _built(project)
+
+    said = _gate(project, board, "DAR-2")
+
+    for act, sentence in said.items():
+        assert "DAR-2 is not in api's slice" in sentence, (act, sentence)
+        assert f"scope_jql {API!r}" in sentence, (act, sentence)
+        assert "act on it from the project it belongs to" in sentence, (act, sentence)
+    assert jira.searches[:2] == [f'project = "{KEY}" AND ({API}) ORDER BY Rank ASC',
+                                 f'project = "{KEY}" AND ({API}) AND key = "DAR-2"'], jira.searches
+    assert len(jira.searches) == 2 * len(said), jira.searches
+
+
+def test_a_slice_that_cannot_be_asked_about_a_card_refuses_as_unreadable(site, tmp_path,
+                                                                         monkeypatch):
+    """Lesson 2, for the gate: when the search that asks whether a card is in the slice is refused,
+    the gate cannot tell, and says so as it does of an unreadable board — it never reads a search
+    it could not make as "nobody moved it". At 5e70d47 the gate answered `''`."""
+    jira = site(API)
+    answer = jira.urlopen
+
+    def refuse_the_key_search(req, timeout=0):
+        if req.get_method() == "GET" and " AND key = " in jira._jql_of(req):
+            raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", hdrs=None,
+                                         fp=io.BytesIO(b'{"errorMessages":["x"]}'))
+        return answer(req, timeout)
+
+    monkeypatch.setattr("urllib.request.urlopen", refuse_the_key_search)
+    project = _project(tmp_path, scope_jql=API)
+    _, board = _built(project)
+
+    for act, sentence in _gate(project, board, "DAR-2").items():
+        assert "api's board could not be read" in sentence, (act, sentence)
+
+
+def test_an_unscoped_jira_boards_gate_asks_nothing_more(site, tmp_path):
+    """Lesson 10: a project that declares no scope owns every card of its Jira project, so the gate
+    asks no question of a card `columns()` did not return — one search per act, as before. Green at
+    5e70d47 by design; the mutation cut that makes `holds` search without a scope turns it red."""
+    jira = site("")
+    project = _project(tmp_path)
+    _, board = _built(project)
+
+    assert _gate(project, board, "DAR-7") == {"edit": "", "close": "", "remove": ""}
+    assert jira.searches == [f'project = "{KEY}" ORDER BY Rank ASC'] * 3, jira.searches

@@ -12,7 +12,11 @@ The claims, each held by a test this plan cuts under:
   - a project that declares no scope, or only whitespace, sends today's JQL byte for byte;
   - a search Jira refuses under a scope is named in the warning, and the read stays unreadable;
   - the configuration reference's Jira example declares the scope single-quoted, and it reaches
-    the tracker intact through a registry file.
+    the tracker intact through a registry file;
+  - the edit/close/remove gate asks a scoped board whether a card it did not return is in the
+    slice (`JiraProjectBoard.holds`), refuses one that is not by name, naming the scope, and
+    refuses as unreadable when that search cannot be made; an unscoped board asks nothing more
+    (review round 1 of #752).
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
@@ -20,6 +24,7 @@ BOARD = "openfactory/adapters/board/jira.py"
 JIRA = "openfactory/adapters/tracker/jira.py"
 REGISTRY = "openfactory/adapters/tracker/registry.py"
 DOCS = "docs/reference/configuration.md"
+CATALOG = "openfactory/actions/catalog.py"
 SLICE = TEST
 EMPTY = "tests/test_an_empty_slice_of_a_jira_project_is_not_a_missing_project.py"
 FILED = "tests/test_a_ticket_another_project_filed_on_one_jira_project_is_not_read_as_already_filed.py"
@@ -100,4 +105,30 @@ MUTATIONS = [
      "                          scope_jql: 'labels = \"of-api\"',    # this project's slice of DAR\n",
      "",
      f"{SLICE}::test_the_documented_scope_arrives_intact_from_a_registry_file"),
+
+    ("a scoped board says it holds every card, and another project's running card is edited, "
+     "closed and removed from this one", BOARD,
+     "        if not self._scope():\n            return True\n        key = canonical_ref(ref)\n",
+     "        return True\n",
+     f"{SLICE}::test_a_card_outside_the_slice_is_not_read_as_never_taken_up"),
+
+    ("an unscoped board searches for every card `columns()` did not return", BOARD,
+     "        if not self._scope():\n            return True\n        key = canonical_ref(ref)\n",
+     "        key = canonical_ref(ref)\n",
+     f"{SLICE}::test_an_unscoped_jira_boards_gate_asks_nothing_more"),
+
+    ("the gate ignores `holds`, and a card outside the slice reads as nobody moved it", CATALOG,
+     "inside = holds(issue) if callable(holds) else True",
+     "inside = True",
+     f"{SLICE}::test_a_card_outside_the_slice_is_not_read_as_never_taken_up"),
+
+    ("a slice that could not be asked about the card reads as holding it", CATALOG,
+     "        if inside is None:\n            return unreadable\n",
+     "",
+     f"{SLICE}::test_a_slice_that_cannot_be_asked_about_a_card_refuses_as_unreadable"),
+
+    ("the refusal of a card outside the slice no longer names the scope", CATALOG,
+     "f\"{f' ({within})' if within else ''}, so {proj.name} cannot tell",
+     "f\", so {proj.name} cannot tell",
+     f"{SLICE}::test_a_card_outside_the_slice_is_refused_by_name_naming_the_scope"),
 ]

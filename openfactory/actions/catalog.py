@@ -4714,21 +4714,46 @@ def _stage(proj, board, issue: str) -> _Stage:
     IT WAS INSIDE `_stage_refusal`, which answered only in sentences — so the close, which since
     #162 needs the KEY as well (a card in Done is closed as delivered), would have read the board
     a second time to learn what the refusal had just looked at, and the two reads could disagree
-    about a card that moved between them."""
+    about a card that moved between them.
+
+    A CARD THE BOARD DID NOT RETURN IS ASKED ABOUT, WHERE THE BOARD CAN BE ASKED (review of #752).
+    A board that reads only its project's slice of a shared tracker (Jira's `scope_jql`) leaves
+    out another project's cards, which an edit, a close or a removal still reaches by key — so
+    "not in `columns()`" no longer meant "nobody moved it", and another project's running card
+    went through all three. Such a board answers `holds(ref)`, read through `getattr` so the port
+    does not learn it: `False` refuses by name, `None` refuses as an unreadable board does, and a
+    board without the capability, or with no slice declared, answers as before."""
     from openfactory.adapters.board.base import stage_key, stage_option
     from openfactory.contracts.refs import canonical_ref
     from openfactory.product.voice import card_unmapped
 
     if board is None:
         return _Stage()      # tickets only, no columns at all: nothing can have moved it
+    unreadable = _Stage(cannot_tell=(
+        f"{proj.name}'s board could not be read, so there is no way to tell whether the "
+        f"factory has already taken {issue} up. Nothing was changed — try again, and if "
+        f"the board stays unreadable, say it on the card instead."))
     where = board.columns()
     if where is None:
-        return _Stage(cannot_tell=(
-            f"{proj.name}'s board could not be read, so there is no way to tell whether the "
-            f"factory has already taken {issue} up. Nothing was changed — try again, and if "
-            f"the board stays unreadable, say it on the card instead."))
+        return unreadable
     column = where.get(canonical_ref(issue)) or where.get(str(issue))
     if not column:
+        holds = getattr(board, "holds", None)
+        inside = holds(issue) if callable(holds) else True
+        if inside is None:
+            return unreadable
+        if inside is False:
+            # ANOTHER PROJECT'S CARD, which this board's read leaves out (review of #752): what
+            # column it is in, and whether a job holds it, is that project's to answer. `is False`,
+            # not falsiness: only the row's own answer refuses, as `stage_key` believes only a real
+            # one — a test double's board answers a `MagicMock` and keeps reading as before
+            named = getattr(board, "scope_named", None)
+            within = named() if callable(named) else ""
+            return _Stage(cannot_tell=(
+                f"{issue} is not in {proj.name}'s slice of its board"
+                f"{f' ({within})' if within else ''}, so {proj.name} cannot tell whether the "
+                f"factory has taken it up. Nothing was changed — act on it from the project it "
+                f"belongs to."))
         return _Stage()      # not on the board: nobody has moved it anywhere
     # THE BOARD ROW ANSWERS, NOT AN OPTION NAME READ FROM HERE (#231). This was
     # `key_for(column, renamed=proj.tracker.options.get("columns"))`, and `ProviderRef.options` is
@@ -4763,11 +4788,13 @@ def _stage_refusal(proj, board, issue: str, *, act: str = "edit",
     other four are where `set_state` put the card, which is the platform's own record that it was
     taken up (`adapters/board/columns.py`).
 
-    FIVE ANSWERS, AND ONLY ONE OF THEM IS SILENCE. A project with no board cannot have moved the
-    card, an unreadable board cannot say, a card nobody put on the board has not moved, a column
-    this platform does not map cannot be judged, and a column it does map answers outright. The
-    two "cannot tell" cases REFUSE: letting an edit through on a card that may already be running
-    is the failure this gate exists to prevent, and it is the direction it must not fail in.
+    SIX ANSWERS, AND ONLY ONE OF THEM IS SILENCE. A project with no board cannot have moved the
+    card, an unreadable board cannot say, a card outside the project's slice of a shared board
+    (Jira's `scope_jql`) is another project's to judge, a card nobody put on the board has not
+    moved, a column this platform does not map cannot be judged, and a column it does map answers
+    outright. The three "cannot tell" cases REFUSE: letting an edit through on a card that may
+    already be running is the failure this gate exists to prevent, and it is the direction it must
+    not fail in.
 
     CLOSING ASKS THE SAME QUESTION (review of #153). A card closed from the board while a job works
     on it leaves the board with the job still running and nothing telling it, and a reopen then

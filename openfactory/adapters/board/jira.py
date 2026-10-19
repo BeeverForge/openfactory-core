@@ -190,6 +190,40 @@ class JiraProjectBoard:
             return None
         return {str(i.get("key")): self._status_of(i) for i in issues if i.get("key")}
 
+    def holds(self, ref: str) -> bool | None:
+        """Whether the card `ref` is in this project's slice: `True`, `False`, or `None` when the
+        site could not be asked. Read by the edit/close/remove gate (`actions/catalog.py::_stage`)
+        through `getattr`, and only for a card `columns()` did not return.
+
+        WHY THE GATE NEEDS IT (review of #752). `columns()` is the slice, but an edit, a close or a
+        removal acts by key and unscoped, so a card of another project's slice was absent from
+        `columns()` and read as "nobody has moved it". Measured with `DAR-2` (labelled `of-web`, in
+        `Em andamento`) and `api` scoped to `labels = "of-api"`: `_stage_refusal` answered `''` to
+        an edit, a close and a removal, where unscoped it refused all three.
+
+        Unscoped, every card of the Jira project is this project's: `True`, with no request, so a
+        project that declares no scope pays nothing (lesson 10). Scoped, ONE search,
+        `project = "<KEY>" AND (<scope>) AND key = "<ref>"`. A search that could not be made is
+        `None`, never `False`: "could not see" and "it is not ours" are different refusals."""
+        from openfactory.contracts.refs import canonical_ref
+
+        if not self._scope():
+            return True
+        key = canonical_ref(ref)
+        safe = key.replace("\\", "\\\\").replace('"', '\\"')
+        issues = self._search(f'{self._issues_where()} AND key = "{safe}"')
+        if issues is None:
+            return None
+        # Jira answers the key in its own case; a person may have typed `dar-2`
+        return any(str(i.get("key") or "").upper() == key.upper() for i in issues)
+
+    def scope_named(self) -> str:
+        """`within scope_jql '<scope>'` for the gate's refusal of a card outside the slice, `""`
+        without a scope — the option is this row's, so generic code does not spell it."""
+        from openfactory.adapters.tracker.jira import scope_named
+
+        return scope_named(self._scope()).strip()
+
     def column_names(self) -> list[str] | None:
         """The project's workflow statuses, which ARE its columns.
 
