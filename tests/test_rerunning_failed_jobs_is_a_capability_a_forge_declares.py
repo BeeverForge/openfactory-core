@@ -1,0 +1,327 @@
+"""#756 (criterion D) — re-running a pull request's failed jobs is a capability a forge DECLARES.
+
+WHAT IT COST. A blocking check red for a reason no changed file touches (a flaky integration
+test, a busy shared environment) was handed to a paid agent pass. The agent changed nothing, the
+next attempt failed the same way, and `_CI_REPAIR_MAX` parked the card. The cheaper move is to
+re-run the failed jobs. #258's first attempt did that by calling the GitHub CLI from the repair
+activity, and its review set the constraint these cases hold: the move goes through an optional
+forge seam, `base.rerun_failed_of(forge, pr)`, which generic code calls and only a row that can
+re-run answers. Every other forge, add-on and test double is repaired as it always was.
+
+    the seam      `rerun_failed_of`: no capability → None; an answer → the names re-run; a
+                  refusal → `RerunRefused`, as a value; a test double is never a success
+    the activity  no capability → the agent, as before, with the gate's own log; a refusal → the
+                  agent, a warning naming why, and the pull request told (PO answer Q3)
+    GitHub        `gh run rerun <id> --failed --repo <own repository>`, once per run that a red
+                  blocking `code` row links to: the runs `failed_ci_logs` reads, and no other
+    the core      `openfactory/runtime/**` never reaches `gh` itself
+
+ON MAIN (9a421ae) every case but the last is red: the seam does not exist (`AttributeError` on
+`base.rerun_failed_of` / `base.RerunRefused`) and `GitHubForge` has no `rerun_failed`. The AST
+guard is green there by design (nothing calls a forge CLI from the core yet); the mutation plan
+`tools/mutations/756_an_unrelated_red_check_is_rerun_not_repaired.py` writes
+`forge._gh(["run", "rerun", ...])` into `activities.py` to turn it red.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import logging
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+
+from openfactory.adapters.forge import base
+from openfactory.adapters.forge.azure_devops import AzureReposForge
+from openfactory.adapters.forge.github import GitHubForge
+from openfactory.adapters.forge.local import LocalForge
+from openfactory.contracts import JobState, RunResult
+from openfactory.runtime.temporal import activities as acts
+from openfactory.runtime.temporal.io import CiRepairInput
+
+ROOT = Path(__file__).resolve().parents[1]
+
+PR = "https://github.com/acme/x/pull/2"
+#: A failing log that names no file the diff below changes: the shape the issue describes.
+LOG = "FAILED tests/integration/test_queue.py::test_it - TimeoutError: broker did not answer"
+DIFF = ("diff --git a/src/billing/invoice.py b/src/billing/invoice.py\n"
+        "--- a/src/billing/invoice.py\n+++ b/src/billing/invoice.py\n@@ -1 +1 @@\n-a\n+b\n")
+RED_BUILD = [{"name": "build", "bucket": "fail", "blocking": True, "kind": "code",
+              "url": "https://github.com/acme/x/actions/runs/1/job/7"}]
+#: What `gh` answers when the App lacks `Actions: write`, as the refusal a row hands on.
+REFUSAL = "HTTP 403: Resource not accessible by integration"
+
+
+# ═══ the seam ═══════════════════════════════════════════════════════════════════════════════════
+
+def test_a_forge_without_the_capability_is_answered_none():
+    """No `rerun_failed` on the row: the honest answer is an absence, not "re-ran nothing"."""
+    assert base.rerun_failed_of(SimpleNamespace(), PR) is None
+    assert base.rerun_failed_of(SimpleNamespace(rerun_failed="yes"), PR) is None
+
+
+def test_a_row_that_reran_answers_the_names_of_the_checks_it_reran():
+    asked: list[str] = []
+
+    def rerun_failed(*, pr):
+        asked.append(pr)
+        return ["build"]
+
+    assert base.rerun_failed_of(SimpleNamespace(rerun_failed=rerun_failed), PR) == ["build"]
+    assert asked == [PR]
+
+
+@pytest.mark.parametrize("answer", [
+    pytest.param(lambda: MagicMock(), id="a mock"),
+    pytest.param(lambda: "build", id="a string"),
+    pytest.param(lambda: [MagicMock()], id="a list of mocks"),
+    pytest.param(lambda: [1], id="a list of numbers"),
+])
+def test_a_test_double_is_not_a_declaration(answer):
+    """A `MagicMock` answers every attribute with a callable mock. If the seam took a truthy answer
+    for success, every double in the suite would claim a re-run that never happened, and the
+    repair would comment on it and launch no agent. Only a list of check names is a success."""
+    assert not isinstance(base.rerun_failed_of(MagicMock(), PR), list)
+    got = base.rerun_failed_of(SimpleNamespace(rerun_failed=lambda *, pr: answer()), PR)
+    assert not isinstance(got, list), f"{got!r} was read as the names of re-run checks"
+
+
+@pytest.mark.parametrize("raised", [
+    pytest.param(lambda: base.RerunRefused(REFUSAL), id="a refusal the row names"),
+    pytest.param(lambda: RuntimeError(REFUSAL), id="any other exception"),
+])
+def test_a_rerun_the_forge_refuses_is_handed_on_as_a_value_naming_why(raised):
+    """A refusal (a 403, a run still in progress) is "could not", never "nothing to re-run"
+    (lesson §2). It comes back as a value that carries the forge's words, so the caller can say
+    them to a person without a `try` of its own."""
+    def rerun_failed(*, pr):
+        raise raised()
+
+    got = base.rerun_failed_of(SimpleNamespace(rerun_failed=rerun_failed), PR)
+    assert isinstance(got, base.RerunRefused) and REFUSAL in str(got)
+
+
+# ═══ the activity: without the capability, or refused, the agent runs as before ════════════════
+
+class _Forge:
+    """A typed forge with a red blocking build and a log that names no changed file."""
+
+    checks_are_typed = True
+
+    def __init__(self):
+        self.diff_reads = 0
+        self.comments: list[str] = []
+
+    def pr_checks(self, *, pr):
+        return RED_BUILD
+
+    def failed_ci_logs(self, *, pr):
+        return LOG
+
+    def pr_diff(self, *, pr, **_kw):
+        self.diff_reads += 1
+        return DIFF
+
+    def review_pr(self, *, pr, event, body):
+        assert event == "comment"
+        self.comments.append(body)
+
+
+class _Refusing(_Forge):
+    def rerun_failed(self, *, pr):
+        raise RuntimeError(REFUSAL)
+
+
+@pytest.fixture
+def on_the_worker(monkeypatch):
+    """The worker's seams, shaped as in `test_the_repair_brief_states_the_failure_it_was_given`:
+    a project, its forge, and an inline runner that records the log each agent pass is given."""
+    ran: list[str] = []
+    project = SimpleNamespace(name="p")
+    monkeypatch.setattr(acts, "ProjectRegistry", lambda: SimpleNamespace(get=lambda _n: project))
+    monkeypatch.setattr(acts, "_ref_repo", lambda _p, _i: ("acme/x", ""))
+    monkeypatch.setattr(acts, "_runner_view", lambda _p, _i: (project, ""))
+    monkeypatch.setattr(acts, "_resolved_image", lambda _p, sandbox: "")
+    monkeypatch.setattr(acts, "installed_box_traits", lambda _s: SimpleNamespace(remote=False))
+
+    def runner(*a, **kw):
+        def repair_ci(issue, ci_log, pr_url="", human=False):
+            ran.append(ci_log)
+            return RunResult(ticket_id=issue, state=JobState.PR_OPEN, pr_url=pr_url,
+                             code_changed=True)
+        return SimpleNamespace(repair_ci=repair_ci)
+
+    monkeypatch.setattr(acts, "build_runner", runner)
+
+    def use(forge):
+        monkeypatch.setattr(acts, "_forge_for", lambda _p: forge)
+        return ran
+    return use
+
+
+#: The first repair attempt on this head (the workflow counts from 1): the one attempt where the
+#: PO's answer to Q1 lets a re-run stand in for the agent.
+FIRST = CiRepairInput(project="p", issue="12", pr_url=PR, sandbox="worktree", attempt=1)
+
+
+def test_a_forge_without_the_capability_gets_the_agent_as_before(on_the_worker):
+    """Azure DevOps, the local forge and every add-on today: the repair is the one it was — the
+    agent, handed the log the decision was made from (#184), no comment, and the diff never read
+    (the capability is asked first, so no forge pays a read for a move it cannot make).
+
+    Green on main apart from its premise: the seam the premise asks does not exist there. The
+    mutation that reads `pr_diff` before the capability turns the `diff_reads` line red."""
+    forge = _Forge()
+    assert base.rerun_failed_of(forge, PR) is None
+    ran = on_the_worker(forge)
+    got = acts._run_ci_repair(FIRST)  # noqa: SLF001 — the activity's own body
+    assert ran == [LOG], "the agent was not handed the gate's own log"
+    assert got.state is JobState.PR_OPEN
+    assert forge.comments == [], "a forge with no re-run was told about one"
+    assert forge.diff_reads == 0, "the diff was read for a move this forge cannot make"
+
+
+def test_a_refused_rerun_falls_through_to_the_agent_and_says_why(on_the_worker, caplog):
+    """The rule says "unrelated" (the log names `tests/integration/test_queue.py`, the diff
+    changes `src/billing/invoice.py`) and it is the first attempt, so a re-run is asked — and the
+    forge refuses. The repair must not stop there: the agent runs with the gate's log, the worker
+    log carries the forge's words, and (PO answer Q3) the pull request is told that the re-run was
+    refused and that an agent was launched instead.
+
+    Red on main: there is no re-run, so nothing names the refusal."""
+    forge = _Refusing()
+    ran = on_the_worker(forge)
+    with caplog.at_level(logging.WARNING):
+        got = acts._run_ci_repair(FIRST)  # noqa: SLF001
+    assert ran == [LOG], "a refused re-run did not fall through to the agent with the gate's log"
+    assert got.state is JobState.PR_OPEN
+    warned = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any(REFUSAL in w for w in warned), f"no warning names the refusal: {warned}"
+    told = [c for c in forge.comments if REFUSAL in c]
+    assert told, f"the pull request was not told the re-run was refused: {forge.comments}"
+    assert "agent" in told[0].lower(), f"the comment does not say an agent ran instead: {told[0]}"
+    assert "#12" not in told[0], "a card id reached the pull request"
+
+
+# ═══ GitHub: the runs its red required checks link to, and only those ══════════════════════════
+
+def _github(monkeypatch, all_checks, required, *, rerun_exit=0, rerun_stderr=""):
+    """A real `GitHubForge` whose `gh` answers from these rows and records every argv
+    (the shape of `test_a_failing_check_is_read_for_what_it_is.py::_github`)."""
+    f = GitHubForge("acme/x")
+    calls: list[list[str]] = []
+
+    def gh(args, timeout=120):
+        calls.append(list(args))
+        out = SimpleNamespace(returncode=0, stdout="", stderr="")
+        if args[:2] == ["pr", "checks"]:
+            if "--required" in args:
+                out.stdout = json.dumps([{"name": n, "bucket": "fail"} for n in required])
+            else:
+                out.stdout = json.dumps(all_checks)
+        elif args[:2] == ["run", "rerun"]:
+            out.returncode, out.stderr = rerun_exit, rerun_stderr
+        return out
+
+    monkeypatch.setattr(f, "_gh", gh)
+    f.calls = calls
+    return f
+
+
+def _row(name, bucket, *, workflow="ci", link=""):
+    return {"name": name, "bucket": bucket, "state": bucket.upper(), "workflow": workflow,
+            "link": link}
+
+
+def _reruns(f) -> list[list[str]]:
+    return [c for c in f.calls if c[:2] == ["run", "rerun"]]
+
+
+def test_github_reruns_the_failed_jobs_of_the_runs_its_red_required_checks_link_to(monkeypatch):
+    """The rows `failed_ci_logs` reads its log from — blocking, about the code, failed or
+    cancelled — and no other: an advisory workflow, a status another app posted, a passing run.
+    Two red jobs of one run are one re-run of that run's failed jobs."""
+    runs = "https://github.com/acme/x/actions/runs"
+    f = _github(monkeypatch, [
+        _row("pytest", "fail", link=f"{runs}/1/job/7"),
+        _row("lint", "fail", link=f"{runs}/1/job/8"),              # same run as pytest
+        _row("unit", "cancel", link=f"{runs}/5/job/2"),
+        _row("e2e", "fail", link=f"{runs}/3/job/1"),               # advisory
+        _row("license/cla", "fail", workflow="", link="https://cla.example/2"),  # another app
+        _row("build", "pass", link=f"{runs}/4/job/1"),
+    ], ["pytest", "lint", "unit", "license/cla", "build"])
+    got = f.rerun_failed(pr=PR)
+    assert sorted(_reruns(f)) == [["run", "rerun", "1", "--failed", "--repo", "acme/x"],
+                                  ["run", "rerun", "5", "--failed", "--repo", "acme/x"]]
+    assert sorted(got) == ["lint", "pytest", "unit"]
+
+
+def test_github_a_run_of_another_repository_is_not_rerun(monkeypatch):
+    """C-18, as `failed_ci_logs` reads its runs: `gh run` does not resolve a URL, so the runs are
+    asked of the repository the pull request names, and a link to another repository's run —
+    here the forge's own default one — is not this pull request's check."""
+    f = _github(monkeypatch, [
+        _row("pytest", "fail", link="https://github.com/acme/api/actions/runs/1/job/7"),
+        _row("build", "fail", link="https://github.com/acme/x/actions/runs/2/job/3"),
+    ], ["pytest", "build"])
+    got = f.rerun_failed(pr="https://github.com/acme/api/pull/9")
+    assert _reruns(f) == [["run", "rerun", "1", "--failed", "--repo", "acme/api"]]
+    assert got == ["pytest"]
+
+
+def test_github_a_rerun_gh_refuses_is_a_refusal_naming_why(monkeypatch):
+    """`gh run rerun` exits non-zero (no `Actions: write`, a run still in progress): that is a
+    refusal carrying gh's own words, never `[]` ("asked, and nothing was re-runnable")."""
+    f = _github(monkeypatch, [_row("pytest", "fail",
+                                   link="https://github.com/acme/x/actions/runs/1/job/7")],
+                ["pytest"], rerun_exit=1, rerun_stderr=REFUSAL)
+    got = base.rerun_failed_of(f, PR)
+    assert isinstance(got, base.RerunRefused) and REFUSAL in str(got)
+
+
+def test_only_rows_that_can_rerun_declare_it():
+    """GitHub Actions re-runs a run's failed jobs; Azure DevOps (until a real organisation proves
+    its retry, a follow-up) and the local forge declare nothing, and are repaired as before."""
+    assert callable(getattr(GitHubForge, "rerun_failed", None))
+    assert getattr(AzureReposForge, "rerun_failed", None) is None
+    assert getattr(LocalForge, "rerun_failed", None) is None
+
+
+# ═══ the core never reaches a forge's CLI ═══════════════════════════════════════════════════════
+
+_CLI_SEAMS = {"_gh", "_gh_read"}
+
+
+def _reaches_a_forge_cli(tree: ast.AST) -> list[str]:
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in _CLI_SEAMS:
+            found.append(f"line {node.lineno}: .{node.attr}")
+        elif isinstance(node, ast.Call):
+            for arg in node.args[:1]:
+                if (isinstance(arg, (ast.List, ast.Tuple)) and arg.elts
+                        and isinstance(arg.elts[0], ast.Constant) and arg.elts[0].value == "gh"):
+                    found.append(f"line {node.lineno}: an argv beginning \"gh\"")
+    return found
+
+
+def test_the_guard_sees_a_forge_cli_call():
+    """The guard below reads the parsed code, so it is asked here that it can see what it bans."""
+    assert _reaches_a_forge_cli(ast.parse('forge._gh(["run", "rerun", "1"])'))
+    assert _reaches_a_forge_cli(ast.parse('subprocess.run(["gh", "run", "rerun", "1"])'))
+    assert not _reaches_a_forge_cli(ast.parse('rerun_failed_of(forge, pr)'))
+
+
+def test_generic_code_never_reaches_a_forge_cli():
+    """#258 review items 3 and 8: the re-run goes through the forge's row, never `gh` from the
+    core. Green on main by design (no caller yet); the mutation plan writes `forge._gh([...])`
+    into the repair activity to turn it red."""
+    offenders = {}
+    for path in sorted((ROOT / "openfactory" / "runtime").rglob("*.py")):
+        hits = _reaches_a_forge_cli(ast.parse(path.read_text(encoding="utf-8")))
+        if hits:
+            offenders[str(path.relative_to(ROOT))] = hits
+    assert offenders == {}, f"the core reaches a forge CLI itself: {offenders}"
