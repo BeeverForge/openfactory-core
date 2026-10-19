@@ -166,6 +166,18 @@ MUTATIONS = [
      '                    rc, out = 0, ""\n',
      INTERRUPTED),
 
+    ("a failed `worktree unlock` does not keep the mark, so the next rerun cannot prove the add",
+     BOX,
+     '                                    "is", tree.path, out.strip())\n'
+     "                        kept = True\n",
+     '                                    "is", tree.path, out.strip())\n',
+     INTERRUPTED),  # review of 35ac306
+
+    ("the mark is unlinked even when the tree it proves was kept", BOX,
+     "        if not kept and _a_mark_of(repo_path, wt):\n",
+     "        if _a_mark_of(repo_path, wt):\n",
+     INTERRUPTED),  # review of 35ac306
+
     ("a later add writes over an earlier interrupted add's mark, and unlinks it", BOX,
      "        if os.path.lexists(mark):\n",
      "        if False:\n",

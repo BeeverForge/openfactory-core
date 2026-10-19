@@ -466,3 +466,27 @@ def test_an_interrupted_add_is_still_the_box_s_own_after_a_rerun_that_could_not_
         _again(root, slow)
     monkeypatch.undo()
     _assert_started_clean(_again(root, slow), wt, slow, root)
+
+
+def test_an_interrupted_add_whose_unlock_failed_is_still_the_box_s_own_on_the_next_rerun(
+        tmp_path, monkeypatch):
+    """C6, one rerun later (review of 35ac306). When `worktree unlock` of the box's own interrupted
+    add fails, the tree and the box's mark are kept, so the next rerun can still prove the add was
+    the box's own; with the mark lost, one transient unlock failure leaves every later rerun
+    held behind "may be a person's lock"."""
+    slow = Slow(tmp_path / "myapp")
+    root = tmp_path / "boxes"
+    wt = root / NAME
+    _interrupt(slow, root, "process_group_killed")
+    real = worktree_box._run
+
+    def refuse_unlock(cmd, **kw):
+        if cmd[3:5] == ["worktree", "unlock"]:
+            return 128, "fatal: could not unlock\n"
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(worktree_box, "_run", refuse_unlock)
+    with pytest.raises(BranchHeldElsewhere):
+        _again(root, slow)
+    monkeypatch.undo()
+    _assert_started_clean(_again(root, slow), wt, slow, root)
