@@ -141,8 +141,9 @@ MUTATIONS = [
      '    return _A_DEFINITION.sub(r"\\1\\\\[", _A_HEADING.sub(',
      "    return (lambda f, t: t)(r\"\", _A_HEADING.sub("),
     ("a bare link's span admits the agent's backtick, which closes it before a name", MACHINE,
-     r'_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\]*',
-     r'_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s<>\\]*'),
+     # re-pinned after review round 6 (b440cf5) kept parentheses out of the span
+     r'_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\()]*',
+     r'_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s<>\\()]*'),
     ("a tab-indented heading in the agent's list item renders", MACHINE,
      r'_A_HEADING = re.compile(r"^([ \t]*(?:',
      r'_A_HEADING = re.compile(r"^( *(?:'),
@@ -190,6 +191,11 @@ MUTATIONS = [
     ("an indented reference the agent defines parses, and its address is nowhere", MACHINE,
      r'_A_DEFINITION = re.compile(r"^([ \t]*(?:',
      r'_A_DEFINITION = re.compile(r"^((?:'),
+    # ── review round 6 on b440cf5: a span that straddles a refused destination's `)` ──────────
+    ("a bare link's span admits `(` and `)`, and lends its backtick to a refused destination",
+     MACHINE,
+     r'''_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\()]*[^\s`<>\\.,;:!?'\")\]()])")''',
+     r'''_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\]*[^\s`<>\\.,;:!?'\")\]])")'''),
     # ── bounded, and the cut says so ───────────────────────────────────────────────────────────
     ("the bound is measured on the text before quoting", MACHINE,
      "        if used + 1 + len(row) <= room:\n            kept.append(row)\n"

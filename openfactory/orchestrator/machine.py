@@ -494,9 +494,12 @@ _AN_UNDERLINE = re.compile(r"[ \t]*[=-]+\s*$")
 #: A bare link, which GitHub's autolinker reads from the RAW source: an escape inside it goes into
 #: the address (`test%5C_a.py`, review on be48a54). Not a markdown link's destination, where
 #: CommonMark reads the escapes. It ends before a trailing `.,;:!?'")]`, which stays outside the
-#: span as text; where the autolinker would keep a balanced `)` (`…/wiki/Foo_(bar)`) the span
-#: ends before it, and the reader sees the same characters, in code, and no link either way.
-_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\]*[^\s`<>\\.,;:!?'\")\]])")
+#: span as text. It never holds `(` or `)`: a span that did straddled the `)` after a `](` the
+#: link pattern below refuses (`[t](<https://…)[`), CommonMark read the span's opening backtick
+#: into that destination, and every later span shifted by one, an `@name` outside code (review
+#: on b440cf5, measured on GitHub). So `…/wiki/Foo_(bar)` shows in code up to `Foo_`, then
+#: `(bar)` as text; it was not a link before either.
+_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\()]*[^\s`<>\\.,;:!?'\")\]()])")
 #: A markdown link to an address, whole: its text is neutralised, its destination kept as
 #: written, with the spaces CommonMark allows around it. In the destination a wrapped `@octocat`
 #: went into the href as `%60@octocat%60` and a `#12` rewritten `card 12` broke the link; the

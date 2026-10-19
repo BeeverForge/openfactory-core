@@ -379,9 +379,12 @@ def test_a_cut_never_leaves_a_link_open_with_its_name_outside_a_span():
 
 
 def _names_read(html: str) -> list[str]:
-    """The `@names` a reader sees: outside every code span and every attribute."""
+    """The `@names` a reader sees: outside every code span and every attribute. A span becomes a
+    space, not nothing: GitHub's mention filter reads each text node alone, so `b<code> </code>@o`
+    shows a name, and deleting the span joined it into `b@o`, which the look-behind skipped
+    (review on b440cf5)."""
     text = re.sub(r'(href|title|src|alt)="[^"]*"', "",
-                  re.sub(r"<code>.*?</code>", "", html, flags=re.S))
+                  re.sub(r"<code>.*?</code>", " ", html, flags=re.S))
     return re.findall(r"(?<![A-Za-z0-9])@[A-Za-z0-9]+", text)
 
 
@@ -414,6 +417,18 @@ def test_a_bracket_before_a_link_never_takes_a_name_into_its_raw_destination(sai
     """Review on 39183a4: a link text that may span `[` or `]` reaches back to a bracket that
     opens no link, and keeps a destination raw that CommonMark does not read as one, so the name
     in it shows (39 quote shapes in 3,000 fuzzed messages; shrunk to `[]](http://@o)`)."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert _names_read(html) == [], html
+
+
+@pytest.mark.parametrize("said", ["[t](<https://z.test/a)b @octocat", "[t](xhttps://z.test/a)x @octocat",
+                                  "[t](*https://z.test/a)x @octocat", "[t](<https://z.test/a)[ @octocat x"])
+def test_a_bare_link_after_a_refused_destination_never_lends_its_backtick_to_the_link(said: str):
+    """Review on b440cf5, measured on GitHub: a bare link's span that admitted `(` and `)` straddled
+    the `)` after a `](` the link pattern refused, so `[t](\\<`https://z.test/a)[` `@octocat` x`
+    read the span's opening backtick into the destination and rendered `t[<code> </code>@octocat`
+    x`, the name outside code (8 quote shapes in 6,000 fuzzed messages)."""
     markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
     html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
     assert _names_read(html) == [], html
