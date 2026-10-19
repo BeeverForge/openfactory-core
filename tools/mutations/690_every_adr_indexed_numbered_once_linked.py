@@ -2,7 +2,8 @@
 
 Each cut removes one of the three properties the docs guards protect for ADR-0057, the record this
 pull request adds. The threshold cut is the one a tree with no duplicate cannot catch by itself;
-the helper's own test, given two records with one number, catches it.
+the helper's own test, given two records with one number, catches it. The last cut makes the
+guard read no record at all, which would look like "no duplicate" without its non-empty assert.
 """
 
 TEST = "tests/test_the_docs_do_not_drift.py"
@@ -18,4 +19,8 @@ MUTATIONS = [
 
     ("the shared-number rule stops seeing a pair", "tests/test_the_docs_do_not_drift.py",
      "if len(v) > 1}", "if len(v) > 2}"),
+
+    ("the shared-number guard reads no record", "tests/test_the_docs_do_not_drift.py",
+     'names = [p.name for p in (ROOT / "docs" / "adr").glob("[0-9][0-9][0-9][0-9]-*.md")]',
+     'names = [p.name for p in (ROOT / "docs" / "adr").glob("[0-9][0-9][0-9][0-9]-*.markdown")]'),
 ]

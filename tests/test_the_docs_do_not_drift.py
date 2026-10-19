@@ -473,7 +473,9 @@ def test_no_two_ADRs_share_a_number():
     """Two records written on two branches both take the next free number, and each one's index row
     resolves, so the guards above pass for both. The collision shows only when the second merges:
     two files and two rows answering to one number, and every "ADR-00NN" in the docs ambiguous."""
-    shared = _numbers_shared(p.name for p in (ROOT / "docs" / "adr").glob("[0-9][0-9][0-9][0-9]-*.md"))
+    names = [p.name for p in (ROOT / "docs" / "adr").glob("[0-9][0-9][0-9][0-9]-*.md")]
+    assert names, "no ADR found under docs/adr — the guard read nothing"
+    shared = _numbers_shared(names)
     assert not shared, f"two ADRs share a number: {shared}"
 
 

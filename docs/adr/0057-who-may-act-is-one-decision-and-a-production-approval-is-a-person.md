@@ -310,8 +310,9 @@ add|remove` are retired.** An approver is a person the identity axis knows, hold
 **On first start after the upgrade, the policy computes every grant from the legacy sources
 below, logs the table once (`OPENFACTORY_ROLES_DERIVED`), and `openfactory roles` prints it with
 the source of each line.** The legacy fields keep working as aliases — nothing has to be edited
-for the upgrade to keep the doors it had open — and an explicit `roles:` entry wins over its
-per-project alias (`project.admins`, `product.admins`); deployment grants add to it.
+for the upgrade to keep the doors it had open — and an explicit `roles:` entry adds to its
+per-project alias (`project.admins`, `product.admins`), as deployment grants do; a name is taken
+away where it is written.
 
 | existing credential | becomes | scope of the grant | note |
 |---|---|---|---|
@@ -396,7 +397,16 @@ with `release_by_requester` off and one with it on; it asks
 today's code and the new policy the same question for every catalog row on each card, and fails if
 the new answer differs, narrower **or wider**,
 anywhere the list above does not name. A credential that gained a power it did not have is as much
-a defect of the upgrade as one that lost a power it had.
+a defect of the upgrade as one that lost a power it had. The same test covers a grant made after
+the upgrade: it takes nothing from the names an alias already gives the role.
+
+```python
+def test_a_grant_by_the_verb_takes_nothing_from_those_project_admins_already_lists():
+    project = a_project(admins=["alice", "carol"])
+    grant(project, role="operator", to="dave", by="erin")
+    for who in ("alice", "carol", "dave"):
+        assert policy.may(Subject(id=who), action=CATALOG["resume"], project=project).allowed
+```
 
 ## Consequences
 
@@ -408,8 +418,8 @@ a defect of the upgrade as one that lost a power it had.
   has a provider-backed answer, not a login somebody typed.
 - **Separation of duties is a barrier the deployment's admins do not control.** No grant is
   self-issued, of any role, and no panel or CLI verb grants `approver` or `product-owner` at all,
-  under any identity kind: those come only from the host's configuration (the registry's `roles:`
-  and its aliases), written by whoever owns the host, or from the identity provider's group map, written in the deployment's environment by
+  under any identity kind: those come only from the host's configuration (the `approver` and
+  `product-owner` entries of the registry's `roles:` and their aliases), written by whoever owns the host, or from the identity provider's group map, written in the deployment's environment by
   whoever owns the host over groups the directory's owner fills, each shown with its source; a
   project's manifest only narrows who of them may approve it. In D5 release 1 the store's `openfactory approver add` still writes logins
   D6 seeds; it is a host owner's verb, so the barrier is the same, and from release 2 it is gone.
