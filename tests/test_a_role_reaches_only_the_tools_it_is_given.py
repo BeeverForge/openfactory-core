@@ -237,6 +237,29 @@ def test_every_door_starts_its_harness_with_no_server_of_the_account(kind, role,
 
 
 @pytest.mark.parametrize("role", sorted(_ROLES))
+def test_every_claude_door_streams_its_events_so_a_wrapper_in_front_of_claude_sees_them(role, box):
+    """Every door of every Claude role hands the CLI `--output-format stream-json --verbose`, read
+    off the argv its process was handed (#755). The native reviewer builds its own command outside
+    `ClaudeCodeAdapter._cli`, asked for `json`, and a wrapper in front of `claude` never saw a
+    review's `rate_limit_event`: the second drift on that door, after `NO_MCP_SERVERS` above. So
+    the rule is held here as that one is, as a sweep the registry feeds (review of #922: with
+    `_cli`'s flag cut to `json`, 63 modules and 1746 tests stayed green on 82c8e6d)."""
+    sandbox, ws, calls, _, _ = box
+    built = _ROLES[role](_project("claude_code"))
+    for door in _doors(built):
+        fn, kw = _knock(built, door)
+        fn(sandbox=sandbox, workspace=ws, **kw)
+        made = _made(calls)
+        assert made, f"claude_code/{role}.{door}: the harness never ran"
+        for call in made:
+            argv = call["argv"]
+            assert _stands_together(argv, ("--output-format", "stream-json")), (
+                f"claude_code/{role}.{door}: a wrapper sees no event until the run ends: {argv}")
+            assert "--verbose" in argv, (
+                f"claude_code/{role}.{door}: stream-json without --verbose is refused (rc 1): {argv}")
+
+
+@pytest.mark.parametrize("role", sorted(_ROLES))
 @pytest.mark.parametrize("kind", sorted(k for k, r in ISOLATION.items() if r.refused_when))
 def test_no_door_starts_a_harness_while_the_account_declares_what_it_cannot_leave_out(
         kind, role, box):

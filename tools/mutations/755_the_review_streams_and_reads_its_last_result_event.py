@@ -14,7 +14,10 @@ The claims, each a row:
   * a single envelope without a `type` still reads through `json_envelope` (row 4);
   * the cost, turns and tokens come from that event (row 7);
   * a failed result is still a REJECTION (row 8), and "not found" in a tool result is not a review
-    that never ran (row 9).
+    that never ran (row 9);
+  * every door of every Claude role streams, the shared builder's included (row 11, review of #922:
+    with `ClaudeCodeAdapter._cli`'s flag cut to `json`, 63 modules and 1746 tests stayed green on
+    82c8e6d; the sweep in `ROLES` turns the executor, product and techlead doors red).
 
 TWO TESTS ARE HELD BY ANOTHER ROW THAN THE ONE THAT NAMES THEM. The 2.1.219 `json` envelope carries
 `type: "result"`, so `result_event` reads it without the fallback: dropping the fallback (row 4)
@@ -29,6 +32,8 @@ reader, and the test is what refuses it.
 
 TEST = "tests/test_the_review_is_read_from_the_last_result_event_of_its_stream.py"
 STREAMS = "tests/test_the_review_streams_its_events_like_every_other_claude_role.py"
+ROLES = "tests/test_a_role_reaches_only_the_tools_it_is_given.py"
+AGENT = "openfactory/adapters/agent/claude_code.py"
 REVIEWER = "openfactory/adapters/reviewer/claude_code.py"
 BASE = "openfactory/adapters/agent/base.py"
 
@@ -62,4 +67,8 @@ MUTATIONS = [
      "json.loads(_extract_json(next((t for t in __import__('openfactory.adapters.agent.base', "
      "fromlist=['reply_texts']).reply_texts(out) if '\"decision\"' in t), "
      "str(envelope.get('result', '')))))"),
+    ("the shared builder asks for one envelope: no executor, tech lead or product door streams, and "
+     "a wrapper sees none of their events until the run ends", AGENT,
+     '            "--output-format", "stream-json", "--verbose",\n            "--permission-mode", "acceptEdits",',
+     '            "--output-format", "json",\n            "--permission-mode", "acceptEdits",', ROLES),
 ]
