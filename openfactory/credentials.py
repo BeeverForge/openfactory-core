@@ -97,6 +97,42 @@ def app_installation_account() -> tuple[str | None, str] | None:
     return installed_on() if installed_on is not None else None
 
 
+def app_settings_set() -> int:
+    """How many of the App's three settings this process holds (`app_id`, `app_private_key`,
+    `app_installation_id`): 3 is an App, 0 is none, and 1 or 2 is an App that is not fully
+    configured — no App to mint on or to ask (`github_app.token_from_env`'s rule). The doctor's
+    `installation_scope` line asks whether a token is used instead of the App only of an App
+    (#743)."""
+    return sum(1 for value in (app_id(), app_private_key(), app_installation_id()) if value)
+
+
+def sources_instead_of_the_app(projects) -> list[str]:
+    """The credentials (`forge_credential_source` / `tracker_credential_source` identities) the
+    reference vendor's axes of `projects` use, when NONE of them is this deployment's own
+    (`deployment:<kind>`, the App) — `[]` when one of them is, or when none resolves at all.
+
+    WHY (#743, decided 2026-10-19). A static token wins over the App (`_axis_credential`: the
+    project's variable, then the vendor's, then the generic pair; the App only when none is set).
+    Measured on d744ba8 with the App trio and `OPENFACTORY_BOT_TOKEN` both set: every forge read
+    went through the token, and the doctor still asked the App which organisation it was on and
+    failed a working deployment with a mismatch the forge never meets."""
+    own = f"deployment:{_REFERENCE_KIND}"
+    found: list[str] = []
+    for project in projects:
+        axes = []
+        if forge_vendor(project) == _REFERENCE_KIND:
+            axes.append(forge_credential_source(project))
+        if (getattr(project, "tracker", None) is not None
+                and _kind_of(project.tracker) == _REFERENCE_KIND):
+            axes.append(tracker_credential_source(project))
+        for source in axes:
+            if source == own:
+                return []
+            if source and source not in found:
+                found.append(source)
+    return found
+
+
 def bot_identity() -> BotIdentity:
     """Who the factory acts as, from the environment the deployment set."""
     return BotIdentity(

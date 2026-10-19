@@ -60,8 +60,9 @@ which is nothing happening.
 check with its `id`, `result` (`ok` or `fail`), `detail` and `remedy`, the closing `verdict`
 (`ok`, `expected`, `not_ready`) and the build that answered. Nothing else is printed, and the exit
 code is the report's. A check that does not apply to this deployment reads `result: ok` with a
-`detail` that begins `not applicable — `: `installation_scope` with no GitHub App configured, for
-one, verifies nothing and says so.
+`detail` that begins `not applicable — `: `installation_scope` with no GitHub App configured, or
+with an App that no GitHub project uses because a static token wins over it, for one, verifies
+nothing and says so.
 
 ### `openfactory explain <checkout> [--language en|pt-BR] [--full]`
 

@@ -32,7 +32,8 @@ App installation is one process-wide setting, and an installation belongs to one
 so whether it can reach this project's repositories is a fact about every project the deployment
 serves: a registry that spans two organisations fails here whichever project is asked about, in
 the sentence the registry's load path logs, and otherwise the installation's own account is read
-(the App's JWT, nothing minted) and compared with the one organisation the registry names.
+(the App's JWT, nothing minted) and compared with the one organisation the registry names — when
+some GitHub axis uses the App: a static token wins over it, and then the line does not apply.
 
 WHY PROBES ARE INJECTED. Every environmental fact arrives as a callable, so each branch is
 reachable in a test without Docker, a network, or a GitHub App. A doctor that could only be
@@ -353,8 +354,14 @@ class InstallationScope:
     #: `registry.owners_by_project` over the WHOLE registry — `{owner: [project names]}`
     by_owner: dict[str, list[str]]
     #: `credentials.app_installation_account()`: `None` when no App is configured — or when the
-    #: registry spans, where it is not asked — `(login, "")` when read, `(None, reason)` when not
+    #: registry spans, or the App reaches none of its projects, where it is not asked — `(login,
+    #: "")` when read, `(None, reason)` when not
     installed: tuple[str | None, str] | None
+    #: What this deployment's GitHub projects use INSTEAD of the App, each said as
+    #: `credentials.describe_source` says it, when the App is configured and no GitHub axis uses
+    #: it (`credentials.sources_instead_of_the_app`); empty otherwise. A static token wins over
+    #: the App, so its installation is then not what reaches them (decided 2026-10-19).
+    used_instead: tuple[str, ...] = ()
 
 
 def as_json(document: dict) -> str:
@@ -1574,7 +1581,8 @@ def _installation_scope(p: Probes) -> Finding:
     from openfactory.registry import installation_scope_line
 
     scope = p.installation_scope()
-    ok, message, remedy = installation_scope_line(scope.by_owner, scope.installed)
+    ok, message, remedy = installation_scope_line(scope.by_owner, scope.installed,
+                                                  used_instead=scope.used_instead)
     return Finding(INSTALLATION_SCOPE, ok, message, remedy)
 
 
@@ -3095,14 +3103,27 @@ def probes_for(project) -> Probes:
 
     def _installation_scope_probe() -> InstallationScope:
         """The whole registry's organisations, and the App installation's account — asked only
-        when the registry does not span: the spanning sentence already says everything, and
-        asking would spend a network read (bounded at ten seconds) on a settled question."""
-        from openfactory.credentials import app_installation_account
-        from openfactory.registry import ProjectRegistry, owners_by_project
+        when the registry does not span (the spanning sentence already says everything, and
+        asking would spend a network read, bounded at ten seconds, on a settled question) and
+        when some GitHub axis of the registry uses the App: a static token wins over the App, and
+        an installation nothing reaches through is not this deployment's scope (#743, Q5)."""
+        from openfactory.credentials import (
+            app_installation_account,
+            app_settings_set,
+            describe_source,
+            sources_instead_of_the_app,
+        )
+        from openfactory.registry import ProjectRegistry, github_owners, owners_by_project
 
-        by_owner = owners_by_project(ProjectRegistry().list())
+        projects = ProjectRegistry().list()
+        by_owner = owners_by_project(projects)
         if len(by_owner) > 1:
             return InstallationScope(by_owner=by_owner, installed=None)
+        instead = (sources_instead_of_the_app([p for p in projects if github_owners(p)])
+                   if app_settings_set() == 3 else [])
+        if instead:
+            said = tuple(dict.fromkeys(describe_source(s) for s in instead))
+            return InstallationScope(by_owner=by_owner, installed=None, used_instead=said)
         return InstallationScope(by_owner=by_owner, installed=app_installation_account())
 
     return Probes(

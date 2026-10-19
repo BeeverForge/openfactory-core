@@ -120,3 +120,71 @@ def test_the_check_is_a_line_of_the_json_document_under_its_own_id(tmp_path, mon
     checks = {c["id"]: c for c in document["checks"]}
     assert doctor.INSTALLATION_SCOPE in checks, sorted(checks)
     assert checks[doctor.INSTALLATION_SCOPE]["result"] in doctor.RESULTS
+
+
+def _line_from_the_live_probe(monkeypatch, project, env: dict[str, str]):
+    """The REAL probe `probes_for` builds, over a registry holding `project`, with `env` set and
+    `github_app.installation_account` stubbed to answer `othercorp`; `(finding, asked)` where
+    `asked` lists every installation id the stub was asked about."""
+    import dataclasses
+
+    from openfactory.adapters import github_app
+    from openfactory.registry import ProjectRegistry
+
+    ProjectRegistry().add(project)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    asked: list[str] = []
+
+    def installation_account(*, app_id, private_key, installation_id, **_kw):
+        asked.append(installation_id)
+        return "othercorp", ""
+
+    monkeypatch.setattr(github_app, "installation_account", installation_account)
+    probes = dataclasses.replace(
+        a_fully_pinned_probe_set(),
+        installation_scope=doctor.probes_for(project).installation_scope)
+    finding = next(f for f in doctor.diagnose(probes).findings
+                   if f.check == doctor.INSTALLATION_SCOPE)
+    return finding, asked
+
+
+_APP_TRIO = {"OPENFACTORY_GH_APP_ID": "7", "OPENFACTORY_GH_APP_KEY_CONTENT": "a key",
+             "OPENFACTORY_GH_APP_INSTALLATION_ID": "7"}
+
+
+def test_a_deployment_whose_github_projects_use_a_token_beside_the_app_is_not_applicable(
+        monkeypatch):
+    """Q5 (decided 2026-10-19: (a)): when a static token, not the App, is what every GitHub axis
+    uses, the line is not applicable and asks the App nothing. Before, measured on d744ba8 with the
+    App trio, `OPENFACTORY_BOT_TOKEN` and an installation on `othercorp`: the line FAILED a working
+    deployment ("the GitHub App installation this deployment authenticates as is on othercorp …
+    every forge read of those projects would 404"), told the operator to remove a working project,
+    and asked installation 7 — while every forge read went through the token."""
+    from openfactory import credentials
+    from openfactory.contracts.project import Project, ProviderRef
+
+    project = Project(name="demo", repo_path="/tmp/demo",
+                      tracker=ProviderRef(kind="github", repo="acme/demo"))
+    finding, asked = _line_from_the_live_probe(
+        monkeypatch, project, {**_APP_TRIO, "OPENFACTORY_BOT_TOKEN": "ghp_stub"})
+
+    assert finding.ok is True, finding.message
+    assert finding.message.startswith(doctor.NOT_APPLICABLE), finding.message
+    assert credentials.describe_source("generic:forge") in finding.message, finding.message
+    assert asked == [], f"the App was asked about installation {asked} it does not serve"
+
+
+def test_a_github_axis_that_still_uses_the_app_asks_the_app(monkeypatch):
+    """The positive twin of the above: a token for the forge alone (`OPENFACTORY_FORGE_TOKEN`)
+    leaves the GitHub tracker on the App, so the installation IS what reaches that project, and it
+    is asked and compared — on `othercorp` against `acme`, a red line."""
+    from openfactory.contracts.project import Project, ProviderRef
+
+    project = Project(name="demo", repo_path="/tmp/demo",
+                      tracker=ProviderRef(kind="github", repo="acme/demo"))
+    finding, asked = _line_from_the_live_probe(
+        monkeypatch, project, {**_APP_TRIO, "OPENFACTORY_FORGE_TOKEN": "ghp_forge_only"})
+
+    assert asked == ["7"]
+    assert finding.ok is False and "othercorp" in finding.message, finding.message

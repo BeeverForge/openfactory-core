@@ -369,12 +369,12 @@ post_merge_deploy:
 (or one personal account). A Jira or Azure DevOps project is not counted; only the axes whose
 kind is `github`, and their `board_owner`.
 
-**The reason.** The deployment authenticates to GitHub as one GitHub App installation, and the
-installation id is one process-wide variable, `OPENFACTORY_GH_APP_INSTALLATION_ID`, not a field
-of a project. A GitHub App installation belongs to exactly one organisation or personal account,
-so it reaches only that account's repositories: a project in another organisation would answer
-404 on every forge read, on a repository you can open in your browser. The Slack credential is
-per project; this one is not.
+**The reason.** When the forge credential is the App, the deployment authenticates to GitHub as
+one GitHub App installation, and the installation id is one process-wide variable,
+`OPENFACTORY_GH_APP_INSTALLATION_ID`, not a field of a project. A GitHub App installation belongs
+to exactly one organisation or personal account, so it reaches only that account's repositories:
+a project in another organisation would answer 404 on every forge read, on a repository you can
+open in your browser. The Slack credential is per project; this one is not.
 
 **How it is held.** `openfactory project add` refuses a project in a second organisation and
 names both. A registry edited by hand that spans two still loads (the load logs
@@ -384,8 +384,11 @@ one organisation, that line asks the App installation which account it is on (a 
 the App's own key; no installation token is minted) and fails, naming both, when the registry
 names another one. With no App configured (any of `OPENFACTORY_GH_APP_ID`, the App's private key
 or `OPENFACTORY_GH_APP_INSTALLATION_ID` unset), the line begins "not applicable" and verifies
-nothing. The line reads the whole registry, not only the project you named, because the
-installation is the deployment's.
+nothing. The same holds when every GitHub project uses a static token instead
+(`OPENFACTORY_BOT_TOKEN`, `OPENFACTORY_FORGE_TOKEN` / `OPENFACTORY_TRACKER_TOKEN`, or a project's
+`token_env`), which wins over the App: the line names the token and asks the App nothing, since
+its installation is not what reaches those projects. The line reads the whole registry, not
+only the project you named, because the installation is the deployment's.
 
 **Two organisations: run two deployments.** Each gets its own App installation id (install the
 App on the second organisation, or use a second App), its own registry

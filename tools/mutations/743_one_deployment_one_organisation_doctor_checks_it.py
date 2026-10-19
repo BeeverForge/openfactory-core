@@ -5,6 +5,8 @@ The claims, each held by one named test and broken here by one cut:
   a mismatch fails; GitHub logins compare without case;
 - with no App configured the line says "not applicable" first and verifies nothing; an App that
   could not be read is never a pass;
+- an App beside a static token that every GitHub axis uses instead is not applicable and is not
+  asked; one GitHub axis still on the App is enough for it to be asked (Q5, round 1);
 - a registry that spans organisations fails the line in exactly the sentence the load path logs
   (`registry.spanning_message`), with or without an App;
 - the read is `GET /app/installations/{id}` signed with the App's own JWT — nothing is minted —
@@ -20,6 +22,7 @@ does not pass for the guard that claims it.
 ADAPTER = "openfactory/adapters/github_app.py"
 REGISTRY = "openfactory/registry.py"
 DOCTOR = "openfactory/doctor.py"
+CREDENTIALS = "openfactory/credentials.py"
 CONFIGURATION = "docs/configuration.md"
 
 LINE = "tests/test_the_doctor_asks_the_app_which_organisation_it_is_installed_on.py"
@@ -53,6 +56,18 @@ MUTATIONS = [
      '        return (False, f"the GitHub App installation could not be read: {reason}",',
      '        return (True, f"the GitHub App installation could not be read: {reason}",',
      f"{LINE}::test_an_installation_that_could_not_be_read_is_not_a_pass"),
+
+    # ── a static token beside the App (Q5 (a), review round 1) ──────────────────────────────────
+    ("the probe asks the App although every GitHub axis uses a token instead", DOCTOR,
+     "        if instead:\n            said = ",
+     "        if False:\n            said = ",
+     f"{LINE}::test_a_deployment_whose_github_projects_use_a_token_beside_the_app_is_not_applicable"),
+
+    ("one GitHub axis on the App no longer counts — a token on the forge alone hides the App",
+     CREDENTIALS,
+     "            if source == own:\n                return []",
+     "            if source == own:\n                continue",
+     f"{LINE}::test_a_github_axis_that_still_uses_the_app_asks_the_app"),
 
     # ── the spanning registry (S2) ──────────────────────────────────────────────────────────────
     ("the spanning branch is gone — a registry over two organisations reads not applicable",

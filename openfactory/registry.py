@@ -146,19 +146,23 @@ def spanning_message(by_owner: dict[str, list[str]]) -> str:
 
 
 def installation_scope_line(by_owner: dict[str, list[str]],
-                            installed: tuple[str | None, str] | None) -> tuple[bool, str, str]:
+                            installed: tuple[str | None, str] | None, *,
+                            used_instead: tuple[str, ...] = ()) -> tuple[bool, str, str]:
     """`(ok, message, remedy)` for `openfactory doctor`'s `installation_scope` line (#743). Pure.
 
     `by_owner` is `owners_by_project` over the WHOLE registry, because the installation is the
     deployment's and not one project's. `installed` is `credentials.app_installation_account()`:
     `None` when no App is configured, `(login, "")` when its installation was read, `(None,
-    reason)` when it could not be.
+    reason)` when it could not be. `used_instead` is what the registry's GitHub projects use in
+    the App's place (`credentials.describe_source` of each), when no GitHub axis uses the App.
 
     In order: a registry that spans says `spanning_message`, the sentence the load path logs,
-    without asking the App; no App is not applicable, and says so first rather than passing as a
-    verified scope (decided 2026-10-19: `openfactory.doctor/1` keeps two results, so the wording
-    carries it); an App that could not be read is a red line with GitHub's own reason, never a
-    pass (lesson §2); then the account is compared with the one organisation the registry names.
+    without asking the App; an App no GitHub project uses (a static token wins over it, decided
+    2026-10-19) is not applicable, naming what they use; no App is not applicable, and says so
+    first rather than passing as a verified scope (decided 2026-10-19: `openfactory.doctor/1`
+    keeps two results, so the wording carries it); an App that could not be read is a red line
+    with GitHub's own reason, never a pass (lesson §2); then the account is compared with the one
+    organisation the registry names.
 
     THE COMPARISON IGNORES CASE, as GitHub's logins do: `Acme/api` in the registry and an
     installation on `acme` are one account, and a case-sensitive test would fail a correct
@@ -170,6 +174,10 @@ def installation_scope_line(by_owner: dict[str, list[str]],
                 "run one deployment per organisation — each with its own App installation id, "
                 "registry and environment file — or remove the projects of the other "
                 "organisations from this one (`openfactory project remove <name>`)")
+    if installed is None and used_instead:
+        return (True, NOT_APPLICABLE + f"this deployment's GitHub projects use "
+                f"{' and '.join(used_instead)}, not the GitHub App, so its installation is not "
+                "what reaches them and was not asked which organisation it is on", "")
     if installed is None:
         return (True, NOT_APPLICABLE + "no GitHub App installation is configured for this "
                 "deployment, so no installation was asked which organisation it is on", "")
