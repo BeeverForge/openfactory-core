@@ -10,12 +10,14 @@ Jira Cloud answers a Basic pair whose token is not the email's account as an ano
     cannot be made, keeps the original 404;
   - no other failure asks anything, and a call that succeeds asks nothing either;
   - the sentence puts the cause first (the park line and the card's door keep 120 characters),
-    never carries the token, and with no token says so instead of "different accounts".
+    never carries the token, and with no token says so instead of "different accounts";
+  - a job parked on either refusal is classified as a credential, not as unknown.
 """
 
 TEST = ("tests/test_on_jira_an_email_and_a_token_of_different_accounts_are_named_not_read_as_"
         "missing.py")
 JIRA = "openfactory/adapters/tracker/jira.py"
+CLASSIFY = "openfactory/techlead/classify.py"
 
 MUTATIONS = [
     ("THE DEFECT ITSELF: a 404 never asks who is asking, and every card that exists reads as "
@@ -83,4 +85,8 @@ MUTATIONS = [
      "            return json.loads(body) if body.strip() else {}",
      "            self._who_is_asking()\n"
      "            return json.loads(body) if body.strip() else {}"),
+
+    ("a job parked on the refusal is classified as unknown, and names no cause", CLASSIFY,
+     "        r\"different accounts|no api token reached|\"\n",
+     ""),
 ]

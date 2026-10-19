@@ -141,8 +141,13 @@ _RULES: tuple[tuple[str, re.Pattern[str], str], ...] = (
      "race"),
 
     # ---- credential: this token is bad; another may not be -------------------------------------
+    # `different accounts` and `no api token reached` are the Jira tracker's own refusal (#749):
+    # an email and a token of different accounts, or no token, which Jira answers as an anonymous
+    # 404 (measured 2026-10-19). Without them the job's park line `ticket: <first 120
+    # characters>` read as `unknown`.
     (CREDENTIAL, re.compile(
         r"bad credentials|401 unauthorized|invalid.{0,12}(api key|token)|expired.{0,12}token|"
+        r"different accounts|no api token reached|"
         r"authentication failed|disabled claude subscription|subscription access|"
         r"use an anthropic api key|please (run )?/?login|credit balance", re.I), "credential"),
 

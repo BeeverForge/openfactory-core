@@ -41,6 +41,7 @@ import pytest
 
 from openfactory.adapters.tracker.jira import JiraRefused, JiraTracker
 from openfactory.lifecycle.ports import Ports
+from openfactory.techlead import CREDENTIAL, classify
 
 SITE = "https://acme-team.atlassian.net"
 EMAIL = "alice@acme.ai"
@@ -312,6 +313,19 @@ def test_a_board_read_with_a_mismatched_pair_is_unreadable_and_the_log_names_the
     said = " ".join(r.getMessage() for r in caplog.records)
     assert "different accounts" in said, said
 
+
+@pytest.mark.parametrize("token", [TOKEN, None], ids=["another-accounts-token", "no-token"])
+def test_a_job_parked_on_the_refusal_is_classified_as_a_credential(site, token):
+    """C4, the job's park: the preflight parks on `f"ticket: {str(exc)[:120]}"` (`activities.py`),
+    and the tech-lead classifies that line. On 82500f9 both refusals' first 120 characters read
+    `unknown` (measured 2026-10-19), so a parked job named no cause; the pair is a credential."""
+    site(routes={("GET", ISSUE): 404}, myself=401)
+
+    with pytest.raises(JiraRefused) as raised:
+        _tracker(token=token).get_ticket(REF)
+
+    park = f"ticket: {str(raised.value)[:120]}"
+    assert classify(park).cause == CREDENTIAL, park
 
 # ── C5: no token at all is not "different accounts" ─────────────────────────────────────────────
 
