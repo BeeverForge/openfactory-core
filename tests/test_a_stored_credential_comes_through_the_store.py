@@ -1122,7 +1122,7 @@ def test_a_stale_refused_token_file_stops_the_harness_though_the_pool_answers(fi
                         lambda p, root=None: object())
     monkeypatch.setattr(ctx, "agent_ask", lambda *a, **k: (lambda *_a, **_k: ""))
     ask_fn, mode = ob.semantic_pass_for(Project(name="acme", repo_path="/tmp/acme"), Path("/tmp"))
-    assert ask_fn is None and "CLAUDE_CODE_OAUTH_TOKEN" in mode, mode
+    assert ask_fn is None and "refused" in mode and "CLAUDE_CODE_OAUTH_TOKEN" in mode, mode
 
 
 def test_the_names_a_harness_refuses_on_are_read_off_its_own_table():
