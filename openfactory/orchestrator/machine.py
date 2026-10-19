@@ -974,6 +974,17 @@ class JobRunner:
             self._emit(ticket, "note", f"⚠️ profile: {exc}")
             return self._hold(ticket, owner, str(exc), JobState.ON_HOLD)
 
+        # THE PROMPT BUDGET IS READ HERE TOO, beside the class and for the same reason (#364): a
+        # value nobody can read is the operator believing a budget is set while every pass would
+        # refuse it at `build_context`. One sentence on the card, before a token is spent.
+        from openfactory.orchestrator.context import PromptBudgetError, prompt_budget
+
+        try:
+            prompt_budget()
+        except PromptBudgetError as exc:
+            self._emit(ticket, "note", f"⚠️ prompt budget: {exc}")
+            return self._hold(ticket, owner, str(exc), JobState.ON_HOLD)
+
         # A GATE THE PROFILE NAMES MUST ALREADY EXIST TO BE PROMOTED. Checked here, statically,
         # the same point and for the same reason the floor is checked above — before any agent
         # call. `RiskPolicy.gates` can only promote a role some other layer already runs; a role
@@ -2887,6 +2898,9 @@ class JobRunner:
                             # box that cannot reach them has them left out of the index rather
                             # than advertised at a path that resolves nowhere (review of #328).
                             reference_root=self._operator_reference_root(),
+                            # …and where it can open the operator's guidelines, so the prompt
+                            # budget can leave one out and name it there; None pins them (#364)
+                            operator_root=self._operator_guidelines_root(),
                             # resolved once at the top of the job; `getattr` because not every
                             # path through this class reaches that point (the sizer builds a
                             # context of its own), and a missing class is the ordinary case.
@@ -2908,6 +2922,14 @@ class JobRunner:
         # reuses the parts of this runner that never touch one). No box → no answer → no entry.
         return operator_guidelines.readable_root(getattr(self, "sandbox", None),
                                                  operator_guidelines.gather())
+
+    def _operator_guidelines_root(self) -> str | None:
+        """Where THIS job's box can open the operator's guideline directory, or None — asked per
+        context build, for the reason `_operator_reference_root` gives."""
+        from openfactory.orchestrator import operator_guidelines
+
+        return operator_guidelines.guidelines_root(getattr(self, "sandbox", None),
+                                                   operator_guidelines.gather())
 
     def _experiment_arm(self) -> bool:
         """Whether this ticket gets the map, when an A/B window is open. Decided ONCE per job and

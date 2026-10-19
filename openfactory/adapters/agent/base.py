@@ -13,8 +13,10 @@ what keeps container isolation real — the agent never escapes to the host.
 from __future__ import annotations
 
 import json
+import logging
 import shlex
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -22,18 +24,66 @@ from pydantic import BaseModel, Field
 from openfactory.adapters.sandbox.base import SandboxAdapter, Workspace
 from openfactory.contracts import AgentRunResult, Ticket
 
+_log = logging.getLogger("openfactory.adapters.agent.base")
+
+
+#: The operator setting that bounds a pass's prompt (ADR-0056). Read from the worker's environment
+#: by `orchestrator.context.prompt_budget`; named here because the notice the brief carries says it.
+PROMPT_BUDGET_VARIABLE = "OPENFACTORY_PROMPT_BUDGET"
+
+
+class InlinedDocument(BaseModel):
+    """One declared document a pass may inline: where it came from, where the agent can open it,
+    and how much of it fits the per-document cut (#364, ADR-0056).
+
+    `source` is the trace's layer or manifest key (`docs.constraints`, `docs.guidelines`,
+    `framework`, `operator`, …); `path` is how that layer names it, as `Traced.name` does. `open_at`
+    is the path the agent can open it at from its box — checkout-relative for the project's own,
+    `<operator root>/<file>` for the operator tier when the box answered — and None when no path
+    in the box reaches it (the framework baseline, an operator tier the box does not mount): such a
+    document is PINNED, because leaving it out would leave out a rule the agent cannot re-open.
+    `text` is what the prompt carries, already cut at `_MAX_DOC_CHARS`; `chars_on_disk` is how long
+    the file is, so a cut can be said rather than hidden."""
+
+    source: str
+    path: str
+    open_at: str | None = None
+    text: str
+    chars_on_disk: int
+
+    @property
+    def pinned(self) -> bool:
+        return self.open_at is None
+
+    @property
+    def truncated(self) -> bool:
+        return self.chars_on_disk > len(self.text)
+
 
 class AgentContext(BaseModel):
     """The closed package handed to the worker — the "manual" it wears.
 
     Assembled by the orchestrator from the cascade + project knowledge (D-2/D-9):
-    the ticket, the always-on constraints (ADRs), the small guidelines, and a
-    derived doc index the agent pulls from on demand.
+    the ticket, the declared documents (decision records and every guideline tier), and a
+    derived doc index the agent pulls from on demand. The documents share ONE budget with
+    everything else the brief carries (`prompt_budget`, ADR-0056); `ticket_brief` applies it,
+    because the plan and a repair's failure log only meet the documents there.
     """
 
     ticket: Ticket
-    guidelines: list[str] = Field(default_factory=list)  # inlined content (small)
-    constraints: list[str] = Field(default_factory=list)  # ADRs, inlined (the constitution)
+    # TEXT THAT IS NOT A DOCUMENT, always rendered and never left out by the budget: the sizer's
+    # INVEST sentence, an add-on's own lines. `build_context` puts the declared documents in
+    # `documents` instead (#364). Neither field is removed nor shadowed by a property: pydantic
+    # ignores a kwarg that is no longer a field, and `.append` on a computed list is lost, so
+    # either would silently drop a caller's text (engineering lessons §6).
+    guidelines: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    #: The declared documents, in the cascade's order: `docs.constraints`, then the framework
+    #: baseline, a profile's additions, the operator tier and the project's own guidelines last.
+    documents: list[InlinedDocument] = Field(default_factory=list)
+    #: The bytes the brief and the plan may take together, or None for no bound — the default for
+    #: any context somebody builds by hand, so nothing built outside `build_context` changes.
+    prompt_budget: int | None = None
     doc_index: str = ""  # derived table-of-contents; agent pulls full docs on demand
     # Knowledge Layer, Phase 1: a rendered, generated module map ("where things live + why"),
     # injected so the agent navigates to the right code faster and then verifies it against the
@@ -55,6 +105,12 @@ class AgentContext(BaseModel):
     #: new change from the base. A person's words, so the brief fences them as DATA beside the
     #: card. Empty on every other run.
     another_pass: str = ""
+
+    def document_texts(self, source: str | None = None) -> list[str]:
+        """The texts of the declared documents — every one, or those of one `source` — before any
+        budget, in the cascade's order. What a reader of `constraints`/`guidelines` after
+        `build_context` reads now (#364)."""
+        return [d.text for d in self.documents if source is None or d.source == source]
 
 
 @runtime_checkable
@@ -668,9 +724,156 @@ def handed_to_a_live_session(words: str, *, this_pass: str = "continuation") -> 
                       *_handed(nonce, words, this_pass)])
 
 
+#: The source `build_context` gives a decision record (`docs.constraints`), rendered under its own
+#: heading; every other document is a guideline.
+CONSTRAINTS = "docs.constraints"
+
+
+@dataclass(frozen=True)
+class DocumentFit:
+    """What the prompt budget made of a context's documents (#364, ADR-0056).
+
+    `kept` and `left_out` are in the cascade's order; `truncated` is the kept documents that
+    `_MAX_DOC_CHARS` cut. `used` is `budgeted_bytes` of the brief this fit renders. It can pass
+    `budget` only when the pinned documents and the fixed parts alone do, in which case every
+    document that could be left out was."""
+
+    kept: list[InlinedDocument]
+    left_out: list[InlinedDocument]
+    budget: int | None
+    used: int
+
+    @property
+    def truncated(self) -> list[InlinedDocument]:
+        return [d for d in self.kept if d.truncated]
+
+
+def _size(text: str) -> int:
+    """BYTES, the unit a model's context is paid in. Counting characters was the cut that
+    survived #359's review: an ADR spends `→`, `—` and accented names, and this repository's own
+    records run 8,066 bytes for 8,000 characters."""
+    return len(text.encode("utf-8"))
+
+
+def _fill_rank(source: str) -> int:
+    """How early the budget tries a document of this source: the project's own guidelines, then
+    its decision records, then the operator tier, then a profile's additions (ADR-0056). The
+    framework baseline is never tried: it is pinned."""
+    if source == "docs.guidelines" or source.startswith("components."):
+        return 0
+    return {CONSTRAINTS: 1, "operator": 2, "profile": 3}.get(source, 4)
+
+
+def _fill_order(documents: list[InlinedDocument]) -> list[int]:
+    """The indices of the documents the budget may leave out, in the order it tries them: by
+    rank, and within one source the LAST first. For numbered decision records that is newest
+    first — a later record amends or supersedes an earlier one, and #359's glob-order fill kept
+    ADR-0007 ("partly superseded by ADR-0010") and dropped ADR-0010."""
+    droppable = [i for i, d in enumerate(documents) if not d.pinned]
+    return sorted(droppable, key=lambda i: (_fill_rank(documents[i].source), -i))
+
+
+def fit_documents(context: AgentContext, *, failures: str = "", this_pass: str = "repair",
+                  nonce: str | None = None) -> DocumentFit:
+    """Which of `context.documents` the brief inlines under `context.prompt_budget`.
+
+    THE WHOLE DECLARED SECTION SHARES ONE BUDGET, not one cap per role (#359 measured the
+    per-role inversion: six operator documents left the project's own guidelines out). Every
+    trial is the real brief, rendered with that set kept and the rest named, plus the plan — so
+    the card, the index, the knowledge map, the plan, the failure log and the notice's own lines
+    are all counted, and the fit cannot disagree with the prompt. Measured at d29b94a on this
+    repository's own documents, a blank card's brief was 477,369 bytes.
+
+    Pinned documents (nothing in the box can open them) are kept before anything is tried. Then
+    each other document, in `_fill_order`, is kept if the brief still fits: one that does not fit
+    is left out and the next, smaller one is still tried, and one that lands exactly on the budget
+    is kept.
+
+    `nonce` is the brief's fence marker, drawn once by `ticket_brief` and measured with here, so
+    a fit costs no draw of its own and measures the marker the agent is handed."""
+    nonce = nonce or _brief_nonce(context, failures)
+    documents = context.documents
+    budget = context.prompt_budget
+    if budget is None:
+        kept = set(range(len(documents)))
+    else:
+        kept = {i for i, d in enumerate(documents) if d.pinned}
+
+    def measure() -> int:
+        inlined = [d for i, d in enumerate(documents) if i in kept]
+        named = [d for i, d in enumerate(documents) if i not in kept]
+        brief = _render(context, inlined, named, failures=failures, this_pass=this_pass,
+                        nonce=nonce)
+        return _size(brief) + _size(context.plan)
+
+    used = measure()
+    if budget is not None:
+        for i in _fill_order(documents):
+            kept.add(i)
+            trial = measure()
+            if trial > budget:
+                kept.discard(i)
+                continue
+            used = trial
+    return DocumentFit(kept=[d for i, d in enumerate(documents) if i in kept],
+                       left_out=[d for i, d in enumerate(documents) if i not in kept],
+                       budget=budget, used=used)
+
+
+def budgeted_bytes(context: AgentContext, failures: str = "", this_pass: str = "repair") -> int:
+    """The bytes the prompt budget bounds: the brief a pass is handed plus the plan the harness
+    renders beside it. The role prompt is the platform's own, fixed per role, and is not counted
+    (ADR-0056)."""
+    brief = ticket_brief(context, failures=failures, this_pass=this_pass)
+    return _size(brief) + _size(context.plan)
+
+
+#: The notice's heading: inside the AUTHORITATIVE section, because a document named here binds the
+#: agent as much as one inlined above it.
+NOTICE_HEADING = ("### Declared and not inlined here — open each before you change what it "
+                  "governs")
+
+
+def _notice(kept: list[InlinedDocument], left_out: list[InlinedDocument],
+            budget: int | None) -> list[str]:
+    """Every document the budget left out, by the path the agent can open it at, and every one
+    `_MAX_DOC_CHARS` cut, by how much was inlined — or nothing, when nothing was either.
+
+    IN THE PROMPT, NOT IN A LOG. A drop the worker only says on stderr is a drop the agent works
+    without (#364's criterion 5): #359 logged 44 lines per build and the agent never saw one. And a
+    cut was never said at all: an 8,000-character slice of a 14,000-character record read as the
+    whole record, and `openfactory explain` called it "inlined in full"."""
+    cut = [d for d in kept if d.truncated]
+    if not left_out and not cut:
+        return []
+    if budget is None:
+        bound = (f"No budget bounds this pass (`{PROMPT_BUDGET_VARIABLE}=off`); each document is "
+                 f"cut at a length of its own.")
+    else:
+        bound = (f"These documents share a budget of {budget:,} bytes with the card, the plan and "
+                 f"the rest of this brief (`{PROMPT_BUDGET_VARIABLE}`).")
+    lines = ["", NOTICE_HEADING,
+             f"{bound} Each document named here binds you as much as one inlined above; open it "
+             f"at the path given before you change what it governs."]
+    for d in left_out:
+        lines.append(f"- `{_one_line(d.open_at, 400)}` — left out ({d.chars_on_disk:,} "
+                     f"characters)")
+    for d in cut:
+        rest = f"; the rest is at `{_one_line(d.open_at, 400)}`" if d.open_at else ""
+        lines.append(f"- `{_one_line(d.path, 400)}` — inlined up to {len(d.text):,} of "
+                     f"{d.chars_on_disk:,} characters{rest}")
+    return lines
+
+
 def ticket_brief(context: AgentContext, *, failures: str = "",
                  this_pass: str = "repair") -> str:
     """The ticket and its knowledge cascade, as EVERY harness hands it to its CLI — one builder.
+
+    THE PROMPT BUDGET IS APPLIED HERE, and nowhere earlier (#364, ADR-0056). `build_context` reads
+    the documents, but the planner's plan is set on the context after it and a repair's failure
+    log only arrives as `failures=` — so this is the one place that sees every part the budget
+    bounds. `fit_documents` decides which documents are inlined; whatever it leaves out, and
+    whatever `_MAX_DOC_CHARS` cut, is named by path in the notice this renders.
 
     THERE WERE THREE, AND THEY DISAGREED ABOUT WHAT THE AGENT IS TOLD. The reference harness had
     `_ticket_context` (with the card's Context, without its In-scope list); codex had
@@ -694,12 +897,38 @@ def ticket_brief(context: AgentContext, *, failures: str = "",
     A card the sizer split from a parent also carries what that parent's author wrote beside its
     objective and criteria (`Ticket.from_parent`, #624) — the parent is closed, so this is the
     only place the job reads its Scope — fenced like the rest of the card."""
+    nonce = _brief_nonce(context, failures)
+    fit = fit_documents(context, failures=failures, this_pass=this_pass, nonce=nonce)
+    if fit.left_out:
+        # ONE LINE PER BRIEF, never one per document: #359 logged 44 lines per build, twice per
+        # job, and the count is what an operator acts on. The documents are named in the prompt.
+        fixed = " — the card, the plan and the other fixed parts alone pass it" if (
+            fit.budget is not None and fit.used > fit.budget) else ""
+        _log.warning(
+            "the prompt budget of %s bytes (%s) leaves %d of %d declared documents out of this "
+            "pass%s; each is named in the prompt by the path it can be opened at.",
+            f"{fit.budget:,}", PROMPT_BUDGET_VARIABLE, len(fit.left_out),
+            len(fit.kept) + len(fit.left_out), fixed)
+    return _render(context, fit.kept, fit.left_out, failures=failures, this_pass=this_pass,
+                   nonce=nonce)
+
+
+def _brief_nonce(context: AgentContext, failures: str) -> str:
+    """This brief's fence marker, drawn against every value in it that nobody here wrote."""
     t = context.ticket
     criteria = [c.text for c in t.acceptance_criteria]
-    nonce = _marker_nonce([str(v) for v in (t.title, t.objective, t.context, context.knowledge_map,
-                                            failures, context.another_pass, *t.in_scope,
-                                            *criteria, *t.out_of_scope, t.from_parent)
-                           if v])
+    return _marker_nonce([str(v) for v in (t.title, t.objective, t.context, context.knowledge_map,
+                                           failures, context.another_pass, *t.in_scope,
+                                           *criteria, *t.out_of_scope, t.from_parent)
+                          if v])
+
+
+def _render(context: AgentContext, kept: list[InlinedDocument],
+            left_out: list[InlinedDocument], *, failures: str, this_pass: str,
+            nonce: str) -> str:
+    """The brief with `kept` inlined and `left_out` named — `ticket_brief`'s text, and the one
+    `fit_documents` measures, so the fit is measured on the bytes the agent is handed."""
+    t = context.ticket
 
     # THE RULE IS THE FIRST BYTE OF THE BRIEF, and the ticket's own title is no longer above it.
     # `# Ticket <id>: <title>` led the document, the title is a stranger's prose, and the commit
@@ -717,7 +946,7 @@ def ticket_brief(context: AgentContext, *, failures: str = "",
         parts += ["", "### Context"] + _fenced(nonce, t.context)
     if t.in_scope:
         parts += ["", "### In scope"] + _fenced(nonce, *(f"- {x}" for x in t.in_scope))
-    if criteria:
+    if t.acceptance_criteria:
         parts += ["", "### Acceptance criteria"] + _fenced(
             nonce, *(c.bullet() for c in t.acceptance_criteria))
     if t.out_of_scope:
@@ -736,12 +965,16 @@ def ticket_brief(context: AgentContext, *, failures: str = "",
         parts += _handed(nonce, failures, this_pass)
 
     # ── what the PROJECT declares (authoritative) ───────────────────────────────────────────────
+    # The kept documents in the CASCADE's order, whatever order the budget added them in, so the
+    # project keeps the last word; then the text that is not a document, which is never left out.
+    constraints = [d.text for d in kept if d.source == CONSTRAINTS] + list(context.constraints)
+    guidelines = [d.text for d in kept if d.source != CONSTRAINTS] + list(context.guidelines)
     declared = []
-    if context.constraints:
-        declared += (["", "### Constraints (ADRs — must not be violated)"]
-                     + list(context.constraints))
-    if context.guidelines:
-        declared += ["", "### Project guidelines"] + list(context.guidelines)
+    if constraints:
+        declared += ["", "### Constraints (ADRs — must not be violated)"] + constraints
+    if guidelines:
+        declared += ["", "### Project guidelines"] + guidelines
+    declared += _notice(kept, left_out, context.prompt_budget)
     if context.doc_index:
         declared += ["", "### Reference docs (read the relevant one before touching that area)",
                      context.doc_index]

@@ -240,6 +240,12 @@ Not gaps — decisions, each with an ADR.
 - **Cross-repository ordering does not exist.** Two repositories are two floors; nothing stops the
   front-end ticket merging before the API it depends on. Designed in
   [ADR-0036](adr/0036-cross-repo-ordering.md), not built.
+- **A job's prompt is bounded, not everything is inlined.** The documents a pass carries share
+  one budget with the card, the plan and a repair's failure log (`OPENFACTORY_PROMPT_BUDGET`,
+  160,000 bytes unless the operator sets another, or `off`). The project's own guidelines are
+  kept first and decision records newest first, and every document left out or cut is named in
+  the prompt by its path ([ADR-0056](adr/0056-a-prompt-has-one-budget-and-names-what-it-leaves-out.md)).
+  The reviewer is handed no decision records at all today: nothing fills its `constraints`.
 
 ---
 

@@ -204,11 +204,18 @@ def test_the_trace_is_the_context_the_job_builds(case, tmp_path, monkeypatch):
 
     guidelines = [t.text for t in trace if t.text is not None and t.layer != "docs.constraints"]
     constraints = [t.text for t in trace if t.text is not None and t.layer == "docs.constraints"]
-    assert guidelines == traced.guidelines == plain.guidelines
-    assert constraints == traced.constraints == plain.constraints
+    assert guidelines == _guidelines(traced) == _guidelines(plain)
+    assert constraints == traced.document_texts("docs.constraints") == plain.document_texts(
+        "docs.constraints")
     assert traced.doc_index == plain.doc_index, "a trace changed what the job is given"
     kinds = [t.layer == "docs.constraints" for t in trace if t.text is not None]
     assert kinds == sorted(kinds, reverse=True), "the constraints lead, as the brief has them"
+
+
+def _guidelines(context) -> list[str]:
+    """Every guideline tier's texts, in order — what `AgentContext.guidelines` held before #364
+    moved the documents to `documents`."""
+    return [d.text for d in context.documents if d.source != "docs.constraints"]
 
 
 def test_every_fate_is_traced_where_it_is_decided(tmp_path, monkeypatch):

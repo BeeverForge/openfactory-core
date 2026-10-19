@@ -43,7 +43,7 @@ def worker(tmp_path: Path):
 
 
 def _read(manifest: Manifest, checkout: Path) -> str:
-    return "\n".join(build_context(manifest, checkout, _ticket()).guidelines)
+    return "\n".join(build_context(manifest, checkout, _ticket()).document_texts())
 
 
 # ── 1. refused outside, read inside ────────────────────────────────────────────────────────────

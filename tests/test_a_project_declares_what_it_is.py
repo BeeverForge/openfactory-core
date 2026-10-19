@@ -166,7 +166,7 @@ def test_a_prototype_stops_receiving_the_tdd_mandate_and_keeps_the_rest(tmp_path
 
     resolved = prof.resolve_profile("prototype")           # the shipped worked example
     assert resolved is not None
-    injected = ctx._org_defaults(resolved, tmp_path)
+    injected = [d.text for d in ctx._org_defaults(resolved, tmp_path)]
 
     tdd = (ctx.ORG_DEFAULTS_DIR / "tdd.md").read_text()[:100]
     engineering = (ctx.ORG_DEFAULTS_DIR / "engineering.md").read_text()[:100]
@@ -181,7 +181,7 @@ def test_waiving_a_name_the_baseline_does_not_have_changes_nothing_and_says_so(t
     resolved = prof.ResolvedProfile([p])
 
     with caplog.at_level("WARNING"):
-        injected = ctx._org_defaults(resolved, tmp_path)
+        injected = [d.text for d in ctx._org_defaults(resolved, tmp_path)]
 
     assert len(injected) == len(list(ctx.ORG_DEFAULTS_DIR.glob("*.md")))
     assert "tdd.markdown" in caplog.text
@@ -195,7 +195,7 @@ def test_a_replacement_that_is_not_in_the_checkout_keeps_the_frameworks_own(tmp_
     resolved = prof.ResolvedProfile([p])
 
     with caplog.at_level("WARNING"):
-        injected = ctx._org_defaults(resolved, tmp_path)
+        injected = [d.text for d in ctx._org_defaults(resolved, tmp_path)]
 
     tdd = (ctx.ORG_DEFAULTS_DIR / "tdd.md").read_text()[:100]
     assert any(doc.startswith(tdd) for doc in injected)
@@ -208,7 +208,7 @@ def test_a_replacement_that_is_there_substitutes_whole(tmp_path):
     p = Profile.model_validate(
         {"name": "housestyle", "guidelines": {"replace": {"tdd.md": "docs/our-tdd.md"}}})
 
-    injected = ctx._org_defaults(prof.ResolvedProfile([p]), tmp_path)
+    injected = [d.text for d in ctx._org_defaults(prof.ResolvedProfile([p]), tmp_path)]
 
     assert "OUR test-first rules" in injected
     tdd = (ctx.ORG_DEFAULTS_DIR / "tdd.md").read_text()[:100]
@@ -222,7 +222,7 @@ def test_extend_appends_the_projects_own_content_last(tmp_path):
     (tmp_path / "docs" / "house.md").write_text("HOUSE RULE", encoding="utf-8")
     p = Profile.model_validate({"name": "x", "guidelines": {"extend": ["docs/house.md"]}})
 
-    injected = ctx._org_defaults(prof.ResolvedProfile([p]), tmp_path)
+    injected = [d.text for d in ctx._org_defaults(prof.ResolvedProfile([p]), tmp_path)]
 
     assert injected[-1] == "HOUSE RULE"
 
@@ -438,9 +438,9 @@ def test_the_class_reaches_the_agent_through_build_context_not_only_the_helper(t
 
     tdd = (ctx.ORG_DEFAULTS_DIR / "tdd.md").read_text()[:100]
     engineering = (ctx.ORG_DEFAULTS_DIR / "engineering.md").read_text()[:100]
-    assert not any(doc.startswith(tdd) for doc in built.guidelines), (
+    assert not any(doc.startswith(tdd) for doc in built.document_texts()), (
         "the class was resolved and the agent still received the mandate it waives")
-    assert any(doc.startswith(engineering) for doc in built.guidelines)
+    assert any(doc.startswith(engineering) for doc in built.document_texts())
 
 
 def test_the_class_is_the_ONLY_reason_a_normal_change_goes_to_a_person(tmp_path):
@@ -603,7 +603,7 @@ def test_the_class_reaches_a_real_runners_context(tmp_path):
     built = runner._build_context(Ticket(id="#1", title="t", objective="o", repo="acme/app"))
 
     tdd = (ctx.ORG_DEFAULTS_DIR / "tdd.md").read_text()[:100]
-    assert not any(doc.startswith(tdd) for doc in built.guidelines)
+    assert not any(doc.startswith(tdd) for doc in built.document_texts())
 
 
 def _machine_file() -> str:

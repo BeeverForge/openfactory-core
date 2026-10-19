@@ -656,7 +656,7 @@ and it **never overwrites** — an existing document is kept, so re-running refr
 
 **The sentence that saves you an afternoon:** the context repository feeds the **product
 role** (§9) — requirements, glossary, domain facts. The **coding agents** read only what your
-SOURCE repository's manifest points them at: `docs.constraints` (ADRs — always loaded),
+SOURCE repository's manifest points them at: `docs.constraints` (ADRs — inlined newest first under the prompt budget, the rest named),
 `docs.architecture`, `docs.guidelines`. If you want the executor to see the backfill's
 invariants or overview, commit them (or a copy) in the source repo and name them there —
 `.openfactory/project.yaml`:
@@ -901,7 +901,11 @@ one voice that judges the work.)
 
 **Per project, additively**: the manifest's `docs.guidelines` (and per-component `guidelines:`)
 append YOUR rules after the deployment's — a project can add, never silently remove, the
-baseline. Each file is truncated at 8,000 characters. A named guideline missing from the
+baseline. Each file is truncated at 8,000 characters, and all of them share one prompt budget
+with the card and the plan (`OPENFACTORY_PROMPT_BUDGET`, 160,000 bytes unless you set another
+number, or `off`). The project's own guidelines are kept first. Every file left out or cut is
+named by path in the prompt, under *Declared and not inlined here*, and `openfactory doctor`'s
+`documents` line says how many a blank card keeps. A named guideline missing from the
 checkout, or a `docs.constraints`/`docs.architecture` glob matching nothing, logs one warning
 and the agent runs without it — worth grepping the worker's log for `docs.` after a rename.
 

@@ -63,7 +63,10 @@ Under the header, every row is a block of the prompt, in the order the prompt ha
   `openfactory/org_defaults/roles/planner.md` (or `executor.md`), or, for a role this package does
   not ship, an add-on's own text. Nothing overrides a shipped one: the deployment overlay
   [ADR-0044](adr/0044-a-project-declares-what-it-is.md) names does not exist yet.
-- **`docs.constraints`** — the project's decision records, inlined in full on every pass.
+- **`docs.constraints`** — the project's decision records. Each is inlined up to 8,000
+  characters, under the deployment's prompt budget (ADR-0056). A record that does not fit reads
+  `left out — over the N-byte prompt budget; named in the prompt at <path>`, and one that was cut
+  reads `inlined up to 8,000 of N characters`. The prompt names both, so the agent can open them.
 - **framework** — `openfactory/org_defaults/engineering.md` and `openfactory/org_defaults/tdd.md`,
   each with its fate. `prototype` waives `tdd.md`; `house-style` replaces `engineering.md` with
   the project's own (`docs/examples/profiled-project/docs/engineering.md`).
@@ -85,7 +88,11 @@ The issue that asked for this page imagined a chain from the role prompts throug
 overlay to the project's profile. That is not what exists, and `explain` prints what exists:
 
 1. **The role prompt** — one layer, as above (`openfactory/adapters/agent/roles.py`).
-2. **The constraints** — `docs.constraints`, every file the glob matches, in full.
+2. **The constraints** — `docs.constraints`, every file the glob matches, each cut at 8,000
+   characters. All the documents share one prompt budget, `OPENFACTORY_PROMPT_BUDGET` (160,000
+   bytes unless the operator sets another). It is filled with the project's own guidelines first,
+   then the records newest first, then the operator's. Every document left out or cut is named in
+   the prompt by its path.
 3. **The guidelines**, in this order (`openfactory/orchestrator/context.py`):
    1. the framework's `openfactory/org_defaults/*.md`, which the project's profile may **waive**,
       **replace** (by filename, with a file of the checkout) or **extend** (with more files of the
@@ -112,7 +119,7 @@ record. It cannot say one thing while a job does another.
 |---|---|---|
 | a house rule for the whole project | a file named in `docs.guidelines` | `docs.guidelines` … `kept` |
 | a rule for one area of a polyglot repository | `components.<name>.guidelines` | `components.<name>.guidelines` … `kept` |
-| a decision no change may violate | a record under `docs.constraints` | `docs.constraints` … `inlined in full` |
+| a decision no change may violate | a record under `docs.constraints` | `docs.constraints` … `inlined in full`, `inlined up to N of M characters`, or `left out — … named in the prompt at <path>` |
 | a long document read only when needed | `docs.architecture` | `index` |
 | to say what the project is: drop or swap a framework guideline | a profile in `.openfactory/profiles/` and `profile:` in the manifest | `framework` … `waived by` / `replaced by` |
 | the organisation's standards on every project | the operator's `OPENFACTORY_GUIDELINES_DIR` | `operator` |
@@ -247,7 +254,8 @@ been built.
 ## Not yet a door
 
 **The architect** — *are my decisions being complied with?* What exists: the decision records in
-`docs.constraints` are inlined in full on every pass (`explain` lists them), and the independent
+`docs.constraints` are inlined newest first under the prompt budget on every pass, and every
+record left out or cut is named in the prompt (`explain` lists each one's fate). The independent
 review reads each change against its card. What does not: a trace from a change to the records it
 followed, and a map from each acceptance criterion to the test that holds it. Until those exist
 this page would be telling an architect to read diffs, which is not a door.

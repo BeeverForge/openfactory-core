@@ -52,13 +52,16 @@ MUTATIONS = [
      "a repository that deliberately replaces a central rule is overruled by the central one, and "
      "the manifest's last word — the property the cascade is built on — is gone",
      # re-pinned 2026-10-05: both calls carry the trace `openfactory explain` reads (#81)
+     # re-pinned 2026-10-18: the operator tier's call says where the box opens it (#364)
      "openfactory/orchestrator/context.py",
      "    guidelines = _org_defaults(profile, repo_path,\n"
      "                               {p.name for p in operator.guideline_docs}, trace)\n"
      "    guidelines += _resolve_tier(operator.guideline_docs, profile, repo_path,\n"
-     "                                source=\"operator's own\", layer=OPERATOR, trace=trace)",
+     "                                source=\"operator's own\", layer=OPERATOR, trace=trace,\n"
+     "                                open_at=_operator_open_at(operator_root))",
      "    guidelines = _resolve_tier(operator.guideline_docs, profile, repo_path,\n"
-     "                               source=\"operator's own\", layer=OPERATOR, trace=trace)\n"
+     "                               source=\"operator's own\", layer=OPERATOR, trace=trace,\n"
+     "                               open_at=_operator_open_at(operator_root))\n"
      "    guidelines += _org_defaults(profile, repo_path,\n"
      "                                {p.name for p in operator.guideline_docs}, trace)",
      "tests/test_context.py"),

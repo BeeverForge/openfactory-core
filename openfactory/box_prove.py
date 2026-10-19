@@ -43,10 +43,14 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from openfactory import namespace
 from openfactory.observability.job_record import record_one_pass
 from openfactory.orchestrator.validation import advisory_gates, gate_commands
+
+if TYPE_CHECKING:
+    from openfactory.adapters.agent.base import DocumentFit
 
 log = logging.getLogger("openfactory.box_prove")
 
@@ -314,12 +318,13 @@ class Probes:
     #: RUN anything in a missing box does: `box answer` read that exit 1 as the harness refusing,
     #: and recorded a spend for a call nobody made.
     box_start_error: Callable[[], str] = lambda: ""
-    #: `(per_role_bytes, note)` — how many BYTES each declared document role would inline into
-    #: every pass (after `_MAX_DOC_CHARS` truncation) and, on a box or harness that keeps the prompt
-    #: on the command line, how the prompt a pass carries compares with the line it refuses at (#7,
-    #: #418). None = an older Probes, or a checkout/manifest this call could not read; the station
-    #: is skipped rather than invented.
-    inlined_documents: Callable[[], tuple[dict[str, int], str] | None] | None = None
+    #: `(per_role_bytes, note, fit)` — how many BYTES each declared document role takes (after
+    #: `_MAX_DOC_CHARS` truncation); on a box or harness that keeps the prompt on the command line,
+    #: how the prompt a pass carries compares with the line it refuses at (#7, #418); and what the
+    #: prompt budget makes of a blank card's documents (#364). None = an older Probes, or a
+    #: checkout/manifest this call could not read; the station is skipped rather than invented.
+    inlined_documents: (Callable[[], tuple[dict[str, int], str, DocumentFit | None] | None]
+                        | None) = None
 
 
 def component_gates(manifest) -> dict[str, str]:
@@ -558,15 +563,27 @@ def prove(project: str, image: str, p: Probes, *,
     # ── how many bytes the project's documents would inline (#7) ─────────────────────────────────
     #
     # FIRST, so it is in the output even when a station below stops the proof — the size is a fact
-    # about the manifest and the checkout, not about whether the box works. ok=True always: a note,
-    # never a refusal (#360 already refuses an undeliverable prompt by name at pass time). It says
-    # nothing when the checkout could not be read (`None`) rather than inventing a zero.
-    measured = p.inlined_documents() if p.inlined_documents else None
-    if measured is not None:
-        from openfactory.orchestrator.context import inlined_document_summary
+    # about the manifest and the checkout, not about whether the box works. ok=True but in one
+    # case: a note, never a refusal (#360 already refuses an undeliverable prompt by name at pass
+    # time). It says nothing when the checkout could not be read (`None`) rather than inventing a
+    # zero. The one failure is an `OPENFACTORY_PROMPT_BUDGET` nobody can read (#364): every job
+    # would hold on it before a pass, so a proof that passed over it would be proving nothing.
+    from openfactory.orchestrator.context import (
+        PromptBudgetError,
+        inlined_document_summary,
+        prompt_budget,
+    )
 
-        per_role, note = measured
-        message = inlined_document_summary(per_role)
+    try:
+        prompt_budget()
+    except PromptBudgetError as exc:
+        proof.findings.append(Finding("documents", False, str(exc)))
+        measured = None
+    else:
+        measured = p.inlined_documents() if p.inlined_documents else None
+    if measured is not None:
+        per_role, note, fit = measured
+        message = inlined_document_summary(per_role, fit)
         proof.findings.append(Finding(
             "documents", True, message + (f"\n{note}" if note else "")))
 
@@ -1217,6 +1234,12 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
     }
     if declared_env := tuple(getattr(declared, "env", None) or ()):
         knobs["extra_env"] = declared_env
+    # …and the operator directory the job's box mounts (`factory.py`), read from the same place: a
+    # proof box without it opens no operator document, and the budget's fit it reports pinned that
+    # tier where the job leaves it out (review of #364)
+    from openfactory.orchestrator import operator_guidelines
+
+    knobs.update(operator_guidelines.box_knobs())
     # THE BOX THIS DEPLOYMENT RUNS, not always the container one (ADR-0049 D9). A proof taken in a
     # box the job will not use proves the box nobody runs — the same reasoning that made this reuse
     # `ContainerSandbox` rather than approximate it, one axis further out.
@@ -1361,8 +1384,9 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
         found = {line.strip() for line in (out or "").splitlines() if line.strip() in names}
         return {n: "1" for n in found}
 
-    def _inlined_documents() -> tuple[dict[str, int], str] | None:
-        """Per-role inlined bytes and, when this box keeps the prompt on argv, the note (#7).
+    def _inlined_documents() -> tuple[dict[str, int], str, DocumentFit | None] | None:
+        """Per-role inlined bytes, when this box keeps the prompt on argv the note (#7), and what
+        the prompt budget makes of a blank card's documents in THIS box (#364).
 
         MEASURED ON THE SAME CHECKOUT AND MANIFEST the proof runs against, so the number is the one
         the job will pay. Whether the box stages input is read off the real box instance the way
@@ -1371,10 +1395,12 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
         that crashes on a doc it could not read is worse than one that says nothing about it."""
         from openfactory.adapters.agent.registry import harness_kind
         from openfactory.orchestrator.context import (
+            blank_card_fit,
             inlined_document_bytes,
             inlined_document_overflow,
             prompt_floor_bytes,
         )
+        from openfactory.orchestrator.operator_guidelines import gather, guidelines_root
         from openfactory.policy.profiles import resolve_profile
 
         try:
@@ -1387,6 +1413,9 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
             # THE PROMPT A PASS CARRIES, NOT THE DOCUMENTS ALONE (#418) — what `stage_prompt` will
             # measure, so the note cannot call fitting a project the pass refuses at pickup.
             floor = prompt_floor_bytes(manifest, repo, profile=profile)
+            # where THIS box opens the operator's guidelines, as the job asks it (#364)
+            fit = blank_card_fit(manifest, repo, profile=profile,
+                                 operator_root=guidelines_root(box, gather()))
         except Exception as exc:  # a diagnostic never breaks on a doc it can't read
             log.info("could not measure %s's inlined documents (%s)",
                      getattr(project, "name", "?"), str(exc)[:120])
@@ -1395,7 +1424,7 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
         note = inlined_document_overflow(sum(per_role.values()), prompt_bytes=floor,
                                          stages_input=stages,
                                          harness=harness_kind(project, "executor"))
-        return per_role, note
+        return per_role, note, fit
 
     try:
         # A throwaway branch in a throwaway clone: `prepare` always makes one, nothing is pushed,
