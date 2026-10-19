@@ -13,6 +13,8 @@ The claims, each held by the test a row names (`JiraTracker._text`, the block re
   - C4. A list ends on a blank line, so the paragraph after it is not read into its last
     criterion. Held by a schema-shaped document with no empty paragraph after the list, so the
     blank line can only come from the renderer, not from the editor's own empty paragraph (KAN-4).
+    That empty paragraph is the list's blank, not a second one (M16), and only the first after a
+    list is: a second is the person's own blank line (M17).
   - C5. Containers (table, expand, panel) and `hardBreak` never lose their text (ADR-0022 §4).
   - C6, the second instance. An empty paragraph is a blank line, so a body the factory wrote with
     `_adf` reads back byte-identical and a split child's out-of-scope keeps its own line. Held by
@@ -146,4 +148,14 @@ MUTATIONS = [
      '                out.append(str(node.get("text", "")))\n            else:',
      '                pass\n            else:',
      TEST + "::test_an_action_item_and_a_decision_still_give_up_their_text"),
+
+    ("M16 the editor's empty paragraph after a list is kept: a second blank line", JIRA,
+     '                if line == "" and list_blank[0] == len(out) - 1:\n',
+     "                if False:\n",
+     TEST + "::test_the_editors_empty_paragraph_after_a_list_is_its_blank_line_not_a_second_one"),
+
+    ("M17 the list's blank is never reset once consumed: the person's own blank line is lost", JIRA,
+     "                    list_blank[0] = -1\n                    return\n",
+     "                    return\n",
+     TEST + "::test_a_second_empty_paragraph_after_a_list_is_a_blank_line_of_its_own"),
 ]

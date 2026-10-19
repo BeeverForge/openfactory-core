@@ -346,3 +346,18 @@ def test_an_action_item_and_a_decision_still_give_up_their_text():
          "content": [_t("we use Postgres")]}]}
 
     assert _read(task, decision) == "ship the release\nwe use Postgres"
+
+
+def test_the_editors_empty_paragraph_after_a_list_is_its_blank_line_not_a_second_one():
+    """C4: the editor stores an empty paragraph after a list (KAN-4); the list's own blank is it.
+    Keeping it as a second blank (M16) read `- a\\n\\n\\n- b`; on 1be1835 it read `a\\nb`."""
+    assert _read(_ul("a"), {"type": "paragraph"}, _ul("b")) == "- a\n\n- b"
+
+
+def test_a_second_empty_paragraph_after_a_list_is_a_blank_line_of_its_own():
+    """C4: only the first empty paragraph after a list is the editor's (KAN-4); a second one is a
+    blank line the person typed and is kept. Never resetting the list's blank once it is consumed
+    (M17) read `- a\\n\\nx` here and passed every other test. On 1be1835 it read `a\\nx`."""
+    empty = {"type": "paragraph"}
+
+    assert _read(_ul("a"), empty, empty, _p("x")) == "- a\n\n\nx"
