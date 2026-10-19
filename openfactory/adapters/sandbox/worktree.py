@@ -20,7 +20,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from openfactory.adapters import gitworktrees
@@ -343,6 +343,62 @@ def _what_is_at(wt: Path) -> tuple[str, str, bool] | None:
     return "tree", str(owner), tree.locked
 
 
+def _add_mark(wt: Path) -> Path:
+    """Where the box marks its own `worktree add` while it runs: beside `wt`, in the box's root."""
+    return wt.parent / f".{wt.name}.adding"
+
+
+def _mark_bytes(common: Path, wt: Path) -> bytes:
+    """What the mark holds: the repository's common directory and the tree's path, resolved, one
+    per line, so a mark names exactly one repository's add at exactly one path."""
+    return os.fsencode(str(common)) + b"\n" + os.fsencode(str(_where(wt))) + b"\n"
+
+
+def _write_mark(repo_path, wt: Path) -> Path | None:
+    """Write the mark for this repository's add at `wt`, atomically, and answer it; `None` (said in
+    the log) when it could not be written, and the add then runs unmarked, as before #746."""
+    common = _common_dir(repo_path)
+    if common is None:
+        log.warning("could not read the common git directory of %s — its worktree add at %s "
+                    "runs unmarked", repo_path, wt)
+        return None
+    mark = _add_mark(wt)
+    tmp = mark.with_name(f"{mark.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(_mark_bytes(common, wt))
+        os.replace(tmp, mark)
+    except OSError as exc:
+        log.warning("could not mark the worktree add at %s (%s) — it runs unmarked", wt, exc)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            log.debug("could not remove %s", tmp)
+        return None
+    return mark
+
+
+def _unlink_mark(mark: Path | None) -> None:
+    if mark is None:
+        return
+    try:
+        mark.unlink(missing_ok=True)
+    except OSError as exc:
+        log.warning("could not remove the mark %s (%s)", mark, exc)
+
+
+def _in_gits_own_words() -> dict[str, str]:
+    """The process environment with `LC_ALL=C` and no `LANGUAGE`: what the box's add runs under.
+
+    THE LOCK GIT WRITES DURING THE CHECKOUT IS ITS TRANSLATED `_("initializing")`: on 2.39.5 with
+    its catalogues `de_DE.UTF-8` writes `initialisiere\\n` and `es_ES.UTF-8` `inicializando\\n`;
+    `LC_ALL=C` writes `initializing\\n` even with `LANG=de_DE.UTF-8` or `LANGUAGE=de` set (measured
+    2026-10-18). There is no `-c` key for the reason, and `add --lock --reason` is git 2.33+, above
+    CONTRIBUTING's 2.28 floor. `LANGUAGE` is dropped too, for the gettext builds that read it."""
+    env = {k: v for k, v in os.environ.items() if k != "LANGUAGE"}
+    env["LC_ALL"] = "C"
+    return env
+
+
 def _say_what_was_not_removed(function, path, exc) -> None:
     """`shutil.rmtree`'s `onexc`: what could not be removed is logged, never ignored, so a refusal
     by name that follows does not read as the box having found the path taken by somebody."""
@@ -495,8 +551,10 @@ def _redact(text: str) -> str:
     return re.sub(r"(https://)[^@/\s]+@", r"\1***@", text)
 
 
-def _run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 120) -> tuple[int, str]:
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+def _run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 120,
+         env: Mapping[str, str] | None = None) -> tuple[int, str]:
+    # `env=None` inherits the process environment, as every caller but the box's own add does
+    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
@@ -652,7 +710,18 @@ class WorktreeSandbox(SandboxAdapter):
         # rather than making a second one over the base.
         add = (["worktree", "add", str(wt), branch] if keep
                else ["worktree", "add", "-b", branch, str(wt), start])
-        rc, out = _run(["git", "-C", str(repo_path), *add])
+        # THE BOX MARKS ITS OWN ADD (#746, option A, chosen 2026-10-18). Git writes
+        # `<admin>/locked` = `initializing\n` before the checkout and unlinks it after; a box killed
+        # in between (SIGKILL of its process group, OOM, power loss, or `_run`'s timeout, which
+        # kills the git parent only while its `reset --hard` child finishes) leaves the tree
+        # registered and locked, byte for byte what a person's `git worktree lock --reason
+        # initializing` leaves (2.34.1, 2.43.0 and 2.47.3, measured). The mark, written BEFORE the
+        # add and removed only once `_run` returned, is what tells the box's own interrupted add
+        # from a person's lock. Never in a `finally`: a `TimeoutExpired` is exactly the case the
+        # mark must outlive.
+        mark = _write_mark(repo_path, wt)
+        rc, out = _run(["git", "-C", str(repo_path), *add], env=_in_gits_own_words())
+        _unlink_mark(mark)
         if rc != 0:
             # Somebody may have checked the branch out between the read above and this add, or
             # the read may have failed; the porcelain is asked once more before git's sentence is
