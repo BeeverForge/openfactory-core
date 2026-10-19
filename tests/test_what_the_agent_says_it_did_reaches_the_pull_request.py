@@ -434,6 +434,32 @@ def test_a_bare_link_after_a_refused_destination_never_lends_its_backtick_to_the
     assert _names_read(html) == [], html
 
 
+@pytest.mark.parametrize("said", ["[t](<https://x.test/a> @octocat>)", "[t](<https://x.test/a> <@octocat>)"])
+def test_an_angle_address_ends_at_its_first_bracket_and_never_keeps_the_next_name_raw(said: str):
+    """Review on b440cf5: an angle-bracketed destination is kept raw, `@` included. One whose
+    content admitted `<` or `>` ran past the address's own `>` and took the agent's next name raw
+    (978 quote shapes in 3,000 fuzzed messages; shrunk to `[t](<https://x.test/a> @octocat>)`)."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
+    assert _names_read(html) == [], html
+
+
+@pytest.mark.parametrize("address", ["<https://medium.com/@octocat/post a>", "<https://medium.com/@octocat/a`b>",
+                                     "<https://medium.com/@octocat/a\\b>", "<x @octocat y>"])
+def test_a_cut_never_opens_an_angle_bracketed_markdown_link(address: str):
+    """Review on b440cf5: the cut keeps whole a link the quote kept raw. A cut row pattern that did
+    not know the angle form, or a link pattern that kept raw an angle destination the row pattern
+    does not know (a backtick, a backslash, no `http(s)://` or `www.`), let a cut open the link and
+    show its raw destination, the name in it read (12 to 54 cut shapes in 3,000 fuzzed messages)."""
+    markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
+    for pad in range(1930, 2000):
+        said = "a" * pad + f" [p]({address}) done"
+        q = machine._quoted(said)
+        lines = machine._account_lines(machine._Account(quote=q, total=machine._quote_chars(q)))
+        html = markdown_it.MarkdownIt("commonmark").render("\n".join(lines[3:]))
+        assert _names_read(html) == [], (pad, lines[3:])
+
+
 def test_a_reference_link_the_agent_defines_still_shows_its_address():
     """Review on 3c6d12c, measured on GitHub: `[1]: `https://…`` parsed as a definition with a
     backticked address, which renders nothing, and the agent's `[the run][1]` read "the run" with

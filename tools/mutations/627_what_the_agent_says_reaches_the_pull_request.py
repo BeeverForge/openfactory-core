@@ -196,6 +196,28 @@ MUTATIONS = [
      MACHINE,
      r'''_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\()]*[^\s`<>\\.,;:!?'\")\]()])")''',
      r'''_A_URL = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s`<>\\]*[^\s`<>\\.,;:!?'\")\]])")'''),
+    # the angle form keeps its destination raw, `@` included: what it refuses keeps a name in view
+    ("a cut does not know the angle form, opens an angle link, and its raw destination shows a name",
+     MACHINE,
+     r'''r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*\)")''',
+     r'''r")[ \t]*\)")'''),
+    ("an angle destination runs past its `>`, taking the agent's next name raw", MACHINE,
+     r'''r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*)\)")''',
+     r'''r"|<(?:https?://|www\.)[^\n`\\]*>)[ \t]*)\)")'''),
+    ("an angle destination with a backtick is kept raw, and a cut the row does not know opens it",
+     MACHINE,
+     r'''r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*)\)")''',
+     r'''r"|<(?:https?://|www\.)[^\n<>\\]*>)[ \t]*)\)")'''),
+    ("an angle destination with a backslash is kept raw, and a cut the row does not know opens it",
+     MACHINE,
+     r'''r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*)\)")''',
+     r'''r"|<(?:https?://|www\.)[^\n<>`]*>)[ \t]*)\)")'''),
+    ("an angle destination of any scheme is kept raw, and a cut the row does not know opens it",
+     MACHINE,
+     r'''r"|<(?:https?://|www\.)[^\n<>`\\]*>)[ \t]*)\)")''',
+     r'''r"|<[^\n<>`\\]*>)[ \t]*)\)")'''),
+    # `_A_LINK_IN_ROW`'s angle form admitting a backtick is not cut: `_A_LINK` never keeps such a
+    # destination raw, so no row holds one (review on b440cf5: it survives, equivalent)
     # ── bounded, and the cut says so ───────────────────────────────────────────────────────────
     ("the bound is measured on the text before quoting", MACHINE,
      "        if used + 1 + len(row) <= room:\n            kept.append(row)\n"
