@@ -25,7 +25,10 @@ human instead of self-healing. That is a real capability gap, stated rather than
 WHAT IS AND ISN'T PROVEN HERE
 - The command construction is exact — every flag above came from `--help`, and
   `tests/test_a_resumed_codex_job_is_handed_only_flags_exec_resume_takes.py` holds each command
-  to the options its subcommand takes in the pinned version.
+  to the options its subcommand takes in the pinned version. Those tables are checked against
+  the `exec --help` and `exec resume --help` of the codex the worker image installs, built from
+  `docker/worker.Dockerfile`'s `toolbox` stage, in CI's integration job, where that check fails
+  rather than skips (#805).
 - A RESUMED session is handed its sandbox as `-c sandbox_mode="<mode>"`, never `-s` (#636).
   It is not left to "the sandbox the session stored": a resume re-derives its sandbox from the
   invocation (`thread_resume_params_from_config`, read at rust-v0.146.0 and rust-v0.157.1), and
