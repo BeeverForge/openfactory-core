@@ -209,6 +209,12 @@ _CACHES = {
     # for the life of the process. `view.connect()` now empties the pool before inserting, so at
     # most one entry exists at any time; `test_the_panel_holds_one_engine_client.py` drives that
     # against this object for each of the three ways a target can change.
+    # #681 (sixth review of #818) — the one engine client the process holds, and the connect in
+    # flight for it
+    ("openfactory/runtime/temporal/connection.py", "_HELD"):
+        "one entry in total: a target that changes replaces it (`_connect_for` clears it first)",
+    ("openfactory/runtime/temporal/connection.py", "_IN_FLIGHT"):
+        "one connect per target in flight, removed the moment it lands or fails",
     ("openfactory/runtime/temporal/view.py", "_CLIENTS"):
         "exactly one entry — the engine target this process is configured for right now, emptied "
         "and re-filled when that target changes; the environment, not traffic",

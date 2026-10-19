@@ -13,11 +13,13 @@ The SAME code runs everywhere (ADR-0001 D-16); only the connection target change
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import gc
 import hashlib
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -124,7 +126,8 @@ def fingerprint() -> tuple[str, str, str]:
     own precedence to find out. It raises `EngineNotDeclared` exactly as `address()` does — which
     is the refusal `connect()` would produce one line later anyway.
 
-    Its caller is `view.connect()`, which reuses one client per target (GitHub issue #134): the
+    Its callers are `connect()`, which holds one client per target for the process (#681), and
+    `view.connect()`, which reuses one client per target (GitHub issue #134): the
     panel opened a fresh gRPC client on every `/api/floor` request, and the reporter measured 20 →
     32 open connections over six requests on 2026-09-15. "Same target" has to include the AUTH
     material, because a redeployment that swaps an API key while keeping the address must not be
@@ -196,31 +199,123 @@ def core_runtime() -> Runtime | None:
     (`schedule.ensure_all`), so on one shared runtime its core went silent — no plain line and no
     JSON one: 0 lines in 60 s of an engine outage, where the readable format printed 86. A
     runtime of its own lives and dies with its client: about 5 ms and one thread per CPU to
-    build, about 3 ms to drop (measured on 8 CPUs)."""
+    build, about 3 ms to drop (measured on 8 CPUs). And the process holds ONE client (`connect`),
+    so it pays that once: the real worker kept 12 threads through an engine outage with JSON lines
+    and 12 in the readable format, on 8 CPUs."""
     if not logs.structured():
         return None
     return Runtime(telemetry=core_telemetry())
 
 
+#: The ONE client this process holds for its engine target, by `fingerprint()` — and ONE ENTRY IN
+#: TOTAL: a target that changes (a moved address, a rotated key) is a new key, and the old client
+#: is let go of rather than kept beside it (`view._CLIENTS` keeps the same rule, for the same
+#: reason: #134's leak on a deployment's clock).
+_HELD: dict[tuple[str, str, str], Client] = {}
+#: The connect in flight for a target, shared by every caller that arrives while it runs — on this
+#: loop, another loop or another thread. At most one per key, and gone once it lands or fails.
+_IN_FLIGHT: dict[tuple[str, str, str], concurrent.futures.Future] = {}
+_HOLDING = threading.Lock()
+
+
+class _Abandoned(Exception):  # noqa: N818 — not an error of the engine's: nobody waited for it
+    """The connect a caller queued behind was cancelled. That says nothing about the engine, so
+    the caller tries for itself."""
+
+
 async def connect() -> Client:
-    where = address()  # raises for an engine nobody declared, before a runtime is built for it
+    """The durable engine's client for this process: the one it holds, made the first time it is
+    asked for and handed to every caller after that, on any loop and any thread.
+
+    ONE CLIENT PER PROCESS AND TARGET, NEVER DROPPED (fifth and sixth reviews of #818, measured).
+    With JSON lines every client is made on a runtime of its own (`core_runtime`), about one thread
+    per CPU, and a client that is dropped keeps that runtime — and, in either format, its gRPC
+    connection — in a reference cycle only a full collection frees. Callers dropped clients in
+    steady operation: the read side's pool emptied its one entry each time the worker's readiness
+    (its own loop) and a product turn's read (the standing loop) took turns — 2 → 12 connections in
+    both formats and 21 → 111 threads with JSON over six rounds — and a door-shaped read under an
+    `asyncio.run` of its own took 10 → 55 threads in six. Holding the one client removes the drop
+    instead of paying for it: every one of those reads now gets the client the process already
+    has, so the worker's readiness asks the very client the worker serves on, and #1988's forwarder
+    is never aborted, because no runtime with a live client loses a clone.
+
+    A CLIENT IS NOT BOUND TO THE LOOP THAT MADE IT. Measured on temporalio 1.32.0 against a dev
+    server: a client made under one `asyncio.run` answered health checks, system-info reads and
+    workflow listings from two later `asyncio.run`s after the first loop had closed, and from three
+    other threads' loops at the same time as three calls on the main one. The SDK runs each call on
+    its own core and hands the answer to whichever loop is running the caller.
+
+    A FAILED CONNECT IS SHARED, NOT CACHED, as `view.connect()` has it: the callers queued behind a
+    failing attempt take its failure, and a caller arriving afterwards tries again, which is how a
+    recovered engine is picked up without a restart. A cancelled attempt is nobody's failure; the
+    callers behind it try for themselves."""
+    while True:
+        key = fingerprint()  # raises for an engine nobody declared, before anything is built
+        with _HOLDING:
+            held = _HELD.get(key)
+            if held is not None:
+                return held
+            flight = _IN_FLIGHT.get(key)
+            mine = flight is None
+            if flight is None:
+                flight = _IN_FLIGHT[key] = concurrent.futures.Future()
+                # RUNNING, so a waiter that is cancelled cannot cancel the attempt under the others.
+                flight.set_running_or_notify_cancel()
+        if mine:
+            return await _connect_for(key, flight)
+        try:
+            return await asyncio.wrap_future(flight)
+        except _Abandoned:
+            continue
+
+
+async def _connect_for(key: tuple[str, str, str], flight: concurrent.futures.Future) -> Client:
+    """The one attempt for `key`, on a runtime made for it, its outcome handed to `flight`."""
+    where, space, _digest = key
     runtime = core_runtime()
     try:
-        return await Client.connect(
-            where, namespace=namespace(), data_converter=pydantic_data_converter,
+        client = await Client.connect(
+            where, namespace=space, data_converter=pydantic_data_converter,
             **({"runtime": runtime} if runtime is not None else {}), **_auth()
         )
-    except BaseException:
+    except BaseException as exc:
+        with _HOLDING:
+            _IN_FLIGHT.pop(key, None)
+        flight.set_exception(exc if isinstance(exc, Exception) else _Abandoned())
         # A FAILED CONNECT KEEPS ITS RUNTIME — a thread per CPU — in a reference cycle only a full
         # collection frees (review on d2ef6149, measured: a panel whose engine was down at its
         # first connect gained twelve threads per healthcheck on 12 CPUs, 146 after twelve, and a
         # steady heap almost never runs that collection). So it is run here, once per failed
-        # connect and only with JSON lines: about 45 ms. NOT REUSED INSTEAD: a runtime a failed
-        # attempt touched forwards nothing afterwards (the bridge's `Drop`, `core_runtime`).
+        # connect and only with JSON lines: 31–45 ms median, 80–110 ms at worst, on the caller's
+        # loop. Only a process that has not connected yet pays it: once a client is held, an
+        # engine that goes away is reconnected underneath it and nothing here runs again. NOT
+        # REUSED INSTEAD: a runtime a failed attempt touched forwards nothing afterwards (the
+        # bridge's `Drop`, `core_runtime`).
         if runtime is not None:
             del runtime
             gc.collect()
         raise
+    with _HOLDING:
+        _IN_FLIGHT.pop(key, None)
+        let_go = [other for target, other in _HELD.items() if target != key]
+        _HELD.clear()
+        _HELD[key] = client
+    flight.set_result(client)
+    if let_go:
+        # A TARGET THAT CHANGED lets its old client go — collected at once, so its connection
+        # and its runtime go with it, rather than at whatever collection comes next. A caller
+        # still using it keeps its own reference, and the collection then frees nothing early.
+        del let_go
+        gc.collect()
+    return client
+
+
+def forget() -> None:
+    """Let go of the client this process holds. A seam for the suite, which must not hand one
+    test's engine to the next."""
+    with _HOLDING:
+        _HELD.clear()
+        _IN_FLIGHT.clear()
 
 
 class EngineNotListening(RuntimeError):

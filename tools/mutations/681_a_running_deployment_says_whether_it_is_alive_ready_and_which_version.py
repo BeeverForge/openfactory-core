@@ -51,7 +51,12 @@ The claims, each a row:
   13. what JSON lines cost and say (fifth review, and the review requesting changes on d2ef6149):
      a connect the engine refuses keeps no runtime alive; the panel sets up its log before it says
      anything; a line that must never be silent is a WARNING; a thread that exits says nothing;
-     and every variable the log and the probes read has its row in the configuration reference.
+     and every variable the log and the probes read has its row in the configuration reference;
+  14. a process holds one engine client (sixth review): every caller, from any loop, gets the
+     client the process holds — so the worker's readiness asks the worker's own client and no read
+     drops one — a target that changes gets its own and the old one's runtime goes at once; the
+     worker binds loopback by default; a line carries the documented fields and no others, and is
+     one line for every reader.
 """
 
 READY = "tests/test_a_running_deployment_says_whether_it_is_alive_and_ready.py"
@@ -439,4 +444,23 @@ MUTATIONS = [
      "    if False:\n        return\n", LOGS),
     ("the deployment's variable is documented under another name", CONFIGURATION,
      "| `OPENFACTORY_DEPLOYMENT` |", "| `OPENFACTORY_DEPLOYMENT_NAME` |", LOGS),
+
+    # 14. a process holds one engine client (sixth review)
+    ("every caller is given a client of its own again", CONNECTION,
+     "            held = _HELD.get(key)\n", "            held = None\n", LOGS),
+    ("a target that changed is served the old target's client", CONNECTION,
+     "            held = _HELD.get(key)\n", "            held = next(iter(_HELD.values()), None)\n",
+     LOGS),
+    ("a client a changed target lets go of keeps its runtime", CONNECTION,
+     "        del let_go\n        gc.collect()\n", "        del let_go\n", LOGS),
+    ("the worker answers beyond this machine by default", HEALTH,
+     'LOOPBACK = "127.0.0.1"', 'LOOPBACK = "0.0.0.0"'),
+    ("a line carries every extra a record was given", LOGGING,
+     "        line.update(_concerns(record))\n",
+     "        line.update(_concerns(record))\n"
+     "        line.update({k: str(v) for k, v in vars(record).items()\n"
+     "                     if k not in vars(logging.makeLogRecord({})) and k != \"message\"})\n",
+     LOGS),
+    ("a line boundary is written raw", LOGGING,
+     "default=str).translate(_STILL_LINE_BREAKS)", "default=str)", LOGS),
 ]

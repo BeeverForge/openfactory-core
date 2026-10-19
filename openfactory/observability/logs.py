@@ -123,8 +123,17 @@ class _UTC(logging.Formatter):
         return _utc(record)
 
 
+#: The characters `json.dumps` leaves as they are and a reader may still split a line on: Python's
+#: own `str.splitlines()` breaks on all three (sixth review of #818, measured: one record with a
+#: U+2028 in its message read as two broken halves). Everything below U+0020 is escaped already.
+_STILL_LINE_BREAKS = str.maketrans({"\x85": "\\u0085", "\u2028": "\\u2028",
+                                    "\u2029": "\\u2029"})
+
+
 class _JSON(logging.Formatter):
-    """One record, one JSON object, one line (#681)."""
+    """One record, one JSON object, one line (#681) — for a reader that splits on `\n` and for one
+    that splits on every Unicode line boundary alike. The keys are the documented ones and no
+    others: a record's `extra` never rides out on the line."""
 
     def __init__(self, deployment: str = "") -> None:
         super().__init__()
@@ -140,7 +149,7 @@ class _JSON(logging.Formatter):
         if self._deployment:
             line["deployment"] = self._deployment
         line.update(_concerns(record))
-        return json.dumps(line, ensure_ascii=False, default=str)
+        return json.dumps(line, ensure_ascii=False, default=str).translate(_STILL_LINE_BREAKS)
 
 
 def _concerns(record: logging.LogRecord) -> dict[str, str]:

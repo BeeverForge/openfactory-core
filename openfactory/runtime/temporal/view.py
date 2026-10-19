@@ -913,6 +913,14 @@ async def connect() -> Client:
     without a restart. Nothing is cached: freezing a panel in "the engine did not answer" until
     somebody restarts it is the same class of defect as the one this fixes.
 
+    SINCE #681 THE CLIENT UNDER EVERY ENTRY IS THE PROCESS'S ONE: `connection.connect()` holds one
+    client per target and hands it to every caller, on any loop (sixth review of #818, measured on
+    temporalio 1.32.0: a client made under one `asyncio.run` answered from later loops after that
+    one had closed, and from other threads' loops at once). So an entry made for a new loop costs a
+    dict entry and a lock, never a connection — the worker's readiness on its own loop and a
+    product turn's read on the standing loop take turns at the entry and share one client. The
+    loop key stays because the entry's `asyncio.Lock` belongs to one loop.
+
     WHAT THIS DELIBERATELY DOES NOT DO:
 
       - NO TTL. The issue offers "a pool with a bounded lifetime"; a lifetime is a number nobody

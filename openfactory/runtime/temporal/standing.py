@@ -28,8 +28,10 @@ docstring keeps apart from the pool on purpose.
 NO ENGINE IMPORT HERE, deliberately: this file knows about loops and threads, not about Temporal,
 so importing it costs a caller nothing it does not already have.
 
-WHAT SHARES THE POOL WITH IT. In the worker, nothing: the worker's own loop connects through
-`connection.connect()` and never reads through `view.connect()`. The panel reads through the pool
+WHAT SHARES THE POOL WITH IT. In the worker, its readiness check (#681), on the worker's own loop:
+the two take turns at the pool's one entry, but since #681 every entry wraps the process's one
+client (`connection.connect()` holds it, for every loop), so taking turns costs a dict entry and
+never a connection. The panel reads through the pool
 on its one loop and never runs the tech-lead (`actions/catalog.py::_ask` dispatches the question to
 the worker). A process that read the engine from BOTH its own loop and this one would see the two
 take turns emptying the pool — it holds one entry, total — and no process in this tree does.

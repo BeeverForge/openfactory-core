@@ -724,6 +724,62 @@ def test_a_traceback_stays_one_line_and_a_message_keeps_its_letters(monkeypatch,
     assert line["exception"].startswith("Traceback") and "não respondeu" in line["exception"]
 
 
+#: Every character Python's own `str.splitlines()` ends a line on, read from Python itself — the
+#: strictest reader a JSON line has, and the one this file's helpers use.
+LINE_BOUNDARIES = "".join(chr(c) for c in range(0x10000)
+                          if len(f"a{chr(c)}b".splitlines()) > 1)
+
+
+def test_one_record_is_one_line_whatever_line_boundary_its_message_carries(monkeypatch, capsys):
+    """A message may carry any character a reader splits lines on — a U+2028 pasted from a web
+    page, a NEL from a legacy encoding. Each is escaped, so the record is still one line for every
+    reader, and the message reads back as it was written (sixth review of #818)."""
+    said = "the card's title read " + "|".join(LINE_BOUNDARIES)
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    with _a_fresh_process():
+        logs.configure()
+        logging.getLogger("openfactory.knowledge").warning(said)
+
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1, err.splitlines()
+    (line,) = _json_lines(err)
+    assert line["message"] == said
+    assert {"\n", "\r", "\x85", "\u2028", "\u2029"} <= set(LINE_BOUNDARIES)
+
+
+def _the_documented_fields() -> set[str]:
+    """The fields `configuration.md`'s `OPENFACTORY_LOG_FORMAT` row says a JSON line carries: the
+    backticked names after "The fields:"."""
+    text = (ROOT / "docs" / "reference" / "configuration.md").read_text(encoding="utf-8")
+    row = next(line for line in text.splitlines() if line.startswith(f"| `{logs.FORMAT_VARIABLE}`"))
+    listed = row.split("The fields:", 1)[1].split("Unset", 1)[0]
+    return set(re.findall(r"`([a-z]+)`", listed))
+
+
+def test_a_line_carries_the_documented_fields_and_nothing_else(monkeypatch, capsys):
+    """A record that carries everything the format can say — a traceback, a stack, a deployment, a
+    project and a product — and an `extra` of its own: its line has exactly the fields the
+    configuration reference documents. An `extra` a caller passes for its own reasons (an email, a
+    token) never rides out on a line (sixth review of #818: writing every `extra` survived)."""
+    documented = _the_documented_fields()
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    monkeypatch.setenv(logs.DEPLOYMENT_VARIABLE, "factory-eu-1")
+    with _a_fresh_process():
+        logs.configure()
+        try:
+            raise RuntimeError("the push was refused")
+        except RuntimeError:
+            logging.getLogger("openfactory.knowledge").exception(
+                "a push was refused", stack_info=True,
+                extra={"project": "acme", "product": "repo:acme/docs",
+                       "requester_email": "someone@example.invalid", "token": "not-a-real-one"})
+
+    (line,) = _json_lines(capsys.readouterr().err)
+    assert set(line) == documented, (sorted(set(line) - documented),
+                                     sorted(documented - set(line)))
+    assert {"ts", "level", "logger", "message", "project", "product"} <= documented
+
+
 def test_a_stack_asked_for_is_kept_on_its_one_line(monkeypatch, capsys):
     """`stack_info=True` is kept by the readable format; the JSON line keeps it too."""
     monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
@@ -1313,13 +1369,13 @@ def _a_line_of_the_core(level: int, message: str):
                                  fields={"code": "Unavailable"}, time=time.time())
 
 
-async def test_with_json_lines_every_engine_client_has_a_runtime_whose_core_writes_through_the_log(
+async def test_with_json_lines_the_one_engine_client_has_a_runtime_whose_core_writes_through_the_log(
         monkeypatch, capsys):
     """Read off what `connection.connect()` — the one door every engine client of the worker, the
-    panel and the CLI is made through — hands each client: a runtime of its own (one shared would
-    stop forwarding for all the moment one client is dropped: the bridge's `Drop` aborts their
-    one forwarder), whose core forwards its lines to `CORE_LOGGER` at the library's own default
-    filter; and a line forwarded that way is a JSON line on stderr."""
+    panel and the CLI is made through — does: the process's client is made ONCE, on a runtime of
+    its own whose core forwards its lines to `CORE_LOGGER` at the library's own default filter,
+    and handed back to every later caller, from this loop or another; a target that changes gets
+    a client and a runtime of its own. A line forwarded that way is a JSON line on stderr."""
     from temporalio.runtime import LoggingConfig
 
     from openfactory.runtime.temporal import connection
@@ -1327,11 +1383,17 @@ async def test_with_json_lines_every_engine_client_has_a_runtime_whose_core_writ
     monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
     runtimes = _Runtimes(monkeypatch)
 
-    await connection.connect()
-    await connection.connect()
+    first = await connection.connect()
+    again = await connection.connect()
+    elsewhere = await asyncio.to_thread(lambda: asyncio.run(connection.connect()))
+    monkeypatch.setenv("TEMPORAL_NAMESPACE", "another-namespace")
+    moved = await connection.connect()
 
+    assert again is first and elsewhere is first, "a second caller was given a client of its own"
+    assert moved is not first, "a target that changed was served the old target's client"
     assert len(runtimes.built) == 2 and runtimes.clients == runtimes.built, (
-        "every client is made on a runtime of its own", runtimes.clients, runtimes.built)
+        "the held client and the moved target's each on a runtime of their own",
+        runtimes.clients, runtimes.built)
     for runtime in runtimes.built:
         said = runtime.telemetry.logging
         assert said.forwarding is not None, "the core still writes its own lines"
@@ -1349,6 +1411,37 @@ async def test_with_json_lines_every_engine_client_has_a_runtime_whose_core_writ
     (line,) = _json_lines(written.err)
     assert line["level"] == "WARNING" and line["logger"].startswith(connection.CORE_LOGGER), line
     assert "poll_activity_task_queue retried" in line["message"], line
+
+
+async def test_a_client_a_changed_target_lets_go_of_keeps_no_runtime(monkeypatch):
+    """The SDK's client sits in a reference cycle, so a client let go of keeps its runtime — a
+    thread per CPU with JSON lines — until a full collection. The one client a process lets go of
+    is the one whose target changed (a moved address, a rotated key), and its runtime is gone the
+    moment the new client is held, not at whatever collection comes next."""
+    import weakref
+
+    from openfactory.runtime.temporal import connection
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    runtimes = _Runtimes(monkeypatch)
+
+    class _InACycle:                       # as the SDK's client is: it refers to itself
+        def __init__(self, runtime):
+            self.runtime, self.itself = runtime, self
+
+    async def _connect(*_a, **kwargs):
+        runtimes.clients.append(kwargs.get("runtime"))
+        return _InACycle(kwargs.get("runtime"))
+
+    monkeypatch.setattr(connection.Client, "connect", _connect)
+    await connection.connect()
+    first = weakref.ref(runtimes.built[0])
+    runtimes.built.clear()
+    runtimes.clients.clear()
+    monkeypatch.setenv("TEMPORAL_ADDRESS", "engine.example:7233")
+    await connection.connect()
+
+    assert first() is None, "the client a changed target let go of still holds its runtime"
 
 
 @pytest.mark.parametrize("asked", [None, "text"])
@@ -1429,6 +1522,101 @@ async def test_a_connect_the_engine_refuses_keeps_no_runtime_alive(monkeypatch):
         assert after_all <= after_one + (os.cpu_count() or 1) + 2, (after_one, after_all)
 
 
+#: How many reads each shape below makes, after its first.
+READS = 6
+
+
+@pytest.mark.owns_its_engine
+@pytest.mark.parametrize("asked", ["json", None])
+async def test_a_process_holds_one_engine_client_whoever_reads_and_from_whichever_loop(
+        monkeypatch, asked):
+    """THE SIXTH REVIEW'S TWO SHAPES, ON A REAL ENGINE, in both formats. A process held one client
+    per loop and dropped one each time a read arrived from another, and a dropped client kept its
+    connection — and, with JSON lines, its runtime's thread per CPU — until a full collection:
+
+      · the worker's readiness on its own loop taking turns with a product turn's read on the
+        standing loop: connections 2 → 12 in both formats, threads 21 → 111 with JSON, in six;
+      · a read under an `asyncio.run` of its own, as the product door makes one per message, and
+        a one-shot `connection.connect()`: threads 10 → 55 in six.
+
+    So: the worker's client is made once, readiness asks that very client, and after every shape
+    the library has been asked for one connection in all, at most that client's runtime is alive,
+    and the process's threads are where they were after the first round. Every step is awaited; no
+    case waits on a clock."""
+    import weakref
+
+    from temporalio.api.workflowservice.v1 import GetSystemInfoRequest
+    from temporalio.client import Client
+    from temporalio.testing import WorkflowEnvironment
+
+    from openfactory.observability import health
+    from openfactory.runtime.temporal import connection, view
+    from openfactory.runtime.temporal.standing import from_a_thread
+
+    if asked:
+        monkeypatch.setenv(logs.FORMAT_VARIABLE, asked)
+    for name in ("TEMPORAL_API_KEY", "TEMPORAL_TLS_CERT", "TEMPORAL_TLS_KEY", "TEMPORAL_NAMESPACE"):
+        monkeypatch.delenv(name, raising=False)
+    opened: list[object] = []
+    opening = Client.connect
+
+    async def _counted(*args, **kwargs):
+        opened.append(kwargs.get("runtime"))
+        return await opening(*args, **kwargs)
+
+    runtimes: list[weakref.ref] = []
+    making = connection.core_runtime
+
+    def _recorded():
+        runtime = making()
+        if runtime is not None:
+            runtimes.append(weakref.ref(runtime))
+        return runtime
+
+    monkeypatch.setattr(connection, "core_runtime", _recorded)
+    asked_by_readiness: list[object] = []
+    checking = view.check_health
+
+    async def _readiness_asks(client):
+        asked_by_readiness.append(client)
+        return await checking(client)
+
+    monkeypatch.setattr(view, "check_health", _readiness_asks)
+
+    async def a_turns_read() -> None:          # `product/model.py::_engine_reads`'s shape
+        await (await view.connect()).workflow_service.get_system_info(GetSystemInfoRequest())
+
+    def a_door_read() -> None:                # `product/door.py`: a loop per message
+        asyncio.run(a_turns_read())
+
+    env = await WorkflowEnvironment.start_time_skipping()
+    try:
+        monkeypatch.setattr(Client, "connect", _counted)  # after the engine's own client
+        monkeypatch.setenv("TEMPORAL_ADDRESS", env.client.service_client.config.target_host)
+        the_workers = await connection.connect()        # what `connect_at_birth` makes
+        seen = []
+        for _ in range(1 + READS):
+            health.forget()                             # a new window, as each poll 15 s apart is
+            await health.ready()                        # the worker's own loop
+            await asyncio.to_thread(from_a_thread, a_turns_read)   # the standing loop
+            seen.append(_threads_of_this_process())
+        for _ in range(READS):
+            await asyncio.to_thread(a_door_read)
+            one_shot = await connection.connect()
+            await one_shot.workflow_service.get_system_info(GetSystemInfoRequest())
+            del one_shot
+        seen.append(_threads_of_this_process())
+    finally:
+        await env.shutdown()
+
+    assert len(opened) == 1, f"the library was asked for {len(opened)} connections, not one"
+    assert asked_by_readiness and all(c is the_workers for c in asked_by_readiness), (
+        "readiness asked a client other than the worker's")
+    assert sum(ref() is not None for ref in runtimes) <= 1, "a dropped client kept its runtime"
+    if seen[0] is not None:
+        assert max(seen) <= seen[0] + 2, f"threads after each round: {seen}"
+
+
 @activity.defn(name="nothing_at_all")
 async def _nothing_at_all() -> None:
     return None
@@ -1437,10 +1625,11 @@ async def _nothing_at_all() -> None:
 @pytest.mark.owns_its_engine
 async def test_a_core_warning_arrives_as_a_json_line_after_another_client_is_gone(
         monkeypatch, capfd):
-    """THE THIRD REVIEW'S MEASUREMENT, ON A REAL ENGINE. The worker drops one-shot clients at boot
-    (`schedule.ensure_all`), and with one shared runtime that silenced its core for good: the
-    bridge aborts a runtime's one forwarder when any client of it is dropped. So: a client made
-    through `connect()` is dropped, then a worker polls on another — and the core's own warning
+    """THE THIRD REVIEW'S MEASUREMENT, ON A REAL ENGINE. The worker dropped one-shot clients at
+    boot (`schedule.ensure_all`), and with one shared runtime that silenced its core for good: the
+    bridge aborts a runtime's one forwarder when any client of it is dropped (temporalio's #1988).
+    The process now holds one client per target, so the client dropped here is the one a target
+    that changed let go of. Then a worker polls on the process's client — and the core's own warning
     must still reach the log, as a JSON line, and no line may be anything else. The time-skipping
     engine makes the core warn as the worker starts; if it ever stops, the engine goes away under
     the worker, whose polls then retry and warn.
@@ -1475,10 +1664,15 @@ async def test_a_core_warning_arrives_as_a_json_line_after_another_client_is_gon
         with _a_fresh_process():
             logs.configure()
             monkeypatch.setenv("TEMPORAL_ADDRESS", env.client.service_client.config.target_host)
+            # A CLIENT THAT IS GONE: the process holds one client per target, so the one let go
+            # of is the client of a target that changed — made, dropped and collected.
+            monkeypatch.setenv("TEMPORAL_NAMESPACE", "a-target-that-changed")
             gone = await connection.connect()
+            monkeypatch.delenv("TEMPORAL_NAMESPACE")
+            client = await connection.connect()
+            assert client is not gone
             del gone
             gc.collect()
-            client = await connection.connect()
             worker = Worker(client, task_queue=f"q-{uuid.uuid4().hex}",
                             activities=[_nothing_at_all])
             polling = asyncio.create_task(worker.run())

@@ -895,14 +895,19 @@ async def test_the_worker_reads_a_request_to_its_end_before_it_answers(worker_po
 
 async def test_the_worker_answers_on_loopback_unless_the_deployment_says_otherwise(monkeypatch):
     """Readiness is asked without a credential, so it is answered beyond this machine only where
-    the deployment says so — `openfactory serve`'s own default (review of #818)."""
+    the deployment says so — `openfactory serve`'s own default (review of #818). WHAT IS BOUND IS
+    HELD TO BEING LOOPBACK, not to the module's own constant (sixth review: `LOOPBACK = "0.0.0.0"`
+    passed a check that compared the address with `LOOPBACK`)."""
+    import ipaddress
+
     monkeypatch.delenv(health.HOST_VARIABLE, raising=False)
     server = await health.listen(0)
     try:
         bound = {sock.getsockname()[0] for sock in server.sockets}
     finally:
         server.close()
-    assert bound == {health.LOOPBACK}, bound
+    assert bound and all(ipaddress.ip_address(address).is_loopback for address in bound), bound
+    assert bound == {"127.0.0.1"}, bound
 
     monkeypatch.setenv(health.HOST_VARIABLE, "0.0.0.0")
     server = await health.listen(0)
