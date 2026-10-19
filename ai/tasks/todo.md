@@ -243,7 +243,7 @@ marked as such.
   site**: company-managed and team-managed projects use the same ADF editor, the site's language
   only changes the heading text (covered by the alias table and the pt-BR param), and Jira Data
   Center (API v2, wiki markup) is not a supported shape. Say each of these in the PR.
-- [ ] 12. Release-note fragment `changes/751.fix.md`, one line:
+- [x] 12. Release-note fragment `changes/751.fix.md`, one line:
   "**A Jira ticket written in Jira's own editor keeps its headings and bullets.** A description with an Acceptance criteria heading and a bulleted or numbered list reached the factory as bare lines, so it found no sections and no criteria and refused the ticket as incomplete; headings and list items now arrive as the sections and criteria they are, and a description the factory wrote to Jira reads back with its blank lines, so a split card's last item no longer swallows the line under it."
   No number in the text.
 - [ ] 13. `make lint` (ruff + shellcheck). Then `.venv/bin/python -m pytest -q -n auto` and
