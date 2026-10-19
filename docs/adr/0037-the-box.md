@@ -300,6 +300,11 @@ about a credential the deployment stores:
 - **Only when absent**, which is exactly when `docker run` would have pulled. A project that
   declares a credential runs the image it ran before, and the digest a proof was taken against
   (D5) does not move under it.
+- **Into the daemon the box uses** (review of #822). Which daemon a docker client talks to lives
+  in its configuration (`currentContext`, resolved through `contexts/`), so a fresh one meant the
+  default socket while the box's `docker run` kept the person's own context. The pull's
+  configuration carries the person's current context and links their contexts, and nothing else
+  of theirs — no `auths`, no credential helper.
 
 What stays open is the other option §7.2 names, where clients push into a repository the platform
 runs for them. That is a choice about who operates a registry, not about where a stored secret

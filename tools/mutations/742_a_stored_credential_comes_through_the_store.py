@@ -10,11 +10,20 @@ fallback, an unknown kind refused, upgrade safety byte for byte. Rows 16-22 the 
 checks, and that it reads at each use. Rows 23-31 the readers the issue names, the box's
 pass-through, a remote box, the worktree scrub and readiness. Rows 32-38 the image's pull
 credential.
+
+Rows 42 onward are the reviews of #822. A refusal is final: it opens no door, and nothing is used
+in its place — the panel, the identity provider, every credential chain, the mint and the
+provider after it, the harness, both boxes, the gate and preview keys, the engine, and every
+doctor, readiness and onboarding line that asks whether a credential is configured (the family
+test, `tests/test_a_refused_credential_opens_no_door.py`). Then the file store on a read-only
+mount, its repairs and a byte-order mark; the pull's redaction, a job that pulls first, and the
+pull reaching the box's daemon; and the sweep reading tables.
 """
 
 TEST = "tests/test_a_stored_credential_comes_through_the_store.py"
 SWEEP = "tests/test_every_stored_credential_is_read_through_the_store.py"
 KNOBS = "tests/test_the_box_claims_only_what_it_does.py"
+FAMILY = "tests/test_a_refused_credential_opens_no_door.py"
 
 CREDENTIALS = "openfactory/credentials.py"
 ADAPTER = "openfactory/adapters/agent/claude_code.py"
@@ -26,30 +35,36 @@ PULL = "openfactory/adapters/sandbox/pull.py"
 
 MUTATIONS = [
     # ── the sweep sees every reader go back to its variable ─────────────────────────────────────
+    # re-pinned 2026-10-19 (#822): the App key's content is looked up as an `Answer`
     ("the App key is read from its variable again (a literal)", CREDENTIALS,
-     '    content = stored("OPENFACTORY_GH_APP_KEY_CONTENT")',
-     '    content = os.environ.get("OPENFACTORY_GH_APP_KEY_CONTENT")', SWEEP),
+     '    content = credential_store.lookup("OPENFACTORY_GH_APP_KEY_CONTENT")',
+     '    content = credential_store.Answer(value=os.environ.get("OPENFACTORY_GH_APP_KEY_CONTENT"))',
+     SWEEP),
+    # re-pinned 2026-10-19 (#822): the single token is asked of the walk's `Stored`
     ("the harness's single token is read from its variable again", ADAPTER,
-     '    if tok := stored("CLAUDE_CODE_OAUTH_TOKEN"):',
+     '    if tok := settings.get("CLAUDE_CODE_OAUTH_TOKEN"):',
      '    if tok := os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):', SWEEP),
+    # re-pinned 2026-10-19 (#822): one `Stored` walk
     ("the token pool is handed the environment again, as it was read before", ADAPTER,
-     "    pool, why = _pool_in(Stored())",
-     "    pool, why = _pool_in(os.environ)", SWEEP),
+     "    settings = Stored()\n    pool, why = _pool_in(settings)",
+     "    settings = Stored()\n    pool, why = _pool_in(os.environ)", SWEEP),
     ("the panel's tokens are a snapshot of the environment again (an alias)",
      "openfactory/identity/local.py",
      "            env = held(CLOSING_ENVS)",
      "            env = dict(os.environ)", SWEEP),
+    # re-pinned 2026-10-19 (#822): the key is looked up as an `Answer`, refusal and all
     ("the gate key is read from its variable by its module constant", "openfactory/gate_seal.py",
-     '    declared = (stored(VARIABLE) or "").strip()',
+     '    declared = (found.value or "").strip()',
      '    declared = (os.environ.get(VARIABLE) or "").strip()', SWEEP),
     ("the provider's client secret is read from the environment through a reader",
      "openfactory/identity/oidc.py",
      "else _environment()))",
      "else os.environ))", SWEEP),
+    # re-pinned 2026-10-19 (#822): the key is looked up as an `Answer`
     ("the engine's API key is read from its variable again",
      "openfactory/runtime/temporal/connection.py",
-     '    api_key = stored("TEMPORAL_API_KEY")',
-     '    api_key = os.environ.get("TEMPORAL_API_KEY")', SWEEP),
+     '        return {"api_key": api_key.value, "tls": True}',
+     '        return {"api_key": os.environ.get("TEMPORAL_API_KEY"), "tls": True}', SWEEP),
     ("the sweep's exemption swallows the whole package", SWEEP,
      'STORE = PACKAGE / "adapters" / "credential_store"',
      "STORE = PACKAGE", SWEEP),
@@ -61,25 +76,30 @@ MUTATIONS = [
     ("a declared store is never asked: the environment answers for every credential", REGISTRY,
      "    if kind == ENV:\n        return None",
      "    if True:\n        return None"),
+    # re-pinned 2026-10-19 (#822): a refusal is an `Answer` of its own
     ("a refusal falls back to the variable", REGISTRY,
-     '    if refused:\n        return "", None',
-     "    if refused:\n        return None"),
+     "    return found if (found.value or found.refused) else None",
+     "    return found if found.value else None"),
     ("an unknown store kind is read as the environment", REGISTRY,
      "    if builder is None:\n        raise ValueError(",
      "    if builder is None:\n        return _env()\n        raise ValueError("),
+    # re-pinned 2026-10-19 (#822): `answer` is `look`'s, which asks `lookup` for a bare name
     ("a bare reference asks the environment alone, never the declared store", REGISTRY,
-     "    if not kind:\n        return stored_answer(name)",
-     "    if not kind:\n        return _ask(ENV, name)[:2]"),
+     "    if not kind:\n        return lookup(name, quiet=quiet)",
+     "    if not kind:\n        return _ask(ENV, name, quiet=quiet)"),
     ("UPGRADE SAFETY: an undeclared deployment's variables are stripped on the way out", REGISTRY,
      "    return os.environ.get(name) or None\n",
      "    return (os.environ.get(name) or \"\").strip() or None\n"),
+    # re-pinned 2026-10-19 (#822): the identity is built once, in `lookup`, which `answer` and
+    # `stored_answer` both ask — the old anchor was a second copy nothing tested any more
     ("UPGRADE SAFETY: an env-held credential loses the identity readers key it by", REGISTRY,
-     '    return (f"{ENV}:{name}", value) if value else ("", None)',
-     '    return (name, value) if value else ("", None)'),
+     '    return Answer(reference=f"{ENV}:{name}", value=value) if value else NOTHING',
+     "    return Answer(reference=name, value=value) if value else NOTHING"),
 
     # ── the file store's checks, and a read at each use ─────────────────────────────────────────
+    # re-pinned 2026-10-19 (#822): a read-only mount is asked beside the bits
     ("a file its group or anyone may write is trusted", FILE,
-     "        writers = _writers(found.st_mode)\n        if writers:\n",
+     "        writers = _writers(found.st_mode)\n        if writers and not _mount_refuses_writes(fd=fd):\n",
      "        writers = _writers(found.st_mode)\n        if False:\n"),
     ("a link leading out of the directory is followed", FILE,
      "        if os.path.commonpath([root, path]) != root or path == root:",
@@ -90,8 +110,9 @@ MUTATIONS = [
     ("a pipe named like a secret is read as one", FILE,
      "        if not stat.S_ISREG(found.st_mode):",
      "        if False:"),
+    # re-pinned 2026-10-19 (#822): a read-only mount is asked beside the bits
     ("a directory anyone may write to is trusted", FILE,
-     "        if writers and not sticky:",
+     "        if writers and not sticky and not _mount_refuses_writes(path=root):",
      "        if False:"),
     ("a file far larger than a credential is read whole", FILE,
      "        if found.st_size > MAX_BYTES:",
@@ -115,22 +136,26 @@ MUTATIONS = [
     ("the container box names a file-held variable and docker has no value for it", CONTAINER,
      "        return {**os.environ, **passing}",
      "        return dict(os.environ)"),
+    # re-pinned 2026-10-19 (#822): the names are looked up as `Answer`s
     ("the container box reads a `box.env` name from the environment alone", CONTAINER,
-     "            if var not in seen and (value := stored(var)):",
+     "            if var not in seen and (value := lookup(var).value):",
      "            if var not in seen and (value := os.environ.get(var)):"),
+    # re-pinned 2026-10-19 (#822): the process's own value is its `env:` reference
     ("a file undoes the token the pool rotated to", CONTAINER,
-     "(value := os.environ.get(var) or stored(var))",
-     "(value := stored(var) or os.environ.get(var))"),
+     '            if value := look(f"{ENV}:{var}").value or found.value:',
+     '            if value := found.value or look(f"{ENV}:{var}").value:'),
+    # re-pinned 2026-10-19 (#822): the declared names are looked up as `Answer`s
     ("a worktree workload loses a declared name held in a file", WORKTREE,
-     "            if value := stored(var):",
-     "            if value := None:"),
+     "            elif var in kept and found.value:",
+     "            elif False:"),
     ("the path to every secret reaches a worktree workload", WORKTREE,
      '                      "OPENFACTORY_CREDENTIAL_DIR")',
      "                      )"),
+    # re-pinned 2026-10-19 (#822): a refused name is said apart from an absent one
     ("readiness reports a name the box receives from a file as not set",
      "openfactory/onboarding/readiness.py",
-     "    absent = [n for n in names if env.get(n) is None and p.stored(n) is None]",
-     "    absent = [n for n in names if env.get(n) is None]"),
+     "    absent = [n for n in names if n not in refused and env.get(n) is None and p.stored(n) is None]",
+     "    absent = [n for n in names if n not in refused and env.get(n) is None]"),
 
     # ── the image's pull credential: for the pull, never for the box ────────────────────────────
     ("the pull uses the worker's shared client configuration", PULL,
@@ -165,4 +190,161 @@ MUTATIONS = [
     ("a pull credential with no user name or no secret passes the doctor", "openfactory/doctor.py",
      "    if pull is not None and not store.refusal(pull.reference) and (why := pull_problem(pull)):",
      "    if False:"),
+
+    # ── after the reviews of #822: a refusal opens no door ──────────────────────────────────────
+    ("BLOCKER: a refused closing variable opens the panel to everyone", "openfactory/identity/local.py",
+     '        if self._refused:\n            log.error("OPENFACTORY_IDENTITY_REFUSED',
+     '        if False:\n            log.error("OPENFACTORY_IDENTITY_REFUSED', FAMILY),
+    ("the local row is built over a refusal, so the panel answers 401 where it cannot check",
+     "openfactory/identity/registry.py",
+     "    if refused := provider.misconfiguration():\n        raise ValueError(refused)",
+     "    if False:\n        raise ValueError(refused)", FAMILY),
+    ("a refused closing variable still admits the tokens the store did hand over",
+     "openfactory/identity/local.py",
+     "            if not token or self._refused:\n                return None",
+     "            if not token:\n                return None", FAMILY),
+    ("a refused client secret reads as a public client", "openfactory/identity/oidc.py",
+     "        if self._refused:\n            # the variable's name",
+     "        if False:\n            # the variable's name", FAMILY),
+    ("a chain walks past a refusal to its next name", REGISTRY,
+     "        if found.value or found.refused:\n            return found\n    return NOTHING",
+     "        if found.value:\n            return found\n    return NOTHING", FAMILY),
+    ("a refused tracker override is answered by the bot's token", CREDENTIALS,
+     '    return credential_store.chain(("OPENFACTORY_TRACKER_TOKEN", "OPENFACTORY_BOT_TOKEN")).value',
+     '    return stored("OPENFACTORY_TRACKER_TOKEN") or stored("OPENFACTORY_BOT_TOKEN")', FAMILY),
+    ("a refused project reference falls back to the deployment's own", CREDENTIALS,
+     "        found = credential_store.look(named)\n        if found.refused:",
+     "        found = credential_store.look(named)\n        if False:", FAMILY),
+    ("a refused vendor default falls back to the deployment's pair", CREDENTIALS,
+     "        found = credential_store.lookup(default)\n        if found.refused:",
+     "        found = credential_store.lookup(default)\n        if False:", FAMILY),
+    ("a refused pair is not said, so the mint after it answers", CREDENTIALS,
+     "    found = credential_store.chain(_GENERIC[axis])\n    return _refused_at(",
+     "    found = credential_store.NOTHING\n    return _refused_at(", FAMILY),
+    ("a mint answers after a refused reference", CREDENTIALS,
+     '    if axis_refusal(project, "tracker"):\n        return None\n'
+     '    return _deployment_mint(getattr(project, "tracker", None))',
+     '    if False:\n        return None\n'
+     '    return _deployment_mint(getattr(project, "tracker", None))', FAMILY),
+    ("a provider answers after a refused reference", CREDENTIALS,
+     '    if axis_refusal(project, "forge"):\n        return None\n'
+     '    return _deployment_provider(getattr(project, "forge", None))',
+     '    if False:\n        return None\n'
+     '    return _deployment_provider(getattr(project, "forge", None))', FAMILY),
+    ("the App key's path answers after its refused content", CREDENTIALS,
+     "    if content.refused:\n        return None\n    path = ",
+     "    if False:\n        return None\n    path = ", FAMILY),
+    ("a refused bot token is replaced by a mint", "openfactory/adapters/github_app.py",
+     "    if found.refused:\n        return None\n    from openfactory.credentials import",
+     "    if False:\n        return None\n    from openfactory.credentials import", FAMILY),
+    ("Azure falls back to a person's login over a refused PAT", "openfactory/adapters/azure_devops.py",
+     "    if found.refused:\n        # A REFUSED SECRET IS NOT AN ABSENT ONE",
+     "    if False:\n        # A REFUSED SECRET IS NOT AN ABSENT ONE", FAMILY),
+    ("a mapping walk goes on past a refusal", REGISTRY,
+     "        if self.refused:\n            return default\n        found = lookup(name)",
+     "        if False:\n            return default\n        found = lookup(name)", FAMILY),
+    ("the harness runs when its credential was refused, and the CLI reads the next variable",
+     ADAPTER,
+     '        if getattr(self, "_refused", None) and not self._pool:',
+     "        if False:", FAMILY),
+    ("the container box passes a refused harness default's variable", CONTAINER,
+     "            if var in seen or (found := lookup(var)).refused:\n                continue",
+     "            if var in seen:\n                continue\n            found = lookup(var)", FAMILY),
+    ("the worktree box keeps a refused name's variable", WORKTREE,
+     "            if found.refused:\n                env.pop(var, None)",
+     "            if False:\n                env.pop(var, None)", FAMILY),
+    ("a refused gate key is replaced by the generated one", "openfactory/gate_seal.py",
+     '    if found.refused:\n        raise RuntimeError(f"the gate key',
+     '    if False:\n        raise RuntimeError(f"the gate key', FAMILY),
+    ("a refused preview key is replaced by the process's own", "openfactory/preview/__init__.py",
+     "    if found.refused:\n        # NOT THE PROCESS'S OWN IN ITS PLACE",
+     "    if False:\n        # NOT THE PROCESS'S OWN IN ITS PLACE", FAMILY),
+    ("a refused engine key is answered by the client certificate",
+     "openfactory/runtime/temporal/connection.py",
+     "    if api_key.refused:\n        raise RuntimeError(",
+     "    if False:\n        raise RuntimeError(", FAMILY),
+    ("the doctor's harness line asks for a variable that is set", "openfactory/doctor.py",
+     "        if settings.refused:\n            # A REFUSAL, NOT AN ABSENCE",
+     "        if False:\n            # A REFUSAL, NOT AN ABSENCE", FAMILY),
+    ("the doctor's forge line says 'not configured' over a refusal", "openfactory/doctor.py",
+     '        if refused := axis_refusal(project, "forge"):',
+     '        if refused := "":', FAMILY),
+    ("the doctor's board line asks for the tracker credential that is set", "openfactory/doctor.py",
+     '        if refused := axis_refusal(project, "tracker"):',
+     '        if refused := "":'),
+    ("MAJOR: the doctor's store line stays green over a refused deployment credential",
+     "openfactory/doctor.py",
+     '        if refused:\n            wrong.append(refused_said("the deployment credential", refused))',
+     '        if False:\n            wrong.append(refused_said("the deployment credential", refused))',
+     FAMILY),
+    ("the doctor walks only the names the code reads, so a planted file goes unsaid",
+     "openfactory/doctor.py",
+     "        refused = store.refusals(sorted(deployment | set(store.listed(first))))",
+     "        refused = store.refusals(sorted(deployment))"),
+    ("readiness says 'not set' over a refusal", "openfactory/onboarding/readiness.py",
+     '    if refused:\n        return _fail("env_names",',
+     '    if False:\n        return _fail("env_names",', FAMILY),
+    ("onboarding runs its agent pass over a refused harness credential",
+     "openfactory/onboarding/onboard.py",
+     '        if refused:\n            return None, (f"deterministic (the harness credential "',
+     '        if False:\n            return None, (f"deterministic (the harness credential "', FAMILY),
+    ("onboarding reads the harness credential from the environment again",
+     "openfactory/onboarding/onboard.py",
+     "        missing = route.missing(held(names))",
+     "        missing = route.missing(dict(os.environ))", SWEEP),
+    ("the board setup says 'not configured' over a refused GH_TOKEN",
+     "openfactory/adapters/tracker/github_board_setup.py",
+     "    if found is not None and found.refused:",
+     "    if False:", FAMILY),
+    ("the panel calls a refused subscription an API key", "openfactory/api/app.py",
+     '    if not subscription.refused and lookup("ANTHROPIC_API_KEY").value:',
+     '    if lookup("ANTHROPIC_API_KEY").value:', FAMILY),
+
+    # ── the file store: a read-only mount, its repairs, a byte-order mark, a stranger's file ────
+    ("MAJOR: a compose secret on Ubuntu's umask is refused on its read-only mount", FILE,
+     "        if writers and not _mount_refuses_writes(fd=fd):",
+     "        if writers:"),
+    ("a read-only directory's write bits refuse every secret in it", FILE,
+     "        if writers and not sticky and not _mount_refuses_writes(path=root):",
+     "        if writers and not sticky:"),
+    ("a refusal names its cause and not its repair", FILE,
+     '                                    f"else can rewrite is not this deployment\'s — "\n'
+     "                                    + _UNWRITABLE.format(path=path))",
+     '                                    f"else can rewrite is not this deployment\'s")'),
+    ("a refusal of a directory names no repair", FILE,
+     "        if not self.directory:\n"
+     '            raise CredentialRefused(f"{DIR_VAR} names no directory to read secret files from — "\n'
+     '                                    f"set it to where the secrets are mounted (`/run/secrets` for "\n'
+     '                                    f"compose\'s `secrets:`), or unset the store that reads it")',
+     "        if not self.directory:\n"
+     '            raise CredentialRefused(f"{DIR_VAR} names no directory to read secret files from")',
+     FAMILY),
+    ("a byte-order mark an editor saved is kept in the secret", FILE,
+     '            text = data.decode("utf-8-sig")',
+     '            text = data.decode("utf-8")'),
+    ("a stranger's file in a shared directory is trusted, the panel token included", FILE,
+     "        if shared and found.st_uid not in (0, owner):",
+     "        if False:", FAMILY),
+
+    # ── the pull ────────────────────────────────────────────────────────────────────────────────
+    ("the pull's client output is handed back unredacted", PULL,
+     '        return done.returncode == 0, said.replace(secret, "***").replace(auth, "***")[-300:]',
+     "        return done.returncode == 0, said[-300:]"),
+    ("MAJOR: a job never pulls with its credential", CONTAINER,
+     "        self._pull_if_absent()\n        # WHERE the clone lives",
+     "        # WHERE the clone lives"),
+    ("MAJOR: the pull talks to the default daemon while the box talks to the person's", PULL,
+     "        daemon = _carry_the_daemon(config, user_config_dir())",
+     "        daemon = {}"),
+    ("the pull names the person's context and cannot resolve it", PULL,
+     "    if os.path.isdir(contexts):\n        os.symlink(",
+     "    if False:\n        os.symlink("),
+
+    # ── the sweep reads tables ──────────────────────────────────────────────────────────────────
+    ("the sweep stops reading a loop over a table of names", SWEEP,
+     "            for walked in module.looped(node, key):\n",
+     "            for walked in ():\n", SWEEP),
+    ("the sweep stops seeing the environment handed to a reader of names it does not spell", SWEEP,
+     "                table_readers.add(fn.name)\n                break",
+     "                break", SWEEP),
 ]

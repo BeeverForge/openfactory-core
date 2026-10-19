@@ -404,9 +404,25 @@ held: the PEM for `OPENFACTORY_GH_APP_KEY_CONTENT`, a path for `OPENFACTORY_GH_A
 - **Refused by name**, and never replaced by the variable, when the directory or the file is
   writable by anyone but its owner (a sticky directory, as a cluster mounts its secrets, is
   accepted for files of root or of the worker's user), when a link leads out of the directory,
-  when it is not a regular file, or when it is larger than a credential (64 KB).
-- Its content, with the surrounding whitespace removed, is the secret; an empty file holds
-  nothing.
+  when it is not a regular file, or when it is larger than a credential (64 KB). Each refusal
+  ends with its repair.
+- **Except on a mount that refuses writes.** Compose mounts a `secrets:` file read-only with the
+  mode it has on the host, and on a host whose umask is `0002` (Ubuntu's, for users) a file made
+  with `echo … >` is `0664`. Nobody who sees a read-only mount can write through it, so its write
+  bits are not asked; what guards the file is its mode **on the host**, where it is created: make
+  it `chmod 600` there (`640` or `644` work as well — the read bits are the container's
+  business). On a writable mount the rule stands: `chmod go-w` the file, or mount it read-only.
+- Its content, with the surrounding whitespace and a byte-order mark removed, is the secret; an
+  empty file holds nothing.
+
+**A refusal is final.** A credential the store refuses is not replaced: not by the variable of the
+same name, not by the next name a credential falls back to (`OPENFACTORY_TRACKER_TOKEN`, then
+`OPENFACTORY_BOT_TOKEN`), not by a mint, a login or a generated key. A refused panel token keeps the
+panel closed — every request is answered "identity provider unavailable" (503) until it is fixed,
+and the log and `openfactory doctor` name the variable and the reason. A refused harness
+credential stops the agent rather than letting it run on the next one, and a refused `box.env`
+name crosses into neither box. A declared store that cannot be read at all, or a kind nobody
+installed, refuses every credential in the same way.
 - The worktree box withholds the directory's path from the workload, but the files are on the
   worker's filesystem, readable by the worker's user — [SECURITY.md](../../SECURITY.md).
 
@@ -418,9 +434,12 @@ is; a variable the box can read for itself is still handed over by name only.
 **`openfactory doctor` says where each credential comes from, never its value**: the
 `credential_store` line names the store the deployment declares and every reference the project
 names, with the store that answers for it — and fails a store nobody installed, a directory it
-cannot read, a reference that can never answer, and a pull credential with no user name or no
-secret. The forge line says which reference answered, and the agent credential line says which
-reference the harness token came from.
+cannot read, a reference that can never answer, a pull credential with no user name or no
+secret, and every deployment credential the store refuses, whether a reader names it or the store
+merely holds it, each with its repair. The forge line says which reference answered, and the
+agent credential line says which reference the harness token came from; when the store refused
+one, the forge, board and agent credential lines say that instead of "not configured", and never
+ask for a variable that is already set.
 
 ---
 

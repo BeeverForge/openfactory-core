@@ -26,8 +26,10 @@ MUTATIONS = [
      "human happens to be logged in — and every call spawns a subprocess",
      "openfactory/adapters/azure_devops.py",
      # re-pinned 2026-10-18 (#742): the stored secret is a reference the credential store answers
-     "    if (value or \"\").strip():\n        return found, ",
-     "    if az_token() is None and (value or \"\").strip():\n        return found, "),
+     # re-pinned 2026-10-19 (#822): the store's answer is an `Answer`, so a refusal can be told apart
+     "    if (found.value or \"\").strip():\n        return found.reference, ",
+     "    if az_token() is None and (found.value or \"\").strip():\n"
+     "        return found.reference, "),
 
     ("no fallback at all — the defect exactly as it shipped: the variable is re-read forever and "
      "a worker that started with a JWT needs restarting once an hour",
