@@ -332,3 +332,17 @@ def test_a_hard_break_is_a_line_break_not_a_glued_word():
 
     assert _read(item) == "- line one\nline two"
     assert criteria(_read(_AC, item)) == ["line one line two"]
+
+
+def test_an_action_item_and_a_decision_still_give_up_their_text():
+    """C5: `taskItem` and `decisionItem` hold inline content directly (ADF schema 57.7.18), so
+    their text nodes reach the block walk bare. A description of action items alone must not
+    read empty (ADR-0022 §4). GREEN ON 1be1835 ON PURPOSE: a regression guard (M15)."""
+    task = {"type": "taskList", "attrs": {"localId": "t"}, "content": [
+        {"type": "taskItem", "attrs": {"localId": "i", "state": "TODO"},
+         "content": [_t("ship the release")]}]}
+    decision = {"type": "decisionList", "attrs": {"localId": "d"}, "content": [
+        {"type": "decisionItem", "attrs": {"localId": "e", "state": "DECIDED"},
+         "content": [_t("we use Postgres")]}]}
+
+    assert _read(task, decision) == "ship the release\nwe use Postgres"

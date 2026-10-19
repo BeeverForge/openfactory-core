@@ -142,4 +142,8 @@ MUTATIONS = [
     ("M14 an image, which gives no line, is taken as the item's opening (raises IndexError)", JIRA,
      _GAVE_A_LINE, "                if not opened:\n",
      TEST + "::test_a_list_item_that_opens_with_another_block_is_still_a_criterion_of_its_own"),
+    ("M15 a text node met by the block walk is dropped: an action item's text is lost", JIRA,
+     '                out.append(str(node.get("text", "")))\n            else:',
+     '                pass\n            else:',
+     TEST + "::test_an_action_item_and_a_decision_still_give_up_their_text"),
 ]

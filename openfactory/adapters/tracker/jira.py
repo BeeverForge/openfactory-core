@@ -329,7 +329,9 @@ class JiraTracker:
                 out.extend(str(t.get("text", "")) for t in node.get("content") or []
                            if isinstance(t, dict) and t.get("type") == "text")
             elif kind == "text":
-                # A bare text node at block level is a malformed document; it still gives its text.
+                # taskItem and decisionItem content is inline (ADF 57.7.18), so their text nodes
+                # reach the block walk bare: this line is what keeps an action-item list from
+                # reading empty.
                 out.append(str(node.get("text", "")))
             else:
                 blocks(node.get("content") or [], nested)
