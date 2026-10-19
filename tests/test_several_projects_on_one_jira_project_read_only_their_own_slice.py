@@ -397,7 +397,8 @@ def test_a_card_outside_the_slice_is_refused_by_name_naming_the_scope(site, tmp_
     for act, sentence in said.items():
         assert "DAR-2 is not in api's slice" in sentence, (act, sentence)
         assert f"scope_jql {API!r}" in sentence, (act, sentence)
-        assert "act on it from the project it belongs to" in sentence, (act, sentence)
+        assert ("if it is another project's, act on it from there; if it is api's own, put it in "
+                "the scope and try again") in sentence, (act, sentence)
     assert jira.searches[:2] == [f'project = "{KEY}" AND ({API}) ORDER BY Rank ASC',
                                  f'project = "{KEY}" AND ({API}) AND key = "DAR-2"'], jira.searches
     assert len(jira.searches) == 2 * len(said), jira.searches

@@ -4752,8 +4752,9 @@ def _stage(proj, board, issue: str) -> _Stage:
             return _Stage(cannot_tell=(
                 f"{issue} is not in {proj.name}'s slice of its board"
                 f"{f' ({within})' if within else ''}, so {proj.name} cannot tell whether the "
-                f"factory has taken it up. Nothing was changed — act on it from the project it "
-                f"belongs to."))
+                f"factory has taken it up. Nothing was changed — if it is another project's, act "
+                f"on it from there; if it is {proj.name}'s own, put it in the scope and try "
+                f"again."))
         return _Stage()      # not on the board: nobody has moved it anywhere
     # THE BOARD ROW ANSWERS, NOT AN OPTION NAME READ FROM HERE (#231). This was
     # `key_for(column, renamed=proj.tracker.options.get("columns"))`, and `ProviderRef.options` is
