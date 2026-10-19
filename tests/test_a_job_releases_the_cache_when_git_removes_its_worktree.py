@@ -83,3 +83,21 @@ def test_once_the_box_cleaned_up_the_next_sync_publishes_the_moved_base(tmp_path
     box.cleanup(workspace=ws)
     cache.sync("p", origin.url, "main")
     assert _head(served) == tip, "the hold outlived the job: the moved base was never published"
+
+
+def test_a_persons_gc_that_prunes_at_once_keeps_a_live_jobs_marker(tmp_path, origin):
+    """A person's box may set `gc.worktreePruneExpire=now`, and any `git gc` in the served tree
+    then runs `worktree prune` at once. It prunes only an admin directory whose worktree is gone, so
+    a live job keeps its marker and its hold, and a gone one loses both. Before the fix there was
+    no marker to keep."""
+    cache = RepoCache(root=tmp_path / "cache")
+    served = cache.sync("p", origin.url, "main")
+    _, ws = _job(tmp_path, served, origin)
+    marker = _marker(ws.path)
+
+    _git("-c", "gc.worktreePruneExpire=now", "-c", "gc.auto=1", "gc", "--quiet", cwd=served)
+    assert marker.is_file(), "a gc pruned the marker of a job whose worktree still stands"
+
+    shutil.rmtree(ws.path)
+    _git("-c", "gc.worktreePruneExpire=now", "-c", "gc.auto=1", "gc", "--quiet", cwd=served)
+    assert not marker.parent.exists(), "a gc kept the admin directory of a worktree that is gone"
