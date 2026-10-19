@@ -19,8 +19,10 @@ THE CASES ARE READ FROM THE CODE, so tomorrow's are covered without editing this
 credentials are every variable in `identity/local.py::CLOSING_ENVS` whose value is itself a
 credential, resolved by the provider; the scoped ones are those whose subject carries a group the
 action layer knows (`_scopes_of`). The rows are the action catalogue, and a row is outside a
-credential's area when `Actor.may_enter` says so. A guard fails when either table comes back
-empty. Every value here is fictitious.
+credential's area when `Actor.may_enter` says so. A row that changes the installation
+(`ActionSpec.installation`, #741) is refused to a scoped credential INSIDE its own area too, so
+those rows are a table of their own. A guard fails when any table comes back empty. Every value
+here is fictitious.
 """
 
 from __future__ import annotations
@@ -104,6 +106,14 @@ def _outside(scopes) -> list[actions.ActionSpec]:
     """The catalogue's rows a credential of these scopes may not enter, by the layer's own rule."""
     probe = actions.Actor(id="", scopes=scopes)
     return [spec for spec in catalog.CATALOG.values() if not probe.may_enter(spec.scope)]
+
+
+def _installation() -> list[actions.ActionSpec]:
+    """The catalogue's rows that change the installation itself (#741): the administrator's, and
+    refused to a credential scoped to ANY area — its own included. The shared board token may
+    enter the floor, and every one of these rows is the floor's, so `_outside` never names them
+    for it."""
+    return [spec for spec in catalog.CATALOG.values() if spec.installation]
 
 
 #: The card's own control on the product view: the row that closes or removes a card, which
@@ -234,6 +244,11 @@ def test_the_tables_this_file_reads_are_not_empty():
         assert subject.id == "" and subject.via == ANONYMOUS, (var, subject)
         assert _outside(_scopes_of(subject)), f"{var} is outside no row's area"
     assert _REACHING_THE_CARD, "no shared credential reaches the product view's card control"
+    assert _installation(), "the catalogue declares no row that changes the installation"
+    assert any(actions.Actor(id="", scopes=_scopes_of(subject)).may_enter(spec.scope)
+               for _var, subject in SHARED_SCOPED for spec in _installation()), (
+        "no shared scoped credential may enter any installation row's area, so the installation "
+        "case below would measure nothing the area case does not")
 
 
 @pytest.mark.parametrize("transport", TRANSPORTS)
@@ -301,6 +316,27 @@ def test_a_shared_scoped_credential_is_refused_every_row_outside_its_area(
 
     assert not through, f"{var} ({label=}) was not refused these rows: {through}"
     assert spied == [], f"{var} ({label=}) ran rows outside its area: {spied}"
+
+
+@pytest.mark.parametrize("label", [None, LABEL], ids=["no-label", "label"])
+@pytest.mark.parametrize(("var", "subject"), SHARED_SCOPED, ids=[v for v, _ in SHARED_SCOPED])
+def test_a_shared_scoped_credential_is_refused_every_row_that_changes_the_installation(
+        deployment, spied, monkeypatch, var, subject, label):
+    """The installation is nobody's area (#741): pausing pickup, naming a product, revoking a
+    person, changing a project are the administrator's, and a scoped credential is refused them
+    inside its own area as well. Measured before the scope of a shared token was read without its
+    label: the shared board token sending no label was unscoped, and so the administrator."""
+    monkeypatch.setenv(var, SECRET)
+
+    through = {}
+    for spec in _installation():
+        r = deployment.post(f"/api/act/{spec.name}", headers=_headers(label),
+                            json={"params": _params(spec)})
+        if r.status_code != 403:
+            through[spec.name] = (r.status_code, r.text[:160])
+
+    assert not through, f"{var} ({label=}) was not refused these installation rows: {through}"
+    assert spied == [], f"{var} ({label=}) ran rows that change the installation: {spied}"
 
 
 @pytest.mark.parametrize("label", [None, LABEL], ids=["no-label", "label"])
@@ -517,3 +553,19 @@ def test_an_anonymous_actor_is_refused_as_scoped_by_the_layer_itself(spied):
             out = asyncio.run(actions.perform(spec.name, by=actor, **_params(spec)))
             assert out.code == actions.DENIED, (spec.name, out)
     assert spied == [], f"rows ran outside the actor's area: {spied}"
+
+
+def test_an_anonymous_scoped_actor_is_refused_the_installation_by_the_layer_itself(spied):
+    """The installation's rule one floor down: `perform` refuses every installation row to the
+    actor a shared scoped credential becomes, saying which rule refused it — the area for a row
+    outside it, the installation for one inside."""
+    for _var, subject in SHARED_SCOPED:
+        scopes = _scopes_of(subject)
+        actor = actions.Actor(id="", display=subject.display, via="panel", admin=True,
+                              scopes=scopes, label=LABEL)
+        for spec in _installation():
+            out = asyncio.run(actions.perform(spec.name, by=actor, **_params(spec)))
+            said = (actions.base.OUT_OF_SCOPE if not actor.may_enter(spec.scope)
+                    else actions.base.NOT_THE_INSTALLATIONS)
+            assert out.code == actions.DENIED and out.data["reason"] == said, (spec.name, out)
+    assert spied == [], f"rows that change the installation ran for a scoped actor: {spied}"

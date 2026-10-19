@@ -4837,6 +4837,11 @@ def product_declare(name: str, docs_repo: str) -> None:
     # A MAPPING ONTO THE `product_declare` ROW (#741): the row records the repository, reads it
     # back with both credentials and asks the forge's row for the likely cause; this prints it.
     _get_project(name)  # a clear "not registered" beats a registry write to a ghost
+    if not (docs_repo or "").strip().strip("/"):
+        # THE COMMAND'S OWN REMEDY for an empty name: `perform` refuses `""` as a missing
+        # parameter before the row is reached, and that sentence names a parameter, not a command.
+        typer.echo("✗ name the repository: `openfactory product declare <project> <owner/repo>`")
+        raise typer.Exit(2)
     outcome = _perform("product_declare", project=name, docs_repo=docs_repo)
     if not outcome.ok:
         typer.echo(f"✗ {outcome.message}")

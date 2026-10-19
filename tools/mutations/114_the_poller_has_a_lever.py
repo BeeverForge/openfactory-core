@@ -52,8 +52,10 @@ MUTATIONS = [
     # RE-PINNED (#741): the hold moved into the `poller_pause`/`poller_resume` rows, and the
     # refusal by name with it — the command maps onto the row. Re-raised here, the failure reaches
     # `perform`'s catch-all, which names the row and not the poller nor where to look.
+    # RE-PINNED 2026-10-20: the line before the refusal logs at INFO now, so the shell says the
+    # failure once; the claim is unchanged.
     ("an unreachable engine raises instead of refusing by name", CATALOG,
-     '        log.warning("could not %s the poller for %s: %s", verb, by, exc)\n',
+     '        log.info("could not %s the poller for %s: %s", verb, by, exc)\n',
      "        raise\n"),
 
     ("the note stops naming who pulled the lever", CLI,

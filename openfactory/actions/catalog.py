@@ -7329,7 +7329,10 @@ async def _poller_hold(*, on: bool, by: Actor, note: object) -> Outcome:
 
         result = await hold_poller(on=on, note=reason)
     except Exception as exc:  # noqa: BLE001 — one sentence, the cause, never a traceback
-        log.warning("could not %s the poller for %s: %s", verb, by, exc)
+        # INFO, NOT WARNING: the refusal below is the sentence, and `perform`'s audit line records
+        # it. At WARNING the shell printed this line and then the refusal — the same failure said
+        # twice, where the command used to say it once.
+        log.info("could not %s the poller for %s: %s", verb, by, exc)
         return refused(UNAVAILABLE, f"could not {verb} the poller "
                                     f"({first_message(exc, limit=200)}) — the engine may be "
                                     f"unreachable. `openfactory poller status` says whether it "
@@ -7408,7 +7411,14 @@ async def _product_declare(*, project: str, docs_repo: str, by: Actor) -> Outcom
     repository outside a credential's selection all record perfectly and surface hours later as the
     product role answering "I cannot see the requirements". So both credentials that will ever read
     it are tried here, while somebody is watching — and an unreadable one is still RECORDED
-    (`reachable: false`): fixing the access must not mean declaring it again."""
+    (`reachable: false`): fixing the access must not mean declaring it again.
+
+    THE READ LEAVES THE LOOP. `context_reachability` runs `git ls-remote` with each credential and
+    the forge's API, which take seconds, and on the panel this runs on the loop every other request
+    and stream is served from: measured on 2026-10-19 with a 3 s read, a `GET /api/v1/actions` sent
+    0.3 s into a declaration waited 3.95 s for it."""
+    import asyncio
+
     from openfactory import plugins
     from openfactory.adapters.forge.registry import forge_row
     from openfactory.product.onboard import context_reachability
@@ -7425,7 +7435,7 @@ async def _product_declare(*, project: str, docs_repo: str, by: Actor) -> Outcom
     found, bad = _project(project)  # RE-READ: the object above predates the record
     if bad:
         return bad
-    ok, why = context_reachability(found, repo)
+    ok, why = await asyncio.to_thread(context_reachability, found, repo)
     if ok:
         return done(f"{project}'s context repository is {repo} — recorded, and reachable",
                     project=project, docs_repo=repo, reachable=True, why="", cause="")
@@ -7448,13 +7458,20 @@ async def _doctor(*, project: str, by: Actor) -> Outcome:
 
     WHOSE OPINION IT IS rides in the document's `build`: the process that answered, which is the
     worker's from its shell and the panel's through the panel. The two halves of a deployment can
-    disagree about the same machine, and the stamp is what says which one is speaking."""
+    disagree about the same machine, and the stamp is what says which one is speaking.
+
+    THE PROBES LEAVE THE LOOP, for the reason `_product_declare`'s read does: `docker info`, the
+    forge's API and the box gate block for up to a minute, and through the panel they would hold
+    every other request for as long — measured on 2026-10-19 with a 3 s probe, a request sent
+    0.3 s in waited 2.75 s."""
+    import asyncio
+
     from openfactory import doctor as doc
 
     found, bad = _project(project)
     if bad:
         return bad
-    report = doc.diagnose(doc.probes_for(found))
+    report = await asyncio.to_thread(lambda: doc.diagnose(doc.probes_for(found)))
     document = doc.as_document(report, project=project, build=namespace.build_stamp())
     failed = [c["id"] for c in document["checks"] if c["result"] != "ok"]
     if not failed:

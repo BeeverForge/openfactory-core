@@ -56,8 +56,9 @@ CONTRACT = ROOT / "docs" / "reference" / "the-front-end-api.md"
 #: Held EXACTLY by rule 1 — an entry that stopped writing fails too — so it cannot grow into a
 #: list of permissions.
 OPERATORS_LEVERS = {
-    "enable": "one project's pickup, on or off: the operator's lever on the floor (ADR-0057 D3 "
-              "gives `enable` to `operator`), where the poller's pause is the deployment's",
+    "enable": "one project's pickup, on or off: the operator's lever on the floor (ADR-0057's "
+              "D3, proposed in #740, gives `enable` to `operator`), where the poller's pause is "
+              "the deployment's",
 }
 
 
@@ -218,6 +219,26 @@ def test_the_administrator_reaches_every_installation_row(name, reached):
     assert out.ok and reached == [name], (name, out)
 
 
+@pytest.mark.parametrize("name", INSTALLATION)
+def test_an_unscoped_caller_who_is_not_an_admin_is_refused_every_installation_row(name, reached):
+    """The installation's rule is asked beside `needs_admin`, not instead of it: an unscoped
+    caller who is nobody's admin — a chat user outside `project.admins` — is refused too."""
+    nobody = actions.Actor(id="u1", via="slack", admin=False)
+
+    out = asyncio.run(actions.perform(name, by=nobody, **_params(catalog.CATALOG[name])))
+
+    assert out.code == actions.DENIED and reached == [], (name, out)
+
+
+def test_the_doctor_answers_a_caller_who_is_not_an_admin(reached):
+    """The doctor changes nothing, so it answers whoever may enter the floor — admin or not."""
+    viewer = actions.Actor(id="u1", via="slack", admin=False)
+
+    out = asyncio.run(actions.perform("doctor", by=viewer, project="acme"))
+
+    assert out.ok and reached == ["doctor"], out
+
+
 @pytest.fixture
 def three_credentials(tmp_path, monkeypatch):
     """The panel's own token, a person's board token and a person's product token."""
@@ -311,6 +332,65 @@ def test_the_doctor_row_answers_the_document_the_command_prints(tmp_path, monkey
     assert answered.json()["data"] == json.loads(printed.stdout)
     assert answered.json()["ok"] is True, "the doctor ran — `ok` is about the platform"
     assert answered.json()["data"]["ok"] is False and "docker" in answered.json()["message"]
+
+
+def test_the_doctor_and_a_declaration_probe_off_the_loop_the_panel_serves_from(tmp_path,
+                                                                             monkeypatch):
+    """The doctor's probes (`docker info`, the forge's API, the box gate) and a declaration's read
+    (`git ls-remote` with each credential) block for seconds. Through the panel these rows run on
+    the one loop that serves every other request, stream and approval: measured on 2026-10-19, a
+    request sent 0.3 s into a 3 s probe waited 2.75 s behind the doctor and 3.95 s behind a
+    declaration. So each runs on a thread of its own, and the loop keeps serving."""
+    import threading
+
+    from openfactory import doctor
+    from openfactory.cli import app
+    from openfactory.product import onboard
+    from tests.pinned_probes import a_fully_pinned_probe_set
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    assert CliRunner().invoke(app, ["project", "add", "demo", str(tmp_path)]).exit_code == 0
+    ran_on: dict[str, int] = {}
+
+    def docker_running():
+        ran_on["doctor"] = threading.get_ident()
+        return True, ""
+
+    def reachable(_project, _repo):
+        ran_on["product_declare"] = threading.get_ident()
+        return True, ""
+
+    monkeypatch.setattr(doctor, "probes_for",
+                        lambda _p: a_fully_pinned_probe_set(docker_running=docker_running))
+    monkeypatch.setattr(onboard, "context_reachability", reachable)
+    admin = actions.Actor(id="rob", via="panel", admin=True)
+
+    async def on_the_loop() -> int:
+        for name, params in (("doctor", {"project": "demo"}),
+                             ("product_declare", {"project": "demo",
+                                                  "docs_repo": "acme/demo-docs"})):
+            out = await actions.perform(name, by=admin, **params)
+            assert out.ok, (name, out)
+        return threading.get_ident()
+
+    loop = asyncio.run(on_the_loop())
+
+    assert set(ran_on) == {"doctor", "product_declare"}, f"a probe was not reached: {ran_on}"
+    assert loop not in ran_on.values(), f"a probe ran on the loop's own thread: {ran_on}"
+
+
+def test_the_command_names_its_remedy_for_an_empty_repository(tmp_path, monkeypatch):
+    """`perform` refuses `""` as a missing parameter before the row is reached, and that sentence
+    names a parameter; the person typed a command, so the command says which one to type."""
+    from openfactory.cli import app
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    assert CliRunner().invoke(app, ["project", "add", "demo", str(tmp_path)]).exit_code == 0
+
+    out = CliRunner().invoke(app, ["product", "declare", "demo", ""])
+
+    assert out.exit_code == 2, out.output
+    assert "openfactory product declare <project> <owner/repo>" in out.output, out.output
 
 
 @pytest.mark.parametrize("jobs,said", [
