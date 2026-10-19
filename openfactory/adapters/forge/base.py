@@ -9,6 +9,7 @@ deploy with its own secrets (ADR-0001 D-12). Merge rights are governed by the fl
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
@@ -667,6 +668,26 @@ def review_comments_of(forge: object, pr: str) -> list[ReviewComment] | Comments
     if not isinstance(rows, list) or not all(isinstance(r, ReviewComment) for r in rows):
         return CommentsNotListed(f"{name} answered something that is not a list of comments")
     return rows
+
+
+def description_ceiling(forge: object) -> tuple[int, Callable[[str], int]] | None:
+    """The longest description `forge` accepts, and how it counts — or None: no declared limit.
+
+    A FORGE THAT LIMITS A DESCRIPTION DECLARES THE LIMIT AND ITS UNIT (#627): `description_limit`,
+    an int, and `description_length`, the function that counts in the vendor's unit (Azure Repos:
+    UTF-16 code units, #433; `len` when only the limit is declared). THE COMPOSER FITS TO IT: the
+    machine writes the body and knows which of its rows matter, so it gives up the oldest pass
+    lines first and keeps the `Cost:` line, the review and the newest pass — a cut from the end
+    knows none of that. AND THE ADAPTER'S OWN CUT STAYS THE BACKSTOP, the vendor's guarantee
+    against a refusal, which a fitted body passes through untouched.
+
+    Read with `getattr`, like `closing_keyword`: a row that declares nothing has no limit, and a
+    test double or a non-int is not a declaration."""
+    limit = getattr(forge, "description_limit", None)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+        return None
+    measure = getattr(forge, "description_length", None)
+    return limit, measure if callable(measure) else len
 
 
 def display_name(forge: object) -> str:

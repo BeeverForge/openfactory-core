@@ -19,6 +19,7 @@ from openfactory.adapters.agent.claude_code import NO_MCP_SERVERS
 from openfactory.adapters.reviewer.base import (
     ACCEPTANCE_SHAPE,
     EVIDENCE_RULE,
+    WRITTEN_ANSWER_RULE,
     ReviewerAdapter,
     ReviewInput,
 )
@@ -142,7 +143,7 @@ class ClaudeCodeReviewer(ReviewerAdapter):
             "not modify anything. Your job is to find evidence the change is wrong or "
             "incomplete: map each acceptance criterion to concrete evidence, hunt for "
             "regressions and unrequested scope, and check the constraints are not violated. "
-            + EVIDENCE_RULE,
+            + EVIDENCE_RULE + " " + WRITTEN_ANSWER_RULE,
             f"\n# Ticket {t.id}: {t.title}\n## Objective\n{t.objective}",
             f"\n## Acceptance criteria\n{crits}",
         ]

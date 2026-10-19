@@ -11,10 +11,11 @@ MUTATIONS = [
     # ── the amendment has to happen at all, and only where it is true ───────────────────────────
     ("a pass rewrites the pull request and its body still reads as current",
      "openfactory/orchestrator/machine.py",
+     # re-pinned for #627: the call also carries the pass's line for what the agent says it did
      "            if pushed or review is not None:\n"
-     "                self._republish_review(pr_url, review=review)",
+     "                self._republish_review(pr_url, review=review,",
      "            if False:\n"
-     "                self._republish_review(pr_url, review=review)"),
+     "                self._republish_review(pr_url, review=review,"),
 
     ("a pass that changed nothing dates a review that is still perfectly good",
      "openfactory/orchestrator/machine.py",
@@ -24,10 +25,12 @@ MUTATIONS = [
     ("the fresh reading is thrown away and the old one is merely dated",
      "openfactory/orchestrator/machine.py",
      "            if pushed or review is not None:\n"
-     "                self._republish_review(pr_url, review=review)\n"
+     "                self._republish_review(pr_url, review=review,\n"
+     "                                       account_passes=passes if pushed else ())\n"
      "            self._emit(ticket, \"pr\", \"ci-repair pushed — CI re-running\", url=\"\")",
      "            if pushed or review is not None:\n"
-     "                self._republish_review(pr_url, review=None)\n"
+     "                self._republish_review(pr_url, review=None,\n"
+     "                                       account_passes=passes if pushed else ())\n"
      "            self._emit(ticket, \"pr\", \"ci-repair pushed — CI re-running\", url=\"\")"),
 
     ("a re-review leaves the out-of-date marker standing on the pull request",

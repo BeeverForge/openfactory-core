@@ -6,7 +6,9 @@ reads their exit codes. It does not believe the agent that claims it ran them.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator
 
 from openfactory.contracts.decision import DecisionRequest
 from openfactory.contracts.manifest import PostMergeDeploy
@@ -18,6 +20,9 @@ class AgentRunResult(BaseModel):
     """What a CodingAgentAdapter reports back after an execution/repair pass."""
 
     ok: bool
+    #: THE JOURNAL'S SHORT FORM of the agent's final message, not the message: Claude's adapter
+    #: caps it at ~1000 characters with no marker. Whatever must carry the WHOLE message — the pull
+    #: request's `AGENT_ACCOUNT_HEADING` section (#627) — reads `agent.base.final_text(res)`.
     summary: str = ""
     cost_usd: float | None = None  # from `claude -p --output-format json`
     # Human-readable trace of what the agent did (e.g. "Edit app/health.py",
@@ -144,6 +149,43 @@ class HandedBack(BaseModel):
     needs_person: bool | None = None
     reason: str = ""
     event_id: str = ""
+
+
+#: WHAT THE IMPLEMENTING AGENT SAYS IT DID, ON THE PULL REQUEST (#627). Each of these has ONE
+#: spelling, for `_REVIEW_HEADING`'s reason (`orchestrator/machine.py`): the body's writer and the
+#: reader that amends it on every later pass must agree, and a copy that drifts fails silently —
+#: the amendment never lands. The heading is never translated: it is parsed.
+AGENT_ACCOUNT_HEADING = "## What the agent says it did"
+#: The executor's quoted block, counted AS WRITTEN IN THE BODY — after neutralising, escapes
+#: included, with every `> ` prefix — because a message of short lines would otherwise roughly
+#: double in size. The cut line counts differently, as the reader sees the quote.
+AGENT_ACCOUNT_MAX = 2000
+#: One later pass's own words, flattened to one line: the cut the `agent finished:` note uses.
+AGENT_PASS_WORDS_MAX = 200
+#: Later passes listed; the older ones are counted, and the count accumulates across republishes.
+AGENT_PASSES_SHOWN = 10
+#: Every kind of later pass a line can name. A label is followed by its ordinal where a run can
+#: hold several (`gate repair 2`); any other kind is refused — an unknown kind raises.
+PASS_KINDS = ("recovery", "gate repair", "suppression repair", "review repair", "adjust",
+              "CI repair", "adjust gate repair")
+
+
+class PassAccount(BaseModel):
+    """One later pass's line under `AGENT_ACCOUNT_HEADING`: what kind it was, its own words (already
+    one line and cut), and the head commit it pushed — "" for a pass that committed nothing of its
+    own (a recovery). A pass is identified by `(kind, head)`, so the same pass republished twice
+    adds its line once."""
+
+    kind: str
+    words: str
+    head: str = ""
+
+    @field_validator("kind")
+    @classmethod
+    def _a_known_kind(cls, kind: str) -> str:
+        if re.sub(r" \d+$", "", kind) not in PASS_KINDS:
+            raise ValueError(f"{kind!r} is not a pass kind this platform writes ({PASS_KINDS})")
+        return kind
 
 
 class RunResult(BaseModel):
@@ -275,6 +317,17 @@ class RunResult(BaseModel):
     #: it again (ADR-0046, decided 2026-09-06) — 0 when it did not, or did not need to
     knowledge_authored: int = 0
     review: ReviewResult | None = None  # independent reviewer's verdict (D-5)
+    #: WHAT THE IMPLEMENTING AGENT SAYS IT DID (#627) — A CLAIM, and only a claim. The executor's
+    #: whole final message (`final_text`), raw, kept to 4 × `AGENT_ACCOUNT_MAX` so the activity
+    #: payload stays bounded (the rendered bound is applied when the body is written); its true
+    #: length; and one line per later pass. They reach the pull request under
+    #: `AGENT_ACCOUNT_HEADING` for the person deciding, and nothing else: `merge_policy` never
+    #: reads them, no gate does, and the reviewer is never handed them (ADR-0001 D-5, D-11).
+    #: Empty on a result from before them, which the body says as "wrote nothing" — nothing was
+    #: carried.
+    agent_account: str = ""
+    agent_account_chars: int = 0
+    agent_passes: list[PassAccount] = Field(default_factory=list)
     #: Did THIS PASS change the pull request? Measured, on the checkout the pass had in hand: the
     #: diff against the base before the agent ran, against the diff after it committed and pushed.
     #:

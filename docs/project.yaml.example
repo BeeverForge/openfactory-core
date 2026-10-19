@@ -239,7 +239,8 @@ components: {}
 
 # ── Docs fed to the agent as context ─────────────────────────────────────────
 docs:
-  constraints: docs/adr/**            # always loaded (the "constitution")
+  constraints: docs/adr/**            # the "constitution": inlined newest first under the
+                                      #   prompt budget; every record not inlined is named
   # architecture: docs/architecture/**  # pulled on demand via a derived index
   # guidelines: [.openfactory/guidelines/execution.md]
 

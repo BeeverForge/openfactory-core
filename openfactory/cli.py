@@ -130,7 +130,7 @@ validate:
   # type: "mypy ."
 
 docs:
-  constraints: docs/adr/**        # ADRs — always loaded (the constitution)
+  constraints: docs/adr/**        # ADRs — the constitution, newest first under the budget
   # architecture: docs/architecture/**
   # guidelines: [.openfactory/guidelines/execution.md]
 

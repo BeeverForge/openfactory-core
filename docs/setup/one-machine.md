@@ -139,6 +139,14 @@ touched by the fast-forward itself, and only when it is safe:
   at its end; on a fresh start the card also gives `git -C <repo> worktree move <path> <a path of
   yours>`, because the job needs that path back.
 
+  A card that runs again finds what its earlier run left at the job's path. Its own working tree
+  that git has forgotten (a refresh of the deployment's copy of the repository forgets them all)
+  is removed, and so is one its own `git worktree add` left locked when the job was killed while
+  git checked it out: the job marks that add while it runs, so it can tell it from a lock of
+  yours. Anything else at that path is left as it is, a lock you made included, and the card says
+  whose it is and gives the command that moves it (`git -C <owner> worktree move <path> <a path of
+  yours>` for another repository's working tree, `mv` otherwise).
+
 ## What this door does not do
 
 - **Nothing is hosted, so nothing is shared.** The board, the pull requests and the journal live in

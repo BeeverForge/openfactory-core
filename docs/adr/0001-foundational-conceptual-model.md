@@ -221,6 +221,10 @@ Loading rule, by size/scope — **not** by front/back:
 - **ADRs (`constraints`): always loaded, all of them.** They are the constitution:
   small, cross-cutting, hard constraints. We never rely on a ticket to link the
   right ADR — that is exactly how a decision gets violated by accident.
+  **Amended (2026-10-18, #364):** ADRs are inlined up to the deployment's prompt
+  budget (`OPENFACTORY_PROMPT_BUDGET`), newest first, and every record not inlined,
+  or cut at 8,000 characters, is named by path in the prompt the agent reads — so
+  the platform still links all of them and no ticket has to (ADR-0056).
 - **Component architecture (large): pulled on demand.** The executor receives a
   derived **index** (see [D-10]) and pulls the specific doc when it discovers which
   component it is in — the same discover-then-pull mechanism as [D-6].

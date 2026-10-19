@@ -59,6 +59,12 @@ what a repair brief calls it. Only a non-empty string counts. A row that declare
 working and is shown honestly rather than prettily: by its kind in a heading, as "the forge" in
 a sentence.
 
+**A forge that limits a description declares the limit.** `description_limit` (an int) and
+`description_length` (how your vendor counts, e.g. UTF-16 code units; `len` when absent), both
+class attributes, as `AzureReposForge` declares its 4,000. The core then fits the pull request's
+body to it, giving up its own least important rows first (`forge.base.description_ceiling`); keep
+your own cut as the backstop. A forge that declares neither is treated as having no limit.
+
 **And say what your vendor needs SAID.** A remedy is a vendor's own words — its variable, its
 login, its console — and the core spells none: `openfactory doctor`, `product declare` and
 `project init` ask the row (`openfactory/plugins.py::sentence`), by the name of the moment the

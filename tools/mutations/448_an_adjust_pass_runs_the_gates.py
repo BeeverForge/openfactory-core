@@ -15,8 +15,9 @@ TEST = "tests/test_an_adjust_pass_runs_the_gates.py"
 M = "openfactory/orchestrator/machine.py"
 WF = "openfactory/runtime/temporal/workflow.py"
 
+# re-pinned for #627: the gate repairs' lines for what the agent says it did come back too
 GATED = ("            if human:\n"
-         "                validations, held = self._the_adjusted_change_passes_its_gates(")
+         "                validations, held, fixes = self._the_adjusted_change_passes_its_gates(")
 
 MUTATIONS = [
     ("TODAY'S DEFECT: the adjust pass runs no gate and pushes what it wrote", M,
@@ -49,11 +50,12 @@ MUTATIONS = [
      "            and not self._over_cost_ceiling(spent)\n"),
 
     ("a repair is never validated again, so the gate it fixed still reads red", M,
-     "            self._commit(ws, ticket)\n"
+     # re-pinned for #627: the repair's line is recorded between its commit and its validation
      "            _, validations = self._validate(ws, ticket)\n"
-     "        if _all_passed(validations):\n",
-     "            self._commit(ws, ticket)\n"
-     "        if _all_passed(validations):\n"),
+     "        if _all_passed(validations):\n"
+     "            return validations, None, fixes\n",
+     "        if _all_passed(validations):\n"
+     "            return validations, None, fixes\n"),
 
     ("the re-review is handed no gates, so it can only read NOT VERIFIED", M,
      "review_input=ReviewInput(ticket=ticket, diff=diff, validations=validations),",

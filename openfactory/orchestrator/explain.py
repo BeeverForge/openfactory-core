@@ -15,12 +15,15 @@ THE CASCADE IT PRINTS IS THE REAL ONE, not the chain the issue imagined
                          project's profile; then the operator's `$OPENFACTORY_GUIDELINES_DIR`;
                          then the project's own `docs.guidelines` and `components.*.guidelines`.
                          A profile acts on these and on nothing else.
-    the constraints      `docs.constraints`, in full, always.
+    the constraints      `docs.constraints`, each cut at 8,000 characters, newest first under
+                         the deployment's prompt budget (ADR-0056).
     the index            `docs.architecture`, titles only, read on demand.
 
 NOTHING HERE DECIDES ANYTHING. The rows are `context.Traced` entries written by `build_context`
 itself, from the branch that kept, waived, replaced or refused each file, so this cannot say one
 thing while the job does another. It is the job's code run on a blank card with a trace attached.
+What the prompt budget makes of a kept document — left out and named, or cut — is the brief's own
+`fit_documents` on that blank card (#364).
 
 AND IT WRITES NOTHING. No knowledge bundle is read (that can fetch), no harness, forge or network
 is asked anything, no registry or card is touched. The ticket brief itself is never printed: its
@@ -32,6 +35,7 @@ explanation.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -83,6 +87,11 @@ SAY: dict[str, dict[str, str]] = {
     "refuse.bad_profile": {
         "en": "The profile `{name}` does not resolve, and a job would hold on it: {why}",
         "pt-BR": "O perfil `{name}` não resolve, e um job pararia nele: {why}"},
+    "refuse.budget": {
+        "en": "{variable} is {value!r}, which is neither a number of bytes nor `off`, and a job "
+              "would hold on it — set a positive whole number of bytes, or `off`.",
+        "pt-BR": "{variable} é {value!r}, que não é um número de bytes nem `off`, e um job "
+                 "pararia nele — defina um número inteiro positivo de bytes, ou `off`."},
     "or": {"en": " or ", "pt-BR": " ou "},
 
     # ── the header ────────────────────────────────────────────────────────────────────────────
@@ -125,6 +134,15 @@ SAY: dict[str, dict[str, str]] = {
         "en": "added by the profile (extend)",
         "pt-BR": "acrescentado pelo perfil (extend)"},
     "kept.constraint": {"en": "inlined in full", "pt-BR": "incluído inteiro"},
+    # what the prompt budget made of a kept document (#364): left out and named in the prompt, or
+    # cut at `_MAX_DOC_CHARS` with the rest named — never "inlined in full" over a cut
+    "left_out": {
+        "en": "left out — over the {budget}-byte prompt budget; named in the prompt at {path}",
+        "pt-BR": "deixado de fora — acima do orçamento de {budget} bytes do prompt; citado no "
+                 "prompt em {path}"},
+    "truncated": {
+        "en": "inlined up to {cut} of {whole} characters",
+        "pt-BR": "incluído até {cut} de {whole} caracteres"},
     "waived": {"en": "waived by {detail}", "pt-BR": "dispensado por {detail}"},
     "replaced": {"en": "replaced by {detail}", "pt-BR": "substituído por {detail}"},
     "refused": {"en": "refused — {detail}", "pt-BR": "recusado — {detail}"},
@@ -284,6 +302,22 @@ def _header(profile, checkout: Path, language: str) -> list[str]:
     return lines
 
 
+def _number(n: int, language: str) -> str:
+    """`8,000` in English and `8.000` in Portuguese."""
+    return f"{n:,}".replace(",", ".") if language == "pt-BR" else f"{n:,}"
+
+
+def _budget_fate(doc, fit, language: str) -> str | None:
+    """What the prompt budget made of a kept document, or None when it is inlined whole."""
+    if any(doc is d for d in fit.left_out):
+        return _say(SAY, "left_out", language, budget=_number(fit.budget, language),
+                    path=f"`{doc.open_at}`")
+    if doc.truncated:
+        return _say(SAY, "truncated", language, cut=_number(len(doc.text), language),
+                    whole=_number(doc.chars_on_disk, language))
+    return None
+
+
 def _fate(t, language: str) -> str:
     from openfactory.orchestrator import context as ctx
 
@@ -323,6 +357,7 @@ def explain(target: str, *, language: str = "en", full: bool = False) -> str:
 
     `full` prints each block's text under its line, exactly as the prompt carries it."""
     from openfactory.adapters.agent import roles
+    from openfactory.adapters.agent.base import fit_documents
     from openfactory.orchestrator import context as ctx
 
     if language not in LANGUAGES:
@@ -337,8 +372,26 @@ def explain(target: str, *, language: str = "en", full: bool = False) -> str:
         manifest = _manifest(checkout, target, language)
         profile = _profile(manifest, checkout, language)
         trace: list[ctx.Traced] = []
-        context = ctx.build_context(manifest, checkout, ctx._BLANK_CARD, knowledge_map="",
-                                    profile=profile, trace=trace)
+        # WHERE THE JOB'S BOX OPENS THE OPERATOR DIRECTORY, asked of the box this deployment runs,
+        # built as the job builds it: without it the operator tier is pinned here and left out by
+        # the job, and the fates below would name the project's own guideline instead (review of
+        # #364). Nothing is built when no operator directory is configured.
+        from openfactory.orchestrator.operator_guidelines import deployment_root
+        from openfactory.runtime.temporal.io import default_sandbox
+
+        try:
+            context = ctx.build_context(manifest, checkout, ctx._BLANK_CARD, knowledge_map="",
+                                        profile=profile, trace=trace,
+                                        operator_root=deployment_root(default_sandbox()))
+        except ctx.PromptBudgetError:
+            raise Refused(_say(SAY, "refuse.budget", language, variable=ctx.ENV_VAR_PROMPT_BUDGET,
+                               value=os.environ.get(ctx.ENV_VAR_PROMPT_BUDGET, "").strip())
+                          ) from None
+    # THE FIT A BLANK CARD'S BRIEF MAKES (#364): the job's own `fit_documents`, so a fate below is
+    # the brief's decision and not a second one. The trace's inlined entries ARE the context's
+    # documents, in order — `build_context` writes both from the same read.
+    fit = fit_documents(context)
+    inlined = iter(context.documents)
 
     # ── the rows: (layer, name, fate, text) ──────────────────────────────────────────────────
     rows: list[tuple[str, str, str, str | None]] = []
@@ -348,7 +401,10 @@ def explain(target: str, *, language: str = "en", full: bool = False) -> str:
         rows.append((_say(SAY, "layer.role", language), role, fate,
                      roles.role_prompt(role) if kind != roles.NOWHERE else None))
     for t in trace:
-        rows.append((_layer(t, language), t.name, _fate(t, language), t.text))
+        fate = _fate(t, language)
+        if t.text is not None:
+            fate = _budget_fate(next(inlined), fit, language) or fate
+        rows.append((_layer(t, language), t.name, fate, t.text))
     for line in context.doc_index.splitlines():
         name, _, summary = line.partition(" — ")
         rows.append((_say(SAY, "layer.index", language), name, summary, None))

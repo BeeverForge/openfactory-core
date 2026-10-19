@@ -10,6 +10,11 @@ other working tree (a review tree, or the person's own checkout) is refused befo
 written, with `BranchHeldElsewhere`, read from `git worktree list --porcelain` and not from git's
 sentence, which changes with git's version and the locale.
 
+ITS OWN INCLUDES WHAT A RE-RUN FINDS LEFT OF IT (#746): its tree that git has forgotten is
+recognised by the `.git` file naming this repository, its own `worktree add` that was interrupted
+by git's lock bytes and the box's own mark, and both are removed; anything else at its path is
+refused by name, and left as it is.
+
 IT MARKS THE ONE WORKTREE IT ADDS AS A RUNNING JOB'S, AND NEVER ANOTHER (#747). On a project
 registered by clone URL the repository is the cache's served checkout, which a sync would swap
 out from under the job; the marker in that worktree's own admin directory is what holds the swap,
@@ -25,7 +30,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from openfactory.adapters import gitworktrees
@@ -82,6 +87,47 @@ def no_such_base(base_branch: str, where: str) -> str:
             f"instead. Push that branch, or name a base {where} has.")
 
 
+#: What `path_taken` can say is at the box's path, and what each is called in the sentence.
+_TAKEN_BY = ("tree", "forgotten", "repository", "file", "symlink", "directory")
+
+
+def path_taken(branch: str, path: str, *, repo: str, what: str, owner: str = "",
+               locked: bool = False) -> str:
+    """The refusal for the box's path taken by something not provably this repository's (#746):
+    one sentence naming the card's branch, the path, what is there and whose, that it was left as
+    it is, and the command that moves it, then resume.
+
+    BUILT FROM WHAT THE BOX READ AT THE PATH, NEVER FROM GIT'S `already exists`, which names no
+    owner and no remedy. English, like every hold note: notes are classified and hashed. Every
+    path in a command is shell-quoted, so a root with a space pastes whole.
+
+    `what`: `tree`, a working tree that the repository at `owner` lists there (moved with `git -C
+    <owner> worktree move`, which keeps its registration; `locked` puts the unlock first, since
+    `move` refuses a locked tree); `forgotten`, one that repository no longer lists (`worktree
+    move` answers rc 128 `is not a working tree`, 2.43.0, measured 2026-10-18, so it is moved with
+    `mv`); `repository`, a clone; `file`, `symlink`, or a `directory` that is none of these."""
+    if what not in _TAKEN_BY:
+        raise ValueError(f"unknown kind of thing at the box's path: {what!r}")
+    where, mine = shlex.quote(path), "<a path of yours>"
+    there = {
+        "tree": f"a working tree of the repository at {owner}{', locked' if locked else ''}",
+        "forgotten": f"a working tree that the repository at {owner} no longer lists",
+        "repository": "a repository of its own",
+        "file": "a file",
+        "symlink": "a symbolic link",
+        "directory": f"a directory that is not a working tree of {repo}",
+    }[what]
+    if what == "tree":
+        git = f"git -C {shlex.quote(owner)} worktree"
+        unlock = f"`{git} unlock {where}`, then " if locked else ""
+        move = f"{unlock}`{git} move {where} {mine}`"
+    else:
+        move = f"`mv {where} {mine}`"
+    return (f"{branch} cannot be checked out at {path}, the path this job's working tree takes, "
+            f"because {there} is there; it was left as it is, and this job did not start. Move "
+            f"it with {move}, then resume.")
+
+
 def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str = "",
                 gone: bool = False, rebuilt: bool = False, ours: bool = False) -> str:
     """The refusal for a card's branch somebody else has out (#623): one sentence naming the
@@ -110,8 +156,10 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
     not mounted), and git still counts the branch as out there; `remove` frees it, after a mount
     (a removed registration orphans the tree when the disk comes back) and, on a rebuild door,
     after `git branch` keeps what was committed there. `ours`: the box's own tree from an earlier
-    pass, which a person locked; the box leaves it as it is, and on a rebuild door it is moved off
-    the box's path too, or `worktree add` meets it there."""
+    pass that it could not remove: locked, by a person or by a `git worktree add` interrupted
+    before the box could mark it (#746), which the box cannot tell apart; the box leaves it as it
+    is, and on a rebuild door it is moved off the box's path too, or `worktree add` meets it
+    there."""
     where = shlex.quote(path)
     git = f"git -C {shlex.quote(repo)}" if repo else "git"
     unlock = f"`{git} worktree unlock {where}`, then " if locked else ""
@@ -139,8 +187,18 @@ def branch_held(branch: str, path: str, *, main: bool, locked: bool, repo: str =
                     f"there on a branch of yours and frees {branch}, then resume.")
         return (f"{head} Switch that checkout to another branch "
                 f"(`git -C {where} switch <another branch>`), then resume.")
-    whose = (", the job's own from an earlier pass, which somebody locked, so it was left as it is"
-             if ours else "")
+    # A LOCK ON THE BOX'S OWN TREE IS A PERSON'S OR AN INTERRUPTED `git worktree add`'s (#746):
+    # git's add locks the tree `initializing` while it checks out, a person's `--reason
+    # initializing` writes the same bytes, and a tree interrupted before this release carries no
+    # mark of the box's, so the box cannot always tell which, and says so rather than naming
+    # somebody.
+    # (no backticks around git's verb: in these sentences a backticked `git …` is a command to
+    # paste, and the #623 tests run every one of them as written)
+    whose = (", the job's own from an earlier pass, which is locked, by a person or by a "
+             "git worktree add that was interrupted, and the box could not tell which, so it "
+             "was left as it is" if ours and locked else
+             ", the job's own from an earlier pass, which could not be removed, so it was left "
+             "as it is" if ours else "")
     head = (f"{branch} is checked out in another working tree, at {path}{whose}, and {once}, and "
             f"nothing in that tree was touched.")
     if rebuilt and ours:
@@ -179,6 +237,252 @@ def _working_trees(repo_path) -> list[gitworktrees.WorkingTree] | None:
         log.debug("could not read the working trees of %s: %s", repo_path, out.strip())
         return None
     return gitworktrees.parse(out)
+
+
+def _common_dir(repo_path) -> Path | None:
+    """The repository's common git directory, resolved, or `None` when git could not be asked.
+
+    `--git-common-dir` answers RELATIVE to `repo_path` (`.git`) in the main checkout and absolute
+    in a linked one, so it is joined to `repo_path`, never to the process's cwd. Never
+    `--path-format=absolute`: that is git 2.31+, above CONTRIBUTING's 2.28 floor."""
+    rc, out = _run(["git", "-C", str(repo_path), "rev-parse", "--git-common-dir"])
+    if rc != 0 or not out.strip():
+        log.debug("could not read the common git directory of %s: %s", repo_path, out.strip())
+        return None
+    try:
+        return (Path(repo_path) / out.strip()).resolve()
+    except OSError:
+        return None
+
+
+def _gitdir_named_by(wt) -> Path | None:
+    """The directory a linked working tree's `.git` FILE names, resolved, or `None` when `wt` or
+    its `.git` is a symlink, `.git` is not a regular file (a clone's `.git` is a directory), it
+    cannot be read, or its first line is not `gitdir: <path>`.
+
+    A RELATIVE gitdir IS RELATIVE TO THE TREE: git 2.48+ under `worktree.useRelativePaths` writes
+    `gitdir: ../../repo/.git/worktrees/x` (2.49.1, alpine:3.22, measured 2026-10-18). `wt / target`
+    lets an absolute value win, which is exactly the meaning here (engineering lessons §12)."""
+    wt = Path(wt)
+    try:
+        dotgit = wt / ".git"
+        if wt.is_symlink() or dotgit.is_symlink() or not dotgit.is_file():
+            return None
+        with open(dotgit, "rb") as fh:
+            first = fh.readline(4096)
+    except OSError:
+        return None
+    line = os.fsdecode(first).rstrip("\r\n")
+    if not line.startswith("gitdir:"):
+        return None
+    target = line[len("gitdir:"):].strip()
+    if not target:
+        return None
+    try:
+        return (wt / target).resolve()
+    except OSError:
+        return None
+
+
+def _admin_dir_of(repo_path, wt) -> Path | None:
+    """The admin directory under THIS repository's `<common>/worktrees/` that `wt/.git` names, or
+    `None` when it names none (another repository's, nothing, or unreadable). Whether that admin
+    directory still exists is not asked: git removes it when it forgets a tree."""
+    named = _gitdir_named_by(wt)
+    if named is None:
+        return None
+    common = _common_dir(repo_path)
+    if common is None:
+        return None
+    return named if _same_dir(named.parent, common / "worktrees") else None
+
+
+def _a_tree_this_repository_forgot(repo_path, wt, trees) -> bool:
+    """Whether `wt` is a working tree of THIS repository that git has forgotten (#746): the list
+    was read, it does not list `wt`, and `wt/.git` names this repository's `<common>/worktrees/`.
+
+    What git leaves when it forgets a tree (pruned while its directory was away, the admin
+    directory lost, or the repository cache republishing a snapshot with no `.git/worktrees/`),
+    measured on 2.34.1 and 2.43.0: `<wt>/.git` still names `<common>/worktrees/<name>`, `worktree
+    remove --force <wt>` answers rc 128 `is not a working tree`, and `worktree add` over it rc 128
+    `already exists`. `trees` is `None` when the list could not be read, and then nothing is
+    "forgotten" (engineering lessons §2). The admin directory is not required to be gone: a name
+    git reused for another path still leaves `wt` an orphan, and the list is the evidence."""
+    if trees is None:
+        return False
+    if any(_same_dir(tree.path, wt) for tree in trees):
+        return False
+    return _admin_dir_of(repo_path, wt) is not None
+
+
+def _where(wt: Path) -> Path:
+    """`wt` with its parent resolved and its own name kept, so a symlink AT `wt` is named (and
+    moved) itself, not its target."""
+    try:
+        return wt.parent.resolve() / wt.name
+    except OSError:
+        return wt
+
+
+def _what_is_at(wt: Path) -> tuple[str, str, bool] | None:
+    """What takes the box's path, as `(what, owner, locked)` for `path_taken`, or `None` when the
+    path is free: missing, or an EMPTY directory, which git accepts as the add's path (rc 0,
+    2.34.1 and 2.43.0). `None` also when the path cannot be looked at: then git judges, as for
+    `_holder`. Asked only after `_clear_our_own` removed what was provably the box's own."""
+    try:
+        if wt.is_symlink():
+            return "symlink", "", False
+        if not wt.exists():
+            return None
+        if not wt.is_dir():
+            return "file", "", False
+        with os.scandir(wt) as entries:
+            if next(entries, None) is None:
+                return None
+        dotgit = wt / ".git"
+        if dotgit.is_dir() and not dotgit.is_symlink():
+            return "repository", "", False
+    except OSError:
+        return None
+    named = _gitdir_named_by(wt)
+    if named is None or named.parent.name != "worktrees":
+        return "directory", "", False
+    common = named.parent.parent
+    try:
+        if not common.is_dir():  # a `.git` file naming no repository
+            return "directory", "", False
+    except OSError:
+        return "directory", "", False
+    owner = common.parent if common.name == ".git" else common
+    listed = _working_trees(owner)
+    if listed is None:
+        # could not ask the owner: `worktree move` refuses loudly where `mv` would break a live
+        # registration
+        return "tree", str(owner), False
+    tree = next((t for t in listed if not t.main and _same_dir(t.path, wt)), None)
+    if tree is None:
+        return "forgotten", str(owner), False
+    return "tree", str(owner), tree.locked
+
+
+def _add_mark(wt: Path) -> Path:
+    """Where the box marks its own `worktree add` while it runs: beside `wt`, in the box's root."""
+    return wt.parent / f".{wt.name}.adding"
+
+
+def _mark_bytes(common: Path, wt: Path) -> bytes:
+    """What the mark holds: the repository's common directory and the tree's path, resolved, one
+    per line, so a mark names exactly one repository's add at exactly one path."""
+    return os.fsencode(str(common)) + b"\n" + os.fsencode(str(_where(wt))) + b"\n"
+
+
+def _write_mark(repo_path, wt: Path) -> Path | None:
+    """Write the mark for this repository's add at `wt`, atomically, and answer it; `None` (said in
+    the log) when it could not be written, and the add then runs unmarked, as before #746."""
+    common = _common_dir(repo_path)
+    if common is None:
+        log.warning("could not read the common git directory of %s — its worktree add at %s "
+                    "runs unmarked", repo_path, wt)
+        return None
+    mark = _add_mark(wt)
+    # A MARK ALREADY THERE IS NOT THIS ADD'S TO TAKE: it is an earlier interrupted add's, of this
+    # repository (left when the list could not be read, so `_clear_our_own` could not prove it) or
+    # of another one's box in the shared root. Rewritten and unlinked when this add returned, the
+    # tree it proves was then held for a person on the next rerun (measured on ee7ba35,
+    # 2026-10-18). This add runs unmarked instead, and the mark goes with its own tree.
+    try:
+        if os.path.lexists(mark):
+            log.warning("a mark of an earlier worktree add is at %s — left, and the add at %s "
+                        "runs unmarked", mark, wt)
+            return None
+    except OSError:
+        return None
+    tmp = mark.with_name(f"{mark.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(_mark_bytes(common, wt))
+        os.replace(tmp, mark)
+    except OSError as exc:
+        log.warning("could not mark the worktree add at %s (%s) — it runs unmarked", wt, exc)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            log.debug("could not remove %s", tmp)
+        return None
+    return mark
+
+
+def _unlink_mark(mark: Path | None) -> None:
+    if mark is None:
+        return
+    try:
+        mark.unlink(missing_ok=True)
+    except OSError as exc:
+        log.warning("could not remove the mark %s (%s)", mark, exc)
+
+
+def _in_gits_own_words() -> dict[str, str]:
+    """The process environment with `LC_ALL=C` and no `LANGUAGE`: what the box's add runs under.
+
+    THE LOCK GIT WRITES DURING THE CHECKOUT IS ITS TRANSLATED `_("initializing")`: on 2.39.5 with
+    its catalogues `de_DE.UTF-8` writes `initialisiere\\n` and `es_ES.UTF-8` `inicializando\\n`;
+    `LC_ALL=C` writes `initializing\\n` even with `LANG=de_DE.UTF-8` or `LANGUAGE=de` set (measured
+    2026-10-18). There is no `-c` key for the reason, and `add --lock --reason` is git 2.33+, above
+    CONTRIBUTING's 2.28 floor. `LANGUAGE` is dropped too, for the gettext builds that read it."""
+    env = {k: v for k, v in os.environ.items() if k != "LANGUAGE"}
+    env["LC_ALL"] = "C"
+    return env
+
+
+#: What git's `worktree add` writes to `<admin>/locked` while it checks out, under `LC_ALL=C`: its
+#: `_("initializing")` and a newline, 13 bytes (2.34.1, 2.39.5, 2.43.0 and 2.47.3, measured). The
+#: box's add runs under `_in_gits_own_words`, so its own lock is never a translation.
+_GITS_OWN_LOCK = b"initializing\n"
+
+
+def _a_mark_of(repo_path, wt: Path) -> bool:
+    """Whether the mark at `_add_mark(wt)` is a regular file (not a symlink) whose bytes name
+    exactly THIS repository's common directory and `wt`, as `_write_mark` writes them."""
+    mark = _add_mark(wt)
+    try:
+        if mark.is_symlink() or not mark.is_file():
+            return False
+        held = mark.read_bytes()
+    except OSError:
+        return False
+    common = _common_dir(repo_path)
+    return common is not None and held == _mark_bytes(common, wt)
+
+
+def _an_add_this_box_never_finished(repo_path, wt: Path,
+                                    tree: gitworktrees.WorkingTree) -> bool:
+    """Whether the locked tree git lists at `wt` is the box's own `worktree add`, interrupted
+    (#746, option A): this repository's tree at `wt`, its `<admin>/locked` exactly git's own
+    `initializing\\n`, and the box's mark naming this repository and `wt`. Read from the
+    filesystem, never from the porcelain's `locked <reason>`, which is translated and, from 2.36,
+    C-quoted. Anything that cannot be read answers False: not proven is a person's lock."""
+    if tree.main or not tree.locked or not _same_dir(tree.path, wt):
+        return False
+    try:
+        if wt.is_symlink():
+            return False
+    except OSError:
+        return False
+    admin = _admin_dir_of(repo_path, wt)
+    if admin is None:
+        return False
+    try:
+        fd = os.open(admin / "locked", os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as fh:
+            locked = fh.read(len(_GITS_OWN_LOCK) + 1)
+    except OSError:
+        return False
+    return locked == _GITS_OWN_LOCK and _a_mark_of(repo_path, wt)
+
+
+def _say_what_was_not_removed(function, path, exc) -> None:
+    """`shutil.rmtree`'s `onexc`: what could not be removed is logged, never ignored, so a refusal
+    by name that follows does not read as the box having found the path taken by somebody."""
+    log.warning("could not remove %s from the box's forgotten tree (%s)", path, exc)
 
 
 def _holder(repo_path, branch: str) -> gitworktrees.WorkingTree | None:
@@ -327,8 +631,10 @@ def _redact(text: str) -> str:
     return re.sub(r"(https://)[^@/\s]+@", r"\1***@", text)
 
 
-def _run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 120) -> tuple[int, str]:
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+def _run(cmd: list[str], *, cwd: Path | None = None, timeout: int = 120,
+         env: Mapping[str, str] | None = None) -> tuple[int, str]:
+    # `env=None` inherits the process environment, as every caller but the box's own add does
+    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
@@ -389,8 +695,11 @@ class WorktreeSandbox(SandboxAdapter):
         # unmounted disk included — the rule the local forge's scratch rebase already wrote down
         # (`LocalForge._rebase_in_a_scratch_tree`, "NEVER `worktree prune`"). `remove --force`
         # takes our registration whether or not its directory is still there (rc 0 on a missing
-        # directory, git 2.43.0, measured 2026-10-17).
-        self._clear_our_own(repo_path, wt)
+        # directory, git 2.43.0, measured 2026-10-17). Ours is also the tree git has FORGOTTEN at
+        # `wt` (the repository cache's republish forgets every one) and the tree our own add left
+        # locked when it was interrupted, each removed only on proof (#746, `_clear_our_own`);
+        # anything else at `wt` is refused by name below, before anything is written.
+        trees = self._clear_our_own(repo_path, wt)
         # DECIDE BEFORE YOU WRITE (engineering lessons §12). A card's branch somebody else has
         # out — a review tree, or their own checkout — cannot be checked out here, and git says so
         # only at `worktree add`: after `branch -D` was tried, and after the fetch below wrote
@@ -403,6 +712,17 @@ class WorktreeSandbox(SandboxAdapter):
         if held is not None:
             raise _branch_held_elsewhere(branch, held, repo_path=repo_path, rebuilt=rebuilt,
                                          ours=wt)
+        # THE PATH ITSELF MAY BE TAKEN (#746), and git says so only at `worktree add`, with rc 128
+        # `fatal: '<wt>' already exists` (2.34.1 and 2.43.0): after `branch -D` below, after `add
+        # -b` made the branch again at the base (2.43.0, measured 2026-10-18: the job's work was
+        # replaced by `main`), and after a hosted resume's fetch wrote `refs/remotes/origin/<b>`.
+        # Decided here, before any of that (engineering lessons §12). Only when the list was read:
+        # unread, `_clear_our_own` could not tell what is ours, and git judges as before.
+        taken = _what_is_at(wt) if trees is not None else None
+        if taken is not None:
+            what, owner, locked = taken
+            raise RuntimeError(path_taken(branch, str(_where(wt)), repo=str(repo_path),
+                                          what=what, owner=owner, locked=locked))
         # WHEN THE REMOTE IS THIS REPOSITORY, THE BRANCH IS THE WORK (ADR-0049 D3). On a forge that
         # hosts a copy, deleting the local branch is free: the resume fetches it back from the
         # remote. Here `remote_url` IS `repo_path`, so the delete below removes the only copy — and
@@ -473,7 +793,19 @@ class WorktreeSandbox(SandboxAdapter):
         # rather than making a second one over the base.
         add = (["worktree", "add", str(wt), branch] if keep
                else ["worktree", "add", "-b", branch, str(wt), start])
-        rc, out = _run(["git", "-C", str(repo_path), *add])
+        # THE BOX MARKS ITS OWN ADD (#746, option A, chosen 2026-10-18). Git writes
+        # `<admin>/locked` = `initializing\n` before the checkout and unlinks it after; a box killed
+        # in between (SIGKILL of its process group, OOM, power loss, or `_run`'s timeout, which
+        # kills the git parent only; its `reset --hard` child finishes on 2.43.0 and dies with the
+        # closed pipes on 2.55.0, measured 2026-10-19) leaves the tree
+        # registered and locked, byte for byte what a person's `git worktree lock --reason
+        # initializing` leaves (2.34.1, 2.43.0 and 2.47.3, measured). The mark, written BEFORE the
+        # add and removed only once `_run` returned, is what tells the box's own interrupted add
+        # from a person's lock. Never in a `finally`: a `TimeoutExpired` is exactly the case the
+        # mark must outlive.
+        mark = _write_mark(repo_path, wt)
+        rc, out = _run(["git", "-C", str(repo_path), *add], env=_in_gits_own_words())
+        _unlink_mark(mark)
         if rc != 0:
             # Somebody may have checked the branch out between the read above and this add, or
             # the read may have failed; the porcelain is asked once more before git's sentence is
@@ -508,34 +840,76 @@ class WorktreeSandbox(SandboxAdapter):
                          base_commit=base_commit)
 
     @staticmethod
-    def _clear_our_own(repo_path: Path, wt: Path) -> None:
-        """Remove the box's own worktree at `wt`, by the path git lists it under, registration and
-        directory. Nothing else is removed, pruned or forced.
+    def _clear_our_own(repo_path: Path, wt: Path) -> list[gitworktrees.WorkingTree] | None:
+        """Remove the box's own worktree at `wt`, registration and directory, and answer the
+        working trees it read (`None`: the list could not be read), so `prepare` does not ask git
+        for them again. Nothing else is removed, pruned or forced.
 
-        A DIRECTORY AT `wt` THAT THIS REPOSITORY DOES NOT LIST IS LEFT ALONE. The default root is
-        `.openfactory-worktrees` under the working directory, shared by every project the process
-        serves, so `wt` can be another repository's worktree of a branch with the same name; git
-        refuses the `worktree add` over it, as it always did, rather than this deleting it."""
+        ITS OWN IS WHAT THIS REPOSITORY LISTS AT `wt`, OR WHAT IT HAS FORGOTTEN THERE (#746). A
+        tree git no longer lists stays on disk, and `worktree add` over it fails with `fatal:
+        '<wt>' already exists` (rc 128, 2.34.1 and 2.43.0). The common cause is the repository
+        cache: `RepoCache._publish` replaces the served checkout with a snapshot that has no
+        `.git/worktrees/`, so every tree the box made from the old one is forgotten at once. Such a
+        directory is removed only when `wt/.git` names THIS repository's `<common>/worktrees/` and
+        the list, read, does not list `wt` (`_a_tree_this_repository_forgot`).
+
+        ANYTHING ELSE AT `wt` IS LEFT ALONE. The default root is `.openfactory-worktrees` beside
+        the served checkouts, shared by every project the process serves, so `wt` can be another
+        repository's worktree of a branch with the same name, or a person's directory; `prepare`
+        refuses by name over it rather than this deleting it."""
+        if wt.is_symlink():
+            # A LINK AT `wt` IS NEVER THE BOX'S OWN: git lists the real path and `_same_dir`
+            # resolves through the link, and `worktree remove --force <link>` removes the linked
+            # tree it names (rc 0, 2.43.0). `prepare` refuses it by name below.
+            return _working_trees(repo_path)
         trees = _working_trees(repo_path)
         if trees is None:
             # Could not read the list: remove by our own path, whether or not its directory is
             # still there (rc 0 on a missing one). Git removes only a working tree of THIS
-            # repository, so the path names nothing but ours.
+            # repository, so the path names nothing but ours. A forgotten tree is NOT removed
+            # here: unread is not "not listed" (engineering lessons §2).
             _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", str(wt)])
-            return
+            return None
+        kept = False
         for tree in trees:
             if not tree.main and _same_dir(tree.path, wt):
                 if tree.locked:
-                    # THE PLATFORM NEVER LOCKS A TREE, so a lock here is a person's "keep this"
-                    # (review of 268c726). One `--force` refuses it anyway (rc 128, 2.34.1 and
-                    # 2.43.0), and the `rmtree` below then deleted what they kept and the refusal
-                    # said nothing was touched. Left as it is: `_holder` names it, unlock first.
-                    log.warning("the box's own tree %s is locked — left as it is", tree.path)
-                    continue
+                    # A LOCK IS A PERSON'S "KEEP THIS" (review of 268c726) UNLESS IT IS THE BOX'S
+                    # OWN ADD, INTERRUPTED (#746). Git's own `worktree add` locks the tree while it
+                    # checks out, so the platform does lock a tree, for that long; one killed then
+                    # leaves the lock for good. It is the box's only when git's lock bytes are
+                    # `initializing\n` AND the box's mark names this repository and `wt`: the bytes
+                    # alone are also what `git worktree lock --reason initializing` writes. Any
+                    # other lock is left as it is: one `--force` refuses it anyway (rc 128, 2.34.1
+                    # and 2.43.0), and the `rmtree` below then deleted what they kept and the
+                    # refusal said nothing was touched. `_holder` names it, unlock first.
+                    if not _an_add_this_box_never_finished(repo_path, wt, tree):
+                        log.warning("the box's own tree %s is locked — left as it is", tree.path)
+                        kept = True
+                        continue
+                    log.warning("the box's own tree %s was left by its own worktree add, "
+                                "interrupted (locked 'initializing', marked) — removed", wt)
+                    rc, out = _run(["git", "-C", str(repo_path), "worktree", "unlock",
+                                    tree.path])
+                    if rc != 0:
+                        log.warning("could not unlock the box's own tree %s (%s) — left as it "
+                                    "is", tree.path, out.strip())
+                        kept = True
+                        continue
                 _run(["git", "-C", str(repo_path), "worktree", "remove", "--force", tree.path])
                 # what a failed remove left on disk is ours too: git listed it as this box's tree
                 if wt.exists():
                     shutil.rmtree(wt, ignore_errors=True)
+        if _a_tree_this_repository_forgot(repo_path, wt, trees):
+            log.warning("the box's own tree %s is one git has forgotten (its .git file names "
+                        "this repository, which no longer lists it) — removed", wt)
+            shutil.rmtree(wt, onexc=_say_what_was_not_removed)
+        # THE BOX'S OWN MARK GOES WITH ITS TREE, and only its own: the root is shared, and a mark
+        # naming another repository is that repository's interrupted add, which only its own box
+        # can prove (as measured 2026-10-18). Kept while a locked tree it may prove stays.
+        if not kept and _a_mark_of(repo_path, wt):
+            _unlink_mark(_add_mark(wt))
+        return trees
 
     @staticmethod
     def _read_the_forges_base(*, repo_path: Path, wt: Path, base_branch: str, branch: str,
@@ -790,8 +1164,10 @@ class WorktreeSandbox(SandboxAdapter):
                 ["git", "-C", str(self._repo_root), "worktree", "remove", "--force",
                  str(workspace.path)]
             )
-        # A LOCK IS A PERSON'S "KEEP THIS" (#623, review of 83973c2): the platform never locks a
-        # tree, one `--force` refuses a locked one, and the `rmtree` deleted it anyway.
+        # A LOCK IS A PERSON'S "KEEP THIS" (#623, review of 83973c2): one `--force` refuses a
+        # locked tree, and the `rmtree` deleted it anyway. Git's own add locks the tree while it
+        # checks out (#746), but a workspace `cleanup` receives is one whose add returned, so a
+        # lock here is still a person's; nothing here removes one.
         locked = self._repo_root is not None and any(
             t.locked and _same_dir(t.path, workspace.path)
             for t in (_working_trees(self._repo_root) or []))

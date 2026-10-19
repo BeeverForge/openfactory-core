@@ -44,8 +44,12 @@ import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from openfactory import namespace
+
+if TYPE_CHECKING:
+    from openfactory.adapters.agent.base import DocumentFit
 
 log = logging.getLogger("openfactory.doctor")
 
@@ -472,13 +476,14 @@ class Probes:
     #: How this machine searches and reads a product (`ReadingState`) — None for a project with no
     #: product module, whose documents nobody reads (#337). None = an older Probes, too.
     product_reading: Callable[[], ReadingState] | None = None
-    #: `(per_role_bytes, note)` — how many BYTES each declared document role would inline into
-    #: every agent pass (after `_MAX_DOC_CHARS` truncation), and, on a deployment whose prompt
-    #: rides the command line, how the prompt a pass carries for a blank card compares with the line
-    #: the pass refuses at (#7, #418). The size a refusal (#360) will one day quote, made knowable
-    #: before the first pickup. None = an older Probes, or a checkout/manifest this deployment could
-    #: not read; the check is skipped.
-    inlined_documents: Callable[[], tuple[dict[str, int], str] | None] | None = None
+    #: `(per_role_bytes, note, fit)` — how many BYTES each declared document role takes (after
+    #: `_MAX_DOC_CHARS` truncation); on a deployment whose prompt rides the command line, how the
+    #: prompt a pass carries for a blank card compares with the line the pass refuses at (#7,
+    #: #418); and what the prompt budget makes of that blank card's documents (#364). Made
+    #: knowable before the first pickup. None = an older Probes, or a checkout/manifest this
+    #: deployment could not read; the check is skipped.
+    inlined_documents: (Callable[[], tuple[dict[str, int], str, DocumentFit | None] | None]
+                        | None) = None
     #: The directory the manifest is read from — the project's checkout — or None when this
     #: deployment cannot resolve one. The `guidelines` line resolves each entry in it by the job's
     #: own rule, which is the only way to see a guideline committed as a link out of the
@@ -598,16 +603,28 @@ def diagnose(probes: Probes) -> Report:
 
 
 def _documents(p: Probes) -> Finding:
-    """How many bytes the project's declared documents would inline into every pass (#7).
+    """How many bytes the project's declared documents take (#7), and what the prompt budget makes
+    of them on a blank card: how many it inlines, cuts and names by path (#364).
 
-    NEVER A FAIL — it reports what IS. A note (not a remedy) appears only where the prompt cannot be
-    handed over off the command line: whether every pass would refuse it, or else how close it
-    comes and how many bytes the card has left (#418), and which harnesses cannot read a staged
-    prompt. A deployment on a staging box with a stdin-capable harness is unaffected and is told
-    nothing is wrong, because nothing is."""
-    from openfactory.orchestrator.context import inlined_document_summary
+    A FAIL IN ONE CASE ONLY: an `OPENFACTORY_PROMPT_BUDGET` nobody can read, on which every job
+    holds before a pass. Otherwise it reports what IS. A note (not a remedy) appears only where the
+    prompt cannot be handed over off the command line: whether every pass would refuse it, or else
+    how close it comes and how many bytes the card has left (#418), and which harnesses cannot read
+    a staged prompt. A deployment on a staging box with a stdin-capable harness is unaffected and
+    is told nothing is wrong, because nothing is."""
+    from openfactory.orchestrator.context import (
+        PromptBudgetError,
+        inlined_document_summary,
+        prompt_budget,
+    )
 
     assert p.inlined_documents is not None
+    try:
+        prompt_budget()
+    except PromptBudgetError as exc:
+        return Finding("documents", False, str(exc),
+                       remedy="fix the variable in the worker's environment (`.env.compose`) and "
+                              "restart the worker")
     measured = p.inlined_documents()
     if measured is None:
         return Finding("documents", True,
@@ -615,8 +632,8 @@ def _documents(p: Probes) -> Finding:
                        "checkout or manifest",
                        note="run `docker compose exec worker openfactory doctor <name>` inside the "
                             "worker, where the checkout is")
-    per_role, note = measured
-    return Finding("documents", True, inlined_document_summary(per_role), note=note)
+    per_role, note, fit = measured
+    return Finding("documents", True, inlined_document_summary(per_role, fit), note=note)
 
 
 #: How a deployment without the model gets it — the published image carries it (#337).
@@ -2958,8 +2975,9 @@ def probes_for(project) -> Probes:
         state.internet, state.loopback, state.unmeasured = (reached.internet, reached.loopback,
                                                             reached.why)
 
-    def _inlined_documents() -> tuple[dict[str, int], str] | None:
-        """Per-role inlined bytes and the note, from this deployment's box + harness (#7, #418).
+    def _inlined_documents() -> tuple[dict[str, int], str, DocumentFit | None] | None:
+        """Per-role inlined bytes, the note, and what the prompt budget makes of a blank card's
+        brief, from this deployment's box + harness (#7, #418, #364).
 
         Read from the checkout the job would use, and the box the poller runs — `default_sandbox()`,
         the same reader `_box_gate`/`_sandbox` above ask. Whether that box stages input is asked of
@@ -2969,6 +2987,7 @@ def probes_for(project) -> Probes:
         it has a problem. Never raises past `_guarded`."""
         from openfactory.factory import resolve_repo_path
         from openfactory.orchestrator.context import (
+            blank_card_fit,
             inlined_document_bytes,
             inlined_document_overflow,
             prompt_floor_bytes,
@@ -3002,7 +3021,11 @@ def probes_for(project) -> Probes:
         note = inlined_document_overflow(sum(per_role.values()), prompt_bytes=floor,
                                          stages_input=_box_stages_input(_sandbox()),
                                          harness=harness_kind(project, "executor"))
-        return per_role, note
+        # WHERE THIS DEPLOYMENT'S BOX OPENS THE OPERATOR'S GUIDELINES, as the job asks it — so the
+        # fit leaves out and names what a pass would, and pins what no path in the box reaches
+        fit = blank_card_fit(manifest, pathlib.Path(root), profile=profile,
+                             operator_root=_box_operator_root(_sandbox()))
+        return per_role, note, fit
 
     def _checkout() -> pathlib.Path | None:
         """The tree the manifest is read from, or None when it cannot be resolved here (#350).
@@ -3083,6 +3106,18 @@ def _box_stages_input(kind: str) -> bool:
         log.debug("could not build the %r box to check its staging channel (%s)", kind, exc)
         return True
     return callable(getattr(box, "stage_input", None))
+
+
+def _box_operator_root(kind: str) -> str | None:
+    """Where this deployment's box opens the operator's guideline directory: asked of a box built
+    the way the JOB builds it, with the directory mounted (`operator_guidelines.deployment_root`).
+    This built a bare box, and a container box built without the mount answers None — so the fit
+    pinned the operator tier and reported the project's own guidelines left out where the job
+    leaves the operator's out (review of #364). A box that cannot be built here still answers None,
+    and then the operator tier is pinned."""
+    from openfactory.orchestrator.operator_guidelines import deployment_root
+
+    return deployment_root(kind)
 
 
 def _operator_guidelines_tier():

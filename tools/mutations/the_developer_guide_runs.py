@@ -47,14 +47,16 @@ MUTATIONS = [
 
     ("the trace stops carrying what was inlined, so its texts are no longer the context",
      CONTEXT,
-     "        trace.append(Traced(layer, name, fate, detail, text))",
+     # re-pinned 2026-10-18: the trace carries the InlinedDocument's text (#364)
+     "        trace.append(Traced(layer, name, fate, detail, doc.text))",
      "        trace.append(Traced(layer, name, fate, detail))"),
 
     ("the operator's tier is traced as the framework's, so the deployment's standard reads as "
      "the package's",
      CONTEXT,
-     "source=\"operator's own\", layer=OPERATOR, trace=trace)",
-     "source=\"operator's own\", trace=trace)"),
+     # re-pinned 2026-10-18: the call goes on to say where the box opens the tier (#364)
+     "source=\"operator's own\", layer=OPERATOR, trace=trace,",
+     "source=\"operator's own\", trace=trace,"),
 
     ("a guideline refused for leaving the repository is traced as missing, so an escape reads "
      "like a typo",
@@ -70,13 +72,15 @@ MUTATIONS = [
     ("a constraint is traced by its absolute path, not the checkout path the manifest's glob "
      "matched",
      CONTEXT,
-     '        _kept(trace, "docs.constraints", p.relative_to(repo_path).as_posix(),',
-     '        _kept(trace, "docs.constraints", str(p),'),
+     # re-pinned 2026-10-18: the relative path is named once, for the trace and the document
+     '        constraints.append(_kept(trace, "docs.constraints", relative,',
+     '        constraints.append(_kept(trace, "docs.constraints", str(p),'),
 
     ("a profile's own added guideline is traced as the framework's",
      CONTEXT,
-     "            out.append(_kept(trace, PROFILE, extra, doc.read_text()[:_MAX_DOC_CHARS]))",
-     "            out.append(_kept(trace, FRAMEWORK, extra, doc.read_text()[:_MAX_DOC_CHARS]))"),
+     # re-pinned 2026-10-18: the document is read by `_read`, the trace's layer is unchanged
+     "            out.append(_kept(trace, PROFILE, extra,",
+     "            out.append(_kept(trace, FRAMEWORK, extra,"),
 
     ("a profile line that names no file any tier has is not traced, so explain shows a waive "
      "that changes nothing as though it were not written",

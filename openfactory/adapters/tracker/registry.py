@@ -85,6 +85,13 @@ def _jira(project, **kw):
     # Jira's API token is static and named by `_VENDOR_DEFAULT_ENV`, so there is nothing a
     # provider would buy even if it were this vendor's: nothing configured → None → the adapter
     # fails saying which variable to set, which is an honest error rather than a mystery 401.
+    # Jira answers the empty token as an anonymous request (404 on the card, measured
+    # 2026-10-19), so the saying is `jira._not_one_account`'s "no API token reached this
+    # tracker … Set JIRA_API_TOKEN, or the variable the project's tracker.options.token_env
+    # names." (#749). Only when the deployment has no generic token pair either: a caller that
+    # passes `token=` resolved it through `credentials.tracker_token_for`, which falls back to
+    # that pair, so a GitHub token reaches Jira and reads as "different accounts" (measured on a
+    # Jira Cloud site, 2026-10-19).
     from openfactory.credentials import vendor_default
 
     token = kw.get("token") or vendor_default(getattr(project, "tracker", None))

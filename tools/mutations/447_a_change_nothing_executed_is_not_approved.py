@@ -56,6 +56,7 @@ MUTATIONS = [
      '        "evidence_checked": bool(getattr(review, "evidence_checked", False)),\n',
      '        "evidence_checked": False,\n'),
     ("the reviewer is never told how to cite a gate", HARNESS,
-     '        _INSTRUCTIONS + " " + EVIDENCE_RULE,\n',
-     "        _INSTRUCTIONS,\n"),
+     # re-pinned for #627: the written-answer rule follows it, and stays
+     '        _INSTRUCTIONS + " " + EVIDENCE_RULE + " " + WRITTEN_ANSWER_RULE,\n',
+     '        _INSTRUCTIONS + " " + WRITTEN_ANSWER_RULE,\n'),
 ]

@@ -104,8 +104,8 @@ def test_a_components_guidelines_are_reported_under_the_component_that_names_the
     assert "components.web.guidelines" not in per_role, "a 0 line for a setting nobody wrote"
     job = build_context(manifest, tmp_path, Ticket(id="#1", title="t", objective="o", repo="o/x"),
                         knowledge_map="")
-    assert sum(per_role.values()) == _inlined_bytes(job.constraints) + _inlined_bytes(
-        job.guidelines), "the split moved the total away from what the job inlines"
+    assert sum(per_role.values()) == _inlined_bytes(job.document_texts()), (
+        "the split moved the total away from what the job inlines")
 
 
 # ── the note: only where the prompt rides the command line, on the line the pass refuses at ──────
@@ -176,8 +176,12 @@ class _CapturesThePrompt:
 
 def _corpus(tmp_path: Path, monkeypatch, *, documents: int) -> Manifest:
     """A project whose declared documents inline exactly `documents` bytes, framework baseline
-    included — ADRs of plain ASCII, each under the truncation cap, so bytes are characters."""
+    included — ADRs of plain ASCII, each under the truncation cap, so bytes are characters.
+
+    NO PROMPT BUDGET: these tests are about DELIVERY, the line `stage_prompt` refuses at, and a
+    budget below the corpus would shrink the prompt and pass them for the wrong reason (#364)."""
     monkeypatch.delenv(og.ENV_VAR, raising=False)
+    monkeypatch.setenv("OPENFACTORY_PROMPT_BUDGET", "off")
     remaining = documents - sum(inlined_document_bytes(Manifest(), tmp_path).values())
     (tmp_path / "adr").mkdir()
     for i in range(0, remaining, 7_000):
@@ -260,7 +264,7 @@ def test_doctor_reports_the_refusal_the_pass_will_make(tmp_path: Path, monkeypat
 
     probes = doctor_mod.probes_for(Project(name="acme", repo_path=str(tmp_path)))
     assert probes.inlined_documents is not None
-    per_role, note = probes.inlined_documents()
+    per_role, note, _fit = probes.inlined_documents()
 
     assert sum(per_role.values()) == _FITS_ALONE
     assert _EVERY_PASS_REFUSES in note, note
@@ -291,7 +295,7 @@ def test_box_prove_reports_the_refusal_the_pass_will_make(tmp_path: Path, monkey
         measured = probes.inlined_documents()
 
     assert measured is not None, "box prove could not measure a readable checkout"
-    per_role, note = measured
+    per_role, note, _fit = measured
     assert sum(per_role.values()) == _FITS_ALONE
     assert _EVERY_PASS_REFUSES in note, note
 
@@ -309,7 +313,7 @@ def _doctor_documents(measured):
 def test_doctor_reports_the_per_role_bytes_and_never_fails_on_them():
     per_role = {"docs.constraints": 30_000, "framework baseline": 8_066,
                 "operator guidelines": 0, "docs.guidelines": 2_000}
-    f = _doctor_documents((per_role, ""))
+    f = _doctor_documents((per_role, "", None))
     assert f.ok, "a size report is never a FAIL — it reports what is"
     assert "40,066 bytes" in f.message           # the derived total, in bytes
     assert "docs.constraints: 30,000 B" in f.message and "framework baseline: 8,066 B" in f.message
@@ -320,7 +324,7 @@ def test_doctor_notes_a_corpus_that_would_not_fit_a_no_channel_box():
     per_role = {"docs.constraints": _OVER, "framework baseline": 0,
                 "operator guidelines": 0, "docs.guidelines": 0}
     note = _note(_OVER, total=_OVER, stages_input=False, harness="claude_code")
-    f = _doctor_documents((per_role, note))
+    f = _doctor_documents((per_role, note, None))
     assert f.ok and f.note and "per-argument limit" in f.note
 
 
@@ -348,7 +352,7 @@ def _box_prove_documents(measured):
 def test_box_prove_carries_the_same_per_role_bytes():
     per_role = {"docs.constraints": 30_000, "framework baseline": 8_066,
                 "operator guidelines": 0, "docs.guidelines": 2_000}
-    f = _box_prove_documents((per_role, ""))
+    f = _box_prove_documents((per_role, "", None))
     assert f.ok
     assert "40,066 bytes" in f.message
     assert "docs.constraints: 30,000 B" in f.message
@@ -357,7 +361,7 @@ def test_box_prove_carries_the_same_per_role_bytes():
 def test_box_prove_notes_an_overflow_for_a_no_channel_box():
     note = _note(_OVER, total=_OVER, stages_input=False, harness="claude_code")
     f = _box_prove_documents(({"docs.constraints": _OVER, "framework baseline": 0,
-                               "operator guidelines": 0, "docs.guidelines": 0}, note))
+                               "operator guidelines": 0, "docs.guidelines": 0}, note, None))
     assert f.ok, "a note holds no pickup — it is not a failure"
     assert "per-argument limit" in f.message and f"{_OVER:,}" in f.message
 
@@ -400,7 +404,7 @@ def test_the_reported_baseline_is_the_one_build_context_inlines_for_that_profile
         profile = resolve_profile(name)
         reported = inlined_document_bytes(
             Manifest(profile=name), tmp_path, profile=profile)["framework baseline"]
-        inlined = _inlined_bytes_of(_org_defaults(profile, tmp_path, set()))
+        inlined = _inlined_bytes_of([d.text for d in _org_defaults(profile, tmp_path, set())])
         assert reported == inlined, f"{name}: reported {reported} B, job inlines {inlined} B"
 
 
@@ -429,19 +433,20 @@ def test_doctor_hands_the_sizer_the_projects_resolved_profile(tmp_path: Path, mo
     assert probes.inlined_documents is not None
     probes.inlined_documents()
 
-    assert set(seen) == {"inlined_document_bytes", "prompt_floor_bytes"}, seen
+    assert set(seen) == {"inlined_document_bytes", "prompt_floor_bytes", "blank_card_fit"}, seen
     for measure, kw in seen.items():
         assert kw.get("profile") is not None, f"doctor ran {measure} with no profile"
         assert kw["profile"].name == "prototype", measure
 
 
 def _watch_both_measures(monkeypatch) -> dict[str, dict]:
-    """What each measure a caller runs is HANDED — the per-source bytes and, since #418, the floor
-    of the prompt a pass carries. Both read the documents, so both are owed the profile."""
+    """What each measure a caller runs is HANDED — the per-source bytes, since #418 the floor of
+    the prompt a pass carries, and since #364 what the prompt budget makes of a blank card. All
+    three read the documents, so all three are owed the profile."""
     import openfactory.orchestrator.context as ctx
 
     seen: dict[str, dict] = {}
-    for measure in ("inlined_document_bytes", "prompt_floor_bytes"):
+    for measure in ("inlined_document_bytes", "prompt_floor_bytes", "blank_card_fit"):
         real = getattr(ctx, measure)
         monkeypatch.setattr(ctx, measure, lambda m, r, _name=measure, _real=real, **kw: (
             seen.__setitem__(_name, kw) or _real(m, r, **kw)))
@@ -483,7 +488,60 @@ def test_box_prove_hands_the_sizer_the_projects_resolved_profile(tmp_path: Path,
         measured = probes.inlined_documents()
 
     assert measured is not None, "box prove could not measure a readable checkout"
-    assert set(seen) == {"inlined_document_bytes", "prompt_floor_bytes"}, seen
+    assert set(seen) == {"inlined_document_bytes", "prompt_floor_bytes", "blank_card_fit"}, seen
     for measure, kw in seen.items():
         assert kw.get("profile") is not None, f"box prove ran {measure} with no profile"
         assert kw["profile"].name == "prototype", measure
+
+
+# ── the budget, and what it leaves out, said the same way on both surfaces (#364) ───────────────
+
+def _a_fit_that_leaves_documents_out(tmp_path: Path, monkeypatch):
+    """A real fit: twelve records of 7,000 bytes under a 40,000-byte budget, so some are kept,
+    the rest are named, and one longer record is cut."""
+    from openfactory.adapters.agent.base import fit_documents
+    from openfactory.contracts import Ticket
+    from openfactory.orchestrator.context import build_context
+
+    monkeypatch.delenv(og.ENV_VAR, raising=False)
+    monkeypatch.setenv("OPENFACTORY_PROMPT_BUDGET", "40000")
+    (tmp_path / "adr").mkdir()
+    for i in range(12):
+        (tmp_path / "adr" / f"{i:04d}-r.md").write_text("r" * 7_000)
+    (tmp_path / "adr" / "0099-long.md").write_text("l" * 9_000)
+    manifest = Manifest(docs={"constraints": "adr/*.md"})
+    fit = fit_documents(build_context(manifest, tmp_path,
+                                      Ticket(id="", title="", objective="", repo=""),
+                                      knowledge_map=""))
+    assert fit.left_out and fit.truncated, "the fixture must leave some out and cut one"
+    return inlined_document_bytes(manifest, tmp_path), fit
+
+
+def _says_the_budget(message: str, fit) -> None:
+    documents = len(fit.kept) + len(fit.left_out)
+    assert f"{fit.budget:,} bytes" in message and "OPENFACTORY_PROMPT_BUDGET" in message, message
+    assert f"{len(fit.kept)} of {documents} documents" in message, message
+    assert f"names the other {len(fit.left_out)}" in message, message
+
+
+def test_doctor_says_how_many_documents_the_budget_leaves_out(tmp_path: Path, monkeypatch):
+    from openfactory.orchestrator.context import inlined_document_summary
+
+    per_role, fit = _a_fit_that_leaves_documents_out(tmp_path, monkeypatch)
+
+    f = _doctor_documents((per_role, "", fit))
+
+    assert f.ok, "a budget that leaves documents out and names them is not a failure"
+    assert f.message == inlined_document_summary(per_role, fit)
+    _says_the_budget(f.message, fit)
+
+
+def test_box_prove_says_the_same_sentence(tmp_path: Path, monkeypatch):
+    from openfactory.orchestrator.context import inlined_document_summary
+
+    per_role, fit = _a_fit_that_leaves_documents_out(tmp_path, monkeypatch)
+
+    f = _box_prove_documents((per_role, "", fit))
+
+    assert f.message == inlined_document_summary(per_role, fit)
+    _says_the_budget(f.message, fit)

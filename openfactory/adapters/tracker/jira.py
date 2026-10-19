@@ -46,11 +46,20 @@ close, never a state. A deployment may name both; `close_ticket` says which is t
 
 AUTH: Jira Cloud basic auth with an API token (`email` + token). The token arrives the same way
 every other credential does — from the deployment, never from the client's repository.
+
+A PAIR JIRA DOES NOT ACCEPT IS NOT REFUSED, IT IS ANSWERED AS NOBODY'S (#749). Measured 2026-10-19
+on a Jira Cloud site: account A's email with account B's token, and A's email with an empty token,
+both got 404 on `issue/<KEY>` and `project/<KEY>` that exist, 200 `{"issues": [], "isLast": true}`
+on a bounded `search/jql`, and 401 only on `GET /rest/api/3/myself`. The 404's body is the one a
+missing issue gets, so every card read as missing and jobs parked on it. A revoked token was not
+measured. So `_call` asks `myself` once on a 404, and a 401 there becomes a refusal that names the
+pair (`_not_one_account`); the cost is one request per 404 and none on any other answer.
 """
 
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import logging
 import urllib.error
@@ -58,6 +67,7 @@ import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 
+from openfactory.adapters.credential.registry import SHIPPED_ENV
 from openfactory.contracts import JobState, Ticket
 
 log = logging.getLogger("openfactory.tracker.jira")
@@ -69,7 +79,11 @@ class JiraRefused(RuntimeError):
     A `RuntimeError` still, so every caller that parks or diagnoses on one keeps working. The code
     is what lets `close_ticket` tell a site refusing ONE FIELD (400 — the transition's screen does
     not carry `resolution`, or the site has no resolution of that name) from a credential that
-    expired or a site that is down, which must keep raising."""
+    expired or a site that is down, which must keep raising.
+
+    THE CODE IS 401 ON A REFUSAL JIRA ITSELF ANSWERED WITH 404, when `GET myself` then answered 401
+    (#749): Jira answers a pair it does not accept as an anonymous request, so the 404 was about
+    the credential, not the card. The 404 stays the `__cause__`."""
 
     def __init__(self, message: str, *, code: int) -> None:
         super().__init__(message)
@@ -97,6 +111,31 @@ from openfactory.adapters.tracker.base import (  # noqa: E402
     list_state,
 )
 from openfactory.adapters.tracker.base import column_key as _column_key  # noqa: E402
+
+
+def _not_one_account(email: str, method: str, path: str, *, has_token: bool) -> str:
+    """What a person reads when Jira took a call as nobody's: the 404 it answered, and `GET myself`
+    401. THE CAUSE COMES FIRST, because the job's preflight and the card's door keep only the
+    first 120 characters of it; the path, which can be long, comes after. The token is never in it.
+
+    "or the token was revoked" because nothing here tells a mismatched pair from a revoked token,
+    and a revoked one was not measured (2026-10-19: another account's token and an empty one
+    answer alike, 404 and `myself` 401). With no token at all the request was anonymous for a
+    reason of its own, and calling it "different accounts" would send a person looking for the
+    wrong mistake."""
+    seen = (f"Jira answered {method} {path} 404 as it does an anonymous request, and GET myself "
+            f"401.")
+    if not has_token:
+        # The variable a project that names no `token_env` reads is the credential row's default
+        # (review round 1, 2026-10-19: the sentence named only `token_env`, which such a project
+        # does not have).
+        return (f"jira: no API token reached this tracker for {email} — {seen} Set "
+                f"{SHIPPED_ENV['jira']}, or the variable the project's tracker.options.token_env "
+                f"names.")
+    return (f"jira: the email {email} and the API token belong to different accounts, or the "
+            f"token was revoked — {seen} Pair the email with an API token created by that same "
+            f"account (id.atlassian.com → Security → API tokens), or replace a token that was "
+            f"revoked.")
 
 
 def _jql_since(stamp: str) -> str:
@@ -163,7 +202,8 @@ class JiraTracker:
     #: `tracker/base.py::observes`): a close — and why, where the deployment named its "not
     #: delivered" resolution or status (`_closed_reason`); unnamed, a close reads as finished work —
     #: a reopen, and a move between the operator's two columns. Not a deletion: a deleted issue
-    #: answers 404 the way one the credential cannot see does.
+    #: answers 404 the way one the credential cannot see does. A credential Jira did not accept is
+    #: told apart (`_call` asks `myself`, #749); a deleted card and an invisible one still are not.
     observes = frozenset({"closed", "reopened", "promoted", "reordered"})
 
     #: THE LONGEST DESCRIPTION JIRA CLOUD ACCEPTS, in characters (#624; read by the split through
@@ -221,7 +261,16 @@ class JiraTracker:
         nothing.
 
         `api` names the REST family under `/rest/` — `api/3` for everything this tracker did until
-        the board learned to rank, `agile/1.0` for the rank endpoint, which lives nowhere else."""
+        the board learned to rank, `agile/1.0` for the rank endpoint, which lives nowhere else.
+
+        A 404 ASKS `GET myself` ONCE (#749), under `api/3` whatever `api` was, since `myself` lives
+        nowhere else. A 401 there means Jira took the call as nobody's, and the refusal says the
+        email and the token are not one account's (or that no token reached it), with `code=401`.
+        A 2xx, any other status, and a probe that cannot be made keep the 404 exactly as it was.
+        No other answer asks anything. Measured in the tests, requests per call: a card that reads
+        1, a 404 2 (whatever `myself` says); `list_tickets` with issues 1, an empty board whose
+        project answers 2, an empty board whose project 404s 3 (was 2). A slow site can add up to
+        45 s, the probe's own timeout, to a 404 that was already going to fail."""
         url = f"{self.site}/rest/{api.strip('/')}/{path.lstrip('/')}"
         data = json.dumps(payload).encode() if payload is not None else None
         req = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
@@ -231,34 +280,157 @@ class JiraTracker:
             return json.loads(body) if body.strip() else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode()[:300] if hasattr(exc, "read") else ""
+            # Jira Cloud answers a Basic pair whose token is not the email's account as an
+            # ANONYMOUS request: 404 on the issue, never 401 (#749, reported 2026-10-14 against
+            # v0.6.0-rc.2, measured 2026-10-19). Only `myself` says nobody signed in (401), so a
+            # 404 asks it once.
+            if exc.code == 404 and self._who_is_asking():
+                raise JiraRefused(_not_one_account(self.email, method, path,
+                                                   has_token=bool(self.token)),
+                                  code=401) from exc
             raise JiraRefused(f"jira {method} {path} failed: {exc.code} {detail}",
                               code=int(exc.code)) from exc
 
+    def _who_is_asking(self) -> bool:
+        """True only when `GET /rest/api/3/myself`, asked with this tracker's credential, answers
+        401: Jira took the request as nobody's. `api/3` always — `myself` exists under no other
+        family, and the call that 404'd may have been `agile/1.0`. Straight to `urlopen`, not
+        through `_call`, so a `myself` that itself answers 404 cannot ask again.
+
+        A 2xx, any other status, and a probe that could not be made at all are False: the caller
+        then raises the 404 it already had, so a site that cannot answer is never read as a
+        mismatched pair."""
+        req = urllib.request.Request(f"{self.site}/rest/api/3/myself", headers=self._headers(),
+                                     method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=45):  # noqa: S310 — fixed https site
+                return False
+        except urllib.error.HTTPError as exc:
+            return exc.code == 401
+        # URLError, TimeoutError, ConnectionResetError; and what `getresponse()` raises, which
+        # urllib does not wrap: BadStatusLine and LineTooLong are HTTPException, not OSError
+        # (review round 1, 2026-10-19: one replaced the 404 with a non-RuntimeError).
+        except (OSError, http.client.HTTPException) as exc:
+            log.info("jira answered a 404 and GET myself could not be asked (%s) — keeping the "
+                     "404, since nothing says the credential was not accepted", str(exc)[:200])
+            return False
+
     @staticmethod
     def _text(adf: dict | None) -> str:
-        """Jira stores rich text as Atlassian Document Format; the framework wants plain text.
+        """Jira stores rich text as Atlassian Document Format; the framework reads markdown.
 
-        Walks the tree collecting text nodes rather than assuming a shape — a description written
-        with tables or panels must not come back empty, because that empty body is what the sizing
-        gate would judge."""
+        The parser reads markdown shapes: a section is a `## ` line, a criterion a `- ` line. Jira's
+        editor stores exactly those shapes as nodes (`heading`, `bulletList`, `orderedList`), so
+        walking the tree for its text alone lost them: on 2026-10-19 a level-2 heading over a bullet
+        with a `code` run read as `'Acceptance criteria\\nthe \\nx\\n is created'`, and the parser
+        found no criterion (`[]`), so the sizing gate refused the card. This draws each block in the
+        shape the parser reads:
+
+        - a `heading` is `#` × its level (1..6) plus all of its inline text on one line; a missing
+          or out-of-range level is a plain line, never an invented heading;
+        - every list item, bulleted or numbered, nested or not, is a flat `- ` line, the rule
+          `azure_devops._HtmlToMarkdown` already follows, so the vendors agree; the `- ` goes on
+          the item's first line whatever block gives it (a paragraph, a code block, the paragraph
+          after an image); an item's further blocks sit on the lines below it, where lazy
+          continuation (#163) joins them;
+        - a list ends on a blank line, or that same lazy continuation would read the paragraph the
+          editor puts right after a list into its last criterion; the editor's own empty paragraph
+          after a list is that blank, not a second one;
+        - an empty paragraph is a blank line, because `_adf` writes a blank line as one, so a body
+          the factory wrote reads back as it wrote it; a `hardBreak` is a line break.
+
+        Anything else (panels, tables, expands, quotes, a node this walk has never seen) is walked
+        for its blocks rather than assuming a shape: a description written with tables or panels
+        must not come back empty, because that empty body is what the sizing gate would judge."""
         out: list[str] = []
+        # Index in `out` of the blank line a finished list appended, so the empty paragraph the
+        # editor stores right after a list (KAN-4, recorded 2026-10-19) is not a second blank.
+        list_blank: list[int] = [-1]
 
-        def walk(node):
-            if isinstance(node, dict):
-                if node.get("type") == "text":
-                    out.append(str(node.get("text", "")))
-                for child in node.get("content") or []:
-                    walk(child)
-            elif isinstance(node, list):
+        def inline(node) -> str:
+            if isinstance(node, list):
+                return "".join(inline(child) for child in node)
+            if not isinstance(node, dict):
+                return ""
+            kind = node.get("type")
+            if kind == "text":
+                return str(node.get("text", ""))
+            if kind == "hardBreak":
+                return "\n"
+            return inline(node.get("content") or [])
+
+        def item(node) -> None:
+            # The item's first line is its `- `, whatever block gives it: the ADF schema
+            # (@atlaskit/adf-schema 57.7.18, read 2026-10-19) lets a listItem open with a codeBlock
+            # or an image, and drawing `- ` before a first paragraph only read such an item as a
+            # bare line under the one above: `["a make test passes", "c"]`. A nested list draws
+            # its own `- ` lines; an image gives no line, so the paragraph after it opens the item.
+            opened = False
+            for child in node.get("content") or []:
+                kind = child.get("type") if isinstance(child, dict) else None
+                if not opened and kind == "paragraph":
+                    out.append("- " + inline(child))
+                    opened = True
+                    continue
+                start = len(out)
+                blocks(child, nested=True)
+                if not opened and len(out) > start:
+                    if kind not in ("bulletList", "orderedList"):
+                        out[start] = "- " + out[start]
+                    opened = True
+
+        def blocks(node, nested: bool = False) -> None:
+            if isinstance(node, list):
                 for child in node:
-                    walk(child)
+                    blocks(child, nested)
+                return
+            if not isinstance(node, dict):
+                return
+            kind = node.get("type")
+            if kind == "paragraph":
+                line = inline(node)
+                if line == "" and list_blank[0] == len(out) - 1:
+                    list_blank[0] = -1
+                    return
+                out.append(line)
+            elif kind == "heading":
+                level = (node.get("attrs") or {}).get("level")
+                prefix = ("#" * level + " ") if type(level) is int and 1 <= level <= 6 else ""
+                out.append(prefix + inline(node))
+            elif kind in ("bulletList", "orderedList"):
+                for child in node.get("content") or []:
+                    if isinstance(child, dict) and child.get("type") == "listItem":
+                        item(child)
+                    else:
+                        blocks(child, nested=True)
+                if not nested:
+                    out.append("")
+                    list_blank[0] = len(out) - 1
+            elif kind == "codeBlock":
+                out.extend(str(t.get("text", "")) for t in node.get("content") or []
+                           if isinstance(t, dict) and t.get("type") == "text")
+            elif kind == "text":
+                # taskItem and decisionItem content is inline (ADF 57.7.18), so their text nodes
+                # reach the block walk bare: this line is what keeps an action-item list from
+                # reading empty.
+                out.append(str(node.get("text", "")))
+            else:
+                blocks(node.get("content") or [], nested)
 
-        walk(adf or {})
+        blocks(adf or {})
         return "\n".join(out).strip()
 
     @staticmethod
     def _adf(text: str) -> dict:
-        """Plain text as ADF — one paragraph per line, which is what Jira's API accepts."""
+        """Markdown as ADF — one paragraph per line, which is what Jira's API accepts.
+
+        The markdown is sent as written, `## ` and `- ` included, not converted to heading or list
+        nodes; a blank line is an empty paragraph. `_text` reads an empty paragraph back as a blank
+        line and a paragraph as its text, so a body the factory writes reads back byte-identical
+        after `strip()`
+        (`tests/test_what_the_factory_writes_to_jira_reads_back_as_it_wrote_it.py`). Before
+        2026-10-19 the blank lines were dropped on the read, and a split child's last
+        out-of-scope item swallowed the auto-split line below it."""
         return {
             "type": "doc", "version": 1,
             "content": [
@@ -627,7 +799,12 @@ class JiraTracker:
         The cost is one extra request per EMPTY answer and none at all otherwise: a board that
         returned issues has proved its own existence. `GET project/{key}` answers 404 for both the
         missing project and the invisible one, which are the same answer to the only question being
-        asked — can this deployment see the board it is configured for.
+        asked — can this deployment see the board it is configured for. A typo, or a token that
+        lost Browse Projects, is still that 404. A pair Jira does not accept arrives instead as
+        the 401 refusal `_call` raises after asking `myself` (#749; measured 2026-10-19, a
+        mismatched pair's bounded `search/jql` is 200 and empty and `project/<KEY>` is 404): the
+        log line names the pair, the board still reads as None, and the empty board costs 3
+        requests instead of 2.
         """
         try:
             self._call("GET", f"project/{self.project_key}")

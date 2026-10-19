@@ -5,6 +5,10 @@ the spec, the diff as TEXT, the validation results and the constraints. It delib
 sees how the change was made (ADR-0001 D-5), so it does not even need the workspace's contents,
 only a place to run.
 
+It is told the same two rules every reviewer is told, from `reviewer.base`: what passes a criterion
+(`EVIDENCE_RULE`, #447) and where a written answer is — in the pull request, under the agent's own
+section, which it is not shown (`WRITTEN_ANSWER_RULE`, #627).
+
 So the prompt and the verdict parsing live here, once, and the harness supplies nothing but
 `ask()` — the same read-only primitive the tech-lead roles use (see agent/roles.py). A
 Claude-free deployment gets a real independent review instead of losing review entirely.
@@ -24,6 +28,7 @@ import json
 from openfactory.adapters.reviewer.base import (
     ACCEPTANCE_SHAPE,
     EVIDENCE_RULE,
+    WRITTEN_ANSWER_RULE,
     ReviewerAdapter,
     ReviewInput,
 )
@@ -69,7 +74,7 @@ def build_review_prompt(ri: ReviewInput) -> str:
         for v in ri.validations
     ) or "(none)"
     parts = [
-        _INSTRUCTIONS + " " + EVIDENCE_RULE,
+        _INSTRUCTIONS + " " + EVIDENCE_RULE + " " + WRITTEN_ANSWER_RULE,
         f"\n# Ticket {t.id}: {t.title}\n## Objective\n{t.objective}",
         f"\n## Acceptance criteria\n{crits}",
     ]

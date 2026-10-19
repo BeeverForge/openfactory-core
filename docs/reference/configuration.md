@@ -34,7 +34,7 @@ validate:                    # the REAL quality floor: the platform runs these
   type: "mypy ."
 
 docs:
-  constraints: docs/adr/**   # always loaded — the constitution
+  constraints: docs/adr/**   # the constitution — inlined newest first, the rest named by path
 
 components: {}               # only if polyglot or with risk zones
   # backend: { path: app/, stack: python, risk: normal }
@@ -159,6 +159,15 @@ its administrator named — and localised — everything in it:
                           intake_status: "A Fazer",          # where Jira creates a new issue
                           not_delivered_resolution: "Won't Do" } }
 ```
+
+**`email` and the token `token_env` names must be one account's**: the token is created at
+id.atlassian.com by the account whose address `email` holds. Jira Cloud does not refuse a token of
+another account, nor an empty one; it answers as if nobody had signed in, a 404 on every card that
+exists (measured 2026-10-19). The tracker tells that apart by asking Jira who is signed in, and
+refuses by name: *"the email … and the API token belong to different accounts, or the token was
+revoked"*, or *"no API token reached this tracker"* — never "not found". The first sentence names
+a revoked token too, because nothing tells the two apart; a revoked token was not measured. A card
+that is really missing still reads as missing.
 
 `status_map` says which status each lifecycle key (`todo`, `in_progress`, `in_review`,
 `needs_action`, `done`, `backlog`) means; an unmapped key leaves the card where it is, with a
@@ -322,6 +331,7 @@ Secrets and deployment coordinates. The ones you will actually set:
 | `OPENFACTORY_METRICS_SINK` · `OPENFACTORY_METRICS_DB` | `sqlite` locally, `dynamodb` in the cloud, `null` for neither |
 | `OPENFACTORY_NOTIFIER_FALLBACK` | the deployment-wide fallback notifier, as a KIND on the notifier axis — where speech goes when a project's own channel cannot carry it, and where a project with no channel is spoken to. Unset → the panel. `telegram` is the row the `openfactory-slack` package declares (it reads `OPENFACTORY_TELEGRAM_BOT_TOKEN` and `OPENFACTORY_TELEGRAM_CHAT_ID`; the core reads neither). A declared kind nobody installed, or a row that cannot post, is a warning naming what is missing — never silently the panel |
 | `OPENFACTORY_GUIDELINES_DIR` | the DEPLOYMENT's own guidelines (#318): a directory whose `*.md` are inlined into every job **after** the framework baseline and **before** the project's own `docs.guidelines`, and whose `reference/*.md` are INDEXED and read on demand. An OPERATOR setting, read from the environment and nowhere else — never a manifest, never an add-on, because it decides what every job on the deployment reads. Paths are contained: a symlink leading out of it is ignored with a warning. On a box that ISOLATES, the directory is mounted read-only into the box and the index names that mount; on compose it must ALSO be visible to the worker **at the same absolute path as on the host** (like `OPENFACTORY_WORK_DIR`), because the worker reads the documents and the host's daemon resolves the bind |
+| `OPENFACTORY_PROMPT_BUDGET` | how many BYTES of the brief a pass is handed may take beside its role prompt — the card, the plan, the knowledge map, a repair's failure log, the reference index and every declared document together (ADR-0056). Unset → 160,000 bytes; `off` → no bound, every document inlined. The project's own guidelines are kept first, then the decision records newest first, then the operator's, and every document left out or cut is named in the prompt by the path the agent can open it at. An OPERATOR setting, read from the worker's environment and never from a manifest. Any other value is refused by name: `openfactory doctor` fails its `documents` line and every job holds before a pass |
 | `OPENFACTORY_ROLE` | what `openfactory doctor` calls the container it runs in, on its `pid_headroom` line: the compose stack's file sets `worker` and `panel`. Unset → `container <hostname>` |
 | `OPENFACTORY_LOG_DIR` | where the job journals are written and read — the panel's **Logs** button, and the free counterpart of a cloud log group. The worker and the panel must agree |
 | `OPENFACTORY_LOG_LEVEL` | the level the platform's own log lines are kept from, in the worker's and the panel's log (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Unset, or not a level → `INFO`. Every line carries its UTC time, its level and its logger's name; the libraries' own lines stay at `WARNING`, the panel's request lines at `INFO` |

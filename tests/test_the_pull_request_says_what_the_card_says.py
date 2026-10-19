@@ -157,7 +157,9 @@ def test_every_clause_under_the_caveat_is_stamped_as_past(repo: Path, tmp_path: 
 
     runner.repair_ci("#9", "CI failed", pr_url="https://forge/pr/1")
 
-    section = forge.opened["body"].split(_REVIEW_HEADING, 1)[1]
+    # the review's span ends at the next `## ` heading, as `_republish_review` reads it — the
+    # agent's own section after it (#627) is not the review's
+    section = forge.opened["body"].split(_REVIEW_HEADING, 1)[1].split("\n## ", 1)[0]
     clauses = [row for row in section.splitlines()[1:]
                if row.strip() and not row.lstrip().startswith(">")]
     unstamped = [c for c in clauses if WAS not in c]

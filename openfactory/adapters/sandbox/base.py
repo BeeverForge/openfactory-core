@@ -76,9 +76,9 @@ class BranchHeldElsewhere(RuntimeError):
     onboarding, conformance) reports it the way it reported git's sentence before.
 
     `path` is the holder's path as git lists it, `main` says the holder is the repository's own
-    checkout (git cannot remove that one), and `locked` that it was locked with
-    `git worktree lock`. Whether its directory is there is said in the message only: nothing reads
-    it as a field (review of 83973c2)."""
+    checkout (git cannot remove that one), and `locked` that it is locked, with `git worktree
+    lock` or by a `git worktree add` still running or interrupted (#746). Whether its directory is
+    there is said in the message only: nothing reads it as a field (review of 83973c2)."""
 
     def __init__(self, message: str, *, branch: str, path: str, main: bool = False,
                  locked: bool = False) -> None:

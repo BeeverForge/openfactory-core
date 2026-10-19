@@ -1,8 +1,12 @@
 """Assemble the AgentContext — the "manual" the worker wears (ADR-0001 D-2/D-9/D-10).
 
-- constraints (ADRs): loaded in full, always (the constitution).
+- constraints (ADRs): every record read, each cut at `_MAX_DOC_CHARS` characters (the
+  constitution).
 - guidelines: the small house rules the agent can't guess (e.g. "100% coverage is
   enforced" — the thing that makes the difference between a passing and a failing run).
+- both reach the prompt under ONE budget, `OPENFACTORY_PROMPT_BUDGET` (ADR-0056): the brief fills
+  it project-first and newest-record-first, and names by path every document it leaves out or
+  cuts (`adapters.agent.base.fit_documents`).
 - doc_index: a *derived* table-of-contents of the large architecture docs (glob +
   each doc's front-matter summary / first heading), which the agent pulls from on
   demand — never a hand-maintained index (D-10).
@@ -11,12 +15,19 @@
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
-from openfactory.adapters.agent.base import AgentContext
+from openfactory.adapters.agent.base import (
+    PROMPT_BUDGET_VARIABLE,
+    AgentContext,
+    DocumentFit,
+    InlinedDocument,
+)
 from openfactory.contracts import Manifest, Ticket
 from openfactory.knowledge import load_agent_knowledge
 from openfactory.orchestrator import operator_guidelines
@@ -25,6 +36,42 @@ from openfactory.policy.profiles import ResolvedProfile
 _log = logging.getLogger("openfactory.orchestrator.context")
 _DEFAULT_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"]
 _MAX_DOC_CHARS = 8000
+
+#: The operator setting that bounds a pass's prompt, and its default (ADR-0056). About 40,000
+#: tokens at ~4 bytes a token — a fifth of a 200,000-token window, the smallest default among the
+#: harnesses the worker image pins — and a third of the 477,369-byte brief this repository's own
+#: documents made at d29b94a, which every turn of every pass re-read.
+ENV_VAR_PROMPT_BUDGET = PROMPT_BUDGET_VARIABLE
+DEFAULT_PROMPT_BUDGET = 160_000
+#: The value that turns the budget off: every document inlined, as before #364.
+PROMPT_BUDGET_OFF = "off"
+
+
+class PromptBudgetError(ValueError):
+    """`OPENFACTORY_PROMPT_BUDGET` holds a value nobody can read. One sentence, naming the
+    variable, the value and the forms it takes — a job holds on it and `doctor` fails on it,
+    because reading it as the default would leave an operator believing a budget is set."""
+
+
+def prompt_budget(env: dict[str, str] | None = None) -> int | None:
+    """The bytes a pass's brief and plan may take together, or None when the operator turned the
+    budget off. Unset or blank is `DEFAULT_PROMPT_BUDGET`; anything but a positive whole number or
+    `off` raises `PromptBudgetError`.
+
+    AN OPERATOR SETTING, read from the worker's environment and never from a manifest: the
+    manifest lives in the repository the agent edits, and what every pass costs is not that
+    repository's to decide (ADR-0056)."""
+    raw = ((env if env is not None else os.environ).get(ENV_VAR_PROMPT_BUDGET) or "").strip()
+    if not raw:
+        return DEFAULT_PROMPT_BUDGET
+    if raw.lower() == PROMPT_BUDGET_OFF:
+        return None
+    if raw.isascii() and raw.isdigit() and int(raw) > 0:
+        return int(raw)
+    raise PromptBudgetError(
+        f"{ENV_VAR_PROMPT_BUDGET} is {raw!r}, which is neither a number of bytes nor "
+        f"`{PROMPT_BUDGET_OFF}` — set it to a positive whole number of bytes (unset means "
+        f"{DEFAULT_PROMPT_BUDGET:,}) or to `{PROMPT_BUDGET_OFF}` to inline every document.")
 
 
 def _md_files(repo: Path, glob: str | None) -> list[Path]:
@@ -80,12 +127,20 @@ class Traced:
     text: str | None = None
 
 
-def _kept(trace: list[Traced] | None, layer: str, name: str, text: str, *,
-          fate: str = KEPT, detail: str = "") -> str:
-    """`text`, which the caller inlines — and the same value traced, when a trace is asked for."""
+def _read(path: Path, *, source: str, name: str, open_at: str | None) -> InlinedDocument:
+    """One document as a pass may inline it: cut at `_MAX_DOC_CHARS`, with the length it had on
+    disk so the cut can be named, and where the agent can open it (None: nowhere — pinned)."""
+    full = path.read_text()
+    return InlinedDocument(source=source, path=name, open_at=open_at,
+                           text=full[:_MAX_DOC_CHARS], chars_on_disk=len(full))
+
+
+def _kept(trace: list[Traced] | None, layer: str, name: str, doc: InlinedDocument, *,
+          fate: str = KEPT, detail: str = "") -> InlinedDocument:
+    """`doc`, which the caller inlines — and its text traced, when a trace is asked for."""
     if trace is not None:
-        trace.append(Traced(layer, name, fate, detail, text))
-    return text
+        trace.append(Traced(layer, name, fate, detail, doc.text))
+    return doc
 
 
 def _dropped(trace: list[Traced] | None, layer: str, name: str, fate: str,
@@ -95,9 +150,20 @@ def _dropped(trace: list[Traced] | None, layer: str, name: str, fate: str,
         trace.append(Traced(layer, name, fate, detail))
 
 
-def _read_all(docs: list[Path], trace: list[Traced] | None, layer: str) -> list[str]:
+#: Where a document of a NAMED tier (framework, operator) can be opened from the box, or None.
+OpenAt = Callable[[Path], str | None]
+
+
+def _nowhere(_path: Path) -> str | None:
+    """The framework baseline: in the installed package, in no checkout and no mount."""
+    return None
+
+
+def _read_all(docs: list[Path], trace: list[Traced] | None, layer: str,
+              open_at: OpenAt = _nowhere) -> list[InlinedDocument]:
     """Every file of `docs`, truncated as the prompt carries it, each one traced KEPT."""
-    return [_kept(trace, layer, p.name, p.read_text()[:_MAX_DOC_CHARS]) for p in docs]
+    return [_kept(trace, layer, p.name, _read(p, source=layer, name=p.name, open_at=open_at(p)))
+            for p in docs]
 
 
 #: Why `resolve_inside` refuses an entry. The job's warning branches on them and the doctor's
@@ -189,7 +255,8 @@ def declared_guidelines(manifest) -> list[tuple[str, str]]:
 
 def _resolve_tier(docs: list[Path], profile: ResolvedProfile | None,
                   repo_path: Path | None, *, source: str, layer: str = FRAMEWORK,
-                  trace: list[Traced] | None = None) -> list[str]:
+                  trace: list[Traced] | None = None,
+                  open_at: OpenAt = _nowhere) -> list[InlinedDocument]:
     """Read an ordered list of NAMED guideline files, applying the profile's waive/replace.
 
     ONE MECHANISM, TWO TIERS. The framework baseline (`org_defaults/*.md`) and the operator's own
@@ -202,13 +269,17 @@ def _resolve_tier(docs: list[Path], profile: ResolvedProfile | None,
     both tiers together, by `_unknown_names` — a name unknown here may be known there.
 
     `trace`, when given, receives every file under `layer` with what became of it (#81) — from
-    the branch that decided it, so `openfactory explain` reads the decision and not a copy of it."""
+    the branch that decided it, so `openfactory explain` reads the decision and not a copy of it.
+
+    `open_at` says where the box can open a file of this tier (#364). A replacement is in the
+    checkout, so it opens at the path the profile named — except the framework's, which stays
+    pinned like the rest of the baseline (ADR-0056)."""
     if profile is None:
-        return _read_all(docs, trace, layer)
+        return _read_all(docs, trace, layer, open_at)
     waived = set(profile.waived_guidelines())
     replaced = profile.replaced_guidelines()
     chain = " → ".join(profile.names)
-    out: list[str] = []
+    out: list[InlinedDocument] = []
     for p in docs:
         if p.name in waived:
             _dropped(trace, layer, p.name, WAIVED, chain)
@@ -217,7 +288,9 @@ def _resolve_tier(docs: list[Path], profile: ResolvedProfile | None,
         if substitute is not None:
             doc = _inside(repo_path, substitute)
             if doc is not None and doc.is_file():
-                out.append(_kept(trace, layer, p.name, doc.read_text()[:_MAX_DOC_CHARS],
+                at = None if layer == FRAMEWORK else substitute
+                out.append(_kept(trace, layer, p.name,
+                                 _read(doc, source=layer, name=p.name, open_at=at),
                                  fate=REPLACED, detail=substitute))
                 continue
             # THE ORIGINAL FILE STAYS. A replacement that is not there must not subtract: the
@@ -229,7 +302,8 @@ def _resolve_tier(docs: list[Path], profile: ResolvedProfile | None,
                 " → ".join(profile.names), p.name, substitute, source, p.name)
         # `detail` ON A KEPT FILE is the replacement a profile named and the checkout lacks — the
         # trace says why the original is still there, as the warning above does
-        out.append(_kept(trace, layer, p.name, p.read_text()[:_MAX_DOC_CHARS],
+        out.append(_kept(trace, layer, p.name,
+                         _read(p, source=layer, name=p.name, open_at=open_at(p)),
                          detail=substitute or ""))
     return out
 
@@ -260,7 +334,7 @@ def _unknown_names(profile: ResolvedProfile, known: set[str],
 def _org_defaults(profile: ResolvedProfile | None = None,
                   repo_path: Path | None = None,
                   extra_known: set[str] | None = None,
-                  trace: list[Traced] | None = None) -> list[str]:
+                  trace: list[Traced] | None = None) -> list[InlinedDocument]:
     """Framework-owned baseline guidelines (openfactory/org_defaults/*.md).
 
     THIS USED TO SAY "injected into EVERY job regardless of project", and that sentence was the
@@ -294,7 +368,8 @@ def _org_defaults(profile: ResolvedProfile | None = None,
     for extra in profile.extra_guidelines():
         doc = _inside(repo_path, extra)
         if doc is not None and doc.is_file():
-            out.append(_kept(trace, PROFILE, extra, doc.read_text()[:_MAX_DOC_CHARS]))
+            out.append(_kept(trace, PROFILE, extra,
+                             _read(doc, source=PROFILE, name=extra, open_at=extra)))
         else:
             _log.warning(
                 "profile %s extends the guidelines with %r and no such file exists in the "
@@ -337,6 +412,15 @@ def _warn_if_a_name_lives_in_both_tiers(profile: ResolvedProfile | None,
             operator_guidelines.ENV_VAR)
 
 
+def _operator_open_at(operator_root: str | None) -> OpenAt:
+    """Where the box opens an operator guideline: `<operator_root>/<file>`, or nowhere (pinned)
+    when the box did not answer — a container that does not mount the directory, a box from
+    outside this tree, a context built with no box at all (`explain`, the sizer)."""
+    if not operator_root:
+        return _nowhere
+    return lambda p: f"{operator_root.rstrip('/')}/{p.name}"
+
+
 def _doc_summary(path: Path) -> str:
     text = path.read_text()
     if text.startswith("---"):
@@ -355,17 +439,25 @@ def build_context(
     manifest: Manifest, repo_path: Path, ticket: Ticket, *, knowledge_map: str | None = None,
     knowledge_path: Path | None = None, knowledge_bundle_dir: Path | None = None,
     profile: ResolvedProfile | None = None, reference_root: str | None = None,
-    trace: list[Traced] | None = None,
+    trace: list[Traced] | None = None, operator_root: str | None = None,
 ) -> AgentContext:
     """The context a pass carries. `trace`, when given, receives one `Traced` per document the
     cascade considered, in the order the brief inlines them — the constraints, then every
     guideline tier — with what became of each (#81). `openfactory explain` is its reader; a job
-    passes none and nothing about the job changes."""
-    constraints = [
-        _kept(trace, "docs.constraints", p.relative_to(repo_path).as_posix(),
-              p.read_text()[:_MAX_DOC_CHARS])
-        for p in _md_files(repo_path, manifest.docs.constraints)
-    ]
+    passes none and nothing about the job changes.
+
+    The documents land in `documents`, each with where the agent can open it, and the budget the
+    brief fills them under is the operator's (`prompt_budget()`, ADR-0056); raises
+    `PromptBudgetError` when that setting cannot be read. `operator_root` is where THIS box can open
+    the operator's directory — the box's `guidelines_path` answer — and None pins the operator tier,
+    because a document the agent cannot open must not be left out."""
+    budget = prompt_budget()
+    constraints = []
+    for p in _md_files(repo_path, manifest.docs.constraints):
+        relative = p.relative_to(repo_path).as_posix()
+        constraints.append(_kept(trace, "docs.constraints", relative,
+                                 _read(p, source="docs.constraints", name=relative,
+                                       open_at=relative)))
     # A declared doc-role that resolves to zero files is almost always a bug (bad glob or
     # missing docs), and it degrades the agent SILENTLY — it just runs with less project
     # knowledge. Surface it (→ stdout → CloudWatch) instead of swallowing it. (This is how
@@ -401,7 +493,8 @@ def build_context(
     guidelines = _org_defaults(profile, repo_path,
                                {p.name for p in operator.guideline_docs}, trace)
     guidelines += _resolve_tier(operator.guideline_docs, profile, repo_path,
-                                source="operator's own", layer=OPERATOR, trace=trace)
+                                source="operator's own", layer=OPERATOR, trace=trace,
+                                open_at=_operator_open_at(operator_root))
     for named_by, g in guideline_paths:
         # CONTAINED (#329): the manifest is the repository's, so what it names is read from it
         doc = _inside(repo_path, g, named_by=named_by)
@@ -409,7 +502,8 @@ def build_context(
             _dropped(trace, named_by, g, REFUSED, _why_refused(repo_path, g))
             continue
         if doc.is_file():
-            guidelines.append(_kept(trace, named_by, g, doc.read_text()[:_MAX_DOC_CHARS]))
+            guidelines.append(_kept(trace, named_by, g,
+                                    _read(doc, source=named_by, name=g, open_at=g)))
         else:
             _dropped(trace, named_by, g, MISSING)
             # Same rule as the two globs above, which had the warning while this list dropped
@@ -484,8 +578,8 @@ def build_context(
 
     return AgentContext(
         ticket=ticket,
-        constraints=constraints,
-        guidelines=guidelines,
+        documents=constraints + guidelines,
+        prompt_budget=budget,
         doc_index="\n".join(index_lines),
         knowledge_map=knowledge_map,
         allowed_tools=_DEFAULT_TOOLS,
@@ -512,9 +606,10 @@ def inlined_document_bytes(manifest: Manifest, repo_path: Path, *,
     and one more per component that names guidelines (`components.<name>.guidelines`, #417),
     because that is a setting of its own.
 
-    NO BOUND IS INVENTED HERE. This reports what IS — #364 decides whether the platform should cap
-    the sum, and PR #359 (a summed cap) was closed as superseded. The reads mirror `build_context`
-    exactly, role by role, so the number is the one the job will pay and not a second estimate.
+    WHAT IS DECLARED, BEFORE THE BUDGET. The prompt budget (ADR-0056) decides which of these a
+    pass inlines, and `blank_card_fit` says what it decided; this is the corpus it decides over,
+    per role, so an operator can see which setting is large. The reads mirror `build_context`
+    exactly, role by role, so the number is the one a pass with no budget would pay.
 
     THAT CLAIM IS CONDITIONAL ON `profile`, AND THE CALLER OWES IT (review of #370). A profile
     waives, replaces or extends the framework baseline and the operator tier (`_org_defaults`,
@@ -529,8 +624,10 @@ def inlined_document_bytes(manifest: Manifest, repo_path: Path, *,
         p.read_text()[:_MAX_DOC_CHARS] for p in _md_files(repo, manifest.docs.constraints)
     ]
     operator = operator_guidelines.gather()
-    framework = _org_defaults(profile, repo, {p.name for p in operator.guideline_docs})
-    operator_tier = _resolve_tier(operator.guideline_docs, profile, repo, source="operator's own")
+    framework = [d.text for d in
+                 _org_defaults(profile, repo, {p.name for p in operator.guideline_docs})]
+    operator_tier = [d.text for d in _resolve_tier(operator.guideline_docs, profile, repo,
+                                                   source="operator's own")]
     # EACH GUIDELINE UNDER THE KEY THAT NAMES IT (#417). A component's own `guidelines` were
     # counted under `docs.guidelines`: the total was right and the split sent an operator whose
     # large file was `components.api.guidelines` to shrink the project-wide list instead. The key
@@ -552,13 +649,28 @@ def inlined_document_bytes(manifest: Manifest, repo_path: Path, *,
     }
 
 
-def inlined_document_summary(per_role: dict[str, int]) -> str:
-    """The one line both `doctor` and `box prove` print — the total, then the per-role split, so the
-    two surfaces say the same sentence and neither can drift from the other."""
+def inlined_document_summary(per_role: dict[str, int], fit: DocumentFit | None = None) -> str:
+    """The one line both `doctor` and `box prove` print — the total, then the per-role split, then
+    what the prompt budget makes of them on a blank card (#364) — so the two surfaces say the same
+    sentence and neither can drift from the other. `fit` None says nothing about the budget: it
+    could not be measured from here."""
     total = sum(per_role.values())
     parts = "; ".join(f"{role}: {n:,} B" for role, n in per_role.items())
-    return (f"{total:,} bytes of declared documents would inline into every pass, after "
-            f"{_MAX_DOC_CHARS:,}-char truncation ({parts})")
+    line = (f"{total:,} bytes of declared documents, after {_MAX_DOC_CHARS:,}-char truncation "
+            f"({parts})")
+    if fit is None:
+        return line
+    documents = len(fit.kept) + len(fit.left_out)
+    cut = len(fit.truncated)
+    if fit.budget is None:
+        return (f"{line}; no prompt budget (`{ENV_VAR_PROMPT_BUDGET}={PROMPT_BUDGET_OFF}`): a "
+                f"blank card's brief inlines all {documents} documents and names the {cut} it "
+                f"truncates")
+    over = (" — the card's fixed parts and the documents no path in the box reaches pass it "
+            "alone" if fit.used > fit.budget else "")
+    return (f"{line}; the budget is {fit.budget:,} bytes (`{ENV_VAR_PROMPT_BUDGET}`): a blank "
+            f"card's brief inlines {len(fit.kept)} of {documents} documents, truncates {cut} and "
+            f"names the other {len(fit.left_out)} by path{over}")
 
 
 #: The passes EVERY ticket runs with the documents inlined, each behind its own role prompt: the
@@ -572,6 +684,20 @@ _PASSES_THAT_INLINE_THE_DOCUMENTS = ("planner", "executor")
 #: are zero, so every prompt a pass will ever carry for this project is at least this long —
 #: and nothing is invented to stand in for a ticket that does not exist yet (#418).
 _BLANK_CARD = Ticket(id="", title="", objective="", repo="")
+
+
+def blank_card_fit(manifest: Manifest, repo_path: Path, *,
+                   profile: ResolvedProfile | None = None,
+                   operator_root: str | None = None) -> DocumentFit:
+    """What the prompt budget makes of this project's documents on a BLANK card (#364): the fit
+    the brief of every ticket starts from, by the brief's own `fit_documents`. A card's words, its
+    plan and a knowledge map only take room from it. Raises `PromptBudgetError` as `build_context`
+    does; the profile and the operator root are owed by the caller as `inlined_document_bytes`
+    owes the profile."""
+    from openfactory.adapters.agent.base import fit_documents
+
+    return fit_documents(build_context(manifest, Path(repo_path), _BLANK_CARD, knowledge_map="",
+                                       profile=profile, operator_root=operator_root))
 
 
 def prompt_floor_bytes(manifest: Manifest, repo_path: Path, *,
@@ -588,10 +714,11 @@ def prompt_floor_bytes(manifest: Manifest, repo_path: Path, *,
 
     BUILT BY THE JOB'S OWN CODE, so it is that prompt and not a second estimate of it:
     `build_context` reads the documents and the architecture index under `profile`, `ticket_brief`
-    renders them behind each pass's role prompt, and `_argv_bytes` measures what `stage_prompt`
-    measures. What it leaves out is what no diagnostic can read before a ticket exists — the
-    card's words, its plan and the knowledge map (`knowledge_map=""` loads none). The note says
-    how much room those have left instead of inventing a ticket to fill it. The profile is owed
+    renders them behind each pass's role prompt — under the deployment's prompt budget, as a pass
+    does (ADR-0056) — and `_argv_bytes` measures what `stage_prompt` measures. What it leaves out
+    is what no diagnostic can read before a ticket exists — the card's words, its plan and the
+    knowledge map (`knowledge_map=""` loads none). The note says how much room those have left
+    instead of inventing a ticket to fill it. The profile is owed
     by the caller exactly as `inlined_document_bytes` owes it."""
     from openfactory.adapters.agent.base import _argv_bytes, ticket_brief
     from openfactory.adapters.agent.roles import role_prompt
@@ -619,9 +746,10 @@ def inlined_document_overflow(total: int, *, prompt_bytes: int, stages_input: bo
     and the knowledge map have left between them: those are unknown before a ticket exists, so
     the operator is given the number to judge them by rather than a guess at them.
 
-    A NOTE, NEVER A REFUSAL, and NO BOUND INVENTED. #360 already refuses an undeliverable prompt BY
-    NAME at the moment a pass would start; this only makes the size knowable BEFORE then, from the
-    manifest and the checkout alone. It reports what is; #364 decides whether a bound should exist.
+    A NOTE, NEVER A REFUSAL. #360 already refuses an undeliverable prompt BY NAME at the moment a
+    pass would start; this only makes the size knowable BEFORE then, from the manifest and the
+    checkout alone. The prompt budget (ADR-0056) is a different line: it bounds what a pass costs,
+    and `prompt_bytes` is already measured under it.
     """
     from openfactory.adapters.agent.base import (
         ARGV_PROMPT_CEILING,
@@ -643,8 +771,8 @@ def inlined_document_overflow(total: int, *, prompt_bytes: int, stages_input: bo
              f"command)")
     unaffected = (f"A box that stages input off argv (the worktree and container boxes do) with a "
                   f"harness whose CLI can read it there is unaffected; {cannot}-based harnesses "
-                  f"cannot read a staged prompt. Nothing is capped here — this is the size before "
-                  f"a ticket spends anything.")
+                  f"cannot read a staged prompt. This is the size before a ticket spends "
+                  f"anything, under the prompt budget the line above names.")
     if prompt_bytes > ARGV_PROMPT_CEILING:
         return (f"{measured} — past {limit}, and {why}, so EVERY pass would refuse the prompt BY "
                 f"NAME, whatever the card says. {unaffected}")
