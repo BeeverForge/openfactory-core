@@ -135,6 +135,12 @@ MUTATIONS = [
      "f\", so {proj.name} cannot tell",
      f"{SLICE}::test_a_card_outside_the_slice_is_refused_by_name_naming_the_scope"),
 
+    ("the scope the refusal names keeps its leading space, and reads `( within scope_jql …)`",
+     BOARD,
+     "        return scope_named(self._scope()).strip()\n",
+     "        return scope_named(self._scope())\n",
+     f"{SLICE}::test_a_card_outside_the_slice_is_refused_by_name_naming_the_scope"),
+
     ("the product role's queueing ignores `holds`, and another project's running card is moved "
      "back into the queue", PRODUCT,
      "                inside = holds(str(number)) if callable(holds) else True\n",
