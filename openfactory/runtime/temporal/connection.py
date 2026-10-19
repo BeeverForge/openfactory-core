@@ -86,12 +86,23 @@ def namespace() -> str:
 def _auth() -> dict:
     # THE ENGINE'S CREDENTIALS ARE DEPLOYMENT CREDENTIALS (#742), read through the credential store
     # like every other: an API key mounted as a file is the one the client presents.
-    from openfactory.adapters.credential_store.registry import stored
+    #
+    # AND A REFUSED ONE ENDS THE CHAIN (review of #822): a refused API key is not answered by the
+    # client certificate, nor by connecting with nothing — the connect attempt fails with the
+    # store's sentence, which `view.connect()` reports to every caller queued behind it.
+    from openfactory.adapters.credential_store.registry import lookup
 
-    api_key = stored("TEMPORAL_API_KEY")
-    if api_key:  # Temporal Cloud API-key auth (TLS required)
-        return {"api_key": api_key, "tls": True}
-    cert, key = os.environ.get("TEMPORAL_TLS_CERT"), stored("TEMPORAL_TLS_KEY")
+    api_key = lookup("TEMPORAL_API_KEY")
+    if api_key.refused:
+        raise RuntimeError(f"the engine credential TEMPORAL_API_KEY is refused by the credential "
+                           f"store — {api_key.refused}; nothing is used in its place")
+    if api_key.value:  # Temporal Cloud API-key auth (TLS required)
+        return {"api_key": api_key.value, "tls": True}
+    client_key = lookup("TEMPORAL_TLS_KEY")
+    if client_key.refused:
+        raise RuntimeError(f"the engine credential TEMPORAL_TLS_KEY is refused by the credential "
+                           f"store — {client_key.refused}; nothing is used in its place")
+    cert, key = os.environ.get("TEMPORAL_TLS_CERT"), client_key.value
     if cert and key:  # classic mTLS client cert
         return {
             "tls": TLSConfig(

@@ -132,6 +132,17 @@ def credential_in(settings: Mapping[str, str]) -> tuple[str, str, str]:
     return "", f"none of {', '.join(CREDENTIALS)} is set", _REPAIR["none"]
 
 
+def _refused_credentials() -> dict[str, str]:
+    """`{name: why}` of the credential the store REFUSED on this harness's walk — the pool, the
+    token, the key, in `credential_in`'s order — or `{}` (review of #822). Read by the same walk,
+    so it agrees with `_load_agent_token_pool` about where the walk ended."""
+    from openfactory.adapters.credential_store.registry import Stored
+
+    settings = Stored()
+    credential_in(settings)
+    return dict(settings.refused)
+
+
 def _load_agent_token_pool() -> list[dict]:
     """The agent's credential pool for rate-limit / auth FAILOVER.
 
@@ -142,12 +153,23 @@ def _load_agent_token_pool() -> list[dict]:
 
     ALL THREE ARE READ THROUGH THE CREDENTIAL STORE (#742), so a pool or a token mounted as a file
     is the one the harness runs on. The token chosen still reaches the CLI the one way it ever
-    did: `_apply_token` puts it in this process's environment, which the box inherits."""
-    from openfactory.adapters.credential_store.registry import Stored, stored
+    did: `_apply_token` puts it in this process's environment, which the box inherits.
 
-    pool, why = _pool_in(Stored())
+    AS ONE WALK, WHICH A REFUSAL ENDS (review of #822). A pool the store refuses is not a pool
+    that is absent, so the single token after it is not asked: the harness runs on nothing, and
+    the boxes withhold the refused names too (`sandbox/container.py`, `sandbox/worktree.py`), so
+    the CLI cannot pick the variable up by itself either."""
+    from openfactory.adapters.credential_store.registry import Stored
+
+    settings = Stored()
+    pool, why = _pool_in(settings)
     if pool:
         return pool
+    if settings.refused:
+        log.warning("the harness credential %s is refused by the credential store — the agent "
+                    "runs on no credential rather than on the next one",
+                    ", ".join(sorted(settings.refused)))
+        return []
     if why:
         # A TYPO IN THE POOL LEAVES YOU WITH ONE TOKEN AND NO FAILOVER, which looks identical
         # to a deployment that never configured a pool — right up until the day one credential
@@ -155,10 +177,14 @@ def _load_agent_token_pool() -> list[dict]:
         # anything but a person editing that value.
         log.warning("%s %s — falling back to a SINGLE credential, so there is no failover",
                     POOL, why)
-    if tok := stored("CLAUDE_CODE_OAUTH_TOKEN"):
+    if tok := settings.get("CLAUDE_CODE_OAUTH_TOKEN"):
         return [{"id": "single", "token": tok, "type": "subscription"}]
-    if tok := stored("ANTHROPIC_API_KEY"):
+    if tok := settings.get("ANTHROPIC_API_KEY"):
         return [{"id": "single", "token": tok, "type": "api"}]
+    if settings.refused:
+        log.warning("the harness credential %s is refused by the credential store — the agent "
+                    "runs on no credential rather than on the next one",
+                    ", ".join(sorted(settings.refused)))
     return []
 
 
@@ -502,6 +528,9 @@ class ClaudeCodeAdapter(CodingAgentAdapter):
         )
         self.log_dir = log_dir  # if set, the per-job transcript is written here
         self._pool = _load_agent_token_pool()  # credential failover pool (may be 1)
+        #: what the store refused on that walk: with nothing in the pool, the CLI would read the
+        #: next variable by itself, so the run is refused instead (`_invoke`, review of #822)
+        self._refused = {} if self._pool else _refused_credentials()
         self._ti = 0  # index of the token currently in use (sticky across roles)
 
     @staticmethod
@@ -856,6 +885,16 @@ class ClaudeCodeAdapter(CodingAgentAdapter):
         durable resume tries another lap LATER (after the backoff, when a token's window may have
         reset — retrying an as-yet-unreset token in the same lap would be pointless). With a single
         token this is the old behaviour (at most one try). Bounded: at most `len(pool)` attempts."""
+        if getattr(self, "_refused", None) and not self._pool:
+            # A REFUSED CREDENTIAL IS NOT RUN AROUND (review of #822). The pool came back empty
+            # because the store refused a name on the walk, and the CLI, left alone, reads
+            # CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY from its environment by itself — the
+            # next credential, which a refusal never hands over. A failed run, by name.
+            return AgentRunResult(
+                ok=False, model=model or "default", harness="claude_code",
+                summary=(f"the harness credential {', '.join(sorted(self._refused))} is refused "
+                         f"by the credential store, so the agent does not run on another one — "
+                         f"`openfactory doctor` says why"))
         started_at = self._ti  # to report whether we rotated during this invocation
         n = len(self._pool) or 1  # laps are bounded by pool size; guard the single/empty case
         # C2 resume: if THIS phase is the one that paused before, restore its session state and

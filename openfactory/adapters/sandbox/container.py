@@ -503,15 +503,24 @@ class ContainerSandbox(SandboxAdapter):
         value this process holds, because the harness adapter puts the token it chose from the
         pool there (`claude_code._apply_token`) and a file must not undo a rotation; the store
         answers for it only when nothing has. The values reach `docker` in its own environment,
-        for the `-e NAME` form to read: never on a command line, never in a log."""
-        from openfactory.adapters.credential_store.registry import stored
+        for the `-e NAME` form to read: never on a command line, never in a log.
+
+        A NAME THE STORE REFUSES DOES NOT CROSS AT ALL (review of #822), whatever the variable of
+        that name holds: the refusal is the answer, and a variable in its place is the fallback a
+        refusal never is. The worktree box withholds the same names (`worktree._scrubbed_env`)."""
+        from openfactory.adapters.credential_store.registry import ENV, look, lookup
 
         seen: dict[str, str] = {}
         for var in _AUTH_ENV_VARS:
-            if var not in seen and (value := os.environ.get(var) or stored(var)):
+            if var in seen or (found := lookup(var)).refused:
+                continue
+            # `env:<var>` FIRST, BY ITS REFERENCE: the value this process holds, which is the token
+            # the pool rotated to — asked of the store's environment row, so the read says what it
+            # is and the sweep over the package holds every other read to the declared store.
+            if value := look(f"{ENV}:{var}").value or found.value:
                 seen[var] = value
         for var in self.extra_env:
-            if var not in seen and (value := stored(var)):
+            if var not in seen and (value := lookup(var).value):
                 seen[var] = value
         return seen
 

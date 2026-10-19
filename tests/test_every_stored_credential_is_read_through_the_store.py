@@ -20,11 +20,20 @@ WHAT A READ IS, in every shape the package has used:
   · a function HANDED it: `f(os.environ)` makes `f`'s parameter an alias inside `f`, which is how
     the harness's token pool was read (`_pool_in(os.environ)`);
   · a READER: a function that reads the environment (or an alias of it) by one of its own
-    parameters, called with a credential's name.
+    parameters, called with a credential's name;
+  · a TABLE (review of #822): a read keyed by a loop over a table the code spells — a tuple or a
+    list of names, a module constant bound to one, a slice or a union of those — is a read of
+    every name in it (`for var in _AUTH_ENV_VARS: os.environ.get(var)`). A slice is read as its
+    whole table, erring towards including, as the credential rule does;
+  · and the environment HANDED TO A READER OF NAMES IT DOES NOT SPELL: a function that reads what
+    it is handed by a key no table here resolves — an auth route's `requires`, read from an
+    object — is said at the call that hands it the environment, because no name is visible at the
+    read. That is how onboarding read the harness credential (`route.missing(dict(os.environ))`)
+    while every reader around it asked the store.
 
 What is NOT a read: a write (`env["GH_TOKEN"] = token` hands a subprocess its token), a `pop`
 whose value nobody takes (that is a scrub), and a name nobody spells (a loop over `box.env`, whose
-names are a deployment's).
+names are a deployment's) inside a function nobody hands the environment.
 """
 
 from __future__ import annotations
@@ -80,6 +89,60 @@ class _Module:
         self.bound = {n.targets[0].id: environ._env_shaped(n.value) for n in self.tree.body
                       if isinstance(n, ast.Assign) and len(n.targets) == 1
                       and isinstance(n.targets[0], ast.Name) and environ._env_shaped(n.value)}
+        #: module constants bound to a TABLE of names: `_AUTH_ENV_VARS = ("A", "B")`
+        self.tables: dict[str, list[str]] = {}
+        for n in self.tree.body:
+            if isinstance(n, ast.Assign) and len(n.targets) == 1 \
+                    and isinstance(n.targets[0], ast.Name) \
+                    and (names := self.table(n.value)) is not None:
+                self.tables[n.targets[0].id] = names
+        self.parent = {id(child): node for node in self.nodes
+                       for child in ast.iter_child_nodes(node)}
+
+    def table(self, node: ast.AST) -> list[str] | None:
+        """The names a table expression spells — a tuple, list or set of names (literals or module
+        constants), a constant bound to one, a slice of one, or a union — or None when it is not
+        one the code spells."""
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            names: list[str] = []
+            for element in node.elts:
+                inner = element.value if isinstance(element, ast.Starred) else element
+                if isinstance(element, ast.Starred):
+                    found = self.table(inner)
+                    if found is None:
+                        return None
+                    names += found
+                elif name := environ._key_of(inner, self.bound):
+                    names.append(name)
+                else:
+                    return None
+            return names
+        if isinstance(node, ast.Name):
+            return self.tables.get(node.id)
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Slice):
+            return self.table(node.value)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = self.table(node.left), self.table(node.right)
+            return None if left is None or right is None else left + right
+        return None
+
+    def looped(self, read: ast.AST, key: ast.AST) -> list[ast.AST]:
+        """The iterables the innermost loop binding `key`'s name walks, around `read` — `[]` when
+        no loop around it binds that name."""
+        if not isinstance(key, ast.Name):
+            return []
+        node = self.parent.get(id(read))
+        while node is not None:
+            if isinstance(node, ast.For) and isinstance(node.target, ast.Name) \
+                    and node.target.id == key.id:
+                return [node.iter]
+            if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+                found = [g.iter for g in node.generators
+                         if isinstance(g.target, ast.Name) and g.target.id == key.id]
+                if found:
+                    return found
+            node = self.parent.get(id(node))
+        return []
 
     def _mark(self, node: ast.AST, within: tuple[int, ...], look: bool) -> bool:
         self.within[id(node)] = within
@@ -193,6 +256,30 @@ def credential_reads(root: pathlib.Path = PACKAGE,
                                                       if isinstance(n, ast.Name)}:
                         readers.add(fn.name)
 
+    # TABLE READERS: functions handed the environment that read it by a key no table resolves —
+    # not a literal, not a loop over a spelled table, not one of their own parameters
+    table_readers: set[str] = set()
+    for module in filter(outside, modules):
+        for fn in module.nodes:
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                    or id(fn) not in module.params:
+                continue
+            own = set(_params(fn)) | {a.arg for a in fn.args.kwonlyargs}
+            for node in ast.walk(fn):
+                read = reads[id(module)].get(id(node))
+                if read is None:
+                    continue
+                key = read[1]
+                if isinstance(key, (ast.Constant, ast.Slice)) or environ._key_of(key, module.bound):
+                    continue
+                if isinstance(key, ast.Name) and key.id in own:
+                    continue  # a reader by its parameter, held where it is called
+                walked = module.looped(node, key)
+                if walked and all(module.table(i) is not None for i in walked):
+                    continue  # a loop over a table this code spells, held below
+                table_readers.add(fn.name)
+                break
+
     found: list[tuple[str, int, str]] = []
     for module in filter(outside, modules):
         rel = module.path.relative_to(root.parent).as_posix()
@@ -200,6 +287,17 @@ def credential_reads(root: pathlib.Path = PACKAGE,
             name = environ._key_of(key, module.bound)
             if name and _holds_a_credential(name):
                 found.append((rel, node.lineno, name))
+            for walked in module.looped(node, key):
+                for each in module.table(walked) or ():
+                    if _holds_a_credential(each):
+                        found.append((rel, node.lineno, each))
+        for node in module.nodes:
+            if isinstance(node, ast.Call) and _callee(node) in table_readers and any(
+                    module.holds_the_environment(a)
+                    for a in (*node.args, *(kw.value for kw in node.keywords))):
+                found.append((rel, node.lineno,
+                              f"the environment, handed to `{_callee(node)}`, which reads it by "
+                              f"names this code does not spell"))
         for node in module.nodes:
             # A MAPPING'S OWN METHODS ARE NOT READERS BY NAME: `.get` on an alias is read above,
             # and a `get(name)` helper somewhere must not make every `.get` in the package one.
@@ -269,6 +367,19 @@ def test_the_sweep_SEES_every_shape_of_read_and_nothing_else(tmp_path):
         "g = os.environ.get('ACME_REGION')\n"
         "for name in ('ACME_LOOPED_TOKEN',):\n"
         "    h = os.environ.get(name)\n"
+        "TABLE = ('ACME_TABLED_TOKEN', 'ACME_TABLED_REGION')\n"
+        "j = [os.environ.get(n) for n in TABLE[1:] + ('ACME_UNIONED_SECRET',)]\n"
+        "def deployments(project):\n"
+        "    return [os.environ.get(n) for n in project.box.env]\n"
+        "class Route:\n"
+        "    requires = ()\n"
+        "    def missing(self, present):\n"
+        "        env = present or {}\n"
+        "        return [n for group in self.requires for n in group if not env.get(n)]\n"
+        "k = Route().missing(dict(os.environ))\n"
+        "def by_table(settings):\n"
+        "    return [settings.get(k) for k in ('ACME_PROJECT', 'ACME_ISSUE')]\n"
+        "m = by_table(dict(os.environ))\n"
     )
     (pkg / "elsewhere.py").write_text(
         "from openfactory.planted import read\n"
@@ -279,7 +390,10 @@ def test_the_sweep_SEES_every_shape_of_read_and_nothing_else(tmp_path):
     assert found == ["ACME_ALIAS_TOKEN", "ACME_ATTRIBUTE_TOKEN", "ACME_COPIED_TOKEN",
                      "ACME_DIRECT_TOKEN",
                      "ACME_GETENV_PASSWORD", "ACME_HANDED_TOKENS", "ACME_IMPORTED_CREDENTIALS",
-                     "ACME_READER_PAT", "ACME_SIGNING_SECRET", "ACME_SUBSCRIPT_KEY"], found
+                     "ACME_LOOPED_TOKEN", "ACME_READER_PAT", "ACME_SIGNING_SECRET",
+                     "ACME_SUBSCRIPT_KEY", "ACME_TABLED_TOKEN", "ACME_UNIONED_SECRET",
+                     "the environment, handed to `missing`, which reads it by names this code "
+                     "does not spell"], found
 
 
 def test_a_read_through_the_store_is_not_a_read_of_the_environment(tmp_path):

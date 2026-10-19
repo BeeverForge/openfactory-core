@@ -649,12 +649,20 @@ def _scrubbed_env(keep: tuple[str, ...] = ()) -> dict[str, str]:
     # A NAME `box.env` DECLARES IS A DEPLOYMENT CREDENTIAL (#742): one held in a mounted file
     # reaches the workload exactly as the container box hands it over, read through the store.
     # With no store declared this is the variable already in `env`, so nothing moves.
-    if kept:
-        from openfactory.adapters.credential_store.registry import stored
+    #
+    # AND A NAME THE STORE REFUSES IS WITHHELD, as the container box withholds it (review of
+    # #822): the declared names and the harness's own defaults, whose variable a refusal must not
+    # put back — the CLI reads its token from this environment by itself.
+    from openfactory.adapters.credential_store.registry import deployment_store, lookup
+    from openfactory.adapters.sandbox.container import _AUTH_ENV_VARS
 
-        for var in sorted(kept - set(_PANEL_SECRET_VARS)):
-            if value := stored(var):
-                env[var] = value
+    if kept or deployment_store() != "env":
+        for var in sorted((kept | set(_AUTH_ENV_VARS)) - set(_PANEL_SECRET_VARS)):
+            found = lookup(var)
+            if found.refused:
+                env.pop(var, None)
+            elif var in kept and found.value:
+                env[var] = found.value
     return env
 
 

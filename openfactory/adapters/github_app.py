@@ -22,11 +22,15 @@ log = logging.getLogger("openfactory.github_app")
 def token_from_env() -> str | None:
     """Resolve a bot token: an explicit OPENFACTORY_BOT_TOKEN, else mint from GitHub App env
     (OPENFACTORY_GH_APP_ID/KEY/INSTALLATION_ID). None if neither is configured. The token is a
-    deployment credential, read through the credential store (#742)."""
-    from openfactory.adapters.credential_store.registry import stored
+    deployment credential, read through the credential store (#742) — and a REFUSED one is None
+    too, never a mint in its place (review of #822): the store said why, by name."""
+    from openfactory.adapters.credential_store.registry import lookup
 
-    if token := stored("OPENFACTORY_BOT_TOKEN"):
-        return token
+    found = lookup("OPENFACTORY_BOT_TOKEN")
+    if found.value:
+        return found.value
+    if found.refused:
+        return None
     from openfactory.credentials import app_id, app_installation_id, app_private_key
 
     aid, key, inst = app_id(), app_private_key(), app_installation_id()

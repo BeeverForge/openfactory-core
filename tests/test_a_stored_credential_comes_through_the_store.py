@@ -25,9 +25,11 @@ import base64
 import json
 import logging
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import stranger_addon
@@ -480,8 +482,6 @@ def test_a_remote_box_is_handed_the_deployments_pair_when_a_file_holds_it(file_s
 def test_readiness_counts_a_box_env_name_the_store_answers_for_as_set(file_store):
     """`env_names` read `box.env` against the environment alone, so a name held in a file — which
     the box does receive — was reported as not set at all."""
-    from types import SimpleNamespace
-
     from openfactory.onboarding import readiness
 
     file_store("ACME_SCANNER_TOKEN", SECRET)
@@ -490,7 +490,7 @@ def test_readiness_counts_a_box_env_name_the_store_answers_for_as_set(file_store
     assert probes.stored("ACME_SCANNER_TOKEN") == SECRET
 
     seen = SimpleNamespace(box_env_names=lambda: ["ACME_SCANNER_TOKEN", "ACME_TYPO_TOKEN"],
-                           environ=lambda: {}, stored=probes.stored)
+                           environ=lambda: {}, stored=probes.stored, refused=probes.refused)
     finding, _ = readiness._env_names(seen, "the worker")
     assert not finding.ok and "ACME_TYPO_TOKEN" in finding.message
     assert "ACME_SCANNER_TOKEN" not in finding.message and SECRET not in finding.message
@@ -591,8 +591,6 @@ def test_the_box_pulls_its_image_only_when_absent_and_never_carries_the_credenti
 
 def test_box_prove_pulls_with_the_projects_credential(secrets, monkeypatch, tmp_path):
     """The proof obtains the image the way a job will, so a private image is provable."""
-    from types import SimpleNamespace
-
     import openfactory.adapters.sandbox.pull as pulling
     from openfactory import box_prove
     from openfactory.adapters.sandbox import registry as sandboxes
@@ -722,3 +720,242 @@ def test_nothing_the_store_logs_holds_a_value(file_store, monkeypatch, caplog):
             registry.refusal(reference)
     assert "acme-refused" in caplog.text and "failing" in caplog.text
     assert SECRET not in caplog.text
+
+
+# ── after the reviews of #822 ───────────────────────────────────────────────────────────────────
+
+def _read_only(monkeypatch, *, file: bool = True, directory: bool = False) -> None:
+    """Make the mount the file store reads through report `ST_RDONLY`, as compose's `secrets:`
+    bind mount does — for the open file (`fstatvfs`) and/or the directory (`statvfs`)."""
+    real_f, real_d = os.fstatvfs, os.statvfs
+
+    def flagged(answer):
+        return SimpleNamespace(f_flag=answer.f_flag | os.ST_RDONLY)
+
+    if file:
+        monkeypatch.setattr(os, "fstatvfs", lambda fd: flagged(real_f(fd)))
+    if directory:
+        monkeypatch.setattr(os, "statvfs", lambda path: flagged(real_d(path)))
+
+
+#: Each write bit a secret or its directory can carry: who may write, and how it is set.
+WRITE_BITS = {"its group": 0o020, "everyone": 0o002}
+
+
+@pytest.mark.parametrize("who", sorted(WRITE_BITS))
+def test_a_write_bit_is_moot_exactly_when_the_mount_refuses_writes(who, secrets, monkeypatch):
+    """THE RULE (review of #822, Ubuntu's umask): on a mount that refuses writes nobody who sees
+    the file can rewrite it through that mount, so its write bits are not a writer; on a writable
+    mount they are, and the refusal names its repair. Both the file and the directory, both bits."""
+    from openfactory.adapters.credential_store.base import CredentialRefused
+
+    path = secrets("acme-token", SECRET, mode=0o600 | WRITE_BITS[who])
+    with pytest.raises(CredentialRefused, match=f"writable by {who}") as refused:
+        FileStore().resolve("acme-token")
+    assert f"chmod go-w {path}" in str(refused.value) and "read-only" in str(refused.value)
+    with monkeypatch.context() as mp:
+        _read_only(mp)
+        assert FileStore().resolve("acme-token") == SECRET
+
+    path.chmod(0o600)
+    secrets.directory.chmod(0o700 | WRITE_BITS[who])
+    try:
+        with pytest.raises(CredentialRefused, match=f"writable by {who}"):
+            FileStore().resolve("acme-token")
+        with monkeypatch.context() as mp:
+            _read_only(mp, file=False, directory=True)
+            assert FileStore().resolve("acme-token") == SECRET
+    finally:
+        secrets.directory.chmod(0o700)
+
+
+def test_a_compose_secret_on_ubuntus_umask_reaches_the_deployment(secrets, monkeypatch):
+    """The documented path, measured by the review: a 0664 file under `secrets:` is read."""
+    secrets("OPENFACTORY_BOT_TOKEN", SECRET + "\n", mode=0o664)
+    monkeypatch.setenv(STORE_VAR, "file")
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "fictitious-env-fallback")
+    _read_only(monkeypatch)
+    assert stored("OPENFACTORY_BOT_TOKEN") == SECRET
+
+
+def test_a_byte_order_mark_an_editor_saved_is_not_part_of_the_secret(secrets):
+    secrets("acme-token", "\ufeff" + SECRET + "\r\n")
+    assert FileStore().resolve("acme-token") == SECRET
+
+
+def test_a_refused_bot_token_is_red_on_the_doctor_and_names_its_repair(file_store, monkeypatch):
+    """The review's measurement: a 0664 `OPENFACTORY_BOT_TOKEN` on a writable mount. The store
+    line was green and the forge line asked for the variable that was set."""
+    from openfactory import doctor
+
+    path = file_store("OPENFACTORY_BOT_TOKEN", SECRET, mode=0o664)
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "fictitious-env-fallback")
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      forge=ProviderRef(kind="github", repo="acme/app"))
+
+    ok, said, remedy = doctor.credential_store_line(project)
+    assert not ok and "OPENFACTORY_BOT_TOKEN" in said and f"chmod go-w {path}" in said, said
+    reachable, detail = doctor.probes_for(project).forge_reachable()
+    assert not reachable and doctor.REFUSED_BY_THE_STORE in detail, detail
+    finding = doctor._forge(doctor.probes_for(project))
+    assert "set OPENFACTORY" not in finding.remedy and finding.remedy == doctor.REFUSED_REMEDY
+    assert SECRET not in said + remedy + detail + finding.message
+
+
+def test_the_pull_never_returns_the_secret_or_its_login_in_what_docker_said(secrets):
+    from openfactory.adapters.sandbox.pull import PullCredential, pull
+
+    secrets("acme-registry", SECRET)
+    auth = base64.b64encode(f"ci-bot:{SECRET}".encode()).decode()
+    docker = _Docker(rc=1, said=f"denied for ci-bot:{SECRET} (auth {auth})")
+    pulled, said = pull("registry.acme.example/ci:1",
+                        PullCredential("file:acme-registry", "ci-bot"), run=docker)
+    assert not pulled and "denied for ci-bot" in said
+    assert SECRET not in said and auth not in said
+
+
+def _a_box_whose_docker_is_recorded(monkeypatch, tmp_path, *, pulled: bool):
+    import openfactory.adapters.sandbox.container as container
+    import openfactory.adapters.sandbox.pull as pulling
+
+    order: list[str] = []
+    monkeypatch.setenv("OPENFACTORY_WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setattr(container, "_host", lambda argv, timeout=120, env=None: (
+        order.append(" ".join(argv[1:3])), (1 if argv[1:3] == ["image", "inspect"] else 0, ""))[1])
+    monkeypatch.setattr(container, "_materialize_workspace",
+                        lambda **kw: (order.append("clone"), "0" * 40)[1])
+    monkeypatch.setattr(pulling, "pull", lambda image, cred, **kw: (
+        order.append(f"PULL {cred.reference}"), (pulled, "" if pulled else "unauthorized"))[1])
+    box = container.ContainerSandbox(
+        image="registry.acme.example/ci:1",
+        pull_credential=pulling.PullCredential("file:acme-registry", "ci-bot"))
+    return box, order
+
+
+def test_a_job_pulls_with_its_credential_before_anything_of_the_box_exists(
+        secrets, monkeypatch, tmp_path):
+    """`prepare()` is the only place a job uses the pull credential (review of #822, cut J): the
+    image absent, the pull comes first — before the clone and before `docker run` — and a pull
+    that fails raises, naming the reference, with nothing created."""
+    secrets("acme-registry", SECRET)
+    box, order = _a_box_whose_docker_is_recorded(monkeypatch, tmp_path, pulled=True)
+    box.prepare(repo_path=tmp_path, base_branch="main", branch="feat/1")
+    assert "PULL file:acme-registry" in order and "run --name" not in order[:1]
+    pulled_at = order.index("PULL file:acme-registry")
+    assert pulled_at < order.index("clone")
+    assert all(not step.startswith("run") for step in order[:pulled_at])
+    assert any(step.startswith("run") for step in order[pulled_at:]), order
+
+    box, order = _a_box_whose_docker_is_recorded(monkeypatch, tmp_path, pulled=False)
+    with pytest.raises(RuntimeError, match="file:acme-registry") as refused:
+        box.prepare(repo_path=tmp_path, base_branch="main", branch="feat/2")
+    assert "clone" not in order and not any(step.startswith("run") for step in order), order
+    assert SECRET not in str(refused.value)
+
+
+def _a_person_on_a_context(tmp_path, monkeypatch, name: str = "elsewhere") -> Path:
+    """A docker client configuration of a person's own whose current context is `name`."""
+    user = tmp_path / "user-docker"
+    (user / "contexts" / "meta" / "0123").mkdir(parents=True)
+    (user / "contexts" / "meta" / "0123" / "meta.json").write_text(json.dumps({"Name": name}))
+    (user / "config.json").write_text(json.dumps({
+        "currentContext": name, "credsStore": "desktop",
+        "auths": {"registry.acme.example": {"auth": "fictitious-someone-elses-login"}}}))
+    monkeypatch.setenv("DOCKER_CONFIG", str(user))
+    return user
+
+
+def test_the_pull_resolves_the_daemon_the_person_s_own_docker_resolves(
+        secrets, tmp_path, monkeypatch):
+    """`docker --config <fresh>` meant the default context, while the box's calls kept the
+    person's (review of #822). The private configuration carries their `currentContext` and their
+    `contexts`, and nothing of their logins."""
+    from openfactory.adapters.sandbox.pull import PullCredential, pull
+
+    secrets("acme-registry", SECRET)
+    user = _a_person_on_a_context(tmp_path, monkeypatch)
+    seen: dict = {}
+
+    def docker(argv, **kw):
+        directory = argv[argv.index("--config") + 1]
+        seen["config"] = json.loads(Path(directory, "config.json").read_text())
+        seen["contexts"] = os.path.realpath(os.path.join(directory, "contexts"))
+        return subprocess.CompletedProcess(argv, 0, "sha256:ok", "")
+
+    assert pull("registry.acme.example/ci:1", PullCredential("file:acme-registry", "ci-bot"),
+                run=docker)[0]
+    assert seen["config"]["currentContext"] == "elsewhere"
+    assert seen["contexts"] == os.path.realpath(user / "contexts")
+    assert "credsStore" not in seen["config"]
+    assert seen["config"]["auths"]["registry.acme.example"]["auth"] != (
+        "fictitious-someone-elses-login")
+    assert (user / "contexts" / "meta" / "0123" / "meta.json").exists(), (
+        "removing the private configuration removed the person's contexts")
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="needs the docker CLI (not a daemon)")
+def test_the_real_docker_client_resolves_the_same_context_for_the_pull_and_the_box(
+        secrets, tmp_path, monkeypatch):
+    """Against the real client, no daemon needed: the context the pull's configuration resolves is
+    the one the box's own calls resolve, for a context named in `config.json` and for one named
+    by `DOCKER_CONTEXT`."""
+    from openfactory.adapters.sandbox.pull import PullCredential, pull
+
+    user = tmp_path / "user-docker"
+    user.mkdir()
+    monkeypatch.setenv("DOCKER_CONFIG", str(user))
+    for var in ("DOCKER_HOST", "DOCKER_CONTEXT"):
+        monkeypatch.delenv(var, raising=False)
+    for port, name in enumerate(("elsewhere", "further"), start=1):
+        # an endpoint nothing listens on: `context show` resolves a name and dials nothing
+        subprocess.run(["docker", "context", "create", name, "--docker",
+                        f"host=tcp://127.0.0.1:{port}"], check=True, capture_output=True)
+    subprocess.run(["docker", "context", "use", "elsewhere"], check=True, capture_output=True)
+    secrets("acme-registry", SECRET)
+
+    def the_box_s(**_kw) -> str:
+        return subprocess.run(["docker", "context", "show"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+
+    for context, env in (("elsewhere", {}), ("further", {"DOCKER_CONTEXT": "further"})):
+        for var, value in env.items():
+            monkeypatch.setenv(var, value)
+        shown: list[str] = []
+
+        def docker(argv, shown=shown, **kw):
+            shown.append(subprocess.run(["docker", "--config", argv[argv.index("--config") + 1],
+                                         "context", "show"], capture_output=True, text=True,
+                                        check=True).stdout.strip())
+            return subprocess.CompletedProcess(argv, 0, "sha256:ok", "")
+
+        pull("registry.acme.example/ci:1", PullCredential("file:acme-registry", "ci-bot"),
+             run=docker)
+        assert shown == [the_box_s()] == [context]
+
+
+def test_the_doctor_names_a_refused_file_nobody_asked_for(file_store):
+    """A planted or mis-moded file is a credential no reader names, until the day one does: the
+    store line walks what the declared store holds (`listed`) as well as what the core reads."""
+    from openfactory.doctor import credential_store_line
+
+    file_store("acme-planted", SECRET, mode=0o666)
+    ok, said, _ = credential_store_line(Project(name="acme", repo_path="/tmp/acme"))
+    assert not ok and "acme-planted" in said and SECRET not in said, said
+
+
+def test_the_board_line_says_a_refused_tracker_credential_instead_of_asking_for_it(
+        file_store, monkeypatch):
+    from openfactory import doctor
+    from openfactory.adapters.board import factory
+
+    file_store("ACME_JIRA_TOKEN", SECRET, mode=0o664)
+    read: list[object] = []
+    monkeypatch.setattr(factory, "build_board", lambda project, token_provider=None:
+                        SimpleNamespace(column_names=lambda: read.append(1) or ["To Do"]))
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      tracker=ProviderRef(kind="jira", repo="ACME",
+                                          options={"token_env": "ACME_JIRA_TOKEN"}))
+    finding = doctor._board(doctor.probes_for(project))
+    assert not finding.ok and not read
+    assert doctor.REFUSED_BY_THE_STORE in finding.remedy and "ACME_JIRA_TOKEN" in finding.remedy
+    assert SECRET not in finding.message + finding.remedy

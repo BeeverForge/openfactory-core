@@ -219,27 +219,11 @@ def test_no_env_dict_is_assembled_with_the_old_names():
 
 # ── what the document promises, measured ────────────────────────────────────────────────────────
 
-#: The last word of a variable's name says what the variable HOLDS, and these words say it holds a
-#: secret. A shape rule rather than a list of names, because a list of names is the thing that was
-#: wrong twice: SECURITY.md's first claim and its replacement were both tables written in prose,
-#: and both went stale the day a credential was added. The rule errs towards INCLUDING — a false
-#: positive costs one row in a table, a false negative is a credential nobody measured.
-_SECRET_NOUNS = frozenset({
-    "TOKEN", "TOKENS", "SECRET", "SECRETS", "KEY", "KEYS", "PASSWORD", "PASSWORDS",
-    "PAT", "PATS", "CREDENTIAL", "CREDENTIALS",
-})
-
-#: …and a name ending in one of these holds something ABOUT a secret rather than the secret: which
-#: source a token pool comes from, which key an id names. A locator (`…_TOKEN_FILE`,
-#: `…_CREDENTIALS_URI`) is deliberately NOT here — a path to a credential is reach to it.
-_NOT_THE_SECRET = frozenset({
-    "SOURCE", "MODE", "KIND", "NAME", "ENABLED", "ID", "COUNT", "TTL", "PROVIDER", "STORE",
-})
-
-
-def _holds_a_credential(name: str) -> bool:
-    words = name.split("_")
-    return bool(set(words) & _SECRET_NOUNS) and words[-1] not in _NOT_THE_SECRET
+#: What a credential's name looks like — `environ.holds_a_credential`, the rule this table was
+#: built on, moved into the package when `openfactory doctor` needed it too (review of #822): the
+#: doctor walks the credentials the core reads for one its store refuses, and a rule written twice
+#: is two rules.
+_holds_a_credential = environ.holds_a_credential
 
 
 def _asks_the_store(node: ast.AST) -> ast.AST | None:
@@ -258,6 +242,22 @@ def _asks_the_store(node: ast.AST) -> ast.AST | None:
     return None
 
 
+def _chained(node: ast.AST) -> list[str]:
+    """The names a call to the credential store's `chain` walks, spelled as a table at the call
+    (`chain(("A", "B"))`, #822) — the store's fallback chain, which a refusal ends — else `[]`.
+    The function's name is taken from the store itself, so a rename there is a rename here."""
+    from openfactory.adapters.credential_store.registry import chain
+
+    if not (isinstance(node, ast.Call) and node.args
+            and chain.__name__ in (getattr(node.func, "id", ""), getattr(node.func, "attr", ""))):
+        return []
+    table = node.args[0]
+    if not isinstance(table, (ast.Tuple, ast.List)):
+        return []
+    names = [environ._env_shaped(e) for e in table.elts]
+    return [n for n in names if n] if all(names) else []
+
+
 def _spelling_groups(path: pathlib.Path) -> list[frozenset[str]]:
     """The groups of environment names that hold ONE credential, read out of a module's own code.
 
@@ -266,9 +266,13 @@ def _spelling_groups(path: pathlib.Path) -> list[frozenset[str]]:
     hand the same reader the same secret. Derived from the `or` expressions rather than listed, so
     a third override added to `credentials.py` arrives here without anyone remembering to.
     Overlapping chains are merged: `forge_token` and `tracker_token` share their fallback, so the
-    three names are one credential and not two pairs."""
+    three names are one credential and not two pairs. The credential store's `chain((A, B))` is
+    the same fallback spelled so that a refusal ends it (#822), and is read the same way."""
     groups: list[frozenset[str]] = []
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if len(chained := _chained(node)) > 1:
+            groups.append(frozenset(chained))
+            continue
         if not (isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)):
             continue
         names = []
@@ -450,10 +454,15 @@ def test_the_fallback_scan_SEES_a_chain_and_leaves_a_single_read_alone(tmp_path)
         "    return os.environ.get('ACME_ONLY_TOKEN') or ''\n"
         "def through_the_store():\n"
         "    return stored('ACME_C_TOKEN') or stored('ACME_D_TOKEN') or None\n"
+        "def a_chain_a_refusal_ends():\n"
+        "    return chain(('ACME_E_TOKEN', 'ACME_F_TOKEN')).value\n"
+        "def a_chain_of_one():\n"
+        "    return chain(('ACME_G_TOKEN',)).value\n"
     )
 
-    assert _spelling_groups(planted) == [frozenset({"ACME_A_TOKEN", "ACME_B_TOKEN"}),
-                                         frozenset({"ACME_C_TOKEN", "ACME_D_TOKEN"})]
+    assert sorted(_spelling_groups(planted), key=sorted) == [
+        frozenset({"ACME_A_TOKEN", "ACME_B_TOKEN"}), frozenset({"ACME_C_TOKEN", "ACME_D_TOKEN"}),
+        frozenset({"ACME_E_TOKEN", "ACME_F_TOKEN"})]
 
 
 def test_a_credential_served_under_several_names_is_denied_under_all_of_them(monkeypatch):

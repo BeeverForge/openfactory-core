@@ -14,6 +14,14 @@ credential (`credential_store.stored`), asked of the store the deployment declar
 environment, and a project's `token_env` is a reference (`credential_store.answer`): a bare name
 as it always was, or `file:<name>` and any installed store's `<kind>:<name>`. With no store
 declared, every answer below is the variable's, byte for byte.
+
+A REFUSAL ENDS THE RESOLUTION (review of #822). Every credential here is a chain — a project's
+reference, then its vendor's default, then the deployment's pair, then a mint or a login — and a
+step the store REFUSES used to read as an empty one, so the next step answered: a project whose
+`file:acme-jira` was refused was handed `JIRA_API_TOKEN`, under a log line that said "nothing is
+used in its place". Now the first refusal is the answer (`_axis_answer`), every later step is
+skipped, the mint and the provider paths included (`axis_refusal`), and the doctor says which
+reference was refused instead of "no credential is configured".
 """
 
 from __future__ import annotations
@@ -52,10 +60,14 @@ def app_private_key() -> str | None:
     PEM is the mounted file `OPENFACTORY_GH_APP_KEY_CONTENT`, read at this call and kept by
     nobody, and a variable of either name still answers where no file does.
     """
-    content = stored("OPENFACTORY_GH_APP_KEY_CONTENT")
-    if content:
-        return content
-    path = stored("OPENFACTORY_GH_APP_KEY")
+    # A REFUSED CONTENT IS THE ANSWER, never the path after it (review of #822): the store said
+    # why, and a key file somewhere else is a key nobody chose for this.
+    content = credential_store.lookup("OPENFACTORY_GH_APP_KEY_CONTENT")
+    if content.value:
+        return content.value
+    if content.refused:
+        return None
+    path = credential_store.lookup("OPENFACTORY_GH_APP_KEY").value
     if not path:
         return None
     try:
@@ -216,13 +228,49 @@ def _stored_secret(identity: str) -> bool:
     return bool(kind) and kind not in _NOT_A_STORE and kind in credential_store.known()
 
 
+#: Each axis's deployment-wide pair, in the order it is asked: the axis's own, then the bot's.
+_GENERIC = {
+    "tracker": ("OPENFACTORY_TRACKER_TOKEN", "OPENFACTORY_BOT_TOKEN"),
+    "forge": ("OPENFACTORY_FORGE_TOKEN", "OPENFACTORY_BOT_TOKEN"),
+}
+
+
 def tracker_token() -> str | None:
-    return stored("OPENFACTORY_TRACKER_TOKEN") or stored("OPENFACTORY_BOT_TOKEN") or None
+    # A CHAIN, so a refused `OPENFACTORY_TRACKER_TOKEN` is not answered by the bot's (#822)
+    return credential_store.chain(("OPENFACTORY_TRACKER_TOKEN", "OPENFACTORY_BOT_TOKEN")).value
 
 
 def _axis_credential(project, axis: str, generic, *,
                      announce: bool = True) -> tuple[str, str | None]:
-    """`(source, value)` of `project`'s credential on `axis` — ONE resolution for both axes.
+    """`(source, value)` of `project`'s credential on `axis` — `_axis_answer`'s, `("", None)` when
+    nothing answered and when a step was refused."""
+    found = _axis_answer(project, axis, generic, announce=announce)
+    return (found.reference, found.value) if found.value else ("", None)
+
+
+def axis_refusal(project, axis: str) -> str:
+    """Why `project`'s credential on `axis` is REFUSED — the reference the store refused, and its
+    reason — or `""` (review of #822). What every later step of a credential's resolution asks
+    before it answers (the vendor's mint, its provider), so a refusal stays final there too, and
+    what the doctor says instead of "no credential is configured", which would send the operator
+    to set a variable that is already set."""
+    generic = tracker_token if axis == "tracker" else forge_token
+    found = _axis_answer(project, axis, generic, announce=False)
+    return f"`{found.reference}` is refused: {found.refused}" if found.refused else ""
+
+
+def _refused_at(project, axis: str, found, announce: bool):
+    """`found`, a refusal, said once in the axis's words: nothing is used in its place."""
+    if announce:
+        log.warning("%s's %s credential `%s` is refused — nothing is used in its place, not this "
+                    "deployment's own and not a mint", getattr(project, "name", "?"), axis,
+                    found.reference)
+    return found
+
+
+def _axis_answer(project, axis: str, generic, *, announce: bool = True):
+    """What answers for `project`'s credential on `axis` — ONE resolution for both axes — as the
+    store's `Answer`: the reference and the value, or the reference the store REFUSED and why.
 
     `source` is the credential's IDENTITY, never its value: `env:<NAME>` for a variable the
     project or its vendor named — or the reference of whichever store answered for it,
@@ -244,7 +292,12 @@ def _axis_credential(project, axis: str, generic, *,
     so a generic token counted here was a credential the doctor reported and nothing used. Only a
     STORED secret comes back as a value; a login or the machine's own identity expires on its own,
     so it is a provider (`deployment_*_provider`), read at each use and never frozen by a caller.
-    An axis that DECLARES an identity it cannot have gets nothing at all — no fallback."""
+    An axis that DECLARES an identity it cannot have gets nothing at all — no fallback.
+
+    AND A STEP THE STORE REFUSES IS THE ANSWER (review of #822): the reference the project names,
+    its vendor's default variable, the deployment's pair — the first refused one ends the walk,
+    and nothing after it is asked."""
+    Answer = credential_store.Answer
     ref = getattr(project, axis, None)
     options = getattr(ref, "options", None) or {}
     named = str(options.get("token_env") or "").strip()
@@ -255,39 +308,52 @@ def _axis_credential(project, axis: str, generic, *,
             log.warning("%s's %s credential: %s — no credential is used for it",
                         getattr(project, "name", "?"), axis,
                         problem or _no_workload_identity(_kind_of(ref)))
-        return "", None
+        return credential_store.NOTHING
     if row is not None and row.source is not None:
-        if named and announce and not (credential_store.resolve(named) or "").strip():
+        # THE REFERENCE THE ROW WILL READ, asked first: a vendor that resolves its own credential
+        # falls back to a login when its secret is absent, and a REFUSED secret is not absent.
+        asked = credential_store.look(named or vendor_default_env(ref) or "")
+        if asked.refused:
+            return _refused_at(project, axis, asked, announce)
+        if named and announce and not (asked.value or "").strip():
             log.warning("%s names %s as its %s credential and it is empty — the vendor's "
                         "other sources are asked instead",
                         getattr(project, "name", "?"), named, axis)
         identity, provider = row.source(dict(options))
         value = provider() if provider is not None and _stored_secret(identity) else None
-        return (identity, value) if value else ("", None)
+        return Answer(reference=identity, value=value) if value else credential_store.NOTHING
     if named:
         # A REFERENCE (#742): a bare variable name as every registry has written it, resolved
         # through the deployment's store; `file:<name>` or another installed kind, from there alone.
-        found, value = credential_store.answer(named)
-        if value:
-            return found, value
+        found = credential_store.look(named)
+        if found.refused:
+            return _refused_at(project, axis, found, announce)
+        if found.value:
+            return found
         if announce:
             log.warning("%s names %s as its %s credential and it is empty — falling back to "
                         "this deployment's own, which is very likely the wrong system",
                         getattr(project, "name", "?"), named, axis)
     default = vendor_default_env(ref)
     if default:
-        found, value = credential_store.stored_answer(default)
-        value = (value or "").strip() or None
-        if value:
-            return found, value
+        found = credential_store.lookup(default)
+        if found.refused:
+            return _refused_at(project, axis, found, announce)
+        if (found.value or "").strip():
+            return Answer(reference=found.reference, value=found.value.strip())
     # A VENDOR THAT NEEDS NO CREDENTIAL NEVER REACHES THE GENERIC PAIR (ADR-0049 D1). The pair is
     # this DEPLOYMENT's, and on a machine that also runs a hosted project it is that project's
     # token: handing it to a row whose board is a local file would present one system's credential
     # to another, which is the failure `vendor_default` exists to stop one step earlier.
     if not vendor_needs_credential(ref):
-        return "", None
+        return credential_store.NOTHING
     value = generic() or None
-    return (f"generic:{axis}", value) if value else ("", None)
+    if value:
+        return Answer(reference=f"generic:{axis}", value=value)
+    # the pair answered nothing: say whether that was a refusal, which the generic reader folds
+    found = credential_store.chain(_GENERIC[axis])
+    return _refused_at(project, axis, found, announce) if found.refused \
+        else credential_store.NOTHING
 
 
 def tracker_token_for(project) -> str | None:
@@ -309,7 +375,8 @@ def tracker_token_for(project) -> str | None:
 
 
 def forge_token() -> str | None:
-    return stored("OPENFACTORY_FORGE_TOKEN") or stored("OPENFACTORY_BOT_TOKEN") or None
+    # A CHAIN, so a refused `OPENFACTORY_FORGE_TOKEN` is not answered by the bot's (#822)
+    return credential_store.chain(("OPENFACTORY_FORGE_TOKEN", "OPENFACTORY_BOT_TOKEN")).value
 
 
 def forge_token_for(project) -> str | None:
@@ -354,7 +421,12 @@ def deployment_tracker_token(project) -> str | None:
     row has no `mint` — and a stranger's add-on that declares none — gets None, because this
     deployment has nothing of that vendor's to offer and a token from the wrong system is worse
     than none. A project that names NO kind predates the seam and keeps the reference mint.
+
+    NOTHING AFTER A REFUSAL (#822): the mint is the last step of the project's resolution, so a
+    refused reference before it is not answered by it.
     """
+    if axis_refusal(project, "tracker"):
+        return None
     return _deployment_mint(getattr(project, "tracker", None))
 
 
@@ -374,7 +446,9 @@ def deployment_forge_token(project) -> str | None:
     row carries the App mint; a vendor whose row declares no `mint` — and a stranger's add-on
     that declares none — gets None, because this deployment has nothing of that vendor's to offer
     and a token from the wrong system is worse than none. Behaviour is identical for GitHub and
-    strictly honest elsewhere."""
+    strictly honest elsewhere. Nothing after a refusal (#822), as on the tracker."""
+    if axis_refusal(project, "forge"):
+        return None
     return _deployment_mint(getattr(project, "forge", None))
 
 
@@ -442,9 +516,11 @@ def tracker_credential_source(project) -> str:
     budget once per credential, and the mint renews the VALUE on every call, so keying by value
     asked N times for N projects on one installation (measured 2026-08-26). A mint that would
     fail still has an identity — the budget row for it reads as unread once, not N times."""
-    source, value = _axis_credential(project, "tracker", tracker_token, announce=False)
-    if value:
-        return source
+    found = _axis_answer(project, "tracker", tracker_token, announce=False)
+    if found.value:
+        return found.reference
+    if found.refused:
+        return ""
     kind = _kind_of(getattr(project, "tracker", None))
     row = _row(kind)
     return f"deployment:{kind}" if row is not None and row.mint is not None else ""
@@ -475,12 +551,18 @@ def _deployment_provider(ref):
 
 
 def deployment_tracker_provider(project):
-    """The re-minting provider this deployment holds for `project`'s TRACKER vendor, or None."""
+    """The re-minting provider this deployment holds for `project`'s TRACKER vendor, or None —
+    None after a refused reference too (#822): a provider is the resolution's last step."""
+    if axis_refusal(project, "tracker"):
+        return None
     return _deployment_provider(getattr(project, "tracker", None))
 
 
 def deployment_forge_provider(project):
-    """The re-minting provider this deployment holds for `project`'s FORGE vendor, or None."""
+    """The re-minting provider this deployment holds for `project`'s FORGE vendor, or None — and
+    None after a refused reference (#822)."""
+    if axis_refusal(project, "forge"):
+        return None
     return _deployment_provider(getattr(project, "forge", None))
 
 
@@ -514,9 +596,11 @@ def forge_credential_source(project) -> str:
     ref = getattr(project, "forge", None)
     if credential_problem(ref):
         return ""
-    source, value = _axis_credential(project, "forge", forge_token, announce=False)
-    if value:
-        return source
+    found = _axis_answer(project, "forge", forge_token, announce=False)
+    if found.value:
+        return found.reference
+    if found.refused:
+        return ""
     row = _row(_kind_of(ref))
     if row is not None and row.source is not None:
         identity, provider = row.source(dict(getattr(ref, "options", None) or {}))
@@ -551,11 +635,8 @@ def describe_source(source: str) -> str:
 def _generic_reference(axis: str) -> str:
     """The reference that answers for `axis`'s deployment-wide pair, the same chain `tracker_token`
     and `forge_token` walk, or `""`."""
-    for name in (f"OPENFACTORY_{axis.upper()}_TOKEN", "OPENFACTORY_BOT_TOKEN"):
-        found, value = credential_store.stored_answer(name)
-        if value:
-            return found
-    return ""
+    found = credential_store.chain(_GENERIC[axis])
+    return found.reference if found.value else ""
 
 
 def _handed_over(project, axis: str) -> str | None:

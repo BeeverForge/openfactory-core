@@ -350,6 +350,10 @@ class Probes:
     #: is not missing. Answers nothing by default, so a test presenting an environment measures
     #: that environment alone.
     stored: Callable[[str], str | None] = lambda _name: None
+    #: `credential_store.refusals` for one name — why the store REFUSES it, `""` when it does not
+    #: (review of #822). A refused `box.env` name crosses into no box, and it is set: "not set"
+    #: would send the operator to set it. Answers nothing by default, like `stored`.
+    refused: Callable[[str], str] = lambda _name: ""
 
 
 #: The checks `assess` does not ask of a project whose product started before its code (#992):
@@ -890,9 +894,17 @@ def _env_names(p: Probes, on: str) -> tuple[Finding, str]:
                    "this project names no variables in `box.env`, so the box receives only the "
                    "harness defaults (`container.py::_AUTH_ENV_VARS`)", on=on), ""
     env = p.environ()
-    absent = [n for n in names if env.get(n) is None and p.stored(n) is None]
-    blank = [n for n in names if n not in absent and env.get(n) is not None
+    refused = {n: why for n in names if (why := p.refused(n))}
+    absent = [n for n in names if n not in refused and env.get(n) is None and p.stored(n) is None]
+    blank = [n for n in names if n not in absent and n not in refused and env.get(n) is not None
              and not str(env.get(n)).strip()]
+    if refused:
+        return _fail("env_names",
+                     f"`box.env` names {', '.join(sorted(refused))}, which the credential store "
+                     f"refuses, so no box receives it — "
+                     + "; ".join(f"`{n}`: {why}" for n, why in sorted(refused.items())),
+                     "fix what the refusal names, where the secret is kept — the variable of the "
+                     "same name is not passed in its place", on=on), ""
     if not absent and not blank:
         return _ok("env_names",
                    f"all {len(names)} name(s) in `box.env` are set and non-empty in the {on} "
@@ -1069,6 +1081,11 @@ def probes_for(project) -> Probes:
 
         return stored(name)
 
+    def _refused(name: str) -> str:
+        from openfactory.adapters.credential_store.registry import refusals
+
+        return refusals((name,)).get(name, "")
+
     return Probes(
         project_name=name,
         measured_on=where_this_answers_for,
@@ -1091,6 +1108,7 @@ def probes_for(project) -> Probes:
         box_env_names=lambda: list(getattr(getattr(project, "box", None), "env", None) or []),
         environ=_environ,
         stored=_stored,
+        refused=_refused,
         enabled=lambda: bool(getattr(project, "enabled", True)),
         registry_entry=lambda: project.model_dump(mode="json"),
         worker_registry_entry=_worker_entry,

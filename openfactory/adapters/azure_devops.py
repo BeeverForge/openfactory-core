@@ -270,9 +270,15 @@ def credential_source(options: dict | None = None) -> tuple[str, object]:
     from openfactory.adapters.credential_store import registry as credential_store
 
     reference = (options.get("token_env") or DEFAULT_TOKEN_ENV).strip()
-    found, value = credential_store.answer(reference)
-    if (value or "").strip():
-        return found, (lambda: (credential_store.resolve(reference) or "").strip() or None)
+    found = credential_store.look(reference)
+    if found.refused:
+        # A REFUSED SECRET IS NOT AN ABSENT ONE (review of #822): the login is the fallback for
+        # a deployment that stores no PAT, and this one stored a PAT the store will not trust —
+        # nothing is used in its place, and `credentials.axis_refusal` says which and why.
+        return "", None
+    if (found.value or "").strip():
+        return found.reference, (lambda: (credential_store.resolve(reference) or "").strip()
+                                 or None)
     return "login:az", az_token
 
 
