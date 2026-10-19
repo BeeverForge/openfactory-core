@@ -134,7 +134,7 @@ marked as such.
   Jira (fake `search/jql` page, as `JIRA_PAGE_2` is shaped) asserting
   `parse.criteria(summary.body)`. On main the Jira params fail (criteria `[]`; the verdict says "no
   sections at all") and the GitHub/Azure params pass. Record both.
-- [ ] 3. Write `tests/test_what_the_factory_writes_to_jira_reads_back_as_it_wrote_it.py` (C6, second
+- [x] 3. Write `tests/test_what_the_factory_writes_to_jira_reads_back_as_it_wrote_it.py` (C6, second
   instance). Bodies come **from the writers' source** (lesson 5): `activities._child_body(...)` with
   `carried=("", [])` and with a carried block, plus `"a\n\n\nb"`. Assert
   `JiraTracker._text(JiraTracker._adf(body)) == body.strip()`. Then, through `_Jira.get_ticket`
