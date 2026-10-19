@@ -709,3 +709,121 @@ def test_an_empty_slice_does_not_queue_another_projects_card(tmp_path, monkeypat
     assert result.detail == board_move_said("outside_the_slice", ref="DAR-2", project="api"), \
         result.detail
     assert moved == []
+
+
+def _api_product_module(tmp_path, monkeypatch, urlopen, *, scope: str = API, language=None):
+    """The product role of `api` on the shared Jira project `DAR`, scoped to `scope` (none when
+    `""`), with `urlopen` as the only network it has."""
+    from openfactory.adapters.board import build_board
+    from openfactory.adapters.tracker.registry import build_tracker
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.product.config import ProductLink
+    from openfactory.product.loader import ProductContext
+    from openfactory.product.module import ProductModule
+    from tests.test_card_maintenance import COMMIT, REQUIREMENTS_DIR, _corpus, _Harness
+
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "metrics.db"))
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    sm = {"backlog": "Backlog", "todo": "A Fazer", "in_progress": "Em andamento", "done": "Concluído"}
+    options = {"site": SITE, "email": "a@b.c", "status_map": json.dumps(sm)}
+    if scope:
+        options["scope_jql"] = scope
+    extra = {"language": language} if language else {}
+    api = Project(name="api", repo_path=str(tmp_path), tracker=ProviderRef(
+        kind="jira", repo="DAR", options=options),
+        product=ProductConfig(docs_repo="acme/acme-docs", admins=["ana"], agent_name="Nina"),
+        **extra)
+    ctx = ProductContext(link=ProductLink(active=True, docs_repo="acme/acme-docs", kind="ok",
+                                          reason="fine"),
+                         corpus=_corpus(), docs_path=str(tmp_path), docs_commit=COMMIT,
+                         requirements_dir=REQUIREMENTS_DIR)
+    return ProductModule(api, context=ctx, agent=_Harness("{}"),
+                         tracker=build_tracker(api, token="t"), board=build_board(api, token="t"))
+
+
+class _RankSite:
+    """`DAR-1` (`of-api`) in the backlog, `DAR-2` (`of-web`) running: the searches answer by the
+    label and the key they read out of the JQL; every rank written is kept in `ranked`."""
+
+    def __init__(self) -> None:
+        self.where = {"DAR-1": ("of-api", "Backlog"), "DAR-2": ("of-web", "Em andamento")}
+        self.searches: list[str] = []
+        self.ranked: list[dict] = []
+
+    def urlopen(self, req, timeout=0):
+        split = urllib.parse.urlsplit(req.full_url)
+        if "search/jql" in split.path:
+            jql = (urllib.parse.parse_qs(split.query)["jql"][0] if req.get_method() == "GET"
+                   else json.loads(req.data)["jql"])
+            self.searches.append(jql)
+            label = re.search(r'labels = "([^"]+)"', jql)
+            key = re.search(r'key = "([^"]+)"', jql)
+            status = re.search(r'status = "([^"]+)"', jql)
+            keys = [k for k, (lab, st) in self.where.items()
+                    if (label is None or lab == label.group(1))
+                    and (key is None or k == key.group(1))
+                    and (status is None or st == status.group(1))]
+            return _Answer({"isLast": True, "issues": [
+                {"key": k, "fields": {"status": {"name": self.where[k][1]}}} for k in keys]})
+        if split.path.endswith("issue/rank"):
+            self.ranked.append(json.loads(req.data))
+            return _Answer(None)
+        return _Answer({})
+
+
+def test_another_projects_card_is_not_ranked_from_this_one(tmp_path, monkeypatch):
+    """The product role's `reorder` ranks by key (`place_after` → the Agile API's `issue/rank`),
+    so under a scope it reached another project's card: at 3c7fbcf `reorder(["DAR-1", "DAR-2"])`
+    from `api` ranked web's running `DAR-2` after `DAR-1`, ok=True (review of PR #884, point 3).
+    The card outside the slice is now refused by name, as the queueing refuses it."""
+    from openfactory.product.voice import board_move_said
+
+    site = _RankSite()
+    module = _api_product_module(tmp_path, monkeypatch, site.urlopen)
+
+    ours, theirs = module.reorder(["DAR-1", "DAR-2"], actor="ana")
+
+    assert ours.ok, ours
+    assert not theirs.ok, "another project's card was ranked from this one"
+    assert theirs.detail == board_move_said("outside_the_slice", ref="DAR-2", project="api"), \
+        theirs.detail
+    assert [r for r in site.ranked if "DAR-2" in r["issues"]] == [], site.ranked
+
+
+def test_an_unscoped_order_asks_the_slice_nothing(tmp_path, monkeypatch):
+    """Lesson 10: a project that declares no scope owns every card of its Jira project, so the
+    order asks no question of any card — the only search is the column's first card. Green before
+    the guard by design; the cut that makes `holds` search without a scope turns it red."""
+    site = _RankSite()
+    module = _api_product_module(tmp_path, monkeypatch, site.urlopen, scope="")
+
+    results = module.reorder(["DAR-1", "DAR-2"], actor="ana")
+
+    assert [r.ok for r in results] == [True, True], results
+    assert [jql for jql in site.searches if " key = " in jql] == [], site.searches
+
+
+def test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_rank_it(tmp_path, monkeypatch):
+    """Lesson 2, for the order: a `key =` search Jira refuses is "could not see", never "inside" —
+    the card is refused as an unreachable board, and nothing is ranked."""
+    from openfactory.product.voice import board_move_said
+
+    site = _RankSite()
+    answer = site.urlopen
+
+    def refuse_the_key_search(req, timeout=0):
+        split = urllib.parse.urlsplit(req.full_url)
+        if "search/jql" in split.path and " key = " in urllib.parse.parse_qs(split.query)["jql"][0]:
+            raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", hdrs=None,
+                                         fp=io.BytesIO(b'{"errorMessages":["x"]}'))
+        return answer(req, timeout)
+
+    module = _api_product_module(tmp_path, monkeypatch, refuse_the_key_search)
+
+    [result] = module.reorder(["DAR-2"], actor="ana")
+
+    assert not result.ok, "a card the slice could not be asked about was ranked"
+    assert result.detail == board_move_said("unreachable", ref="DAR-2"), result.detail
+    assert site.ranked == []

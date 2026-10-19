@@ -4558,7 +4558,12 @@ class ProductModule:
 
         A BOARD THAT CANNOT RANK SAYS SO. `Rankable` is a capability, not a promise every board
         makes; the refusal names the board rather than raising in a listener. Said like
-        `promote`'s, in the conversation's language (#497)."""
+        `promote`'s, in the conversation's language (#497).
+
+        A CARD OUTSIDE THIS PROJECT'S SLICE IS NOT RANKED (#752): each card is asked of the board's
+        `holds`, and one another project's `scope_jql` selects is refused by name (`False`) or as
+        an unreachable board (`None`), as `promote` refuses it; the chain goes on from the last
+        card placed."""
         from openfactory.product.voice import board_move_said
 
         lang = getattr(self.project, "language", None)
@@ -4578,7 +4583,19 @@ class ProductModule:
         backlog = stage_column(board, self.FILING_KEY)
         out: list[WriteResult] = []
         previous: str | None = None
+        project = getattr(self.project, "name", "")
+        holds = getattr(board, "holds", None)
         for number in numbers:
+            # ANOTHER PROJECT'S CARD (PR #884 review, point 3): `place_after` ranks by key, so under
+            # a Jira `scope_jql` `reorder(["DAR-1", "DAR-2"])` from api ranked web's running DAR-2
+            # (ok=True, measured 2026-10-19). Asked per card: an unscoped or holds-less board
+            # answers True with no request, and the order has no batch read to spare a scoped one
+            inside = holds(str(number)) if callable(holds) else True
+            if inside is not True:
+                out.append(WriteResult(ok=False, ref=f"#{number}", detail=board_move_said(
+                    "outside_the_slice" if inside is False else "unreachable",
+                    ref=number, project=project, language=lang)))
+                continue
             try:
                 url = self._issue_url(tracker, number)
                 placed = bool(board.place_after(issue=str(number), issue_url=url, after=previous,

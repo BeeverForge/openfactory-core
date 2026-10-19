@@ -24,7 +24,10 @@ The claims, each held by a test this plan cuts under:
     en one does (review round 3);
   - the queueing asks the slice about a card when the batch's board read was refused, so one 429
     followed by a good read cannot queue another project's card, and an empty slice (`{}`) is a
-    read, asked about like any other (review of PR #884, points 1 and 6).
+    read, asked about like any other (review of PR #884, points 1 and 6);
+  - the product role's order asks the slice about each card it ranks, refuses another project's
+    card by name and one it could not ask about as an unreachable board, and an unscoped board
+    is asked nothing (review of PR #884, point 3).
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
@@ -171,6 +174,26 @@ MUTATIONS = [
      "            if where is None or not where.get(str(number)):\n",
      "            if where and not where.get(str(number)):\n",
      f"{SLICE}::test_an_empty_slice_does_not_queue_another_projects_card"),
+
+    ("the product role's order ignores `holds`, and another project's running card is ranked "
+     "from this one", PRODUCT,
+     "            inside = holds(str(number)) if callable(holds) else True\n"
+     "            if inside is not True:\n",
+     "            inside = True\n"
+     "            if inside is not True:\n",
+     f"{SLICE}::test_another_projects_card_is_not_ranked_from_this_one"),
+
+    ("a slice the order could not ask about reads as held, and the card is ranked", PRODUCT,
+     "            inside = holds(str(number)) if callable(holds) else True\n"
+     "            if inside is not True:\n",
+     "            inside = holds(str(number)) if callable(holds) else True\n"
+     "            if inside is False:\n",
+     f"{SLICE}::test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_rank_it"),
+
+    ("an unscoped board searches for every card the order ranks", BOARD,
+     "        if not self._scope():\n            return True\n        key = canonical_ref(ref)\n",
+     "        key = canonical_ref(ref)\n",
+     f"{SLICE}::test_an_unscoped_order_asks_the_slice_nothing"),
 
     ("the pt-BR refusal of a card outside the slice loses its middle, and no longer says nothing "
      "was changed nor how to act on the card", VOICE,
