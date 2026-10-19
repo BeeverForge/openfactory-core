@@ -13,7 +13,7 @@ import os
 import subprocess
 
 from openfactory.adapters.board.columns import CANONICAL_COLUMNS
-from openfactory.adapters.github_cli import nothing_named, refused
+from openfactory.adapters.github_cli import credential_of, nothing_named, refused
 from openfactory.adapters.tracker.base import Budget, BudgetUnreadable
 from openfactory.contracts import JobState
 from openfactory.contracts.refs import qualify_ref, ref_number, split_repo_ref
@@ -241,7 +241,7 @@ def _owner_kind(owner: str) -> str:
 class GitHubProjectBoard:
     def __init__(
         self, owner: str, number: str, *, token: str | None = None, token_provider=None,
-        columns: dict[str, str] | None = None, default_repo: str = ""
+        columns: dict[str, str] | None = None, default_repo: str = "", refused: str = ""
     ) -> None:
         self.owner = owner
         self.number = str(number)
@@ -254,6 +254,8 @@ class GitHubProjectBoard:
         self._default_repo = default_repo
         self._static_token = token
         self._token_provider = token_provider  # re-mints a fresh token at use (long jobs)
+        #: why the credential store refused the credential this board was meant to use (#742)
+        self.refused = refused
         self._project_id: str | None = None
         self._status_field_id: str | None = None
         self._option_ids: dict[str, str] = {}
@@ -263,8 +265,8 @@ class GitHubProjectBoard:
     def token(self) -> str | None:
         # Resolved at each use, never frozen: App installation tokens last ~1h, and a board
         # write in a job that outlives one must still authenticate (same rule as the forge
-        # and the tracker's own issue ops).
-        return self._token_provider() if self._token_provider else self._static_token
+        # and the tracker's own issue ops). And never the machine's own login after a refusal.
+        return credential_of(self)
 
     def _ensure_meta(self) -> None:
         if self._project_id:

@@ -24,6 +24,7 @@ TEST = "tests/test_a_stored_credential_comes_through_the_store.py"
 SWEEP = "tests/test_every_stored_credential_is_read_through_the_store.py"
 KNOBS = "tests/test_the_box_claims_only_what_it_does.py"
 FAMILY = "tests/test_a_refused_credential_opens_no_door.py"
+GATE = "tests/test_a_refused_gate_key_is_said_as_itself.py"
 
 CREDENTIALS = "openfactory/credentials.py"
 ADAPTER = "openfactory/adapters/agent/claude_code.py"
@@ -113,8 +114,9 @@ MUTATIONS = [
      "        if False:"),
     # re-pinned 2026-10-19 (#822): a read-only mount is asked beside the bits
     # re-pinned 2026-10-19 (#822, second round): a sticky bit no longer excuses a writable directory
+    # re-pinned 2026-10-19 (#822, third round): one rule for every directory a secret is read through
     ("a directory anyone may write to is trusted", FILE,
-     "        if writers and not _mount_refuses_writes(path=root):",
+     "        if not _mount_refuses_writes(path=here):",
      "        if False:"),
     ("a file far larger than a credential is read whole", FILE,
      "        if found.st_size > MAX_BYTES:",
@@ -129,12 +131,16 @@ MUTATIONS = [
      "it", CREDENTIALS,
      "    return bool(kind) and kind not in _NOT_A_STORE and kind in credential_store.known()",
      "    return kind == \"env\""),
-    ("a remote box is handed the name of a file it cannot read", CREDENTIALS,
-     "    if found.startswith(\"env:\") or not _stored_secret(found):\n        return None",
-     "    if True:\n        return None"),
-    ("a value is written into a remote box's launch where a name sufficed", CREDENTIALS,
-     "    if found.startswith(\"env:\") or not _stored_secret(found):",
-     "    if not _stored_secret(found):"),
+    # RETIRED 2026-10-19 (#822, third round): "a remote box is handed the name of a file it cannot
+    # read" — a remote box is handed no stored secret at all now (#903); its rule is the row below.
+    ("a secret the store holds reaches a remote launcher, its value in the launch", CREDENTIALS,
+     "            if held := _held_in_a_store(project, axis):",
+     "            if held := \"\":", TEST),
+    # re-pinned 2026-10-19 (#822, third round): the hand-over is a refusal now, and a variable the
+    # box reads for itself is still handed over by name
+    ("a variable the box reads for itself is refused as if a store held it", CREDENTIALS,
+     "    if found.startswith(\"env:\") or not _stored_secret(found):\n        return \"\"",
+     "    if not _stored_secret(found):\n        return \"\""),
     ("the container box names a file-held variable and docker has no value for it", CONTAINER,
      "        return {**os.environ, **passing}",
      "        return dict(os.environ)"),
@@ -256,9 +262,10 @@ MUTATIONS = [
     ("the worktree box keeps a refused name's variable", WORKTREE,
      "            if found.refused:\n                env.pop(var, None)",
      "            if False:\n                env.pop(var, None)", FAMILY),
+    # re-pinned 2026-10-19 (#822, third round): the refusal is `KeyRefused`
     ("a refused gate key is replaced by the generated one", "openfactory/gate_seal.py",
-     '    if found.refused:\n        raise RuntimeError(f"the gate key',
-     '    if False:\n        raise RuntimeError(f"the gate key', FAMILY),
+     '    if found.refused:\n        raise KeyRefused(f"the gate key',
+     '    if False:\n        raise KeyRefused(f"the gate key', FAMILY),
     ("a refused preview key is replaced by the process's own", "openfactory/preview/__init__.py",
      "    if found.refused:\n        # NOT THE PROCESS'S OWN IN ITS PLACE",
      "    if False:\n        # NOT THE PROCESS'S OWN IN ITS PLACE", FAMILY),
@@ -310,9 +317,10 @@ MUTATIONS = [
      "        if writers and not _mount_refuses_writes(fd=fd):",
      "        if writers:"),
     # re-pinned 2026-10-19 (#822, second round): a sticky bit no longer excuses a writable directory
+    # re-pinned 2026-10-19 (#822, third round): one rule for every directory a secret is read through
     ("a read-only directory's write bits refuse every secret in it", FILE,
-     "        if writers and not _mount_refuses_writes(path=root):",
-     "        if writers:"),
+     "        if not _mount_refuses_writes(path=here):",
+     "        if True:"),
     ("a refusal names its cause and not its repair", FILE,
      '                                    f"else can rewrite is not this deployment\'s — "\n'
      "                                    + _UNWRITABLE.format(path=path))",
@@ -355,9 +363,11 @@ MUTATIONS = [
      "                break", SWEEP),
 
     # ── the review of 493875d3: the store's rules for a shared directory and for a link ─────────
+    # re-pinned 2026-10-19 (#822, third round): one rule for every directory a secret is read through
     ("a shared directory on a writable mount is read again because it is sticky", FILE,
-     "        if writers and not _mount_refuses_writes(path=root):",
-     "        if writers and not sticky and not _mount_refuses_writes(path=root):", FAMILY),
+     "        if not _mount_refuses_writes(path=here):",
+     "        if not (found.st_mode & stat.S_ISVTX) and not _mount_refuses_writes(path=here):",
+     FAMILY),
     ("a link another user made under a credential's name is followed", FILE,
      "        if linked is not None and stat.S_ISLNK(linked.st_mode) \\\n"
      "                and linked.st_uid not in (0, owner):",
@@ -389,9 +399,10 @@ MUTATIONS = [
      "    tok = tracker_token_for(on_the_board)\n",
      "    tok = __import__(\"openfactory.credentials\", fromlist=[\"x\"]).tracker_token()\n",
      FAMILY),
+    # re-pinned 2026-10-19 (#822, third round): the refusal is asked once and handed to the row's sentence
     ("Jira's row answers a refused reference with JIRA_API_TOKEN",
      "openfactory/adapters/tracker/registry.py",
-     '    token = kw.get("token") or (None if axis_refusal(project, "tracker")\n'
+     '    token = kw.get("token") or (None if refused\n'
      '                                else vendor_default(getattr(project, "tracker", None)))',
      '    token = kw.get("token") or vendor_default(getattr(project, "tracker", None))', FAMILY),
     ("the remote box takes the deployment's pair after a refused reference",
@@ -447,9 +458,11 @@ MUTATIONS = [
     ("a stale refused token file beside an answering pool goes unsaid", ADAPTER,
      "    return refusals(CREDENTIALS)\n",
      "    return refusals(CREDENTIALS[:1])\n"),
-    ("the doctor's agent line asks only the harness's walk", "openfactory/doctor.py",
-     "        refused = {**settings.refused, **refusals(_names_read_by(kind))}",
-     "        refused = dict(settings.refused)"),
+    # re-pinned 2026-10-19 (#822, third round): the question is the harness registry's, for the doctor and onboarding alike
+    ("the doctor's agent line asks only the harness's walk",
+     "openfactory/adapters/agent/registry.py",
+     "    return {**walk.refused, **refusals(credential_names(kind))}",
+     "    return dict(walk.refused)"),
     ("a refused preview key answers the card's preview with a raw 500", "openfactory/api/app.py",
      "        key = preview.mint(found.project, unit, expires=expires)\n"
      "    except RuntimeError as exc:",
@@ -458,4 +471,85 @@ MUTATIONS = [
     ("the box is created without the client environment a file-held name needs", CONTAINER,
      "        rc, out = _host(run_cmd) if client_env is None else _host(run_cmd, env=client_env)",
      "        rc, out = _host(run_cmd)"),
+
+    # ── the review of ef084ebd: the gate key, `gh` on the machine's login, the store's rules ────
+    ("a refused gate key is a `RuntimeError` again, which every gate reads as 'not waiting'",
+     "openfactory/gate_seal.py",
+     "class KeyRefused(Exception):",
+     "class KeyRefused(RuntimeError):", GATE),
+    ("the merge gate says 'not waiting on a merge' over a refused gate key",
+     "openfactory/actions/catalog.py",
+     "    except gate_seal.KeyRefused as exc:\n        # THE ANSWER COULD NOT BE SEALED",
+     "    except LookupError as exc:\n        # THE ANSWER COULD NOT BE SEALED", GATE),
+    ("the production approval is not said over a refused gate key", "openfactory/actions/catalog.py",
+     "        except gate_seal.KeyRefused as exc:  # the answer could not be sealed: said as itself",
+     "        except LookupError as exc:  # the answer could not be sealed: said as itself", GATE),
+    ("another pass at the last gate reads a refused key as 'not waiting'",
+     "openfactory/product/adjust.py",
+     '            log.error("OPENFACTORY_NOT_YET_NOT_SEALED project=%s card=#%s by=%s (%s)", name,\n'
+     "                      card, by, exc)\n            return KEY_REFUSED",
+     '            log.error("OPENFACTORY_NOT_YET_NOT_SEALED project=%s card=#%s by=%s (%s)", name,\n'
+     "                      card, by, exc)\n            return NOT_WAITING", GATE),
+    ("another pass at the merge gate reads a refused key as 'not waiting'",
+     "openfactory/product/adjust.py",
+     "                      name, card, said, by, exc)\n            return KEY_REFUSED",
+     "                      name, card, said, by, exc)\n            return NOT_WAITING", GATE),
+    ("a refused preview key is a raw 500 on the card again", "openfactory/api/app.py",
+     '        body["why"] = str(exc)\n        return body',
+     "        raise", GATE),
+    ("a GitHub adapter runs `gh` on the machine's own login after a refusal",
+     "openfactory/adapters/github_cli.py",
+     "    if not found and refused:",
+     "    if False:", FAMILY),
+    ("the GitHub forge is never told its credential was refused", "openfactory/adapters/forge/registry.py",
+     '                       refused="" if kw.get("token") else github_refusal(project, "forge"))',
+     '                       refused="")', FAMILY),
+    ("the GitHub tracker is never told its credential was refused",
+     "openfactory/adapters/tracker/registry.py",
+     '        refused="" if kw.get("token") else github_refusal(project, "tracker"),',
+     '        refused="",', FAMILY),
+    ("the GitHub board is never told its credential was refused", "openfactory/adapters/board/factory.py",
+     '                              refused="" if token else github_refusal(project, "tracker"),',
+     '                              refused="",', FAMILY),
+    ("a refused App key is not a refusal to a GitHub adapter", CREDENTIALS,
+     '        found = credential_store.lookup(name, quiet=True)\n        if found.refused:\n'
+     '            return f"`{found.reference}` is refused: {found.refused}"',
+     '        found = credential_store.lookup(name, quiet=True)\n        if False:\n'
+     '            return f"`{found.reference}` is refused: {found.refused}"', FAMILY),
+    ("the forge's `gh` call raises instead of failing as a call", "openfactory/adapters/forge/github.py",
+     "        except LoginRefused as exc:",
+     "        except LookupError as exc:", FAMILY),
+    ("Jira's anonymous answer asks for JIRA_API_TOKEN over a refused reference",
+     "openfactory/adapters/tracker/jira.py",
+     "    if refused:\n        # THE CREDENTIAL STORE REFUSED IT (#742)",
+     "    if False:\n        # THE CREDENTIAL STORE REFUSED IT (#742)"),
+    ("Jira's row never hands its sentence the refusal", "openfactory/adapters/tracker/registry.py",
+     "        refused=refused,\n",
+     ""),
+    ("a shared directory is shared only when it is sticky and anyone may write to it", FILE,
+     "        return root, self._held_through(root, found, shown=self.directory)",
+     "        return root, self._held_through(root, found, shown=self.directory) and bool(\n"
+     "            found.st_mode & stat.S_ISVTX and found.st_mode & stat.S_IWOTH)", FAMILY),
+    ("a shared directory of another user's is read", FILE,
+     '        if found.st_uid not in (0, getattr(os, "geteuid", lambda: 0)()):',
+     "        if False:", FAMILY),
+    ("the directories a name's link leads through are not asked", FILE,
+     "        while here != root:",
+     "        while False:", FAMILY),
+    ("a file with another name elsewhere is read on a writable mount", FILE,
+     "        if found.st_nlink > 1 and not _mount_refuses_writes(fd=fd):",
+     "        if False:", FAMILY),
+    ("a link put under the name after it was resolved is followed", FILE,
+     '        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)',
+     '        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)'),
+    ("the checks are asked of the path, not of the file that is read", FILE,
+     "            self._checked(name, os.fstat(fd), shared, fd)",
+     "            self._checked(name, os.stat(path), shared, fd)"),
+    ("an answer shows its value", REGISTRY,
+     "    value: str | None = field(default=None, repr=False)",
+     "    value: str | None = field(default=None)"),
+    ("onboarding asks fewer of the harness's names than the harness refuses on",
+     "openfactory/onboarding/onboard.py",
+     "        refused = (harness_refusals(kind) if harness_credential(kind, {}) is not None",
+     "        refused = ({} if harness_credential(kind, {}) is not None"),
 ]

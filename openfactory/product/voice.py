@@ -4121,6 +4121,15 @@ _ADJUST_SAID = {
                   "passada. Nada mudou — me peça de novo daqui a pouco."),
         "en": ("I could not reach the factory just now, so {ref} was not sent back for another "
                "pass. Nothing changed — ask me again in a moment.")},
+    # A KEY OF THE FACTORY'S OWN CANNOT BE READ (#742): not "it is not waiting", which it may be,
+    # and not "ask again in a moment", which would not help — a person who runs the factory must
+    "key_refused": {
+        "pt-BR": ("não consegui mandar o {ref} de volta: a fábrica não está conseguindo assinar "
+                  "respostas agora, porque uma das chaves dela não pode ser lida. Nada mudou — "
+                  "quem cuida da fábrica vê o motivo com `openfactory doctor`."),
+        "en": ("I could not send {ref} back: the factory cannot sign answers right now, because "
+               "one of its keys cannot be read. Nothing changed — whoever runs the factory can "
+               "see why with `openfactory doctor`.")},
     "empty": {
         "pt-BR": ("diga o que ainda está errado — a próxima passada trabalha a partir das suas "
                   "palavras, por exemplo: «o botão deveria ficar à direita»."),

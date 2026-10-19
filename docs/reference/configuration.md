@@ -406,12 +406,18 @@ held: the PEM for `OPENFACTORY_GH_APP_KEY_CONTENT`, a path for `OPENFACTORY_GH_A
 - `OPENFACTORY_CREDENTIAL_DIR` is the directory, `/run/secrets` for a compose stack's `secrets:`
   and a mounted cluster secret volume alike. A reference names one file in it, never a path.
 - **Read at each use, kept by nobody.** A rotated file is the next use's.
-- **Refused by name**, and never replaced by the variable, when the directory or the file is
-  writable by anyone but its owner, when the name is a link another user made, when a link leads
-  out of the directory, when it is not a regular file, or when it is larger than a credential
-  (64 KB). A directory anyone may write to is read only on a mount that refuses writes, as a
-  cluster mounts its secret volume, and then only its files of root or of the worker's user. Each
-  refusal ends with its repair.
+- **Refused by name**, and never replaced by the variable, when:
+  - the directory, or any directory a name's link leads through on the way to the file, may be
+    written by anyone but its owner, on a mount that accepts writes;
+  - on a mount that refuses writes, such a directory belongs to anyone but root or the worker's
+    user — and then every file read through it must belong to root or the worker's user too;
+  - the name is a link another user made, or it leads out of the directory;
+  - the file is not a regular file, is larger than a credential (64 KB), or is not text;
+  - on a mount that accepts writes, the file may be written by anyone but its owner, or it has
+    more than one name (a hard link).
+
+  Each refusal ends with its repair. A cluster's secret volume, mounted read-only and owned by
+  root, is read as it is mounted.
 - **Except on a mount that refuses writes.** Compose mounts a `secrets:` file read-only with the
   mode it has on the host, and on a host whose umask is `0002` (Ubuntu's, for users) a file made
   with `echo … >` is `0664`. Nobody who sees a read-only mount can write through it, so its write
@@ -420,6 +426,8 @@ held: the PEM for `OPENFACTORY_GH_APP_KEY_CONTENT`, a path for `OPENFACTORY_GH_A
   business). On a writable mount the rule stands: `chmod go-w` the file, or mount it read-only.
 - Its content, with the surrounding whitespace and a byte-order mark removed, is the secret; an
   empty file holds nothing.
+- The worktree box withholds the directory's path from the workload, but the files are on the
+  worker's filesystem, readable by the worker's user — [SECURITY.md](../../SECURITY.md).
 
 **A refusal is final.** A credential the store refuses is not replaced: not by the variable of the
 same name, not by the next name a credential falls back to (`OPENFACTORY_TRACKER_TOKEN`, then
@@ -428,14 +436,17 @@ panel closed — every request is answered "identity provider unavailable" (503)
 and the log and `openfactory doctor` name the variable and the reason. A refused harness
 credential stops the agent rather than letting it run on the next one, and a refused `box.env`
 name crosses into neither box. A declared store that cannot be read at all, or a kind nobody
-installed, refuses every credential in the same way.
-- The worktree box withholds the directory's path from the workload, but the files are on the
-  worker's filesystem, readable by the worker's user — [SECURITY.md](../../SECURITY.md).
+installed, refuses every credential in the same way. With no token, the GitHub forge, tracker and
+board do not run `gh` on the machine's own login in its place either.
 
-**A remote box** cannot read the worker's files, so an axis whose secret a store other than the
-environment answers for is resolved on the worker and handed to the box as a value
-(`OPENFACTORY_BOX_TRACKER_TOKEN` / `OPENFACTORY_BOX_FORGE_TOKEN`), the way a minted machine identity
-is; a variable the box can read for itself is still handed over by name only.
+**A remote box** cannot read the worker's files, and it is not handed what they hold either. A
+remote box's launcher is handed short-lived minted tokens only (the machine's own identity, minted
+on the worker), because a launcher may keep its launch environment where others can read it, and
+a stored secret lives as long as its owner keeps it. So an axis whose secret a store other than
+the environment holds is refused for a remote box, by name, until a launcher can declare that it
+resolves credential references itself and be handed the reference instead. Hold such a secret in a
+variable the box reads for itself, which is handed over by name only, or declare the machine's own
+identity (`identity: workload`).
 
 **`openfactory doctor` says where each credential comes from, never its value**: the
 `credential_store` line names the store the deployment declares and every reference the project

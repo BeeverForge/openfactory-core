@@ -14,7 +14,7 @@ import os
 import subprocess
 import time
 
-from openfactory.adapters.github_cli import nothing_named, refused
+from openfactory.adapters.github_cli import credential_of, nothing_named, refused
 from openfactory.adapters.tracker.base import (
     Budget,
     TicketComment,
@@ -88,24 +88,28 @@ class GitHubIssuesTracker(TrackerAdapter):
         token: str | None = None,
         token_provider=None,
         board_columns: dict[str, str] | None = None,
+        refused: str = "",
     ) -> None:
         self.repo = repo  # "owner/name"
         self._static_token = token
         self._token_provider = token_provider  # re-mints a fresh token at use (long jobs)
+        #: why the credential store refused the credential this tracker was meant to use (#742)
+        #: — then it, and its board, run nothing on the machine's own login
+        self.refused = refused
         # The PROVIDER goes in, never `self.token`: evaluating the property here would bake a
         # ~1h App token string into the board, and every board move after expiry would fail
         # silently while the issue ops (which resolve per call) kept working.
         self.board = (
             GitHubProjectBoard(board_owner, board_number, token=token,
                                token_provider=token_provider, columns=board_columns,
-                               default_repo=repo)
+                               default_repo=repo, refused=refused)
             if board_owner and board_number
             else None
         )
 
     @property
     def token(self) -> str | None:
-        return self._token_provider() if self._token_provider else self._static_token
+        return credential_of(self)
 
     def _env(self) -> dict[str, str]:
         env = dict(os.environ)

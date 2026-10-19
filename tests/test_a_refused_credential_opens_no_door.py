@@ -90,9 +90,10 @@ def _bench(monkeypatch, tmp_path: pathlib.Path) -> Bench:
 def _tidy(b: Bench) -> None:
     """Modes a temporary directory's removal needs, put back."""
     b.directory.chmod(0o700)
-    for child in b.directory.iterdir():
-        if child.is_file() and not child.is_symlink():
-            child.chmod(0o600)
+    for child in b.directory.rglob("*"):
+        if child.is_symlink():
+            continue
+        child.chmod(0o700 if child.is_dir() else 0o600)
 
 
 @pytest.fixture
@@ -178,7 +179,8 @@ def _read_only_mount(b: Bench) -> None:
 
 
 def _another_users(b: Bench, path: pathlib.Path) -> None:
-    """`path` belongs to a user who is neither root nor this process's."""
+    """`path` — and, without root, everything this process made — belongs to a user who is
+    neither root nor this process's."""
     if os.geteuid() == 0:
         os.chown(path, 54321, -1)  # root's own files are trusted; make it somebody else's
     else:
@@ -186,12 +188,62 @@ def _another_users(b: Bench, path: pathlib.Path) -> None:
         b.monkeypatch.setattr(os, "geteuid", lambda: owner + 1)
 
 
+def _another_users_file(b: Bench, path: pathlib.Path) -> None:
+    """`path` belongs to another user, and the credential directory to this process's."""
+    _another_users(b, path)
+    if os.geteuid() == 0:
+        return
+    me, real = os.geteuid(), os.stat
+    root = os.path.realpath(b.directory)
+
+    def stat_(p, *a, **kw):
+        found = real(p, *a, **kw)
+        if os.fspath(p) == root:
+            fields = list(found)
+            fields[stat.ST_UID] = me
+            return os.stat_result(fields)
+        return found
+
+    b.monkeypatch.setattr(os, "stat", stat_)
+
+
 def _planted_in_a_shared_directory(b: Bench, name: str) -> None:
     """In a shared directory on a read-only mount — the one layout a shared directory is read in —
     a file whose owner is somebody else."""
     _read_only_mount(b)
     b.directory.chmod(0o1777)
-    _another_users(b, b.file(name, "fictitious-planted", 0o600))
+    _another_users_file(b, b.file(name, "fictitious-planted", 0o600))
+
+
+def _shared_by_its_bits(mode: int):
+    def arrange(b: Bench, name: str) -> None:
+        """A directory others may write to by its bits alone, sticky or not, on a read-only mount:
+        a file in it another user's is no more the deployment's than in a sticky one."""
+        _read_only_mount(b)
+        b.directory.chmod(mode)
+        _another_users_file(b, b.file(name, "fictitious-planted", 0o600))
+    return arrange
+
+
+def _a_shared_directory_of_another_users(b: Bench, name: str) -> None:
+    _read_only_mount(b)
+    b.directory.chmod(0o777)
+    _another_users(b, b.directory)
+    b.file(name, "fictitious-held-in-the-file", 0o600)
+
+
+def _a_link_into_a_subdirectory_others_may_write_to(b: Bench, name: str) -> None:
+    """The credential directory is the owner's alone; the directory its link leads into is not."""
+    data = b.directory / "data"
+    data.mkdir()
+    (data / name).write_text("fictitious-held-in-the-file")
+    (data / name).chmod(0o600)
+    data.chmod(0o777)
+    (b.directory / name).symlink_to(f"data/{name}")
+
+
+def _a_hard_link_in_the_deployments_own_directory(b: Bench, name: str) -> None:
+    os.link(_the_deployments_other_secret(b), b.directory / name)
 
 
 def _the_deployments_other_secret(b: Bench) -> pathlib.Path:
@@ -278,6 +330,13 @@ REFUSALS = {
     "a hard link in a shared directory anyone may write to":
         _a_hard_link_in_a_shared_writable_directory,
     "a link another user made, on a read-only mount": _a_link_another_user_made,
+    "a directory others may write to by its bits (0777), on a read-only mount":
+        _shared_by_its_bits(0o777),
+    "a directory its group may write to (0770), on a read-only mount": _shared_by_its_bits(0o770),
+    "a shared directory of another user's, on a read-only mount":
+        _a_shared_directory_of_another_users,
+    "a link into a subdirectory others may write to": _a_link_into_a_subdirectory_others_may_write_to,
+    "a hard link in the deployment's own directory": _a_hard_link_in_the_deployments_own_directory,
     "a file this user cannot open": _unreadable,
     "an add-on store that refuses": _addon_refuses,
     "an add-on store that fails": _addon_fails,
@@ -534,8 +593,10 @@ def _gate_key(b: Bench, name: str) -> None:
     from openfactory import gate_seal
 
     b.monkeypatch.setenv(name, FALLBACK)
-    with pytest.raises(RuntimeError, match=name):
+    with pytest.raises(gate_seal.KeyRefused, match=name):
         gate_seal.seal(gate_seal.MERGE_GATE, "wf-1", "merge")
+    assert not issubclass(gate_seal.KeyRefused, RuntimeError), (
+        "a refused key would read as 'the job is not at the gate' to every caller of the engine")
     expires, nonce = 4_102_444_800, "00"
     mac = hmac.new(FALLBACK.encode(), gate_seal._message(gate_seal.MERGE_GATE, "wf-1", expires,
                                                          nonce, ("merge",)),
@@ -690,9 +751,46 @@ def _the_minter_is_fallback(b: Bench) -> None:
 
 
 def _built_with_nothing(built) -> bool:
-    """Whether an adapter was built with no token and no provider — never the fallback."""
-    token = getattr(built, "_static_token", None) or getattr(built, "token", None)
-    return token != FALLBACK and getattr(built, "_token_provider", None) is None
+    """Whether an adapter was built with no token and no provider, and — for one that runs `gh`
+    — would not run it on the machine's own login either: its `_env()` refuses by name (the
+    ambient `GH_TOKEN` the consumers plant is a fallback like any other)."""
+    from openfactory.adapters.github_cli import LoginRefused
+
+    if getattr(built, "_static_token", None) == FALLBACK \
+            or getattr(built, "_token_provider", None) is not None:
+        return False
+    env_of = getattr(built, "_env", None)
+    if callable(env_of):
+        try:
+            env = env_of()
+        except LoginRefused:
+            return True
+        return FALLBACK not in (env.get("GH_TOKEN"), env.get("GITHUB_TOKEN"))
+    return getattr(built, "token", None) != FALLBACK
+
+
+def _ambient_login(b: Bench) -> None:
+    """A login the machine has of its own — what `gh` runs on when it is handed no token."""
+    b.monkeypatch.setenv("GH_TOKEN", FALLBACK)
+    b.monkeypatch.setenv("GITHUB_TOKEN", FALLBACK)
+
+
+def _no_gh_started(b: Bench, forge, tracker) -> None:
+    """EVERY SUBPROCESS THE ADAPTERS START (review of ef084ebd): a `gh` call is refused before it
+    runs, by the forge as a failed call and by the tracker as a `LoginRefused`."""
+    import openfactory.adapters.forge.github as forge_module
+    import openfactory.adapters.tracker.github as tracker_module
+    from openfactory.adapters.github_cli import LoginRefused
+
+    started: list[object] = []
+    for module in (forge_module, tracker_module):
+        b.monkeypatch.setattr(module.subprocess, "run",
+                              lambda argv, **kw: started.append((argv, kw.get("env"))))
+    said = forge._gh(["api", "repos/acme/app"])
+    assert said.returncode != 0 and "refused" in (said.stderr or ""), said
+    with pytest.raises(LoginRefused):
+        tracker._gh(["api", "repos/acme/app"])
+    assert not started, started
 
 
 def _worker_builds(b: Bench, name: str) -> None:
@@ -705,6 +803,7 @@ def _worker_builds(b: Bench, name: str) -> None:
 
     _mint_is_fallback(b)
     _the_minter_is_fallback(b)
+    _ambient_login(b)
     b.monkeypatch.setenv(name, FALLBACK)
     for each in (*_GENERIC["tracker"], *_GENERIC["forge"]):
         b.monkeypatch.setenv(each, FALLBACK)
@@ -712,8 +811,42 @@ def _worker_builds(b: Bench, name: str) -> None:
     project = Project(name="acme", repo_path="/tmp/acme",
                       tracker=ProviderRef(kind="github", repo="acme/app", options=named),
                       forge=ProviderRef(kind="github", repo="acme/app", options=named))
-    assert _built_with_nothing(activities._tracker_for(project)), "the tracker took the minter"
-    assert _built_with_nothing(activities._forge_for(project)), "the forge took the minter"
+    tracker, forge = activities._tracker_for(project), activities._forge_for(project)
+    assert _built_with_nothing(tracker), "the tracker took the minter, or the machine's login"
+    assert _built_with_nothing(forge), "the forge took the minter, or the machine's login"
+    _no_gh_started(b, forge, tracker)
+
+
+def _github_board(b: Bench, name: str) -> None:
+    """The GitHub board a tracker reads its columns from refuses as the tracker does."""
+    from openfactory.adapters.board import build_board
+    from openfactory.adapters.github_cli import LoginRefused
+    from openfactory.contracts.project import Project, ProviderRef
+
+    _ambient_login(b)
+    b.monkeypatch.setenv(name, FALLBACK)
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      tracker=ProviderRef(kind="github", repo="acme/app",
+                                          options={"token_env": name, "board_owner": "acme",
+                                                   "board_number": "7"}))
+    board = build_board(project, token=None)
+    with pytest.raises(LoginRefused):
+        board.token  # noqa: B018 — every `gh` call of the board reads it first
+
+
+def _a_refused_app_key(b: Bench, name: str) -> None:
+    """With the App configured and its key refused, the forge has no token: it must not run `gh`
+    on the machine's own login either (review of ef084ebd)."""
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.runtime.temporal import activities
+
+    _ambient_login(b)
+    b.monkeypatch.setenv(name, "-----BEGIN FICTITIOUS KEY-----")
+    b.monkeypatch.setenv("OPENFACTORY_GH_APP_ID", "1")
+    b.monkeypatch.setenv("OPENFACTORY_GH_APP_INSTALLATION_ID", "2")
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      forge=ProviderRef(kind="github", repo="acme/app"))
+    assert _built_with_nothing(activities._forge_for(project))
 
 
 def _jira_row(b: Bench, name: str) -> None:
@@ -763,6 +896,64 @@ def _product_board(b: Bench, name: str) -> None:
                       tracker=ProviderRef(kind="github", repo="acme/app",
                                           options={"token_env": name}))
     assert _built_with_nothing(board._tracker(project, tracker_token_for(project)))
+
+
+class _AtTheGates:
+    """An engine whose job waits at every gate, recording what it is signalled."""
+
+    def __init__(self) -> None:
+        self.signals: list = []
+
+    def get_workflow_handle(self, _wf):
+        return self
+
+    async def query(self, q, *_a):
+        return {"awaiting_merge": {"pr": 7, "adjusts_left": 2}, "awaiting_approval": True,
+                "release_wait": {"hears": True, "adjusts_left": 2}}.get(getattr(q, "__name__", q))
+
+    async def signal(self, *a, **_k):
+        self.signals.append(a)
+
+
+def _merge_gate(b: Bench, name: str) -> None:
+    """The panel's merge gate: a refused gate key is said as itself, never "not waiting"."""
+    import asyncio
+
+    from openfactory.actions import catalog
+
+    b.monkeypatch.setenv(name, FALLBACK)
+    engine = _AtTheGates()
+
+    async def connected():
+        return engine, None
+
+    b.monkeypatch.setattr(catalog, "_project", lambda p: (type("P", (), {"name": "acme"})(),
+                                                          None))
+    b.monkeypatch.setattr(catalog, "_connected", connected)
+    _gate, bad = asyncio.run(catalog._answer_gate(project="acme", issue="12", by="ana",
+                                                  answer="merge"))
+    said = str(getattr(bad, "message", bad))
+    assert not engine.signals and "not waiting on a merge" not in said, said
+    assert "gate key" in said and FALLBACK not in said
+
+
+def _another_pass(b: Bench, name: str) -> None:
+    """Both "another pass" paths: the reason is the key's own, not `NOT_WAITING`."""
+    import openfactory.product.release as release
+    from openfactory.product import adjust
+
+    b.monkeypatch.setenv(name, FALLBACK)
+    engine = _AtTheGates()
+
+    async def client():
+        return engine
+
+    b.monkeypatch.setattr(release, "_client", client)
+    project = type("P", (), {"name": "acme"})()
+    assert adjust._not_yet(project, "12", instruction="again", by="ana") == adjust.KEY_REFUSED
+    assert adjust.answer_gate(project, "12", answer="adjust", instruction="x",
+                              by="ana") == adjust.KEY_REFUSED
+    assert not engine.signals
 
 
 def _certify_panel(b: Bench, name: str) -> None:
@@ -885,10 +1076,19 @@ CONSUMERS = {
                                                lambda: (PROJECT_NAME,), _worker_builds),
     "Jira's row": Consumer("openfactory/adapters/tracker/registry.py", lambda: (PROJECT_NAME,),
                            _jira_row),
+    "the GitHub board": Consumer("openfactory/adapters/board/factory.py", lambda: (PROJECT_NAME,),
+                                 _github_board),
+    "the GitHub forge after a refused App key": Consumer(
+        "openfactory/adapters/forge/registry.py", lambda: ("OPENFACTORY_GH_APP_KEY_CONTENT",),
+        _a_refused_app_key),
     "the factory board's tracker": Consumer("openfactory/ops/impediment.py",
                                             lambda: (PROJECT_NAME,), _impediment_board),
     "the product board's tracker": Consumer("openfactory/product/board.py",
                                             lambda: (PROJECT_NAME,), _product_board),
+    "the merge gate's answer": Consumer("openfactory/actions/catalog.py", _gate_names,
+                                        _merge_gate),
+    "another pass, at either gate": Consumer("openfactory/product/adjust.py", _gate_names,
+                                             _another_pass),
     "certify's panel control": Consumer("openfactory/certify/controls.py",
                                         lambda: __import__("openfactory.certify.controls",
                                                            fromlist=["x"])._PANEL_TOKENS,
@@ -1046,6 +1246,15 @@ NOT_A_CONSUMER: dict[str, str] = {
     "openfactory/certify/pack.py": "it REDACTS what the store holds, and hiding a value opens no "
                                    "door: a refusal there is one value fewer to hide, never a "
                                    "credential used",
+    "openfactory/runtime/temporal/view.py": "it seals the answers the merge gate, the approval "
+                                            "and another pass deliver, and raises the key's "
+                                            "refusal to them: their consumers above hold it",
+    "openfactory/adapters/agent/registry.py": "it asks the store which of a harness's names it "
+                                              "refuses, for the doctor's agent line and "
+                                              "onboarding — consumers above — and opens nothing",
+    "openfactory/runtime/temporal/activities.py": "it verifies a seal through "
+                                                  "`gate_seal.refusal`, which says a refused key "
+                                                  "as the reason an answer is refused",
 }
 
 
@@ -1058,7 +1267,21 @@ def test_every_module_that_asks_the_store_is_a_consumer_here():
     falling_back = {path.relative_to(ROOT).as_posix() for path in sorted(PACKAGE.rglob("*.py"))
                     if _calls(ast.parse(path.read_text(encoding="utf-8")),
                               DEPLOYMENT_WIDE | {"bot_token_provider_for"})} - THE_RESOLUTION
-    asking = importers | falling_back
+    # …AND EVERYTHING THAT SEALS OR VERIFIES WITH THE GATE KEY, which reads the store through
+    # `gate_seal` without importing it — how the gate's callers escaped this guard (#822)
+    sealing = {path.relative_to(ROOT).as_posix() for path in sorted(PACKAGE.rglob("*.py"))
+               if "gate_seal" in {alias.name for node in ast.walk(ast.parse(
+                   path.read_text(encoding="utf-8"))) if isinstance(node, ast.ImportFrom)
+                   for alias in node.names} | {
+                   node.module for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+                   if isinstance(node, ast.ImportFrom) and node.module == "openfactory.gate_seal"}}
+    # …and everything that ASKS the refusal itself, the GitHub rows deciding whether an adapter may
+    # fall back to the machine's own login among them
+    deciding = {path.relative_to(ROOT).as_posix() for path in sorted(PACKAGE.rglob("*.py"))
+                if _calls(ast.parse(path.read_text(encoding="utf-8")),
+                          ASKS_THE_REFUSAL | {"github_refusal", "app_key_refusal"})
+                } - THE_RESOLUTION
+    asking = importers | falling_back | sealing | deciding
     declared = {row.module for row in CONSUMERS.values()} | set(NOT_A_CONSUMER)
     assert asking <= declared, (
         f"these read a credential through the store, or fall back to the deployment's own, and no "

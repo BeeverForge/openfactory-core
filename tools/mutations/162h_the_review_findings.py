@@ -15,16 +15,18 @@ DOCKER = "docker/sandbox.Dockerfile"
 MUTATIONS = [
     # ── the door the sweep did not close ────────────────────────────────────────────────────────
     # re-pinned 2026-10-19 (#822, second round): the default is asked only after the refusal question
+    # re-pinned 2026-10-19 (#822, third round): the refusal is asked once and handed to the row's sentence
     ("the Jira row honours the caller's provider again — the mint reaches Jira", TREG,
-     "    token = kw.get(\"token\") or (None if axis_refusal(project, \"tracker\")\n"
-     "                                else vendor_default(getattr(project, \"tracker\", None)))",
+     '    token = kw.get("token") or (None if refused\n'
+     '                                else vendor_default(getattr(project, "tracker", None)))',
      '    token = kw.get("token")\n'
      '    if not token and kw.get("token_provider"):\n        token = kw["token_provider"]()'),
 
     # re-pinned 2026-10-19 (#822, second round): the default is asked only after the refusal question
+    # re-pinned 2026-10-19 (#822, third round): the refusal is asked once and handed to the row's sentence
     ("…and the reverse: Jira's own credential stops being read", TREG,
-     "    token = kw.get(\"token\") or (None if axis_refusal(project, \"tracker\")\n"
-     "                                else vendor_default(getattr(project, \"tracker\", None)))",
+     '    token = kw.get("token") or (None if refused\n'
+     '                                else vendor_default(getattr(project, "tracker", None)))',
      '    token = kw.get("token")'),
 
     ("the Azure row honours it again", TREG,

@@ -207,9 +207,12 @@ def _github(project, *, token, token_provider, options):
         return None  # tickets only — a legitimate configuration
 
     from openfactory.adapters.tracker.github_project import GitHubProjectBoard
+    from openfactory.credentials import github_refusal
 
     return GitHubProjectBoard(str(owner), str(number), token=token,
                               token_provider=token_provider,
+                              # never the machine's own login after a refusal (#742)
+                              refused="" if token else github_refusal(project, "tracker"),
                               # PARSED, NOT THE RAW OPTION (#231): `options` is
                               # `dict[str, str]`, so a client's map arrives as a JSON string and
                               # this board does `(columns or {}).items()` on what it is given.

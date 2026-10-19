@@ -55,9 +55,13 @@ def repo_of(project) -> str:
 
 def _github(project, **kw):
     from openfactory.adapters.forge.github import GitHubForge
+    from openfactory.credentials import github_refusal
 
+    # WITH NO TOKEN, `gh` WOULD RUN ON THE MACHINE'S OWN LOGIN (#742) — the development path, and
+    # never the answer to a refused credential: the forge is told, and refuses by name instead.
     return GitHubForge(repo_of(project), token=kw.get("token"),
-                       token_provider=kw.get("token_provider"))
+                       token_provider=kw.get("token_provider"),
+                       refused="" if kw.get("token") else github_refusal(project, "forge"))
 
 
 def _azure_devops(project, **kw):

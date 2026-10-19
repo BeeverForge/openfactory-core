@@ -669,12 +669,14 @@ def semantic_pass_for(project, source: Path, *,
         # a file is present, and a refused one is not. WHETHER A REFUSAL STOPS THE HARNESS is its
         # own walk's question — the pool, the token, the key, in its order, as the doctor asks it
         # — and a harness that cannot say from here is asked over its route's names.
-        from openfactory.adapters.credential_store.registry import Stored, held, refusals
+        from openfactory.adapters.agent.registry import harness_refusals
+        from openfactory.adapters.credential_store.registry import held, refusals
 
         names = sorted({name for group in route.requires for name in group})
         missing = route.missing(held(names))
-        walk = Stored()
-        refused = (walk.refused if harness_credential(kind, walk) is not None
+        # ONE TABLE (review of ef084ebd): the harness's own names, asked as the doctor and the
+        # harness itself ask them; a harness that cannot say from here, over its route's names
+        refused = (harness_refusals(kind) if harness_credential(kind, {}) is not None
                    else refusals(names))
 
         if not which_mod.which(binary):
