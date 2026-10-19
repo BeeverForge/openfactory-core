@@ -1086,7 +1086,8 @@ class GitHubForge(ForgeAdapter):
         or none of their runs has a failing log; the core reads that as "nothing to act on".
 
         THE RUNS OF THE PULL REQUEST'S OWN REPOSITORY (C-18): `gh run` does not resolve a URL, and
-        a link to another repository's run is not this pull request's check."""
+        a link to another repository's run is not this pull request's check. `rerun_failed` re-runs
+        these same runs, chosen by the same `_failing_runs`."""
         repo = self._repo_of_pr(pr)
         try:
             rows = self.pr_checks(pr=pr)
@@ -1096,20 +1097,62 @@ class GitHubForge(ForgeAdapter):
             log.warning("could not read the checks of %s to collect their logs (%s)",
                         pr, str(exc)[:160])
             return ""
-        runs: list[str] = []
+        chunks: list[str] = []
+        for rid in list(self._failing_runs(repo, rows))[:2]:
+            lp = self._gh(["run", "view", rid, "--repo", repo, "--log-failed"], timeout=180)
+            if lp.returncode == 0 and lp.stdout:
+                chunks.append(lp.stdout)
+        return _redact("\n".join(chunks))[-max_chars:]
+
+    @staticmethod
+    def _failing_runs(repo: str, rows: list[dict]) -> dict[str, list[str]]:
+        """Run id → the names of the failing blocking `code` rows of `pr_checks` that link to it,
+        for the workflow runs of `repo` only (C-18), in the rows' order.
+
+        ONE SELECTION FOR THE LOG AND THE RE-RUN (#756): the CI repair decides from the log of
+        these runs whether the change touched the failure, then re-runs their failed jobs. Two
+        loops could come to pick different runs, and the re-run would retry a check whose log the
+        decision never read."""
+        runs: dict[str, list[str]] = {}
         for row in rows:
             if not (row["blocking"] and row["kind"] == "code"
                     and str(row.get("bucket") or "").lower() in ("fail", "cancel")):
                 continue
             named = _ACTIONS_RUN.match(str(row.get("url") or ""))
             if named and named.group(1).lower() == repo.lower():
-                runs.append(named.group(2))
-        chunks: list[str] = []
-        for rid in list(dict.fromkeys(runs))[:2]:
-            lp = self._gh(["run", "view", rid, "--repo", repo, "--log-failed"], timeout=180)
-            if lp.returncode == 0 and lp.stdout:
-                chunks.append(lp.stdout)
-        return _redact("\n".join(chunks))[-max_chars:]
+                runs.setdefault(named.group(2), []).append(str(row.get("name") or ""))
+        return runs
+
+    def rerun_failed(self, *, pr: str) -> list[str]:
+        """Re-run the failed jobs of the runs `failed_ci_logs` reads (#756): `gh run rerun <id>
+        --failed --repo <the pull request's repository>`, once per run. Answers the names of the
+        checks whose run was re-run; `[]` when no red required check is a run of this repository
+        (a status, another app's check, a GitHub Enterprise run URL `_ACTIONS_RUN` does not match).
+
+        RAISES `RerunRefused` when the checks could not be read, or when `gh` refused a run: an
+        App without `Actions: write` (HTTP 403), a run still in progress. Every run is asked even
+        after one refused, so the refusal names each run `gh` refused, in its own words."""
+        from openfactory.adapters.forge.base import RerunRefused
+
+        repo = self._repo_of_pr(pr)
+        try:
+            rows = self.pr_checks(pr=pr)
+        except RuntimeError as exc:
+            raise RerunRefused(f"the checks of this pull request could not be read "
+                               f"({str(exc)[:160]})") from exc
+        rerun: list[str] = []
+        refusals: list[str] = []
+        for rid, names in self._failing_runs(repo, rows).items():
+            p = self._gh(["run", "rerun", rid, "--failed", "--repo", repo])
+            if p.returncode == 0:
+                rerun.extend(names)
+            else:
+                refusals.append(f"run {rid}: "
+                                f"{_redact(p.stderr or '').strip().removeprefix('gh: ')[-200:]}")
+        if refusals:
+            done = f"; re-ran {', '.join(rerun)}" if rerun else ""
+            raise RerunRefused(f"gh run rerun refused {'; '.join(refusals)}{done}")
+        return rerun
 
     def merge_commit_sha(self, *, pr: str) -> str | None:
         import json as _json
