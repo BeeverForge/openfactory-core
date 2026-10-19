@@ -132,6 +132,10 @@ def bed(tmp_path, monkeypatch) -> Bed:
     monkeypatch.setenv("OPENFACTORY_REPO_CACHE", str(cache))
     monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "null")
     monkeypatch.setenv("OPENFACTORY_BOARD_DB", str(tmp_path / "board.db"))
+    # THE WINDOW SHUT (#369): what is pinned here is what a turn does once the freshness window
+    # has passed — a source that moved, one that did not, a torn master. The window itself is
+    # pinned by the test that opens it.
+    monkeypatch.setenv("OPENFACTORY_SOURCES_FRESH_SECONDS", "0")
     # the read model is #267's, and reads the engine; nothing here is about it
     monkeypatch.setattr("openfactory.product.module._the_read_model", lambda module, root: {})
     made = tmp_path / "repositories"
@@ -557,6 +561,35 @@ def test_an_unmoved_source_costs_one_question_to_its_forge_and_no_checkout(bed, 
     assert counts.get("ls-remote") == len(REPOS), counts
     for never in ("clone", "fetch", "ls-tree", "sparse-checkout", "checkout", "reset", "clean"):
         assert counts.get(never, 0) == 0, (never, counts)
+
+
+def test_a_second_turn_inside_the_window_asks_no_forge_about_any_source_and_one_after_it_does(
+        bed, monkeypatch):
+    """One question per source is still N round trips per message: four on this fixture on every
+    turn, before the role said a word. A source brought up inside the window asks nothing, so a
+    conversation's back-and-forth costs N questions per window rather than per message."""
+    from openfactory.runtime import repo_cache
+
+    monkeypatch.setenv("OPENFACTORY_SOURCES_FRESH_SECONDS", "60")
+    now = [1_800_000_000.0]
+    monkeypatch.setattr(repo_cache, "_now", lambda: now[0], raising=False)
+    first = bed.module()
+    first._workspace()
+    first.release()
+    counts = _git_calls_about_the_sources(monkeypatch)
+
+    now[0] += 30
+    inside = bed.module()
+    inside._workspace()
+    assert all(m.path for m in inside.mounts())
+    inside.release()
+    assert sum(counts.get(s, 0) for s in ("ls-remote", "fetch", "clone")) == 0, counts
+
+    now[0] += 31
+    after = bed.module()
+    after._workspace()
+    assert all(m.path for m in after.mounts())
+    assert counts.get("ls-remote") == len(REPOS), counts
 
 
 def test_a_master_left_torn_is_checked_out_again_though_its_tip_did_not_move(bed):

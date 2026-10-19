@@ -506,6 +506,44 @@ each.
 the role can open one of them. A role that can read a service's concepts and not its code can
 repeat the map and cannot check it.
 
+**Amended (2026-10-18, #369):** what bounds a turn at N sources. The reasoning above bounds the
+*bytes* of each source: the partial clone fetches no history blob, and the cone leaves out what
+holds only weight. That still holds. What it left unsaid is the *round trips* and the *passes*
+a turn makes at N sources, and those are bounded in three ways:
+
+- **An unmoved source costs one question and no tree pass** (#372). The `ls-remote` that names
+  the branch also says where it is, and a master already standing there, whole, is not fetched,
+  listed, checked out or cleaned.
+- **A source brought up inside the window costs no git process at all.** A source brought up for
+  the role less than `OPENFACTORY_SOURCES_FRESH_SECONDS` ago (60 when unset, `0` turns it off), for
+  the same branch, is served as it was. The steady state is N `ls-remote` per window rather than per
+  message. Measured at N = 40 with nothing moved (`docs/measurements/369-the-window/`): 119 git
+  processes per turn instead of 439, and 2 round trips instead of 42. Both of those are the
+  context repository's.
+- **At most `OPENFACTORY_SOURCES_PARALLEL` sources are brought up at once** (8 when unset), for a
+  turn and for the system layer's refresh. Each is one git process talking to its forge.
+
+What the window buys has a price. A commit pushed inside the window reaches the role on the first
+turn after it, so the role reads code at most one window late. The context repository (`RepoCache`,
+one key per product) is not windowed, because the role's own writes land there and the next turn
+must read them back. The system layer's refresh (D17) is not windowed either, because it publishes
+the map right after a merge.
+
+What is **still** proportional to N on every turn, window or not, is the turn's view and the map
+check. `workspace.compose` runs `rev-parse` on every source (83 at N = 40), and `turn_view`
+hard-links every file of every source into the turn's own view: 0.132 s at N = 40, 3.3 ms per
+source. `sources.module_map` reads every file each map was drawn from: 0.089 s at N = 40, 2.2 ms
+per source. At N = 40 these two are most of a 0.30 s turn (stub model, local repositories).
+
+**A relevance filter or a declared working set:** deferred. Bounding the view and the map check
+means choosing the few sources a question enters *before* the role reads, and there are two ways
+to do that. The first is a guess made outside the model, which makes "not mounted" impossible to
+tell apart from "not chosen", and D16 and D21 both forbid that. The second is a mount on request
+in the middle of a turn, which is a tool protocol, and ADR-0041 refuses one (*Not a tool
+protocol*, below). At 3.3 ms and 2.2 ms per source, the cost reaches a second per turn only near
+180 sources (1000 / 5.5). The design it needs (the maps of all N, the code of the few, within
+"facts are files") is left for when a product that size exists to measure it on.
+
 ### D17 — The system layer, derived without a model
 
 Components, and how they talk to each other — the APIs, the events, the databases, the queues —
@@ -625,7 +663,10 @@ section (`role.py::_board_section`) stays beside the briefing or is folded into 
 
 **Mounting N sources (Part II).** Every source mounted costs disk and time. Sparse checkout on
 demand is the mitigation, and it is measured on a real multi-repo product before #268's first slice
-is called done — not on a fixture alone.
+is called done — not on a fixture alone. The deferral of a relevance filter (D16, amended for #369)
+is wrong if a measurement on a real product shows the view and the map check costing a second or
+more per turn. That is near 180 sources at the 5.5 ms per source measured on the fixture, or fewer
+on a product whose sources hold many more files than the fixture's.
 
 **A topology derived without a model (Part II).** It can be incomplete where a system hides its
 interfaces — reflection, runtime configuration. The map says what it could not derive rather than
@@ -749,7 +790,9 @@ is thin.
   needs a model call of its own, once the diagnosis is a fact of the model, is for #267's third
   slice to measure.
 - **N sources mounted.** Disk, and the time of keeping N caches current; sparse checkout bounds
-  it, and the measurement above says by how much.
+  it, and the measurement above says by how much. The round trips are bounded by the window and
+  the parallelism, and what is still per source on every turn is the view and the map check:
+  5.5 ms per source on the fixture (D16, amended for #369).
 - **A reader per interface format.** OpenAPI, AsyncAPI, proto, migrations, compose, Kubernetes and
   Terraform each need a deterministic reader the platform keeps. A format it does not read is a
   gap the map names (D17), never a component silently missing.

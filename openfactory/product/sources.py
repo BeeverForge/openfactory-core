@@ -21,8 +21,10 @@ therefore cannot aim the deployment's credential at a host of their choosing: `h
 SPARSE, AND ON DEMAND (#266 decision 11). Each source is a `SparseRepoCache`: a partial clone
 (commits and trees, and only the blobs a checkout asks for), checked out through a cone that leaves
 out the directories holding nothing but pictures, fonts and archives. Nothing is cloned until a turn
-mounts the source; a later turn fetches what moved. The sources are brought up side by side, so a
-turn waits for the slowest of them rather than for their sum.
+mounts the source; a later turn fetches what moved, and a turn inside the freshness window
+(`fresh_for()`, #369) asks the forge nothing and is served the source as it was. The sources are
+brought up side by side, `parallel()` at a time (the operator's), so a turn waits for the slowest
+of them rather than for their sum.
 
 "COULD NOT MOUNT" IS NEVER "NOTHING THERE". A source that is not mounted is kept, with the reason,
 and the prompt names it. The reason is one of a few fixed sentences chosen from what git said —
@@ -36,6 +38,7 @@ it was verified against the code mounted for that source this turn — the check
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -44,9 +47,65 @@ from pathlib import Path
 
 log = logging.getLogger("openfactory.product")
 
-#: How many sources are brought up at once for one turn. Each is one git process talking to one
-#: forge; eight keeps a large product's first turn short without opening a connection per service.
-PARALLEL = 8
+#: How many sources are brought up at once when the operator does not say. Each is one git process
+#: talking to one forge; eight keeps a large product's first turn short without opening a connection
+#: per service. THE OPERATOR'S, NOT A CONSTANT (#369): at a few hundred sources eight is the bound
+#: that decides how long a first turn waits, and only the deployment knows what its forge and its
+#: machine take — `OPENFACTORY_SOURCES_PARALLEL`, read by `parallel()`.
+DEFAULT_PARALLEL = 8
+#: The unreadable values this process has already said, so a turn does not repeat the warning.
+_PARALLEL_SAID: set[str] = set()
+
+
+def parallel() -> int:
+    """`OPENFACTORY_SOURCES_PARALLEL`, else `DEFAULT_PARALLEL`. READ WHEN THE SOURCES ARE BROUGHT
+    UP, never at import (#185). A value that is not a positive number is the default, said once in
+    the log: a bound nobody can read must not become no bound, nor one source at a time."""
+    raw = (os.environ.get("OPENFACTORY_SOURCES_PARALLEL") or "").strip()
+    if not raw:
+        return DEFAULT_PARALLEL
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        if raw not in _PARALLEL_SAID:
+            _PARALLEL_SAID.add(raw)
+            log.warning("OPENFACTORY_SOURCES_PARALLEL=%r is not a positive number — %d sources "
+                        "are brought up at once", raw, DEFAULT_PARALLEL)
+        return DEFAULT_PARALLEL
+    return value
+
+#: How long a source brought up for the product role is served again without asking its forge,
+#: when the operator does not say. An unmoved source already costs one question and no checkout
+#: (#372), and one question per source is still N round trips per message. A minute covers the
+#: back-and-forth of a conversation and is the most a merge waits to reach the role; `0` asks every
+#: turn. `OPENFACTORY_SOURCES_FRESH_SECONDS`, read by `fresh_for()` (#369).
+DEFAULT_FRESH_SECONDS = 60
+_FRESH_SAID: set[str] = set()
+
+
+def fresh_for() -> float:
+    """`OPENFACTORY_SOURCES_FRESH_SECONDS`, else `DEFAULT_FRESH_SECONDS`, read now (#185). `0` is a
+    value — no window. A value that is not a number of seconds is the default, said once."""
+    raw = (os.environ.get("OPENFACTORY_SOURCES_FRESH_SECONDS") or "").strip()
+    if not raw:
+        return DEFAULT_FRESH_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1.0
+    # `float()` reads "inf" and "nan": inf would be a window that never closes, and nan compares
+    # false with everything, so both are refused by name like any other unreadable value
+    if not 0 <= value < float("inf"):
+        if raw not in _FRESH_SAID:
+            _FRESH_SAID.add(raw)
+            log.warning("OPENFACTORY_SOURCES_FRESH_SECONDS=%r is not a number of seconds — a "
+                        "source is served for %d seconds without asking its forge again", raw,
+                        DEFAULT_FRESH_SECONDS)
+        return DEFAULT_FRESH_SECONDS
+    return value
+
 
 # ── why a source is not mounted: said in the prompt, and nothing else is ───────────────────────
 
@@ -201,7 +260,7 @@ def check_out(own_repo: str, found: Declared,
                         type(exc).__name__)
             return Checkout(why=NOT_CHECKED_OUT)
 
-    with ThreadPoolExecutor(max_workers=min(PARALLEL, len(found.sources)),
+    with ThreadPoolExecutor(max_workers=min(parallel(), len(found.sources)),
                             thread_name_prefix="product-source") as pool:
         results = list(pool.map(one, found.sources))
     for (coordinate, _), got in zip(found.sources, results, strict=True):
@@ -286,6 +345,7 @@ def module_map(docs_root, repo: str, code: Path) -> tuple[Path | None, str]:
     return home / MODULES_FILE, ""
 
 
-__all__ = ["MAP_STALE", "NOT_AUTHORISED", "NOT_DECLARED", "NOT_FOUND", "NO_MAP", "UNREACHABLE",
-           "Checkout", "Checkouts", "Declared", "Mount", "bundle_home", "check_out", "declared",
-           "module_map", "why_not"]
+__all__ = ["DEFAULT_FRESH_SECONDS", "DEFAULT_PARALLEL", "MAP_STALE", "NOT_AUTHORISED",
+           "NOT_DECLARED", "NOT_FOUND", "NO_MAP", "UNREACHABLE", "Checkout", "Checkouts",
+           "Declared", "Mount", "bundle_home", "check_out", "declared", "fresh_for", "module_map",
+           "parallel", "why_not"]

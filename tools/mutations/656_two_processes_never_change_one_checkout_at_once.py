@@ -22,11 +22,13 @@ MUTATIONS = [
      "            with _key_lock(self.root, project).held(timeout=_LOCK_WAIT_SECONDS):\n"
      "                try:\n                    return self._sync(",
      "            with open(os.devnull):\n                try:\n                    return self._sync("),
+    # RE-PINNED 2026-10-18 (#369 window): the sparse `sync` now looks at its freshness window
+    # before `_sync_sparse`, inside the same lock, so the anchor is the line that opens the body.
     ("the sparse cache syncs a key without its lock", CACHE,
      "            with _key_lock(self.root, project).held(timeout=_LOCK_WAIT_SECONDS):\n"
-     "                try:\n                    return self._sync_sparse(",
+     "                try:\n                    served = self.root / project\n",
      "            with open(os.devnull):\n                try:\n"
-     "                    return self._sync_sparse("),
+     "                    served = self.root / project\n"),
 
     # 2. per key
     ("one lock for every key of a root", CACHE,
@@ -39,9 +41,10 @@ MUTATIONS = [
      "                try:\n                    return self._sync(",
      "            with _key_lock(self.root, project).held(timeout=10 ** 9):\n"
      "                try:\n                    return self._sync("),
+    # RE-PINNED 2026-10-18 (#369 window), as row 1.
     ("the sparse cache waits for its key for ever", CACHE,
      "            with _key_lock(self.root, project).held(timeout=_LOCK_WAIT_SECONDS):\n"
-     "                try:\n                    return self._sync_sparse(",
+     "                try:\n                    served = self.root / project\n",
      "            with _key_lock(self.root, project).held(timeout=10 ** 9):\n"
-     "                try:\n                    return self._sync_sparse("),
+     "                try:\n                    served = self.root / project\n"),
 ]

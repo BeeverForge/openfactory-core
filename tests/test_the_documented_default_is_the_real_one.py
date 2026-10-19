@@ -130,3 +130,71 @@ def test_and_the_reference_guard_can_SEE_the_stale_row():
     assert documented_default(env_row(stale, "OPENFACTORY_SANDBOX")) == ("fargate", True)
     assert env_row(stale, "OPENFACTORY_TOKEN_POOL_SOURCE") is None
     assert documented_default("Unset → `container`. Never inferred") == ("container", False)
+
+
+# ── what bounds a turn at N sources is written down, in the names the code reads (#369) ─────────
+#
+# ADR-0052 D16 justified mounting every declared source in bytes per source only. What bounds the
+# round trips of a turn at N sources is two operator settings, and a document that names a
+# variable the code no longer reads tells an operator to turn a knob that is not there.
+
+ADR_0052 = Path(__file__).parent.parent / "docs" / "adr" / "0052-the-owners-view.md"
+SOURCES_SETTINGS = ("OPENFACTORY_SOURCES_PARALLEL", "OPENFACTORY_SOURCES_FRESH_SECONDS")
+DEFERRAL = re.compile(r"^\*\*A relevance filter or a declared working set:\*\*\s+\**(\w+)", re.M)
+
+
+def d16_amendment(text: str) -> str | None:
+    """The dated #369 note under D16 of ADR-0052, comments taken out: from the note to the end of
+    the section, or None when D16 carries none."""
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    section = re.search(r"^### D16\b.*?(?=^### |\Z)", text, re.M | re.S)
+    if section is None:
+        return None
+    note = re.search(r"^\*\*Amended \(2026-\d\d-\d\d, #369\):\*\*.*", section.group(0),
+                     re.M | re.S)
+    return note.group(0) if note else None
+
+
+def test_adr_0052_names_what_bounds_a_turn_and_the_code_reads_every_variable_it_names():
+    from openfactory import environ
+
+    note = d16_amendment(ADR_0052.read_text(encoding="utf-8"))
+
+    assert note is not None, "ADR-0052 D16 has no dated #369 note saying what bounds a turn"
+    named = set(re.findall(r"OPENFACTORY_[A-Z0-9_]+", note))
+    assert set(SOURCES_SETTINGS) <= named, named
+    assert not named - environ.names_read(), (
+        f"the note names {sorted(named - environ.names_read())}, which the code does not read")
+    decided = DEFERRAL.search(note)
+    assert decided, "the note does not record the decision on a relevance filter or working set"
+    assert decided.group(1).lower() in {"done", "deferred", "rejected"}, decided.group(1)
+
+
+def test_and_the_adr_guard_can_SEE_a_d16_without_its_note():
+    """Verify the verifier: D16 as it stood on main, and a note hidden in a comment."""
+    bare = "### D16 — Every declared source is mounted\n\nText.\n\n### D17 — Next\n"
+    hidden = bare.replace("Text.", "<!-- **Amended (2026-10-18, #369):** x -->")
+    later = bare + "**Amended (2026-10-18, #369):** under D17, not D16\n"
+
+    assert d16_amendment(bare) is None
+    assert d16_amendment(hidden) is None
+    assert d16_amendment(later) is None
+
+
+@pytest.mark.parametrize("name,code_default", [
+    ("OPENFACTORY_SOURCES_PARALLEL", "DEFAULT_PARALLEL"),
+    ("OPENFACTORY_SOURCES_FRESH_SECONDS", "DEFAULT_FRESH_SECONDS"),
+])
+def test_the_configuration_reference_documents_the_sources_defaults_the_code_has(name,
+                                                                                 code_default):
+    from openfactory.product import sources
+
+    real = getattr(sources, code_default)
+    cell = env_row(REFERENCE.read_text(), name)
+
+    assert cell is not None, f"docs/reference/configuration.md has no row for {name}"
+    said, conditioned = documented_default(cell)
+    assert said is not None and int(said) == real, (
+        f"the reference tells an operator {name} unset means {said!r} and the code answers "
+        f"{real!r}")
+    assert not conditioned

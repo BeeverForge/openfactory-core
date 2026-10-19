@@ -14,7 +14,9 @@ HOW EACH IS CHECKED OUT: `SparseRepoCache`, the role's own cache — a partial c
 through a cone that leaves out directories holding nothing but pictures, fonts, archives and
 binaries. The credential reaches git in memory and is never written to a `.git/config`. Under keys
 of this layer's own (`cache_key`), so a turn's mount and this refresh never reset one checkout
-under each other. The cone never leaves out a file this layer reads — every declaration is text
+under each other. With no freshness window: the role's sources may be served up to a minute old
+(#369), but this refresh asks every forge every time, because it publishes the map right after a
+merge. The cone never leaves out a file this layer reads — every declaration is text
 (`tests/test_the_system_layer_is_published.py` holds it) — and what it did leave out is written on
 each source in the map.
 

@@ -8,9 +8,11 @@ makes one per message — with its context loaded through the documentation cach
 against a harness that only records the prompt, and the bytes under the repository cache counted
 once per inode, in allocated blocks, the way `du` counts them.
 
-Five regimes, each a real shape of a deployment:
+Six regimes, each a real shape of a deployment:
 
   released        nothing moves upstream; the turn's view is released (the conversational path)
+  window          as released, with the clock driven: every turn but the last inside one freshness
+                  window (`OPENFACTORY_SOURCES_FRESH_SECONDS`), the last one after it (#369)
   leaked          nothing moves; the view is never released (the API paths, until the sweep)
   moving          a commit lands in every source AND in the context repository between turns —
                   the role writes to the context repository on every turn it records something
@@ -22,9 +24,15 @@ On the multi-repository fixture (one context repository, four sources) by defaul
     .venv/bin/python tools/measure_a_turns_footprint.py                     # every regime, 25 turns
     .venv/bin/python tools/measure_a_turns_footprint.py moving --turns 40 --json out.json
     .venv/bin/python tools/measure_a_turns_footprint.py --tree /path/to/another/checkout
+    .venv/bin/python tools/measure_a_turns_footprint.py window released --copies 10   # N = 40
 
 `--tree` measures another checkout of this repository with the same bed, which is how a change
-to the cache is compared with what it replaces. `--json` keeps every turn's numbers.
+to the cache is compared with what it replaces. `--json` keeps every turn's numbers. `--copies K`
+declares each of the fixture's four sources K times under new names, each with the module map the
+fixture publishes for it, so the slope in N is measured and not argued. Every turn's seconds are
+split into the three parts that grow with N: `sync` (bringing the sources up), `view` (composing
+the workspace and linking the turn's own view of it) and `map` (checking each source's module map
+against its code).
 """
 
 from __future__ import annotations
@@ -40,7 +48,10 @@ import time
 from collections import Counter
 from pathlib import Path
 
-REGIMES = ("released", "leaked", "moving", "nolink-moving", "nolink-leaked")
+REGIMES = ("released", "window", "leaked", "moving", "nolink-moving", "nolink-leaked")
+#: Where the `window` regime's clock starts; every turn but the last is one second after the one
+#: before it, and the last one an hour after the first.
+T0 = 1_800_000_000.0
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "evaluation" / "harbourline"
@@ -138,13 +149,56 @@ def _count_git(counter: Counter):
     return counting
 
 
-def measure(regime: str, turns: int) -> list[dict]:
+def _copied(made: Path, context: Path, copies: int) -> dict[str, Path]:
+    """Each fixture source declared `copies` times: the extra ones as `<name>-c<k>`, their own
+    repositories, and the module map the fixture publishes for the original copied beside it."""
+    extra: dict[str, Path] = {}
+    for k in range(2, copies + 1):
+        for name, rel in FIXTURE_REPOS.items():
+            twin = f"{name}-c{k}"
+            extra[twin] = _repository(FIXTURE / rel, made / twin)
+            bundle = context / ".okf" / "repos" / name
+            if bundle.is_dir():
+                shutil.copytree(bundle, context / ".okf" / "repos" / twin)
+    if extra:
+        manifest = context / ".openfactory" / "product.yaml"
+        manifest.write_text(manifest.read_text().rstrip("\n") + "\n"
+                            + "".join(f"  - {twin}\n" for twin in extra))
+        _commit(context, f"{len(extra)} more sources")
+    return extra
+
+
+#: The seconds of the current turn, by part. One dict for the process, because the wrappers are put
+#: in once: a second regime in the same run would otherwise time every call twice.
+SPENT = {"sync": 0.0, "view": 0.0, "map": 0.0}
+
+
+def _timed(owner, attr: str, part: str) -> None:
+    """`owner.attr`, adding the seconds each call spends to `SPENT[part]`."""
+    real = getattr(owner, attr)
+    if getattr(real, "_measured", False):
+        return
+
+    def timing(*a, **kw):
+        began = time.monotonic()
+        try:
+            return real(*a, **kw)
+        finally:
+            SPENT[part] += time.monotonic() - began
+
+    timing._measured = True
+    setattr(owner, attr, timing)
+
+
+def measure(regime: str, turns: int, copies: int = 1) -> list[dict]:
     """Each turn's seconds, git processes and bytes, for one regime, in a directory of its own."""
     from openfactory.contracts.product import ProductConfig
     from openfactory.contracts.project import Project, ProviderRef
-    from openfactory.product import engine
+    from openfactory.product import engine, workspace
     from openfactory.product import module as product_module
+    from openfactory.product import sources as product_sources
     from openfactory.product.loader import load_product_context
+    from openfactory.runtime import repo_cache
 
     work = Path(tempfile.mkdtemp(prefix=f"footprint-{regime}-"))
     cache = work / "cache"
@@ -155,6 +209,7 @@ def measure(regime: str, turns: int) -> list[dict]:
     made = work / "repositories"
     repos = {n: _repository(FIXTURE / rel, made / n) for n, rel in FIXTURE_REPOS.items()}
     context = _repository(FIXTURE / "context", made / "context")
+    repos.update(_copied(made, context, copies))
     urls = {n: f"file://{p}" for n, p in repos.items()}
     local = {"kind": "local", "repo": "harbourline", "options": {}}
     project = Project(name="harbourline", repo_path=str(repos["harbourline"]),
@@ -163,6 +218,15 @@ def measure(regime: str, turns: int) -> list[dict]:
                       product=ProductConfig(docs_repo="harbourline-context", admins=["ines"]))
     product_module.ProductModule._clone_url = lambda self, repo: urls[repo]
     product_module._the_read_model = lambda module, root: {}   # the read model is not the mount
+    spent = SPENT
+    _timed(product_module.ProductModule, "_source_checkouts", "sync")
+    _timed(workspace, "compose", "view")
+    _timed(workspace, "turn_view", "view")
+    _timed(product_sources, "module_map", "map")    # not `mounts()`: it composes first
+    clock = [T0]
+    real_now = getattr(repo_cache, "_now", None)    # a tree without a window has none
+    if regime == "window":
+        repo_cache._now = lambda: clock[0]
     counter: Counter = Counter()
     subprocess.run = _count_git(counter)
     if regime.startswith("nolink"):
@@ -180,6 +244,8 @@ def measure(regime: str, turns: int) -> list[dict]:
                 (context / "requirements" / "moving.md").write_text(f"# moving\n\nturn {turn}\n")
                 _commit(context, f"turn {turn}")
             counter.clear()
+            spent.update(sync=0.0, view=0.0, map=0.0)
+            clock[0] = T0 + (turn - 1 if turn < turns else 3600)
             began = time.monotonic()
             ctx = load_product_context(project, cache=_Checkouts(context))
             module = product_module.ProductModule(project, context=ctx, agent=_Recording())
@@ -189,6 +255,7 @@ def measure(regime: str, turns: int) -> list[dict]:
             seconds = time.monotonic() - began
             row = {"turn": turn, "ok": bool(getattr(result, "ok", False)),
                    "seconds": round(seconds, 3), "git": dict(counter),
+                   "sources": len(repos), "split": {k: round(v, 3) for k, v in spent.items()},
                    "git_total": sum(counter.values()),
                    "network": counter["ls-remote"] + counter["fetch"] + counter["clone"],
                    "cache": disk(cache),
@@ -196,11 +263,15 @@ def measure(regime: str, turns: int) -> list[dict]:
                    "views": len([p for p in (cache / "harbourline-turns").glob("turn-*")])
                    if (cache / "harbourline-turns").is_dir() else 0}
             rows.append(row)
-            print(f"{regime:14s} turn {turn:3d}  {seconds:6.2f}s  git {row['git_total']:3d}  "
+            print(f"{regime:14s} turn {turn:3d}  {seconds:6.2f}s  (sync {spent['sync']:5.2f}  "
+                  f"view {spent['view']:5.2f}  map {spent['map']:5.2f})  "
+                  f"git {row['git_total']:3d}  "
                   f"network {row['network']:2d}  cache {row['cache']['unique'] / 1e6:8.2f} MB  "
                   f"trash {row['trash']['unique'] / 1e6:7.2f} MB  views {row['views']}",
                   flush=True)
     finally:
+        if real_now is not None:
+            repo_cache._now = real_now
         shutil.rmtree(work, ignore_errors=True)
     return rows
 
@@ -251,7 +322,7 @@ def chart(before: dict, after: dict, into: Path) -> list[Path]:
     """The two runs side by side: bytes under the cache per turn for every regime, and what an
     unmoved turn costs in git. `before`/`after` are what `--json` wrote."""
     into.mkdir(parents=True, exist_ok=True)
-    palette = {"released": "#2a9d8f", "leaked": "#e9c46a", "moving": "#e76f51",
+    palette = {"released": "#2a9d8f", "window": "#264653", "leaked": "#e9c46a", "moving": "#e76f51",
                "nolink-moving": "#9b2226", "nolink-leaked": "#8a5a44"}
     written = []
     for label, run in (("before", before), ("after", after)):
@@ -282,6 +353,8 @@ def main(argv: list[str]) -> int:
                         help=f"one or more of {', '.join(REGIMES)} (default: every one)")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--json", metavar="FILE", help="keep every turn's numbers here")
+    parser.add_argument("--copies", type=int, default=1, metavar="K",
+                        help="declare each of the fixture's four sources K times (N = 4K)")
     parser.add_argument("--tree", metavar="DIR",
                         help="measure this checkout of the repository instead of this one")
     parser.add_argument("--chart", nargs=2, metavar=("BEFORE.json", "AFTER.json"),
@@ -300,7 +373,7 @@ def main(argv: list[str]) -> int:
     sys.path.insert(0, str(Path(args.tree).resolve() if args.tree else ROOT))
     out = {}
     for regime in args.regimes or list(REGIMES):
-        rows = measure(regime, args.turns)
+        rows = measure(regime, args.turns, args.copies)
         out[regime] = rows
         first, last = rows[0], rows[-1]
         grew = (last["cache"]["unique"] - first["cache"]["unique"]) / max(len(rows) - 1, 1)

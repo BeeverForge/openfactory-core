@@ -67,15 +67,17 @@ MUTATIONS = [
      "                if False:\n",
      LIFECYCLE),
 
+    # RE-PINNED 2026-10-18 (#369 window): the sparse `sync` now returns `got` after opening its
+    # freshness window; the cut is the same — the purge moved under "the sync served".
     ("the sparse cache purges only after a sync that succeeded", CACHE,
-     "                try:\n"
-     "                    return self._sync_sparse(project, public, base_branch, env)\n"
-     "                finally:\n",
-     "                served = self._sync_sparse(project, public, base_branch, env)\n"
-     "                if served is not None:\n"
-     "                    self._purge_displaced()\n"
-     "                return served\n"
-     "                if False:\n",
+     "                    return got\n"
+     "                finally:\n"
+     "                    self._purge_displaced()",
+     "                    if got is not None:\n"
+     "                        self._purge_displaced()\n"
+     "                    return got\n"
+     "                finally:\n"
+     "                    pass",
      LIFECYCLE),
 
     ("a root that cannot hardlink copies whole trees in silence", CACHE,

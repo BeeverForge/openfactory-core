@@ -1,0 +1,790 @@
+{
+ "window": [
+  {
+   "turn": 1,
+   "ok": true,
+   "seconds": 2.267,
+   "git": {
+    "ls-remote": 41,
+    "clone": 41,
+    "rev-parse": 41,
+    "ls-tree": 40,
+    "sparse-checkout": 30,
+    "reset": 50,
+    "config": 110,
+    "clean": 40,
+    "worktree": 40,
+    "status": 30
+   },
+   "sources": 40,
+   "split": {
+    "sync": 1.229,
+    "view": 0.445,
+    "map": 0.103
+   },
+   "git_total": 463,
+   "network": 82,
+   "cache": {
+    "unique": 9936896,
+    "files": 4227,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7356416,
+    "files": 1778,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 2,
+   "ok": true,
+   "seconds": 0.454,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.105,
+    "view": 0.132,
+    "map": 0.097
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 3,
+   "ok": true,
+   "seconds": 0.401,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.098,
+    "view": 0.134,
+    "map": 0.093
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 4,
+   "ok": true,
+   "seconds": 0.394,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.104,
+    "view": 0.132,
+    "map": 0.091
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 5,
+   "ok": true,
+   "seconds": 0.394,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.1,
+    "view": 0.132,
+    "map": 0.092
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 6,
+   "ok": true,
+   "seconds": 0.45,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.097,
+    "view": 0.134,
+    "map": 0.146
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 7,
+   "ok": true,
+   "seconds": 0.847,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.139,
+    "view": 0.146,
+    "map": 0.416
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 8,
+   "ok": true,
+   "seconds": 0.478,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.119,
+    "view": 0.142,
+    "map": 0.094
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 9,
+   "ok": true,
+   "seconds": 0.393,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.101,
+    "view": 0.132,
+    "map": 0.093
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 10,
+   "ok": true,
+   "seconds": 0.392,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.1,
+    "view": 0.133,
+    "map": 0.09
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  }
+ ],
+ "released": [
+  {
+   "turn": 1,
+   "ok": true,
+   "seconds": 2.136,
+   "git": {
+    "ls-remote": 41,
+    "clone": 41,
+    "rev-parse": 41,
+    "ls-tree": 40,
+    "config": 110,
+    "reset": 50,
+    "sparse-checkout": 30,
+    "clean": 40,
+    "worktree": 40,
+    "status": 30
+   },
+   "sources": 40,
+   "split": {
+    "sync": 1.137,
+    "view": 0.367,
+    "map": 0.092
+   },
+   "git_total": 463,
+   "network": 82,
+   "cache": {
+    "unique": 9936896,
+    "files": 4227,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7356416,
+    "files": 1778,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 2,
+   "ok": true,
+   "seconds": 0.398,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.102,
+    "view": 0.133,
+    "map": 0.095
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 3,
+   "ok": true,
+   "seconds": 0.378,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.094,
+    "view": 0.131,
+    "map": 0.087
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 4,
+   "ok": true,
+   "seconds": 0.387,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.095,
+    "view": 0.132,
+    "map": 0.088
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 5,
+   "ok": true,
+   "seconds": 0.382,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.094,
+    "view": 0.129,
+    "map": 0.089
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 6,
+   "ok": true,
+   "seconds": 0.386,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.095,
+    "view": 0.132,
+    "map": 0.091
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 7,
+   "ok": true,
+   "seconds": 0.387,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.098,
+    "view": 0.131,
+    "map": 0.087
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 8,
+   "ok": true,
+   "seconds": 0.386,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.095,
+    "view": 0.13,
+    "map": 0.092
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 9,
+   "ok": true,
+   "seconds": 0.386,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.096,
+    "view": 0.13,
+    "map": 0.091
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  },
+  {
+   "turn": 10,
+   "ok": true,
+   "seconds": 0.39,
+   "git": {
+    "ls-remote": 41,
+    "fetch": 1,
+    "checkout": 1,
+    "reset": 1,
+    "clean": 1,
+    "rev-parse": 243,
+    "status": 111,
+    "config": 40
+   },
+   "sources": 40,
+   "split": {
+    "sync": 0.1,
+    "view": 0.13,
+    "map": 0.089
+   },
+   "git_total": 439,
+   "network": 42,
+   "cache": {
+    "unique": 10133504,
+    "files": 4229,
+    "dirs": 2124
+   },
+   "trash": {
+    "unique": 0,
+    "files": 0,
+    "dirs": 0
+   },
+   "masters": {
+    "unique": 7364608,
+    "files": 1780,
+    "dirs": 895
+   },
+   "views": 0
+  }
+ ]
+}
