@@ -118,6 +118,11 @@ def _jira(project, **kw):
         # without it. `JiraProjectBoard.intake_column` checks it against the type's statuses.
         #   intake_status: "A Fazer"
         intake_status=options.get("intake_status", ""),
+        # …and the project's slice of a Jira project it shares with other registry projects
+        # (#752): a JQL condition ANDed onto every board read and onto `find_ticket`. Unset, the
+        # whole Jira project, as before. Single-quoted in YAML, because JQL quotes with `"`.
+        #   scope_jql: 'labels = "of-api"'
+        scope_jql=options.get("scope_jql", ""),
         # for the one note the row writes in its own name — see `JiraTracker.language`
         language=getattr(project, "language", None),
     )
