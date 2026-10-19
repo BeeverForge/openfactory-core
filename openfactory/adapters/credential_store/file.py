@@ -179,7 +179,7 @@ class FileStore:
         # EVERY DIRECTORY THE NAME LEADS THROUGH, by the same rule as the credential directory
         # (#822): a link into a subdirectory others may write to is a secret they can replace.
         here = os.path.dirname(path)
-        while here != root:
+        while here != root and os.path.commonpath([root, here]) == root:
             try:
                 found = os.stat(here)
             except OSError:
