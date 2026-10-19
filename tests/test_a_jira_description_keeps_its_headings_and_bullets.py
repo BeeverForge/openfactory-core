@@ -292,6 +292,20 @@ def test_a_paragraph_after_a_list_is_not_read_into_its_last_criterion():
     assert criteria(body) == ["a", "b"]
 
 
+def test_the_editors_empty_paragraph_between_two_lists_does_not_end_the_criteria():
+    """C2 with C4, on the whole recorded document: Jira's editor stores an EMPTY paragraph between
+    KAN-4's bullet list and its numbered list (measured live on 2026-10-19, and still so on the
+    re-fetch of task 10), and C4 ends every list on a blank line. Both lists sit under the one
+    criteria heading, so the blank line between them must not end the section: the six items are
+    the ticket's six criteria. On 1be1835 the document read as bare lines, `section_names` was `[]`,
+    `criteria` was `[]`, and the gate said "no sections at all"."""
+    body = JiraTracker._text(KAN_4_DESCRIPTION)  # noqa: SLF001
+
+    assert section_names(body) == ["Acceptance criteria"]
+    assert criteria(body) == [
+        "the card 4 is created", "test", "sub list", "test 1", "test 2", "test 3"]
+
+
 # ── C5: ADR-0022's property — no text is lost to the nodes that hold it ────────────────────────
 
 def test_a_table_cell_and_an_expand_still_give_up_their_text():

@@ -215,7 +215,7 @@ marked as such.
   schema allows. A shape that the renderer of task 4 mishandles and that is the same defect (block
   shape lost) goes into this PR. A different one (e.g. `taskItem` content is inline, not
   paragraphs, so its text is read but its `- [ ]` is not) becomes a follow-up.
-- [ ] 10. Against the real thing, a live Jira Cloud document. **Needs the human** (see Q3). On a
+- [x] 10. Against the real thing, a live Jira Cloud document. **Needs the human** (see Q3). On a
   Jira Cloud site (the maintainers' DAR project of 2026-08-05 if a token is available), create one
   issue in the **browser editor**: a Heading 2 "Acceptance criteria" with "criteria" in bold, a
   bullet list with a `code` run in one item and a nested item, a numbered list, a paragraph
