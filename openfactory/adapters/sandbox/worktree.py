@@ -176,6 +176,82 @@ def _working_trees(repo_path) -> list[gitworktrees.WorkingTree] | None:
     return gitworktrees.parse(out)
 
 
+def _common_dir(repo_path) -> Path | None:
+    """The repository's common git directory, resolved, or `None` when git could not be asked.
+
+    `--git-common-dir` answers RELATIVE to `repo_path` (`.git`) in the main checkout and absolute
+    in a linked one, so it is joined to `repo_path`, never to the process's cwd. Never
+    `--path-format=absolute`: that is git 2.31+, above CONTRIBUTING's 2.28 floor."""
+    rc, out = _run(["git", "-C", str(repo_path), "rev-parse", "--git-common-dir"])
+    if rc != 0 or not out.strip():
+        log.debug("could not read the common git directory of %s: %s", repo_path, out.strip())
+        return None
+    try:
+        return (Path(repo_path) / out.strip()).resolve()
+    except OSError:
+        return None
+
+
+def _gitdir_named_by(wt) -> Path | None:
+    """The directory a linked working tree's `.git` FILE names, resolved, or `None` when `wt` or
+    its `.git` is a symlink, `.git` is not a regular file (a clone's `.git` is a directory), it
+    cannot be read, or its first line is not `gitdir: <path>`.
+
+    A RELATIVE gitdir IS RELATIVE TO THE TREE: git 2.48+ under `worktree.useRelativePaths` writes
+    `gitdir: ../../repo/.git/worktrees/x` (2.49.1, alpine:3.22, measured 2026-10-18). `wt / target`
+    lets an absolute value win, which is exactly the meaning here (engineering lessons §12)."""
+    wt = Path(wt)
+    try:
+        dotgit = wt / ".git"
+        if wt.is_symlink() or dotgit.is_symlink() or not dotgit.is_file():
+            return None
+        with open(dotgit, "rb") as fh:
+            first = fh.readline(4096)
+    except OSError:
+        return None
+    line = os.fsdecode(first).rstrip("\r\n")
+    if not line.startswith("gitdir:"):
+        return None
+    target = line[len("gitdir:"):].strip()
+    if not target:
+        return None
+    try:
+        return (wt / target).resolve()
+    except OSError:
+        return None
+
+
+def _admin_dir_of(repo_path, wt) -> Path | None:
+    """The admin directory under THIS repository's `<common>/worktrees/` that `wt/.git` names, or
+    `None` when it names none (another repository's, nothing, or unreadable). Whether that admin
+    directory still exists is not asked: git removes it when it forgets a tree."""
+    named = _gitdir_named_by(wt)
+    if named is None:
+        return None
+    common = _common_dir(repo_path)
+    if common is None:
+        return None
+    return named if _same_dir(named.parent, common / "worktrees") else None
+
+
+def _a_tree_this_repository_forgot(repo_path, wt, trees) -> bool:
+    """Whether `wt` is a working tree of THIS repository that git has forgotten (#746): the list
+    was read, it does not list `wt`, and `wt/.git` names this repository's `<common>/worktrees/`.
+
+    What git leaves when it forgets a tree (pruned while its directory was away, the admin
+    directory lost, or the repository cache republishing a snapshot with no `.git/worktrees/`),
+    measured on 2.34.1 and 2.43.0: `<wt>/.git` still names `<common>/worktrees/<name>`, `worktree
+    remove --force <wt>` answers rc 128 `is not a working tree`, and `worktree add` over it rc 128
+    `already exists`. `trees` is `None` when the list could not be read, and then nothing is
+    "forgotten" (engineering lessons §2). The admin directory is not required to be gone: a name
+    git reused for another path still leaves `wt` an orphan, and the list is the evidence."""
+    if trees is None:
+        return False
+    if any(_same_dir(tree.path, wt) for tree in trees):
+        return False
+    return _admin_dir_of(repo_path, wt) is not None
+
+
 def _holder(repo_path, branch: str) -> gitworktrees.WorkingTree | None:
     """The working tree that has `branch` out, or `None`.
 
