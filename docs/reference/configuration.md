@@ -193,6 +193,16 @@ nothing in it reads as an empty board, and a project that is not there still rea
 Single-quote it in YAML, because JQL quotes with `"`. Unset, or blank, the queries are exactly
 those of a project without it.
 
+**Every project on a shared Jira project needs its own `scope_jql`, and no issue may be in two
+scopes.** The scope narrows only the project that declares it: one project left without a scope
+still reads all of `DAR` as its queue and picks up every other project's tickets. Nothing compares
+one project's scope with another's, so two scopes that both select an issue — two labels on one
+issue, or `labels = "of-api" OR component = "Web"` beside `component = "Web"` — put that issue in
+both slices: each project's pickup reads it in its queue, as three did in the incident above, and
+each project may edit, close, remove, queue or rank it. Pick a field that takes one value per issue (a component
+the issue has only one of, or a single label of a set), and give every project on the Jira project
+its own.
+
 **A scoped project refuses to edit, close, remove, queue or rank a card outside its slice.**
 Editing, closing, removing or queueing a card first asks where it sits, and a card outside the
 slice is not on this project's board; ranking one in the product role's order writes by key. So
