@@ -733,8 +733,10 @@ class JiraTracker:
         """An OPEN issue with exactly this summary. JQL escaping matters here: a title with a
         quote in it would otherwise break the query — or, worse, match the wrong issue."""
         escaped = title.replace("\\", "\\\\").replace('"', '\\"')
-        jql = (f'project = "{self.project_key}" AND statusCategory != Done '
-               f'AND summary ~ "\\"{escaped}\\""')
+        # within the project's slice: unscoped, an open issue outside it with the same title was
+        # read as this project's earlier filing and reused (#752)
+        jql = (within_scope(f'project = "{self.project_key}"', self.scope_jql)
+               + f' AND statusCategory != Done AND summary ~ "\\"{escaped}\\""')
         # `~` is PHRASE search, not equality — Jira has no exact-match operator for summary — so
         # the page is wide and the equality check happens here. At 5 results the exact match
         # could sit on page two whenever one title prefixes others (the split parent prefixing
