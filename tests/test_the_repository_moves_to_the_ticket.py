@@ -174,7 +174,7 @@ def _tracker(monkeypatch, calls):
 
     t = GitHubIssuesTracker(API)
 
-    def _fake_gh(args, timeout=60):
+    def _fake_gh(args, timeout=60, *, stdin=None):
         calls.append(list(args))
 
         class _P:

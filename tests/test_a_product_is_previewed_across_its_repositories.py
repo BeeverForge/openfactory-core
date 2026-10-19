@@ -1014,7 +1014,7 @@ def test_a_github_card_filed_in_another_repository_of_the_product_is_there_and_s
     tracker = GitHubIssuesTracker("acme/web")
     argv: list[list[str]] = []
 
-    def gh(args, timeout=60):
+    def gh(args, timeout=60, *, stdin=None):
         argv.append(list(args))
         repo = args[args.index("--repo") + 1]
         return subprocess.CompletedProcess(args, 0, f"https://github.com/{repo}/issues/14\n", "")

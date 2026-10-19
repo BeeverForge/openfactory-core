@@ -115,7 +115,15 @@ class GitHubIssuesTracker(TrackerAdapter):
 
     _RATE_MARKERS = ("rate limit", "abuse detection", "submitted too quickly", "retry your request")
 
-    def _gh(self, args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    def _gh(self, args: list[str], timeout: int = 60, *,
+            stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+        # A LONG TEXT GOES ON STDIN (`stdin=`, with `--body-file -`), never as one argv element:
+        # Linux refuses an element of 131,072 bytes or more (MAX_ARG_STRLEN, the terminating NUL
+        # counted) with E2BIG, raised by `subprocess.run` as
+        # `OSError: [Errno 7] Argument list too long: 'gh'` before gh starts.
+        # GitHub's limit is in characters (65,536), so a 3-byte script crossed the byte ceiling at
+        # about 43,690 characters (#807). Stdin has no per-element ceiling; both runs below send it.
+        #
         # NEVER A GUESSED REPOSITORY, OWNER OR BRANCH (`adapters/github_cli.py`): an empty flag is
         # answered as a failed call before `gh` can fill it in by guessing
         why = nothing_named(args)
@@ -124,7 +132,8 @@ class GitHubIssuesTracker(TrackerAdapter):
             return refused(args, why)
         try:
             p = subprocess.run(
-                ["gh", *args], capture_output=True, text=True, timeout=timeout, env=self._env()
+                ["gh", *args], input=stdin, capture_output=True, text=True, timeout=timeout,
+                env=self._env(),
             )
         except FileNotFoundError:
             # A stranger's first hour must not end in a stack trace about a binary the docs never
@@ -140,7 +149,8 @@ class GitHubIssuesTracker(TrackerAdapter):
         if p.returncode != 0 and any(m in (p.stderr or "").lower() for m in self._RATE_MARKERS):
             time.sleep(8)
             p = subprocess.run(
-                ["gh", *args], capture_output=True, text=True, timeout=timeout, env=self._env()
+                ["gh", *args], input=stdin, capture_output=True, text=True, timeout=timeout,
+                env=self._env(),
             )
         return p
 
@@ -535,10 +545,16 @@ class GitHubIssuesTracker(TrackerAdapter):
         decision by default (ADR-0013 D3).
 
         In `repo` when one is named (#265 §6.2) — the issue IS in that repository, so its ref is
-        qualified (`owner/name#14`, C-18) unless that is this adapter's own."""
+        qualified (`owner/name#14`, C-18) unless that is this adapter's own.
+
+        The body goes to `gh` over STDIN (`--body-file -`), like `update_body`'s, and never as an
+        argument: GitHub's limit is in characters (65,536) while one argv element's is in bytes
+        (131,072), so a body in a 3-byte script crossed the second at about 43,690 characters and
+        the create died as `OSError: [Errno 7] Argument list too long` (#807's table). It still
+        runs through `_gh`, so it keeps the empty-`--repo` refusal and the rate-limit retry."""
         target = (repo or "").strip().strip("/") or self.repo
         p = self._gh(["issue", "create", "--repo", target,
-                      "--title", title, "--body", body])
+                      "--title", title, "--body-file", "-"], stdin=body)
         if p.returncode != 0:
             raise RuntimeError(f"gh issue create failed: {p.stderr[:300]}")
         url = (p.stdout or "").strip().splitlines()[-1].strip()
@@ -575,7 +591,9 @@ class GitHubIssuesTracker(TrackerAdapter):
 
         A requirement runs to thousands of characters and contains quotes, backticks and newlines;
         passing that on a command line is how a body gets truncated at the first surprising byte,
-        or worse, how part of it is read as a flag."""
+        or worse, how part of it is read as a flag. And, like `create_ticket`'s, a body GitHub
+        accepts in characters (65,536) can exceed one argv element in bytes (131,072) once it is
+        multi-byte, which the kernel refuses before `gh` starts (#807)."""
         repo, num = self._locate(ref)
         p = subprocess.run(
             ["gh", "issue", "edit", num, "--repo", repo, "--body-file", "-"],
