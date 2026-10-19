@@ -590,7 +590,9 @@ class GitHubIssuesTracker(TrackerAdapter):
 
         A requirement runs to thousands of characters and contains quotes, backticks and newlines;
         passing that on a command line is how a body gets truncated at the first surprising byte,
-        or worse, how part of it is read as a flag."""
+        or worse, how part of it is read as a flag. And, like `create_ticket`'s, a body GitHub
+        accepts in characters (65,536) can exceed one argv element in bytes (131,072) once it is
+        multi-byte, which the kernel refuses before `gh` starts (#807)."""
         repo, num = self._locate(ref)
         p = subprocess.run(
             ["gh", "issue", "edit", num, "--repo", repo, "--body-file", "-"],

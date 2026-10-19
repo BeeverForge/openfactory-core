@@ -488,7 +488,10 @@ class TrackerAdapter(Protocol):
         A row MAY declare a `body_limit` class attribute, the longest body its vendor accepts in
         characters; the splitter bounds what a child carries of its parent by it (#624). It is not
         a member of this Protocol, so a row that declares none still satisfies it, and is bounded
-        by `activities.CARD_BODY_LIMIT`.
+        by `activities.CARD_BODY_LIMIT`. The limit is in characters, so a row whose transport has a
+        ceiling in bytes must not carry the body on it: one argv element stops at 131,072 bytes, a
+        body within GitHub's 65,536 characters in a 3-byte script is over it, and the GitHub row
+        sends the body on stdin instead (#807).
 
         `repo` FILES IT IN ANOTHER REPOSITORY OF THE SAME PRODUCT (#265 §6.2): a product spans
         several, and a card of the back end that lives in the front end's repository is worked in
