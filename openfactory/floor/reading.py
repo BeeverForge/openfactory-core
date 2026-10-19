@@ -94,10 +94,20 @@ async def gather(client=None, *, want: tuple[str, ...] = FAST + SLOW,
         got.slots = max_concurrent_jobs()
     if "intake" in want and got.connected:
         got.intake = await _intake(client, now=got.now)
+    # THE SLOW TIER LEAVES THE LOOP (#748), the rule `_budget_cached` follows since #240/#241:
+    # `gather` is awaited on the panel's only loop, and a blocking call here stalls every other
+    # request, both SSE streams and the engine reads (which then report the engine silent).
+    # `_projects` blocks once per registered project: health → gate_reason → load_manifest →
+    # resolve_repo_path → repo_cache (git ls-remote/fetch/reset), then `docker image inspect` or
+    # `<harness> --version`. Measured 2026-10-18 with 19 projects at 30 ms each and a 10 ms
+    # heartbeat on the same loop: called bare, the heartbeat waited 588 ms; through `to_thread`,
+    # 11-15 ms. `_build` reads files on the state volume: cheap, but blocking all the same.
+    # Sequential, as before; no single flight and no bound here, so concurrent floor reads each
+    # pay the box read, in parallel threads.
     if "projects" in want:
-        got.projects = _projects()
+        got.projects = await asyncio.to_thread(_projects)
     if "build" in want:
-        got.build = _build()
+        got.build = await asyncio.to_thread(_build)
     if "budget" in want and got.budget is None:
         got.budget = await _budget_cached(now=got.now)
     return got
