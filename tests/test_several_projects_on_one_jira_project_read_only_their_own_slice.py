@@ -503,7 +503,10 @@ def test_another_projects_running_card_is_not_queued_from_this_one(tmp_path, mon
     [result] = module.promote(["DAR-2"], actor="ana")
 
     assert not result.ok, "another project's running card was queued from this one"
-    assert "DAR-2" in result.detail and "api" in result.detail, result.detail
+    # THE OPENING, NOT `in` (review of PR #884, point 6): "api" anywhere in the detail let a
+    # sentence that no longer named the project in its first clause through
+    assert result.detail.startswith("DAR-2 is not in api's slice of its board, so api cannot "
+                                    "tell"), result.detail
     assert moved == []
     assert board_move_said("outside_the_slice", ref="DAR-2", project="api", language="pt-BR").count("api") == 3
 
@@ -858,3 +861,35 @@ def test_the_product_views_refusal_of_a_card_outside_the_slice_speaks_the_projec
         assert sentence.startswith("O DAR-2 não está na fatia do quadro de api"), (act, sentence)
         assert f"(within scope_jql {API!r})" in sentence, (act, sentence)
         assert sentence.count("api") == 3 + API.count("api"), (act, sentence)
+
+
+def test_the_slice_question_escapes_a_quote_in_the_card_it_asks_about(site, tmp_path):
+    """`holds` puts the card's key inside a JQL string, so a quote or a backslash in what a person
+    typed is escaped, and the search asks about that one key — never a condition of their making.
+    Green at 3c7fbcf; the cut `safe = key` (review of PR #884, point 6) survived every module,
+    because `holds` compares the keys Jira returns with the ref, so the answer stayed `False`."""
+    jira = site(API)
+    project = _project(tmp_path, scope_jql=API)
+    _, board = _built(project)
+
+    assert board.holds('DAR-1" OR key != "x') is False
+    assert board.holds("DAR-1\\") is False
+    assert jira.searches == [
+        f'project = "{KEY}" AND ({API}) AND key = "DAR-1\\" OR key != \\"x"',
+        f'project = "{KEY}" AND ({API}) AND key = "DAR-1\\\\"'], jira.searches
+
+
+def test_a_close_of_a_card_outside_the_slice_is_refused_whatever_the_engine_says(
+        site, tmp_path, monkeypatch):
+    """The close's engine check clears a column's "a job may be on it" when no job is (review of
+    #191), but a card outside the slice is refused by the board's slice, which the engine of THIS
+    project cannot answer for: with the engine saying no job is on any card, the close of web's
+    `DAR-2` from api still refuses by name. Green at 3c7fbcf; the cut `if refusal:` (review of PR
+    #884, point 6) let the engine clear it, and only an unreadable-board test turned red."""
+    site(API)
+    project = _project(tmp_path, scope_jql=API)
+    _, board = _built(project)
+
+    said = _withdrawn(project, board, "DAR-2", monkeypatch)
+
+    assert said["close"].startswith("DAR-2 is not in api's slice of its board"), said

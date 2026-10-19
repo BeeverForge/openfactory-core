@@ -29,7 +29,10 @@ The claims, each held by a test this plan cuts under:
     card by name and one it could not ask about as an unreachable board, and an unscoped board
     is asked nothing (review of PR #884, point 3);
   - the gate's refusal of a card outside the slice speaks the project's language, on the product
-    view's close and remove too (review of PR #884, point 4).
+    view's close and remove too (review of PR #884, point 4);
+  - the slice question escapes the key it asks about, the en refusal names the project in its
+    first clause, and this project's engine cannot clear a slice refusal of a close (review of
+    PR #884, point 6).
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
@@ -205,6 +208,24 @@ MUTATIONS = [
      "                ref=issue, project=proj.name, within=named() if callable(named) else \"\",\n"
      "                language=None))",
      f"{SLICE}::test_the_product_views_refusal_of_a_card_outside_the_slice_speaks_the_projects_language"),
+
+    ("the slice question puts the key in its JQL string unescaped, and a quote in what a person "
+     "typed becomes a condition of their making", BOARD,
+     r'''        safe = key.replace("\\", "\\\\").replace('"', '\\"')''' + "\n",
+     "        safe = key\n",
+     f"{SLICE}::test_the_slice_question_escapes_a_quote_in_the_card_it_asks_about"),
+
+    ("the en refusal of a card outside the slice no longer names the project in its first clause",
+     VOICE,
+     "\"en\": (\"{ref} is not in {project}'s slice of its board, so {project} cannot tell whether \"",
+     "\"en\": (\"{ref} is not in this slice of its board, so {project} cannot tell whether \"",
+     f"{SLICE}::test_another_projects_running_card_is_not_queued_from_this_one"),
+
+    ("this project's engine clears a slice refusal of a close, and web's card is closed from api",
+     CATALOG,
+     "    if refusal and not stage.cannot_tell:\n",
+     "    if refusal:\n",
+     f"{SLICE}::test_a_close_of_a_card_outside_the_slice_is_refused_whatever_the_engine_says"),
 
     ("the pt-BR refusal of a card outside the slice loses its middle, and no longer says nothing "
      "was changed nor how to act on the card", VOICE,
