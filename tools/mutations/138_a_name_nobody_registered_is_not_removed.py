@@ -4,6 +4,7 @@ TEST = "tests/test_a_name_nobody_registered_is_not_removed.py"
 REGISTRY = "openfactory/registry.py"
 APPROVALS = "openfactory/approvals.py"
 CLI = "openfactory/cli.py"
+CATALOG = "openfactory/actions/catalog.py"
 
 MUTATIONS = [
     # ── the project registry ─────────────────────────────────────────────────────────────────────
@@ -11,16 +12,18 @@ MUTATIONS = [
      "            if name not in raw:\n                raise KeyError(name)\n            del raw[name]",
      "            raw.pop(name, None)"),
 
-    ("the verb announces a removal whatever the registry said", CLI,
-     "    try:\n        reg.remove(name)\n    except KeyError:",
-     "    try:\n        try:\n            reg.remove(name)\n        except KeyError:\n"
-     "            pass\n    except KeyError:"),
+    # RE-PINNED (#741), this row and the next: `project remove` maps onto the `project_remove`
+    # row, which holds the registry's refusal; the command keeps its exit code and its roster.
+    ("the verb announces a removal whatever the registry said", CATALOG,
+     "    try:\n        ProjectRegistry().remove(project)\n    except KeyError:",
+     "    try:\n        try:\n            ProjectRegistry().remove(project)\n"
+     "        except KeyError:\n            pass\n    except KeyError:"),
 
     ("the refusal exits 0, so a script still reads it as success", CLI,
-     '                   f"Registered here: {_registered_here(reg, refusing=name)}.")\n'
-     "        raise typer.Exit(2) from None\n    typer.echo(f\"removed {name!r}\")",
-     '                   f"Registered here: {_registered_here(reg, refusing=name)}.")\n'
-     "        raise typer.Exit(0) from None\n    typer.echo(f\"removed {name!r}\")"),
+     '                       f"Registered here: {_registered_here(ProjectRegistry(), '
+     'refusing=name)}.")\n            raise typer.Exit(2)',
+     '                       f"Registered here: {_registered_here(ProjectRegistry(), '
+     'refusing=name)}.")\n            raise typer.Exit(0)'),
 
     ("the refusal loses its roster — the name that was meant is not on it", CLI,
      '    return ", ".join(names) if names else "none yet"',

@@ -259,6 +259,10 @@ token — with a 400 saying so.
 | `poller_resume` | [`note`] | takes work again; `data.intake` is the schedule as read after it (`openfactory poller resume`) |
 | `product_name` | `project`, [`agent_name`] | what the product role is called; omit `agent_name` to read it, `""` for no name (`openfactory product name`) |
 | `product_declare` | `project`, `docs_repo` | records the product's existing context repository and reads it back; `data.reachable` says whether every credential that will read it can (`openfactory product declare`) |
+| `project_remove` | `project` | unregisters a project; nothing else about it is touched (`openfactory project remove`) |
+| `project_set_model` | `project`, `model`, [`role`] | the model the coding agent runs, passed to the harness verbatim, for every role or one (`openfactory project set-model`) |
+| `project_set_language` | `project`, `language` | the language a project speaks first; a reply follows whoever asked (`openfactory project set-language`) |
+| `project_set_preview` | `project`, [`required`], [`hours`], [`auto_start`], [`env`], [`build_arg`], [`network`], [`cpus`], [`memory`], [`clear_env`] | the operator's preview policy, merged into what is held; `data.preview` is the policy saved and `data.dropped` the names a preview may never receive (`openfactory project set-preview`) |
 <!-- installation:end -->
 
 `[name]` is optional. Beside them, `doctor` (`project`) changes nothing and answers any floor

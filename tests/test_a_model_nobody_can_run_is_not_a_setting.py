@@ -99,15 +99,20 @@ def test_an_unrecognised_name_is_reported_and_never_refused(monkeypatch):
     """A Bedrock ARN and a typo produce the SAME answer from the harness, so this can only ever be
     a warning. The guard pins that: an unrecognised name still reaches the registry."""
     from openfactory import cli
+    from openfactory.actions import catalog
 
     monkeypatch.setattr(cli, "_model_recognition_note",
                         lambda project, model: "⚠ the harness does not recognise it")
     # the note is printed by the command, but nothing about it may change what is stored
     import inspect
 
+    # THE SAVE IS THE `project_set_model` ROW'S since #741, and the command performs it before it
+    # asks the harness — so an unrecognised name is saved first, and the note can only follow.
     src = inspect.getsource(cli.project_set_model)
-    assert src.index("reg.set_model") < src.index("_model_recognition_note"), (
+    assert src.index('_perform("project_set_model"') < src.index("_model_recognition_note"), (
         "the model is only saved if the harness recognises it — an enterprise route is refused")
+    assert "recognis" not in inspect.getsource(catalog._project_set_model).split('"""', 2)[2], (
+        "the row that saves the model asks whether the harness recognises it")
     assert "raise typer.Exit" not in src.split("_model_recognition_note")[1], (
         "an unrecognised name exits non-zero — a Bedrock ARN would be treated as a typo")
 
@@ -300,9 +305,11 @@ def test_the_model_surfaces_name_no_harness_and_no_vendor():
     from pathlib import Path
 
     from openfactory import cli
+    from openfactory.actions import catalog
 
     vendors = ("claude", "anthropic", "gpt", "codex", "kimi", "opencode", "bedrock")
-    for fn in (cli._model_recognition_note, cli.project_set_model):
+    # the row that SAVES it since #741, beside the command that maps onto it and asks the harness
+    for fn in (cli._model_recognition_note, cli.project_set_model, catalog._project_set_model):
         tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
         # NAMING a vendor is fine and is not the defect — the command's own help text lists
         # `claude-fable-5`, `gpt-5` and a Bedrock ARN precisely to show that any of them fits.

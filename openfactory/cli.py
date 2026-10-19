@@ -238,6 +238,30 @@ def project_add(
     typer.echo(f"registered project {name!r}")
 
 
+def _refuse_the_row(outcome, name: str) -> None:
+    """End a `project` verb on its row's refusal, in the words this file has always used.
+
+    THE NAME THAT IS NOT HERE gets the sentence it always got here — the roster's command and the
+    reminder that the worker keeps a registry of its own, which is CLI advice the row cannot give —
+    and every other refusal is the row's own sentence. Exit 2 either way, this file's code for
+    "that request cannot be carried out as written"."""
+    from openfactory.actions.base import NOT_FOUND
+
+    if outcome.code == NOT_FOUND:
+        typer.echo(f"✗ no project named {name!r} — `openfactory project list` shows what this "
+                   f"deployment drives (and remember the worker has its own registry)")
+    else:
+        typer.echo(f"✗ {outcome.message}")
+    raise typer.Exit(2)
+
+
+def _says_the_row(outcome, name: str) -> None:
+    """A row's success as this file prints one — `✓` and the row's sentence — or its refusal."""
+    if not outcome.ok:
+        _refuse_the_row(outcome, name)
+    typer.echo(f"✓ {outcome.message}")
+
+
 def _model_recognition_note(project: str, model: str) -> str:
     """A line under `set-model` when the harness does not carry this name in its own catalogue.
 
@@ -299,19 +323,10 @@ def project_set_model(
     shape (one call per role). The string is passed to the harness verbatim: each CLI names
     models its own way, and policing it here would reject the exact strings the enterprise
     routes need."""
-    reg = ProjectRegistry()
-    try:
-        reg.set_model(name, model, role=role)
-    except KeyError:
-        typer.echo(f"✗ no project named {name!r} — `openfactory project list` shows what this "
-                   f"deployment drives (and remember the worker has its own registry)")
-        raise typer.Exit(2) from None
-    except ValueError as exc:
-        typer.echo(f"✗ {exc}")
-        raise typer.Exit(2) from None
-    scope = f"role {role!r}" if role else "every role"
-    typer.echo(f"✓ {name}: model {model!r} for {scope} — takes effect on the next job, no "
-               f"restart needed (the registry is read per run)")
+    # A MAPPING ONTO THE `project_set_model` ROW (#741). The row saves; what stays here is asking
+    # the harness about the name, on the machine that will run it — after the save, and never a
+    # refusal, because a typo and an inference-profile ARN look the same to it.
+    _says_the_row(_perform("project_set_model", project=name, model=model, role=role or ""), name)
     if note := _model_recognition_note(name, model):
         typer.echo(note)
 
@@ -333,18 +348,7 @@ def project_set_language(
     `--language` existed on `project add` and `project init` and nowhere else, so changing it
     later meant editing YAML inside the worker image and rebuilding.
     """
-    reg = ProjectRegistry()
-    try:
-        reg.set_language(name, language)
-    except KeyError:
-        typer.echo(f"✗ no project named {name!r} — `openfactory project list` shows what this "
-                   f"deployment drives (and remember the worker has its own registry)")
-        raise typer.Exit(2) from None
-    except ValueError as exc:
-        typer.echo(f"✗ {exc}")
-        raise typer.Exit(2) from None
-    typer.echo(f"✓ {name}: unprompted messages in {language!r} — takes effect on the next one, "
-               f"no restart needed (the registry is read per run).")
+    _says_the_row(_perform("project_set_language", project=name, language=language), name)
     typer.echo("  A reply still follows whoever asked: someone who writes in English gets English.")
 
 
@@ -376,54 +380,27 @@ def project_set_preview(
     Never edited through a file on a volume: the registry is baked into the worker, and this is
     the one door that validates what it writes (a name a preview may never receive — the
     factory's own credentials, any project's `token_env` — is refused and said)."""
-    from openfactory.contracts.project import PreviewPolicy
-
-    reg = ProjectRegistry()
-    try:
-        current = reg.get(name).preview or PreviewPolicy()
-    except KeyError:
-        typer.echo(f"✗ no project named {name!r} — `openfactory project list` shows what this "
-                   f"deployment drives (and remember the worker has its own registry)")
-        raise typer.Exit(2) from None
-    policy = current.model_dump(mode="json")
-    env, build_arg = list(env or []), list(build_arg or [])
-
-    def _pairs(items: list[str], table: dict) -> dict:
-        out = {k: dict(v) for k, v in table.items()}
-        for item in items:
-            svc, _, rest = item.partition("=")
-            container, _, worker = rest.partition("=")
-            if not svc or not container:
-                typer.echo(f"✗ {item!r} is not svc=NAME or svc=NAME=WORKER_NAME")
-                raise typer.Exit(2)
-            out.setdefault(svc, {})[container] = worker or container
-        return out
-
-    if clear_env:
-        policy["env"] = {}
-    policy["env"] = _pairs(env, policy["env"])
-    policy["build_args"] = _pairs(build_arg, policy["build_args"])
-    for key, value in (("required", required), ("hours", hours), ("network", network),
-                       ("cpus", cpus), ("memory", memory), ("auto_start", auto_start)):
-        if value is not None:
-            policy[key] = value
-    reg.set_preview(name, policy)
-    saved = reg.get(name).preview
-    typer.echo(f"✓ {name}: previews {'required before a merge' if saved.required else 'optional'}"
-               f", {'started on their own' if saved.auto_start else 'started on demand'}"
-               f", up for {saved.hours}h, egress: {saved.network or 'none'}")
+    # A MAPPING ONTO THE `project_set_preview` ROW (#741): the row merges, validates and writes;
+    # what stays here is how a terminal shows the policy it saved.
+    outcome = _perform("project_set_preview", project=name, required=required, hours=hours,
+                       auto_start=auto_start, env=list(env or []),
+                       build_arg=list(build_arg or []), network=network, cpus=cpus,
+                       memory=memory, clear_env=clear_env)
+    if not outcome.ok:
+        _refuse_the_row(outcome, name)
+    saved = outcome.data["preview"]
+    typer.echo(f"✓ {name}: previews "
+               f"{'required before a merge' if saved['required'] else 'optional'}"
+               f", {'started on their own' if saved['auto_start'] else 'started on demand'}"
+               f", up for {saved['hours']}h, egress: {saved['network'] or 'none'}")
     for field, label in (("env", "run time"), ("build_args", "build time")):
-        for svc, names in getattr(saved, field).items():
+        for svc, names in saved[field].items():
             if names:
                 shown = ", ".join(c if c == w else f"{c}←{w}" for c, w in names.items())
                 typer.echo(f"  {label} · {svc}: {shown}")
-    dropped = sorted({f"{s}={c}" for item in env + build_arg
-                      for s, _, rest in [item.partition("=")]
-                      for c in [rest.partition("=")[0]]
-                      if c not in {**saved.env.get(s, {}), **saved.build_args.get(s, {})}})
-    if dropped:
+    if outcome.data["dropped"]:
         typer.echo(f"  ! refused (a credential of the factory's own, or not a name): "
-                   f"{', '.join(dropped)}")
+                   f"{', '.join(outcome.data['dropped'])}")
 
 
 @project_app.command("show")
@@ -593,14 +570,17 @@ def project_remove(name: str) -> None:
     # `removed …`, nothing was, and the script reported complete success. Exit 2 is this file's
     # code for "that name is not here" (`_get_project`, `set-model`, `set-language`). Said in a
     # comment and not the docstring, which is the verb's `--help` screen and names no card.
-    reg = ProjectRegistry()
-    try:
-        reg.remove(name)
-    except KeyError:
-        typer.echo(f"✗ no project named {name!r} — nothing was removed. "
-                   f"Registered here: {_registered_here(reg, refusing=name)}.")
-        raise typer.Exit(2) from None
-    typer.echo(f"removed {name!r}")
+    # A MAPPING ONTO THE `project_remove` ROW (#741), which the registry's refusal reaches.
+    outcome = _perform("project_remove", project=name)
+    if not outcome.ok:
+        from openfactory.actions.base import NOT_FOUND
+
+        if outcome.code == NOT_FOUND:
+            typer.echo(f"✗ no project named {name!r} — nothing was removed. "
+                       f"Registered here: {_registered_here(ProjectRegistry(), refusing=name)}.")
+            raise typer.Exit(2)
+        _refuse_the_row(outcome, name)
+    typer.echo(outcome.message)
 
 
 @project_app.command("init")

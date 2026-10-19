@@ -26,6 +26,7 @@ import ast
 import asyncio
 import dataclasses
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -602,3 +603,88 @@ def test_a_revocation_is_refused_when_the_sink_keeps_nothing(monkeypatch):
                                       person="ana@acme.example"))
 
     assert out.code == actions.UNAVAILABLE and "keeps nothing" in out.message, out
+# ── 7. a project's own settings (slice 2) ───────────────────────────────────────────────────────
+
+#: Something plausible for each parameter a project row requires besides the project itself.
+_PLAUSIBLE = {"model": "a-model", "language": "en", "docs_repo": "acme/docs", "person": "x"}
+
+TAKES_A_PROJECT = sorted(name for name in INSTALLATION
+                         if "project" in catalog.CATALOG[name].required)
+
+
+@pytest.fixture
+def one_project(tmp_path, monkeypatch):
+    """A registry holding `acme`, and nothing else."""
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.registry import ProjectRegistry
+
+    path = tmp_path / "registry.yaml"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(path))
+    ProjectRegistry().add(Project(name="acme", repo_path=str(tmp_path / "acme"),
+                                  tracker=ProviderRef(kind="local", repo="acme", options={}),
+                                  forge=ProviderRef(kind="local", repo="acme", options={})))
+    return path
+
+
+@pytest.mark.parametrize("name", TAKES_A_PROJECT)
+def test_every_installation_row_that_takes_a_project_refuses_one_nobody_registered(
+        name, one_project):
+    """By name, with the roster — the commonest cause is a typo, and the right name is on it —
+    and with the registry exactly as it was: a write to a ghost is how a project that does not
+    exist comes to have settings."""
+    before = one_project.read_bytes()
+    params = {p: _PLAUSIBLE.get(p, "x") for p in catalog.CATALOG[name].required}
+    params["project"] = "acmee"
+
+    out = asyncio.run(actions.perform(name, by=actions.Actor(id="rob", via="cli", admin=True),
+                                      **params))
+
+    assert out.code == actions.NOT_FOUND, (name, out)
+    assert re.search(r"knows: acme\.", out.message, re.IGNORECASE), (
+        f"{name} refused the ghost without the roster the right name is on: {out.message}")
+    assert one_project.read_bytes() == before, f"{name} wrote the registry for a ghost"
+
+
+def test_the_shell_and_a_front_end_set_the_same_preview_policy(one_project, tmp_path,
+                                                               monkeypatch):
+    """The flags a terminal gives and the words a JSON body carries are one request: a front end
+    of one's own writes `"true"`, `"6"` and `"web=DB_URL"` where the shell passes booleans, an
+    int and a list, and the policy saved must be the same."""
+    from openfactory.api.app import app as panel
+    from openfactory.cli import app
+    from openfactory.registry import ProjectRegistry
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    shell = CliRunner().invoke(app, ["project", "set-preview", "acme", "--required", "--hours",
+                                     "6", "--env", "web=DB_URL", "--env",
+                                     "api=OPENFACTORY_BOT_TOKEN", "--no-auto-start"])
+    assert shell.exit_code == 0, shell.output
+    by_the_shell = ProjectRegistry().get("acme").preview.model_dump()
+
+    ProjectRegistry().set_preview("acme", {})
+    answered = TestClient(panel).post("/api/act/project_set_preview", json={"params": {
+        "project": "acme", "required": "true", "hours": "6",
+        "env": "web=DB_URL,api=OPENFACTORY_BOT_TOKEN", "auto_start": "false"}})
+
+    assert answered.status_code == 200, answered.text
+    assert ProjectRegistry().get("acme").preview.model_dump() == by_the_shell
+    assert answered.json()["data"]["preview"]["required"] is True
+    # AND WHAT WAS REFUSED IS SAID to the screen too: the factory's own credential is never
+    # written, and a front end that shows only the sentence must not read that as accepted
+    assert answered.json()["data"]["dropped"] == ["api=OPENFACTORY_BOT_TOKEN"]
+    assert "OPENFACTORY_BOT_TOKEN" in answered.json()["message"], answered.json()["message"]
+
+
+@pytest.mark.parametrize("field", ["required", "auto_start", "clear_env"])
+def test_a_yes_or_no_that_is_neither_is_refused_and_nothing_is_written(field, one_project):
+    """`"maybe"` is not a no: read as one, a form field carrying anything but yes would lift a
+    look a person must take before a merge."""
+    before = one_project.read_bytes()
+
+    out = asyncio.run(actions.perform("project_set_preview",
+                                      by=actions.Actor(id="rob", via="cli", admin=True),
+                                      project="acme", **{field: "maybe"}))
+
+    assert out.code == actions.INVALID and "maybe" in out.message, out
+    assert one_project.read_bytes() == before
