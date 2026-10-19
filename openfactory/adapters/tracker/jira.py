@@ -66,6 +66,7 @@ import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 
+from openfactory.adapters.credential.registry import SHIPPED_ENV
 from openfactory.contracts import JobState, Ticket
 
 log = logging.getLogger("openfactory.tracker.jira")
@@ -124,8 +125,12 @@ def _not_one_account(email: str, method: str, path: str, *, has_token: bool) -> 
     seen = (f"Jira answered {method} {path} 404 as it does an anonymous request, and GET myself "
             f"401.")
     if not has_token:
-        return (f"jira: no API token reached this tracker for {email} — {seen} Set the variable "
-                f"the project's tracker.options.token_env names.")
+        # The variable a project that names no `token_env` reads is the credential row's default
+        # (review round 1, 2026-10-19: the sentence named only `token_env`, which such a project
+        # does not have).
+        return (f"jira: no API token reached this tracker for {email} — {seen} Set "
+                f"{SHIPPED_ENV['jira']}, or the variable the project's tracker.options.token_env "
+                f"names.")
     return (f"jira: the email {email} and the API token belong to different accounts, or the "
             f"token was revoked — {seen} Pair the email with an API token created by that same "
             f"account (id.atlassian.com → Security → API tokens), or replace a token that was "

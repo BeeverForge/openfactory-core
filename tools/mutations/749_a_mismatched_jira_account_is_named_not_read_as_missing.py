@@ -10,7 +10,8 @@ Jira Cloud answers a Basic pair whose token is not the email's account as an ano
     cannot be made, keeps the original 404;
   - no other failure asks anything, and a call that succeeds asks nothing either;
   - the sentence puts the cause first (the park line and the card's door keep 120 characters),
-    never carries the token, and with no token says so instead of "different accounts";
+    never carries the token, and with no token says so instead of "different accounts", naming
+    the variable a project that names no `token_env` reads;
   - a job parked on either refusal is classified as a credential, not as unknown.
 """
 
@@ -89,4 +90,9 @@ MUTATIONS = [
     ("a job parked on the refusal is classified as unknown, and names no cause", CLASSIFY,
      "        r\"different accounts|no api token reached|\"\n",
      ""),
+
+    ("with no token, the remedy names only `token_env`, which a project that names none has not "
+     "got", JIRA,
+     "f\"{SHIPPED_ENV['jira']}, or the variable the project's tracker.options.token_env \"",
+     "f\"the variable the project's tracker.options.token_env \""),
 ]

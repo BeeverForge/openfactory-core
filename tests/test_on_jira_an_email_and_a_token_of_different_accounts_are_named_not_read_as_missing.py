@@ -371,3 +371,15 @@ def test_a_card_that_reads_costs_no_extra_request(site):
                         ("GET", PROJECT): {"key": "DAR"}}, myself=_MYSELF_200)
     assert _tracker().list_tickets() == []
     assert [path for _m, path, _a in jira.requests] == [SEARCH, PROJECT]
+
+
+@pytest.mark.parametrize("token", [None, ""], ids=["none", "empty"])
+def test_with_no_token_the_refusal_names_the_variable_a_project_that_names_none_reads(site, token):
+    """C5. A project with no `tracker.options.token_env` reads JIRA_API_TOKEN (the credential row's
+    default), so the remedy names it: "the variable token_env names" names nothing there. On
+    a685021 the sentence named only `token_env` (review round 1, measured on a real site)."""
+    from openfactory.adapters.credential.registry import SHIPPED_ENV
+    site(routes={("GET", ISSUE): 404}, myself=401)
+    with pytest.raises(JiraRefused) as raised:
+        _tracker(token=token).get_ticket(REF)
+    assert SHIPPED_ENV["jira"] in str(raised.value), str(raised.value)
