@@ -92,10 +92,17 @@ def _jira(project, **kw):
     # passes `token=` resolved it through `credentials.tracker_token_for`, which falls back to
     # that pair, so a GitHub token reaches Jira and reads as "different accounts" (measured on a
     # Jira Cloud site, 2026-10-19).
-    from openfactory.credentials import vendor_default
+    from openfactory.credentials import axis_refusal, vendor_default
 
-    token = kw.get("token") or vendor_default(getattr(project, "tracker", None))
+    # …AND NOT AFTER A REFUSAL (#822): `JIRA_API_TOKEN` is the step after the project's own
+    # reference, and a refused reference ends the resolution, here as in `credentials`.
+    refused = "" if kw.get("token") else axis_refusal(project, "tracker")
+    token = kw.get("token") or (None if refused
+                                else vendor_default(getattr(project, "tracker", None)))
     return JiraTracker(
+        # …and the sentence an anonymous answer gets says the refusal, not "Set JIRA_API_TOKEN",
+        # which would send the operator to set a variable that is already set
+        refused=refused,
         site=options.get("site", ""),
         project_key=options.get("project_key") or project.tracker.repo or "",
         email=options.get("email", ""),

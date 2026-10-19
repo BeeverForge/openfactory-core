@@ -522,9 +522,14 @@ def _product_role(p: Probes, on: str) -> tuple[Finding, str]:
             f"empty list is nobody, never everybody", on=on), ""
 
     env = p.environ()
+    # THE CREDENTIAL STORE BESIDE THE ENVIRONMENT MEASURED (#822), asked by `getattr`: a probe set
+    # from before the store measures its environment alone, as it always did.
+    stored = getattr(p, "stored", None) or (lambda _name: None)
+    refusal = getattr(p, "refused", None) or (lambda _name: "")
 
     def _set(*names: str) -> bool:
-        return any(str(env.get(n, "") or "").strip() for n in names)
+        # a token the panel reads from a mounted file is issued, though no variable holds it
+        return any(str(env.get(n, "") or "").strip() or stored(n) for n in names)
 
     # THE DOOR'S OWN VARIABLES, imported rather than spelled, because a report that checked
     # `OPENFACTORY_PRODUCT_TOKEN*` by literal would keep saying "issued" for a day after somebody
@@ -537,6 +542,17 @@ def _product_role(p: Probes, on: str) -> tuple[Finding, str]:
         PRODUCT_SHARED_ENV,
     )
     from openfactory.identity.registry import identity_kind
+
+    # A REFUSED ONE CLOSES THE PANEL TO EVERYBODY (#822), the client included: said as itself.
+    refused = {n: why for n in CLOSING_ENVS if (why := refusal(n))}
+    if refused:
+        return _fail(
+            "product_role",
+            f"the credential store refuses {', '.join(sorted(refused))}, which closes the panel to "
+            f"everybody, the client included, until it is fixed — "
+            + "; ".join(f"`{n}`: {why}" for n, why in sorted(refused.items())),
+            "fix what the refusal names, where the secret is kept — nothing is used in its place",
+            on=on), ""
 
     # AN SSO DEPLOYMENT ISSUES NO TOKEN ROWS (#33). Its door is closed by definition, and "a
     # product credential" there is a provider group mapped to `product` in the row's own map —

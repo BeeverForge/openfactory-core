@@ -146,11 +146,12 @@ def _tracker(project, credential: str | None):
     one failure worse than an unsupported one. Caught here because this reader's contract is
     `(tickets, error)` — a chat listener must get the sentence, not the traceback."""
     from openfactory.adapters.tracker.registry import build_tracker
-    from openfactory.factory import _bot_token_provider
+    from openfactory.factory import bot_token_provider_for
 
     try:
         return build_tracker(project, token=credential,
-                             token_provider=None if credential else _bot_token_provider())
+                             token_provider=(None if credential
+                                             else bot_token_provider_for(project, "tracker")))
     except ValueError as exc:
         log.error("product board: no tracker for %s (%s) — the board cannot be read at all",
                   getattr(project, "name", "?"), exc)

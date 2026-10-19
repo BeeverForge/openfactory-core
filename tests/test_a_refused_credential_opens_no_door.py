@@ -33,6 +33,7 @@ import hmac
 import json
 import os
 import pathlib
+import stat
 import traceback
 from dataclasses import dataclass
 
@@ -169,14 +170,61 @@ def _leads_outside(b: Bench, name: str) -> None:
     (b.directory / name).symlink_to(b.tmp_path / "elsewhere")
 
 
-def _planted_in_a_shared_directory(b: Bench, name: str) -> None:
-    b.directory.chmod(0o1777)
-    path = b.file(name, "fictitious-planted", 0o600)
+def _read_only_mount(b: Bench) -> None:
+    """The directory's mount refuses writes — a cluster's secret volume, a compose `secrets:` bind."""
+    import openfactory.adapters.credential_store.file as store_file
+
+    b.monkeypatch.setattr(store_file, "_mount_refuses_writes", lambda fd=None, path="": True)
+
+
+def _another_users(b: Bench, path: pathlib.Path) -> None:
+    """`path` belongs to a user who is neither root nor this process's."""
     if os.geteuid() == 0:
-        os.chown(path, 54321, -1)  # root's own files are trusted; plant it as somebody else
+        os.chown(path, 54321, -1)  # root's own files are trusted; make it somebody else's
     else:
         owner = os.geteuid()
         b.monkeypatch.setattr(os, "geteuid", lambda: owner + 1)
+
+
+def _planted_in_a_shared_directory(b: Bench, name: str) -> None:
+    """In a shared directory on a read-only mount — the one layout a shared directory is read in —
+    a file whose owner is somebody else."""
+    _read_only_mount(b)
+    b.directory.chmod(0o1777)
+    _another_users(b, b.file(name, "fictitious-planted", 0o600))
+
+
+def _the_deployments_other_secret(b: Bench) -> pathlib.Path:
+    return b.file("ACME_OTHER_SECRET", "fictitious-other-secret", 0o600)
+
+
+def _a_link_in_a_shared_writable_directory(b: Bench, name: str) -> None:
+    b.directory.chmod(0o1777)
+    (b.directory / name).symlink_to(_the_deployments_other_secret(b).name)
+
+
+def _a_hard_link_in_a_shared_writable_directory(b: Bench, name: str) -> None:
+    b.directory.chmod(0o1777)
+    os.link(_the_deployments_other_secret(b), b.directory / name)
+
+
+def _a_link_another_user_made(b: Bench, name: str) -> None:
+    """On a read-only mount, a link under the name whose own owner (its `lstat`) is somebody else:
+    what it leads to is the deployment's, and says nothing of who put the link there."""
+    _read_only_mount(b)
+    entry = b.directory / name
+    entry.symlink_to(_the_deployments_other_secret(b).name)
+    real = os.lstat
+
+    def lstat(path, *a, **kw):
+        found = real(path, *a, **kw)
+        if os.fspath(path) == os.fspath(entry):
+            fields = list(found)
+            fields[stat.ST_UID] = 54321
+            return os.stat_result(fields)
+        return found
+
+    b.monkeypatch.setattr(os, "lstat", lstat)
 
 
 def _unreadable(b: Bench, name: str) -> None:
@@ -226,6 +274,10 @@ REFUSALS = {
     "a file that is not text": _not_text,
     "a link that leads outside the directory": _leads_outside,
     "a file another user planted in a shared directory": _planted_in_a_shared_directory,
+    "a link in a shared directory anyone may write to": _a_link_in_a_shared_writable_directory,
+    "a hard link in a shared directory anyone may write to":
+        _a_hard_link_in_a_shared_writable_directory,
+    "a link another user made, on a read-only mount": _a_link_another_user_made,
     "a file this user cannot open": _unreadable,
     "an add-on store that refuses": _addon_refuses,
     "an add-on store that fails": _addon_fails,
@@ -629,6 +681,103 @@ def _doctor_forge_line(b: Bench, name: str) -> None:
     assert finding.remedy == doctor.REFUSED_REMEDY and FALLBACK not in finding.message
 
 
+def _the_minter_is_fallback(b: Bench) -> None:
+    """The deployment's App minter, the provider a construction point hands an adapter when the
+    project holds no token, answers a fallback — what a refused reference would be replaced by."""
+    import openfactory.factory as factory
+
+    b.monkeypatch.setattr(factory, "_bot_token_provider", lambda: (lambda: FALLBACK))
+
+
+def _built_with_nothing(built) -> bool:
+    """Whether an adapter was built with no token and no provider — never the fallback."""
+    token = getattr(built, "_static_token", None) or getattr(built, "token", None)
+    return token != FALLBACK and getattr(built, "_token_provider", None) is None
+
+
+def _worker_builds(b: Bench, name: str) -> None:
+    """THE WORKER'S CONSTRUCTION POINTS (review of #822): every activity builds its tracker and
+    its forge through these two, and they handed the App minter to a project whose own reference
+    was refused."""
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.credentials import _GENERIC
+    from openfactory.runtime.temporal import activities
+
+    _mint_is_fallback(b)
+    _the_minter_is_fallback(b)
+    b.monkeypatch.setenv(name, FALLBACK)
+    for each in (*_GENERIC["tracker"], *_GENERIC["forge"]):
+        b.monkeypatch.setenv(each, FALLBACK)
+    named = {"token_env": name}
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      tracker=ProviderRef(kind="github", repo="acme/app", options=named),
+                      forge=ProviderRef(kind="github", repo="acme/app", options=named))
+    assert _built_with_nothing(activities._tracker_for(project)), "the tracker took the minter"
+    assert _built_with_nothing(activities._forge_for(project)), "the forge took the minter"
+
+
+def _jira_row(b: Bench, name: str) -> None:
+    """Jira's row falls back to `JIRA_API_TOKEN` by itself, for every caller of `build_tracker`."""
+    from openfactory.adapters.tracker.registry import build_tracker
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.runtime.temporal import activities
+
+    b.monkeypatch.setenv(name, FALLBACK)
+    b.monkeypatch.setenv("JIRA_API_TOKEN", FALLBACK)
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      tracker=ProviderRef(kind="jira", repo="ACME",
+                                          options={"token_env": name,
+                                                   "site": "https://acme.example"}))
+    assert build_tracker(project).token != FALLBACK
+    assert activities._tracker_for(project).token != FALLBACK
+
+
+def _impediment_board(b: Bench, name: str) -> None:
+    """The factory's own board, where impediments are filed, resolves its tracker's credential like
+    any tracker's."""
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.credentials import _GENERIC
+    from openfactory.ops import impediment
+
+    _mint_is_fallback(b)
+    _the_minter_is_fallback(b)
+    b.monkeypatch.setenv(name, FALLBACK)
+    for each in _GENERIC["tracker"]:
+        b.monkeypatch.setenv(each, FALLBACK)  # the deployment's pair, which it used to take
+    board = ProviderRef(kind="github", repo="acme/factory", options={"token_env": name})
+    b.monkeypatch.setattr(impediment, "_board",
+                          lambda project: __import__("types").SimpleNamespace(tracker=board))
+    built = impediment._tracker_for(Project(name="acme", repo_path="/tmp/acme"), None)
+    assert _built_with_nothing(built)
+
+
+def _product_board(b: Bench, name: str) -> None:
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.credentials import tracker_token_for
+    from openfactory.product import board
+
+    _mint_is_fallback(b)
+    _the_minter_is_fallback(b)
+    b.monkeypatch.setenv(name, FALLBACK)
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      tracker=ProviderRef(kind="github", repo="acme/app",
+                                          options={"token_env": name}))
+    assert _built_with_nothing(board._tracker(project, tracker_token_for(project)))
+
+
+def _certify_panel(b: Bench, name: str) -> None:
+    """Certify's exposure control: a refused panel token closes the panel to everybody, so it is
+    never reported as a panel that answers anybody, nor passed on a value nobody can present."""
+    from types import SimpleNamespace
+
+    from openfactory.certify import controls
+
+    for each in controls._PANEL_TOKENS:
+        b.monkeypatch.delenv(each, raising=False)
+    result, detail, _ = controls._panel(SimpleNamespace(env=dict(os.environ)), None)
+    assert result == controls.UNKNOWN, (result, detail)
+
+
 def _names(*names: str) -> tuple[str, ...]:
     return names
 
@@ -732,6 +881,18 @@ CONSUMERS = {
                                        lambda: ("AZURE_DEVOPS_PAT", PROJECT_NAME), _azure),
     "the image's pull credential": Consumer("openfactory/adapters/sandbox/pull.py",
                                             lambda: (PROJECT_NAME,), _pull),
+    "the worker's tracker and forge": Consumer("openfactory/runtime/temporal/activities.py",
+                                               lambda: (PROJECT_NAME,), _worker_builds),
+    "Jira's row": Consumer("openfactory/adapters/tracker/registry.py", lambda: (PROJECT_NAME,),
+                           _jira_row),
+    "the factory board's tracker": Consumer("openfactory/ops/impediment.py",
+                                            lambda: (PROJECT_NAME,), _impediment_board),
+    "the product board's tracker": Consumer("openfactory/product/board.py",
+                                            lambda: (PROJECT_NAME,), _product_board),
+    "certify's panel control": Consumer("openfactory/certify/controls.py",
+                                        lambda: __import__("openfactory.certify.controls",
+                                                           fromlist=["x"])._PANEL_TOKENS,
+                                        _certify_panel),
 }
 
 
@@ -761,20 +922,148 @@ def _importers() -> set[str]:
     return found
 
 
-#: Modules that import the store and are not a consumer above, with the reason.
-NOT_A_CONSUMER: dict[str, str] = {}
+# ── every construction point: it falls back to the deployment's own only after asking ─────────
+
+#: What a construction point falls back to when a project holds no credential: the deployment's
+#: App minter and mint, its vendor default, its pair. Each is the LAST step of a resolution, and a
+#: refusal ends the resolution (review of #822), so a call to one asks the refusal first.
+DEPLOYMENT_WIDE = frozenset({"_bot_token_provider", "github_app_token_from_env", "vendor_default",
+                             "tracker_token", "forge_token"})
+#: …and the questions that ask it: the project's axis, or the deployment's own pair.
+ASKS_THE_REFUSAL = frozenset({"axis_refusal", "pair_refusal"})
+#: What builds an adapter or the provider it is handed.
+BUILDS = frozenset({"build_tracker", "build_forge", "build_board", "bot_token_provider_for",
+                    "deployment_tracker_provider", "deployment_forge_provider",
+                    "deployment_tracker_token", "deployment_forge_token"})
+#: The resolution itself, where those steps are composed — `credentials` and the vendors' rows.
+THE_RESOLUTION = frozenset({"openfactory/credentials.py",
+                            "openfactory/adapters/credential/registry.py"})
+
+
+def _calls(tree: ast.AST, names: frozenset) -> list[ast.Call]:
+    """The calls in `tree` of one of `names` — a bare name, or an attribute of an imported module
+    (`credentials.forge_token()`), never a method of something else (`probes.forge_token()`)."""
+    imported = {alias.asname or alias.name.split(".")[0] for node in ast.walk(tree)
+                if isinstance(node, (ast.Import, ast.ImportFrom)) for alias in node.names}
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in names:
+            out.append(node)
+        elif isinstance(func, ast.Attribute) and func.attr in names \
+                and isinstance(func.value, ast.Name) and func.value.id in imported:
+            out.append(node)
+    return out
+
+
+def construction_points(root: pathlib.Path = PACKAGE) -> dict[str, list[tuple[int, str]]]:
+    """`{module: [(line, what)]}` of every call that builds an adapter or falls back to the
+    deployment's own, outside the resolution — read from the code."""
+    found: dict[str, list[tuple[int, str]]] = {}
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root.parent).as_posix()
+        if rel in THE_RESOLUTION:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for call in _calls(tree, BUILDS | DEPLOYMENT_WIDE):
+            found.setdefault(rel, []).append((call.lineno, ast.unparse(call.func)))
+    return found
+
+
+def falls_back_without_asking(root: pathlib.Path = PACKAGE) -> list[tuple[str, int, str]]:
+    """`(module, line, what)` for every fall-back to the deployment's own whose function does not
+    ask the refusal first — outside the resolution and the deployment-wide readers themselves."""
+    out = []
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root.parent).as_posix()
+        if rel in THE_RESOLUTION:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parent = {id(c): n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+        for call in _calls(tree, DEPLOYMENT_WIDE):
+            fn = parent.get(id(call))
+            while fn is not None and not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                fn = parent.get(id(fn))
+            if fn is not None and fn.name in DEPLOYMENT_WIDE:
+                continue  # one deployment-wide reader composing another
+            if fn is None or not any(isinstance(n, ast.Call) and ASKS_THE_REFUSAL & {
+                    getattr(n.func, "id", ""), getattr(n.func, "attr", "")} for n in ast.walk(fn)):
+                out.append((rel, call.lineno, ast.unparse(call.func)))
+    return out
+
+
+def test_every_construction_point_asks_the_refusal_before_it_falls_back():
+    """THE RULE AT EVERY CONSTRUCTION POINT (review of #822): the worker built its tracker and
+    forge with the App minter, and Jira's row with `JIRA_API_TOKEN`, after the project's own
+    reference was refused, because `credentials` was the only place a refusal was final. Every
+    call that falls back to the deployment's own now asks `axis_refusal` (or, with no project,
+    `pair_refusal`) in the same function — the minter through `factory.bot_token_provider_for`."""
+    offenders = falls_back_without_asking()
+    assert not offenders, (
+        "these fall back to the deployment's own credential without asking whether the store "
+        "refused the project's — a refusal is answered by the next credential there:\n  "
+        + "\n  ".join(f"{path}:{line}: {what}()" for path, line, what in offenders))
+
+
+def test_the_construction_rule_sees_the_worker_and_every_builder(tmp_path):
+    """Its verifiers: the points the review named are among those it reads, and a fall-back planted
+    without the question is seen while one that asks is not."""
+    points = construction_points()
+    for module in ("openfactory/runtime/temporal/activities.py",
+                   "openfactory/runtime/temporal/view.py", "openfactory/product/board.py",
+                   "openfactory/product/module.py", "openfactory/ops/impediment.py",
+                   "openfactory/factory.py", "openfactory/adapters/tracker/registry.py"):
+        assert module in points, module
+    assert len(points) > 20, sorted(points)
+
+    pkg = tmp_path / "openfactory"
+    pkg.mkdir()
+    (pkg / "planted.py").write_text(
+        "from openfactory.factory import _bot_token_provider\n"
+        "from openfactory import credentials\n"
+        "def unasked(project):\n"
+        "    return _bot_token_provider()\n"
+        "def asked(project):\n"
+        "    return None if credentials.axis_refusal(project, 'forge') else _bot_token_provider()\n"
+        "def a_probe(p):\n"
+        "    return p.forge_token()\n"
+        "def the_pair():\n"
+        "    return credentials.forge_token()\n")
+    assert [(line, what) for _, line, what in falls_back_without_asking(pkg)] == [
+        (4, "_bot_token_provider"), (10, "credentials.forge_token")]
+
+
+#: Modules that read a credential through the store, or build an adapter's credential, and are no
+#: consumer above — each with the reason a refusal is final there anyway.
+NOT_A_CONSUMER: dict[str, str] = {
+    module: "held by `test_every_construction_point_asks_the_refusal_before_it_falls_back`: its "
+            "fall-back to the deployment's own asks `axis_refusal` first"
+    for module in ("openfactory/runtime/temporal/view.py", "openfactory/product/module.py",
+                   "openfactory/runtime/boxed_job.py", "openfactory/factory.py")
+} | {
+    "openfactory/certify/pack.py": "it REDACTS what the store holds, and hiding a value opens no "
+                                   "door: a refusal there is one value fewer to hide, never a "
+                                   "credential used",
+}
 
 
 def test_every_module_that_asks_the_store_is_a_consumer_here():
-    """A new reader of the store joins `CONSUMERS` or fails here by name — so the next door is
-    held to the rule the day it is written, not the day it opens."""
+    """A new reader of the store — or a new place that hands an adapter the deployment's own when
+    the project holds nothing — joins `CONSUMERS` or fails here by name, so the next door is held
+    to the rule the day it is written, not the day it opens."""
     importers = _importers()
     assert len(importers) > 10, importers
+    falling_back = {path.relative_to(ROOT).as_posix() for path in sorted(PACKAGE.rglob("*.py"))
+                    if _calls(ast.parse(path.read_text(encoding="utf-8")),
+                              DEPLOYMENT_WIDE | {"bot_token_provider_for"})} - THE_RESOLUTION
+    asking = importers | falling_back
     declared = {row.module for row in CONSUMERS.values()} | set(NOT_A_CONSUMER)
-    assert importers <= declared, (
-        f"these read a credential through the store and no case here proves a refusal opens "
-        f"nothing there: {sorted(importers - declared)}")
-    assert declared - set(NOT_A_CONSUMER) <= importers, sorted(declared - importers)
+    assert asking <= declared, (
+        f"these read a credential through the store, or fall back to the deployment's own, and no "
+        f"case here proves a refusal opens nothing there: {sorted(asking - declared)}")
+    assert declared <= asking, sorted(declared - asking)
 
 
 def test_a_consumer_that_reads_a_name_the_store_answers_is_not_shut_by_this_test(bench):

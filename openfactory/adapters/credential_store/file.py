@@ -12,9 +12,11 @@ secret is the one the next use reads, and no copy outlives the call that asked f
 
 WHAT IS CHECKED, AND WHY EACH:
 
-  · the directory is a directory, and nobody but its owner may write to it unless it is sticky.
-    Whoever can write there can replace a secret. A cluster's secret volume is world-writable AND
-    sticky, so a file in it can be removed or replaced only by its owner;
+  · the directory is a directory, and nobody but its owner may write to it — UNLESS ITS MOUNT
+    REFUSES WRITES. Whoever can write there can replace a secret, or put a link under a
+    secret's name. A cluster mounts its secret volume read-only, so that layout is read whatever
+    its bits say, and a sticky bit alone is not enough: it stops a stranger removing a file, not
+    adding one;
   · the file, followed through links, stays inside the directory. A cluster's secret volume links
     each name to a dated copy so it can swap them at once, so a link is ordinary, and one that
     leaves the directory is not;
@@ -24,6 +26,8 @@ WHAT IS CHECKED, AND WHY EACH:
     writable by them — UNLESS THE MOUNT IT IS READ THROUGH REFUSES WRITES (see below);
   · in a directory anyone can write to, it belongs to root or to this process's user, because
     in such a directory a file somebody else created is not the deployment's;
+  · the entry under the name, when it is a link, was made by root or by this process's user —
+    asked of the entry itself (`lstat`), since what the link leads to says nothing of who made it;
   · it is no larger than a credential: a token, a private key or a small pool of tokens.
 
 WRITE BITS ON A READ-ONLY MOUNT ARE NOT A WRITER (review of #822). Compose delivers a `secrets:`
@@ -120,10 +124,15 @@ class FileStore:
                                     f"— point it at the directory the secret files are in")
         sticky = bool(found.st_mode & stat.S_ISVTX)
         writers = _writers(found.st_mode)
-        if writers and not sticky and not _mount_refuses_writes(path=root):
+        # A STICKY BIT IS NOT A READ-ONLY MOUNT (#822). It keeps a file from being removed by
+        # anyone but its owner, and nothing from being ADDED: under a name no file holds yet,
+        # whoever may write here can put a file or a link. Only a mount that refuses writes makes
+        # the bits moot, which is how a cluster mounts its secret volume.
+        if writers and not _mount_refuses_writes(path=root):
             raise CredentialRefused(f"{self.directory} is writable by {writers}, so anyone who "
-                                    f"can write there can replace a secret — "
-                                    + _UNWRITABLE.format(path=self.directory))
+                                    f"can write there can replace a secret — `chmod 700 "
+                                    f"{self.directory}`, or mount it read-only, as a cluster "
+                                    f"mounts its secret volume")
         return root, sticky and bool(found.st_mode & stat.S_IWOTH)
 
     def _located(self, name: str) -> tuple[str, bool]:
@@ -134,7 +143,18 @@ class FileStore:
                                     f"hold: letters, digits, `.`, `_` and `-`, not starting with "
                                     f"`.` — name the file, not a path to it")
         root, shared = self._root()
-        path = os.path.realpath(os.path.join(root, name))
+        entry = os.path.join(root, name)
+        try:
+            linked = os.lstat(entry)
+        except OSError:
+            linked = None  # nothing there, or nothing to ask: `resolve` says which when it opens
+        owner = getattr(os, "geteuid", lambda: 0)()
+        if linked is not None and stat.S_ISLNK(linked.st_mode) \
+                and linked.st_uid not in (0, owner):
+            raise CredentialRefused(f"the file `{name}` in {self.directory} is a link another "
+                                    f"user made — put the secret itself there, or a link made by "
+                                    f"this deployment's user or by root")
+        path = os.path.realpath(entry)
         if os.path.commonpath([root, path]) != root or path == root:
             raise CredentialRefused(f"the file `{name}` in {self.directory} leads outside it — "
                                     f"put the secret itself in the directory, or link it to a "
@@ -155,11 +175,8 @@ class FileStore:
         """What this directory holds that a reference could name — every entry, refused or not,
         because the question it answers is which of them a reader would be refused. OPTIONAL on
         the port, like `unusable()`: the doctor asks it to find a refused file nobody named."""
-        try:
-            root, _shared = self._root()
-            return sorted(n for n in os.listdir(root) if _NAME.fullmatch(n))
-        except (CredentialRefused, OSError):
-            return []
+        root, _shared = self._root()  # a refusal of the directory is `unusable()`'s to say
+        return sorted(n for n in os.listdir(root) if _NAME.fullmatch(n))
 
     def _checked(self, name: str, found: os.stat_result, shared: bool, fd: int) -> None:
         where = f"the file `{name}` in {self.directory}"

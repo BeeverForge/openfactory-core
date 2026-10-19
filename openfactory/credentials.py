@@ -248,6 +248,15 @@ def _axis_credential(project, axis: str, generic, *,
     return (found.reference, found.value) if found.value else ("", None)
 
 
+def pair_refusal(axis: str) -> str:
+    """Why this deployment's own pair for `axis` (`OPENFACTORY_<AXIS>_TOKEN`, then
+    `OPENFACTORY_BOT_TOKEN`) is refused, or `""` — for a reader that asks about the DEPLOYMENT's
+    credential, with no project to ask `axis_refusal` about, before it falls back to a mint
+    (#822)."""
+    found = credential_store.chain(_GENERIC[axis])
+    return f"`{found.reference}` is refused: {found.refused}" if found.refused else ""
+
+
 def axis_refusal(project, axis: str) -> str:
     """Why `project`'s credential on `axis` is REFUSED — the reference the store refused, and its
     reason — or `""` (review of #822). What every later step of a credential's resolution asks

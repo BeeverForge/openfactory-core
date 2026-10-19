@@ -113,7 +113,8 @@ from openfactory.adapters.tracker.base import (  # noqa: E402
 from openfactory.adapters.tracker.base import column_key as _column_key  # noqa: E402
 
 
-def _not_one_account(email: str, method: str, path: str, *, has_token: bool) -> str:
+def _not_one_account(email: str, method: str, path: str, *, has_token: bool,
+                     refused: str = "") -> str:
     """What a person reads when Jira took a call as nobody's: the 404 it answered, and `GET myself`
     401. THE CAUSE COMES FIRST, because the job's preflight and the card's door keep only the
     first 120 characters of it; the path, which can be long, comes after. The token is never in it.
@@ -125,6 +126,11 @@ def _not_one_account(email: str, method: str, path: str, *, has_token: bool) -> 
     wrong mistake."""
     seen = (f"Jira answered {method} {path} 404 as it does an anonymous request, and GET myself "
             f"401.")
+    if refused:
+        # THE CREDENTIAL STORE REFUSED IT (#742): "set JIRA_API_TOKEN" would name a variable that
+        # is not read in its place. The refusal names the reference and why, never a value.
+        return (f"jira: the API token for {email} is refused by the credential store — "
+                f"{refused}. {seen} Nothing is used in its place; fix what the refusal names.")
     if not has_token:
         # The variable a project that names no `token_env` reads is the credential row's default
         # (review round 1, 2026-10-19: the sentence named only `token_env`, which such a project
@@ -245,11 +251,14 @@ class JiraTracker:
                  status_map: dict[str, str] | None = None, issue_type: str = "Task",
                  not_delivered_resolution: str = "", not_delivered_status: str = "",
                  intake_status: str = "", language: str | None = None,
-                 scope_jql: str = "") -> None:
+                 scope_jql: str = "", refused: str = "") -> None:
         self.site = site.rstrip("/")
         self.project_key = project_key
         self.email = email
         self.token = token
+        #: why the credential store refused this tracker's token, when it did (#742): the
+        #: anonymous answer it gets then says the refusal instead of naming a variable to set
+        self.refused = refused
         self.status_map = status_map or {}
         #: configurable because Jira localises issue types: a pt-BR site calls it "Tarefa", and a
         #: hardcoded "Task" would 400 on every create for exactly the clients this is sold to
@@ -320,7 +329,8 @@ class JiraTracker:
             # 404 asks it once.
             if exc.code == 404 and self._who_is_asking():
                 raise JiraRefused(_not_one_account(self.email, method, path,
-                                                   has_token=bool(self.token)),
+                                                   has_token=bool(self.token),
+                                                   refused=self.refused),
                                   code=401) from exc
             raise JiraRefused(f"jira {method} {path} failed: {exc.code} {detail}",
                               code=int(exc.code)) from exc

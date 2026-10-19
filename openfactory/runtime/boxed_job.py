@@ -399,7 +399,12 @@ def _emit(result) -> None:
 
 def main() -> int:
     from openfactory.contracts import JobState, RunResult
-    from openfactory.credentials import deployment_forge_token, forge_token, forge_token_for
+    from openfactory.credentials import (
+        axis_refusal,
+        deployment_forge_token,
+        forge_token,
+        forge_token_for,
+    )
 
     issue = os.environ.get("OPENFACTORY_ISSUE", "")
     try:
@@ -430,9 +435,13 @@ def main() -> int:
         # project NAMES has to actually reach the container. `forge_token_for` logs a warning when
         # it names one and finds it empty, which is the honest failure — a 401 that says which
         # variable was expected beats a 401 that says nothing.
-        token = (forge_token_for(_project_for(cfg, repo_dir=None))
-                 or forge_token()             # honour OPENFACTORY_BOT_TOKEN for the GitHub path
-                 or deployment_forge_token(_project_for(cfg, repo_dir=None)))
+        # …AND NOTHING AFTER A REFUSAL (#822): the deployment's pair and the mint are the steps
+        # after the project's own reference, so a refused one is answered by neither.
+        carried = _project_for(cfg, repo_dir=None)
+        token = (forge_token_for(carried)
+                 or (None if axis_refusal(carried, "forge")
+                     else forge_token())      # honour OPENFACTORY_BOT_TOKEN for the GitHub path
+                 or deployment_forge_token(carried))
         phase = os.environ.get("OPENFACTORY_PROMOTE_PHASE")
         if os.environ.get("OPENFACTORY_REVIEW_PASS"):
             # BEFORE the repair branch, and that ordering is the guard: a re-review must never be

@@ -771,11 +771,11 @@ def _tracker_for(project):
     this, so a client on Jira changes one registry value and nothing in this file."""
     from openfactory.adapters.tracker.registry import build_tracker
     from openfactory.credentials import tracker_token_for
-    from openfactory.factory import _bot_token_provider
+    from openfactory.factory import bot_token_provider_for
 
     tok = tracker_token_for(project)
     return build_tracker(project, token=tok,
-                         token_provider=None if tok else _bot_token_provider())
+                         token_provider=None if tok else bot_token_provider_for(project, "tracker"))
 
 
 def _sizer_result_text(res) -> str:
@@ -2362,14 +2362,14 @@ def _forge_for(project):
     changes one registry value and nothing in this file."""
     from openfactory.adapters.forge.registry import build_forge
     from openfactory.credentials import forge_token_for
-    from openfactory.factory import _bot_token_provider
+    from openfactory.factory import bot_token_provider_for
 
     # PER PROJECT, because one deployment hosts N projects and they no longer share a forge. The
     # process-wide `forge_token()` that stood here is a GitHub credential on every deployment that
     # sets OPENFACTORY_BOT_TOKEN, and this is the helper EVERY forge read in this file goes through.
     tok = forge_token_for(project)
     return build_forge(project, token=tok,
-                       token_provider=None if tok else _bot_token_provider())
+                       token_provider=None if tok else bot_token_provider_for(project, "forge"))
 
 
 @activity.defn
@@ -3645,7 +3645,7 @@ async def scan_todo(inp: ScanInput) -> list[str]:
     """Issue numbers currently in the board's pickup column (read-only)."""
     from openfactory.box_prove import announce_gate, clear_gate_announcement, gate_reason
     from openfactory.credentials import tracker_token_for
-    from openfactory.factory import _bot_token_provider
+    from openfactory.factory import bot_token_provider_for
 
     project = ProjectRegistry().get(inp.project)
 
@@ -3704,7 +3704,7 @@ async def scan_todo(inp: ScanInput) -> list[str]:
 
     tok = tracker_token_for(project)
     if not tok:
-        prov = _bot_token_provider()
+        prov = bot_token_provider_for(project, "tracker")
         tok = prov() if prov else None
     # Through the FACTORY: `ScanInput` already carries the project, so the poller never needs to
     # know which vendor keeps the columns — the registry decides.

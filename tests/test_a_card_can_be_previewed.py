@@ -465,3 +465,23 @@ def test_only_an_unknown_name_reads_as_a_missing_network(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", other)
     assert api._resolves("http://web--acme--12:3000") is True, "never invent a missing network"
     assert api._resolves("") is True
+
+
+def test_a_preview_key_the_credential_store_refuses_signs_no_link_and_says_so(
+        panel, monkeypatch, tmp_path):
+    """A refused key is never replaced by the process's own (#822), and the card's preview read
+    answers a sentence for it — not a raw 500."""
+    from openfactory.api import app as api
+
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    secrets.chmod(0o700)
+    held = secrets / "OPENFACTORY_PREVIEW_SECRET"
+    held.write_text("fictitious-preview-key")
+    held.chmod(0o664)  # refused on a writable mount
+    monkeypatch.setenv("OPENFACTORY_CREDENTIAL_STORE", "file")
+    monkeypatch.setenv("OPENFACTORY_CREDENTIAL_DIR", str(secrets))
+
+    r = panel.get("/api/preview/acme/12")
+    assert r.status_code == 503 and r.json()["detail"] == api.PREVIEW_KEY_UNAVAILABLE
+    assert "fictitious-preview-key" not in r.text
