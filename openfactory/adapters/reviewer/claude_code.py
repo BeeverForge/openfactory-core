@@ -3,6 +3,10 @@
 Runs in plan mode (no mutations) with a prompt that contains ONLY spec + diff +
 validation results, and is asked to emit a ReviewResult JSON. Same engine as the
 executor, fresh context — so it does not defend the executor's original decision.
+
+It streams like the executor (`--output-format stream-json --verbose`), so a wrapper in
+front of `claude` sees the review's events, its `rate_limit_event` included; the verdict,
+its cost, turns and tokens are read from the stream's terminal result event.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import shlex
 from openfactory.adapters.agent.base import (
     PromptTooLarge,
     json_envelope,
+    result_event,
     stage_prompt,
 )
 from openfactory.adapters.agent.claude_code import NO_MCP_SERVERS
@@ -87,18 +92,24 @@ class ClaudeCodeReviewer(ReviewerAdapter):
             timeout=_TIMEOUT,
         )
         try:
-            # THROUGH `json_envelope`, not `json.loads`. The CLI prints diagnostics above its
-            # envelope — a model substitution, an update notice, a login hint — and a bare parse
-            # dies on character one, reporting a fine diff as `rejected / score 0`.
-            envelope = json_envelope(out)
+            # THE STREAM'S LAST RESULT EVENT, then the single envelope. The review streams so a
+            # wrapper in front of `claude` (account rotation, quota benching, auditing) sees its
+            # `rate_limit_event`s as it sees the executor's; the stream opens with an init event,
+            # which `json_envelope` would return, so the terminal `type == "result"` is read
+            # instead. A CLI that answers with one envelope without a `type` (every test double,
+            # an older CLI) still reads through `json_envelope`, which skips the diagnostics a CLI
+            # prints above it — a bare `json.loads` dies on character one of a banner.
+            envelope = result_event(out) or json_envelope(out)
             if envelope is None:
                 raise ValueError("no JSON envelope in the reviewer's output")
             review = ReviewResult(**json.loads(_extract_json(str(envelope.get("result", "")))))
-            # WHAT IT COST. `claude -p --output-format json` reports it in the same envelope this
-            # already parses, and the value was thrown away — so the PR's `Cost:` line was the
-            # executor alone while presenting itself as the ticket's cost, on every ticket, with
-            # review on by default. `usage` is the CLI's own shape; absent keys stay None, because
-            # unknown must not become zero (a free-looking harness wins every comparison).
+            # WHAT IT COST. The CLI reports it in the object this already parses — the stream's
+            # result event carries the same keys as the `--output-format json` envelope
+            # (`total_cost_usd`, `num_turns`, `usage`; measured on 2.1.219, 2026-10-19), so the
+            # PR's `Cost:` line reads the same value either way; nothing is summed over the
+            # assistant messages' own `usage`. `usage` is the CLI's own shape; absent keys stay
+            # None, because unknown must not become zero (a free-looking harness wins every
+            # comparison).
             usage = envelope.get("usage") if isinstance(envelope.get("usage"), dict) else {}
             return review.model_copy(update={
                 "cost_usd": envelope.get("total_cost_usd"),
@@ -164,7 +175,11 @@ class ClaudeCodeReviewer(ReviewerAdapter):
         # small enough for an argument.
         head = ([f"cat {shlex.quote(prompt_path)} |", harness, "-p"] if prompt_path
                 else [harness, "-p", shlex.quote(prompt)])
-        cmd = [*head, "--output-format", "json", "--permission-mode", "plan",
+        # `--verbose` is not optional: 2.1.219 refuses `stream-json` under `-p` without it
+        # (`... requires --verbose`, exit 1), which would turn every review into "could not be
+        # parsed". The prompt stays on stdin or right after `-p`: `--mcp-config` is variadic and
+        # would take a word after it as a config path.
+        cmd = [*head, "--output-format", "stream-json", "--verbose", "--permission-mode", "plan",
                # NO MCP SERVER OF THE ACCOUNT: the reviewer builds its own command, and was the one
                # Claude role still started with every server the account running the CLI reaches.
                *(shlex.quote(a) for a in NO_MCP_SERVERS)]
