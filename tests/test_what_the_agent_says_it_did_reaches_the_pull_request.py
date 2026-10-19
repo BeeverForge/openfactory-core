@@ -470,7 +470,6 @@ def test_a_reference_link_the_agent_defines_still_shows_its_address():
     assert "https://x.test/runs/a_b" in re.sub(r'href="[^"]*"', "", html), html
 
 
-
 @pytest.mark.parametrize("said", ["See [the run][1].\n\n- [1]: https://x.test/runs/a_b",
                                   "See [the run][1].\n\n   [1]: https://x.test/runs/a_b",
                                   "See [the run][1].\n\n1. [1]: https://x.test/runs/a_b"])
@@ -480,6 +479,8 @@ def test_a_reference_the_agent_defines_in_a_list_or_indented_still_shows_its_add
     markdown_it = pytest.importorskip("markdown_it", reason="markdown-it-py renders the body")
     html = markdown_it.MarkdownIt("commonmark").render("\n".join(machine._quoted(said)))
     assert "https://x.test/runs/a_b" in re.sub(r'href="[^"]*"', "", html), html
+
+
 @pytest.mark.parametrize("said", ["see https://x.test/a`@someone` here", "https://x.test/a\\`@someone"])
 def test_a_backtick_in_a_link_the_agent_writes_never_closes_its_span(said: str):
     """Review on 3c6d12c: a bare link's span admitting the agent's backtick survived every test.
