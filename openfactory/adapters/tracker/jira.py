@@ -734,7 +734,14 @@ class JiraTracker:
 
     def find_ticket(self, *, title: str) -> str | None:
         """An OPEN issue with exactly this summary. JQL escaping matters here: a title with a
-        quote in it would otherwise break the query — or, worse, match the wrong issue."""
+        quote in it would otherwise break the query — or, worse, match the wrong issue.
+
+        WITHIN `scope_jql`, because this is the idempotency check of every impediment, every
+        product filing and every split child: unscoped, an open issue with the same summary
+        anywhere in a Jira project shared by several registry projects was read as this project's
+        earlier filing, and its work was attached to another project's ticket (#752). Within the
+        slice it finds only this project's — which is why the factory's new tickets must land
+        inside the scope (docs/reference/configuration.md)."""
         escaped = title.replace("\\", "\\\\").replace('"', '\\"')
         # within the project's slice: unscoped, an open issue outside it with the same title was
         # read as this project's earlier filing and reused (#752)
@@ -773,6 +780,10 @@ class JiraTracker:
         OPEN VERSUS CLOSED IS `statusCategory`, NEVER A STATUS NAME — the same rule `get_ticket`
         follows, and the reason this deployment's Jira board can have a done column spelled
         "Donee" (it does) without the platform reading live work as delivered.
+
+        WITHIN `scope_jql`: the panel, the product role and `forget` read this project's slice of
+        a Jira project it may share with other registry projects, not the whole of it (#752).
+        The emptiness check after the walk stays unscoped — see `_project_exists`.
         """
         wanted = list_state(state)
         # the project's slice of a shared Jira project, not all of it (#752)
@@ -844,6 +855,10 @@ class JiraTracker:
         mismatched pair's bounded `search/jql` is 200 and empty and `project/<KEY>` is 404): the
         log line names the pair, the board still reads as None, and the empty board costs 3
         requests instead of 2.
+
+        UNSCOPED BY `scope_jql`, deliberately: a slice with nothing in it is an empty board of a
+        project that exists, not a missing project. Asking "does the slice exist" would read every
+        empty slice as unreadable (the review of #258 named this; #752 keeps it).
         """
         try:
             self._call("GET", f"project/{self.project_key}")
@@ -1042,6 +1057,11 @@ class JiraTracker:
                      child_ref, parent_ref, exc)
 
     def children_of(self, parent_ref: str) -> list[str]:
+        """The keys of `parent_ref`'s children, by `parent = "<KEY>"`.
+
+        Unscoped by `scope_jql`: it reads by the parent's key, not the board, and a child outside
+        the slice is still the parent's child — scoped, the splitter would miss it and fall back
+        to matching by title (#752)."""
         try:
             found = self._call("POST", "search/jql",
                                {"jql": f'parent = "{parent_ref}"', "maxResults": 50,

@@ -20,6 +20,15 @@ invent a transition the project's workflow does not offer).
 `ORDER BY Rank` is not decoration: the protocol says board order, and a Jira backlog IS ranked by
 the humans who groomed it. Falling back to key order would hand the factory whatever was created
 first, which is the opposite of what a groomed backlog means.
+
+ONE JIRA PROJECT, SEVERAL REGISTRY PROJECTS. "The query is what the poller wants" holds only if the
+query is this project's: where several repositories share one Jira project, the tracker's
+`scope_jql` (`labels = "of-api"`) is ANDed, in parentheses, onto every search here — `columns`,
+`items_in_status`, and through it `place_after` — read with `getattr`, so the board port does not
+learn it. Unset, the JQL is exactly `project = "<KEY>" …` as before. Without it about nineteen
+projects on one Jira project each read all of it as their queue, and one ticket was picked up by
+three of them in one night (#752, v0.6.0-rc.2). The workflow's statuses and every move by key stay
+unscoped: they are the project's, not the slice's.
 """
 
 from __future__ import annotations
