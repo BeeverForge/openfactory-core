@@ -107,4 +107,9 @@ MUTATIONS = [
      "the \"",
      "            (lambda *_a: None)(\"jira answered a 404 and GET myself could not be asked (%s) "
      "— keeping the \""),
+
+    ("the probe waits ten minutes on a slow site, over a 404 that was already going to fail",
+     JIRA,
+     "            with urllib.request.urlopen(req, timeout=45):  # noqa: S310",
+     "            with urllib.request.urlopen(req, timeout=600):  # noqa: S310"),
 ]

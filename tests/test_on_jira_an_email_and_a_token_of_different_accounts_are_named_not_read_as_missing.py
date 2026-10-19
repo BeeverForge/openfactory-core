@@ -95,6 +95,7 @@ class _Site:
         self.routes = routes or {}
         self.myself = myself
         self.requests: list[tuple[str, str, str | None]] = []   # method, path?query, Authorization
+        self.timeouts: list[float] = []                         # what each request was given
 
     def asked(self, path: str) -> int:
         return sum(1 for _method, asked, _auth in self.requests if asked == path)
@@ -105,12 +106,13 @@ class _Site:
         raise urllib.error.HTTPError(req.full_url, code, "refused", hdrs=None,
                                      fp=io.BytesIO(json.dumps(payload, ensure_ascii=False).encode()))
 
-    def urlopen(self, req, timeout=0):  # noqa: ARG002 — urllib's own signature
+    def urlopen(self, req, timeout=0):
         method = req.get_method()
         parts = urlsplit(req.full_url)
         assert f"{parts.scheme}://{parts.netloc}" == SITE, req.full_url
         path = parts.path + (f"?{parts.query}" if parts.query else "")
         self.requests.append((method, path, req.get_header("Authorization")))
+        self.timeouts.append(timeout)
         if path == MYSELF and method == "GET":
             if self.asked(MYSELF) > 3:
                 raise AssertionError("GET myself asked again and again: the probe recursed")
@@ -191,6 +193,19 @@ def test_myself_is_asked_with_the_same_credential_as_the_call_that_404d(site):
     (issue_auth, myself_auth) = [auth for _m, _p, auth in jira.requests]
     assert issue_auth and issue_auth.startswith("Basic ")
     assert myself_auth == issue_auth
+
+
+def test_myself_waits_no_longer_than_the_call_that_404d(site):
+    """C1, the cost a slow site adds: the probe is given the call's own timeout, so a 404 waits at
+    most twice that (45 s each, the `_call` docstring's "up to 45 s"). Nothing held it on a685021:
+    a probe given 600 s survived the plan (review round 1)."""
+    jira = site(routes={("GET", ISSUE): 404}, myself=401)
+
+    with pytest.raises(JiraRefused):
+        _tracker().get_ticket(REF)
+
+    (call, probe) = jira.timeouts
+    assert call and probe == call, jira.timeouts
 
 
 def test_a_404_on_the_agile_api_asks_myself_of_the_core_api(site):
