@@ -4401,7 +4401,12 @@ class ProductModule:
         before it, the first at the top of the queue.
 
         WHAT IT ANSWERS IS SAID IN THE CONVERSATION'S LANGUAGE, the card named as its tracker names
-        it (`voice.board_move_said`, #497): `CONT-412` on Jira, never `#CONT-412`."""
+        it (`voice.board_move_said`, #497): `CONT-412` on Jira, never `#CONT-412`.
+
+        A CARD THE BOARD DID NOT RETURN IS ASKED ABOUT, as the edit/close/remove gate asks
+        (`actions/catalog.py::_stage`, #752): under a Jira `scope_jql` the read is this project's
+        slice, and a card outside it — another project's, perhaps running — is refused by name
+        (`holds` answers `False`) or as an unreachable board (`None`), never queued."""
         from openfactory.product.voice import board_move_said
 
         lang = getattr(self.project, "language", None)
@@ -4430,6 +4435,16 @@ class ProductModule:
             where = None
         out: list[WriteResult] = []
         for number in numbers:
+            # ANOTHER PROJECT'S CARD (review round 2 of #752): `where` is this project's slice of a
+            # shared tracker, and the move below reaches the card by key — what `_stage` asks, asked
+            if where is not None and not where.get(str(number)):
+                holds = getattr(board, "holds", None)
+                inside = holds(str(number)) if callable(holds) else True
+                if inside is not True:
+                    out.append(WriteResult(ok=False, ref=f"#{number}", detail=board_move_said(
+                        "outside_the_slice" if inside is False else "unreachable",
+                        ref=number, project=getattr(self.project, "name", ""), language=lang)))
+                    continue
             try:
                 # THROUGH THE CARD'S DOOR (ADR-0055, #414): placed in the queue by the board's own
                 # name for it (#496), recorded, and the role's snapshot forgotten by the transition

@@ -16,7 +16,9 @@ The claims, each held by a test this plan cuts under:
   - the edit/close/remove gate asks a scoped board whether a card it did not return is in the
     slice (`JiraProjectBoard.holds`), refuses one that is not by name, naming the scope, and
     refuses as unreadable when that search cannot be made; an unscoped board asks nothing more
-    (review round 1 of #752).
+    (review round 1 of #752);
+  - the product role's queueing asks the same of a card its board read did not return, and
+    refuses another project's card rather than move it back into the queue (review round 2).
 """
 
 TEST = "tests/test_several_projects_on_one_jira_project_read_only_their_own_slice.py"
@@ -25,6 +27,7 @@ JIRA = "openfactory/adapters/tracker/jira.py"
 REGISTRY = "openfactory/adapters/tracker/registry.py"
 DOCS = "docs/reference/configuration.md"
 CATALOG = "openfactory/actions/catalog.py"
+PRODUCT = "openfactory/product/module.py"
 SLICE = TEST
 EMPTY = "tests/test_an_empty_slice_of_a_jira_project_is_not_a_missing_project.py"
 FILED = "tests/test_a_ticket_another_project_filed_on_one_jira_project_is_not_read_as_already_filed.py"
@@ -131,4 +134,10 @@ MUTATIONS = [
      "f\"{f' ({within})' if within else ''}, so {proj.name} cannot tell",
      "f\", so {proj.name} cannot tell",
      f"{SLICE}::test_a_card_outside_the_slice_is_refused_by_name_naming_the_scope"),
+
+    ("the product role's queueing ignores `holds`, and another project's running card is moved "
+     "back into the queue", PRODUCT,
+     "                inside = holds(str(number)) if callable(holds) else True\n",
+     "                inside = True\n",
+     f"{SLICE}::test_another_projects_running_card_is_not_queued_from_this_one"),
 ]

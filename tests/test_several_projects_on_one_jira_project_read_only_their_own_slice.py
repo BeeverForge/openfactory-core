@@ -435,3 +435,71 @@ def test_an_unscoped_jira_boards_gate_asks_nothing_more(site, tmp_path):
 
     assert _gate(project, board, "DAR-7") == {"edit": "", "close": "", "remove": ""}
     assert jira.searches == [f'project = "{KEY}" ORDER BY Rank ASC'] * 3, jira.searches
+
+
+def test_another_projects_running_card_is_not_queued_from_this_one(tmp_path, monkeypatch):
+    """`ProductModule.promote` hands the door the board it read (`columns=board.columns()`), and
+    under a scope that read leaves out another project's card, which the queueing move still
+    reaches by key. Such a card must not read as one no board places: queueing web's running card
+    from api puts it back in web's queue, and web's poller takes it a second time."""
+    import json
+    import re
+    import urllib.parse
+
+    from openfactory.adapters.board import build_board
+    from openfactory.adapters.tracker.registry import build_tracker
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.product.config import ProductLink
+    from openfactory.product.loader import ProductContext
+    from openfactory.product.module import ProductModule
+    from tests.test_card_maintenance import COMMIT, REQUIREMENTS_DIR, _corpus, _Harness
+
+    where = {"DAR-1": ("of-api", "Backlog"), "DAR-2": ("of-web", "Em andamento")}
+    moved: list[str] = []
+
+    def urlopen(req, timeout=0):
+        split = urllib.parse.urlsplit(req.full_url)
+        if "search/jql" in split.path:
+            jql = (urllib.parse.parse_qs(split.query)["jql"][0] if req.get_method() == "GET"
+                   else json.loads(req.data)["jql"])
+            label = re.search(r'labels = "([^"]+)"', jql)
+            key = re.search(r'key = "([^"]+)"', jql)
+            keys = [k for k, (lab, _) in where.items()
+                    if (label is None or lab == label.group(1)) and (key is None or k == key.group(1))]
+            return _Answer({"isLast": True, "issues": [
+                {"key": k, "fields": {"status": {"name": where[k][1]}}} for k in keys]})
+        issue = re.search(r"issue/(DAR-\d+)(/transitions)?$", split.path)
+        if issue is None:
+            return _Answer({})
+        if issue.group(2) and req.get_method() == "POST":
+            moved.append(issue.group(1))
+            return _Answer({})
+        if issue.group(2):
+            return _Answer({"transitions": [{"id": "11", "name": "A Fazer",
+                                             "to": {"name": "A Fazer"}}]})
+        lab, status = where[issue.group(1)]
+        return _Answer({"key": issue.group(1), "fields": {
+            "summary": "web's card", "description": None, "labels": [lab],
+            "status": {"name": status, "statusCategory": {"key": "indeterminate"}}}})
+
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "metrics.db"))
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    sm = {"backlog": "Backlog", "todo": "A Fazer", "in_progress": "Em andamento", "done": "Concluído"}
+    api = Project(name="api", repo_path=str(tmp_path), tracker=ProviderRef(
+        kind="jira", repo="DAR", options={"site": SITE, "email": "a@b.c",
+                                          "status_map": json.dumps(sm), "scope_jql": API}),
+        product=ProductConfig(docs_repo="acme/acme-docs", admins=["ana"], agent_name="Nina"))
+    ctx = ProductContext(link=ProductLink(active=True, docs_repo="acme/acme-docs", kind="ok",
+                                          reason="fine"),
+                         corpus=_corpus(), docs_path=str(tmp_path), docs_commit=COMMIT,
+                         requirements_dir=REQUIREMENTS_DIR)
+    module = ProductModule(api, context=ctx, agent=_Harness("{}"),
+                           tracker=build_tracker(api, token="t"), board=build_board(api, token="t"))
+
+    [result] = module.promote(["DAR-2"], actor="ana")
+
+    assert not result.ok, "another project's running card was queued from this one"
+    assert "DAR-2" in result.detail and "api" in result.detail, result.detail
+    assert moved == []

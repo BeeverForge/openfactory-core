@@ -193,8 +193,8 @@ nothing in it reads as an empty board, and a project that is not there still rea
 Single-quote it in YAML, because JQL quotes with `"`. Unset, or blank, the queries are exactly
 those of a project without it.
 
-**A scoped project acts only on its own cards.** Editing, closing or removing a card first
-asks where it sits, and a card outside the slice is not on this project's board. So the factory
+**A scoped project acts only on its own cards.** Editing, closing, removing or queueing a card
+first asks where it sits, and a card outside the slice is not on this project's board. So the factory
 asks Jira once more, `project = "DAR" AND (<scope>) AND key = "<card>"`, and refuses a card that
 is not in the slice by name: it is another project's card, and only that project can tell whether
 a job is on it — act on it from there. If that search cannot be made, the action is refused as
