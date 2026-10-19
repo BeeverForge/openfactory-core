@@ -99,6 +99,11 @@ MUTATIONS = [
      "    owner = common\n",
      NOT_OURS),  # review of 35ac306
 
+    ("a clone at the path is named as a plain directory", BOX,
+     '            return "repository", "", False\n',
+     '            return "directory", "", False\n',
+     NOT_OURS),  # review of 1046e69
+
     ("the paths in the sentence are not shell-quoted", BOX,
      '    where, mine = shlex.quote(path), "<a path of yours>"\n',
      '    where, mine = path, "<a path of yours>"\n',
