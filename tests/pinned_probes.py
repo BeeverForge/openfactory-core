@@ -159,6 +159,11 @@ GREEN_ANSWERS: dict[str, Any] = {
     # set reads the machine. The `guidelines` line then reads the manifest's text and says so — an
     # `ok` finding. A test about a link committed in the repository builds a real one and names it.
     "checkout": lambda: None,
+    # An App installation on the one organisation the registry names (#743) — the line reads the
+    # account and compares. A test about no App, a spanning registry or another organisation
+    # names its own scope.
+    "installation_scope": lambda: doctor.InstallationScope(by_owner={"acme": ["demo"]},
+                                                           installed=("acme", "")),
 }
 
 

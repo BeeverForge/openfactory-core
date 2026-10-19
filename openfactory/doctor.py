@@ -27,6 +27,13 @@ parks. Nobody is told the two policies disagree. IT IS SAID BY `_merge_gates`, f
 forge's row lists. Until 2026-09-19 it was a check of its own, which asked the forge a question no
 row had ever answered and so could not fail (see there).
 
+ONE CHECK READS THE WHOLE REGISTRY, NOT THIS PROJECT: `installation_scope` (#743). The forge's
+App installation is one process-wide setting, and an installation belongs to one organisation,
+so whether it can reach this project's repositories is a fact about every project the deployment
+serves: a registry that spans two organisations fails here whichever project is asked about, in
+the sentence the registry's load path logs, and otherwise the installation's own account is read
+(the App's JWT, nothing minted) and compared with the one organisation the registry names.
+
 WHY PROBES ARE INJECTED. Every environmental fact arrives as a callable, so each branch is
 reachable in a test without Docker, a network, or a GitHub App. A doctor that could only be
 exercised on a healthy machine would be a doctor nobody could prove reports illness — which is the
@@ -236,6 +243,16 @@ RESULTS = ("ok", "fail")
 #: where a step AHEAD answers it (the manifest at §3, the box proof at §5); red for a real cause.
 VERDICTS = ("ok", "expected", "not_ready")
 
+#: The id of the line that compares the App installation's account with the registry's
+#: organisations (#743). A constant because the registry's docstring promises the check by this
+#: name, and a test reads both.
+INSTALLATION_SCOPE = "installation_scope"
+
+#: How a line BEGINS when its check does not apply to this deployment. `RESULTS` has no third
+#: state (decided 2026-10-19: `openfactory.doctor/1` stays), so such a line is `ok` and says it
+#: was not applicable first, before anything a reader could take for a verified fact.
+NOT_APPLICABLE = "not applicable — "
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -326,6 +343,18 @@ def as_document(report: Report, *, project: str, build: tuple[str, str] = ("", "
             for f in report.findings
         ],
     }
+
+
+@dataclass
+class InstallationScope:
+    """What the `installation_scope` line compares (#743): the registry's GitHub organisations
+    and the account the deployment's App installation is on."""
+
+    #: `registry.owners_by_project` over the WHOLE registry — `{owner: [project names]}`
+    by_owner: dict[str, list[str]]
+    #: `credentials.app_installation_account()`: `None` when no App is configured — or when the
+    #: registry spans, where it is not asked — `(login, "")` when read, `(None, reason)` when not
+    installed: tuple[str | None, str] | None
 
 
 def as_json(document: dict) -> str:
@@ -507,6 +536,11 @@ class Probes:
     #: option is `columns` on one row and `status_map` on another. None = an older Probes; the
     #: check is skipped rather than invented.
     board_stages: Callable[[], tuple[dict[str, str], str] | None] | None = None
+    #: The registry's organisations and the account the App installation is on
+    #: (`InstallationScope`), for the `installation_scope` line (#743). Read over the WHOLE
+    #: registry, because the installation is the deployment's. None = an older Probes; the check
+    #: is skipped rather than invented.
+    installation_scope: Callable[[], InstallationScope] | None = None
 
 
 #: The remedy every check inherits when it could not run because the manifest is not written yet.
@@ -583,6 +617,9 @@ def diagnose(probes: Probes) -> Report:
             "api_budget", lambda: _api_budget(probes, pickup_held=_pickup_is_held(probes, gate))))
     findings.extend([
         _guarded("forge_access", lambda: _forge(probes)),
+        # The forge credential's SCOPE, so it reads beside its presence (#743).
+        *([_guarded(INSTALLATION_SCOPE, lambda: _installation_scope(probes))]
+          if probes.installation_scope else []),
         *([_guarded("box_identity", lambda: Finding("box_identity", *probes.box_identity()))]
           if probes.box_identity else []),
         _guarded("board_columns", lambda: _board(probes)),
@@ -1526,6 +1563,19 @@ def _floor(p: Probes) -> Finding:
         "a run whose gates are empty reports green having proven nothing. Add the gate the message "
         "names; `advisory: true` is enough, so it never blocks a merge.",
     )
+
+
+def _installation_scope(p: Probes) -> Finding:
+    """The App installation's account against the registry's organisations (#743).
+
+    THE WORDS ARE THE REGISTRY'S (`installation_scope_line`), beside the spanning sentence the
+    load path logs: they name one vendor's App, and a vendor's words do not live in this module
+    (`tests/test_a_provider_is_named_by_its_own_row.py`)."""
+    from openfactory.registry import installation_scope_line
+
+    scope = p.installation_scope()
+    ok, message, remedy = installation_scope_line(scope.by_owner, scope.installed)
+    return Finding(INSTALLATION_SCOPE, ok, message, remedy)
 
 
 def _forge(p: Probes) -> Finding:
@@ -3043,6 +3093,18 @@ def probes_for(project) -> Probes:
             return None
         return root if root.is_dir() else None
 
+    def _installation_scope_probe() -> InstallationScope:
+        """The whole registry's organisations, and the App installation's account — asked only
+        when the registry does not span: the spanning sentence already says everything, and
+        asking would spend a network read (bounded at ten seconds) on a settled question."""
+        from openfactory.credentials import app_installation_account
+        from openfactory.registry import ProjectRegistry, owners_by_project
+
+        by_owner = owners_by_project(ProjectRegistry().list())
+        if len(by_owner) > 1:
+            return InstallationScope(by_owner=by_owner, installed=None)
+        return InstallationScope(by_owner=by_owner, installed=app_installation_account())
+
     return Probes(
         docker_running=_docker_running,
         ci_checks=_ci_checks,
@@ -3079,6 +3141,7 @@ def probes_for(project) -> Probes:
         product_reading=_reading_probe if getattr(project, "product", None) else None,
         inlined_documents=_inlined_documents,
         checkout=_checkout,
+        installation_scope=_installation_scope_probe,
     )
 
 
