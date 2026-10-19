@@ -208,7 +208,7 @@ marked as such.
   now sees the kept blank lines, fix the **expectation** only when the new string is what the
   factory wrote (task 3's property), and name each such change in the PR. A change elsewhere is a
   finding: stop and report it.
-- [ ] 9. Against the real thing, the ADF schema: read the published ADF JSON schema
+- [x] 9. Against the real thing, the ADF schema: read the published ADF JSON schema
   (`@atlaskit/adf-schema`, record the version and URL in the PR) for `heading.attrs.level` (1..6),
   `listItem.content` (first child paragraph, then nested lists), `orderedList.attrs.order`,
   `hardBreak`, `codeBlock`, `taskList`. Confirm that the fixtures in task 1 are the shapes the
@@ -308,8 +308,22 @@ marked as such.
    Heading 3 for "Acceptance criteria" is still refused, as on GitHub, and `section_names` does not
    list such a heading in the refusal, so the refusal cannot point at it. This is a parser
    decision across all vendors.
-5. (only if task 9 finds it) `taskList`/`taskItem` in a description: the text is read, but it is
-   not a `- [ ]` criterion.
+5. **An action-item list (`taskList`) or a decision list in a Jira description is read as bare
+   lines, not criteria** (found by task 9 against `@atlaskit/adf-schema` 57.7.18, measured
+   2026-10-19 on the block renderer). In the schema a `taskItem` / `decisionItem` holds INLINE
+   content directly (no paragraph), with `attrs.state` `TODO`/`DONE`; a `blockTaskItem` holds
+   paragraphs; a `taskList` nests a `taskList`. The renderer has no case for them, so the generic
+   walk reaches their `text` nodes at block level and draws each run as its own line, with no
+   `- `, no `[ ]`/`[x]` and no blank after the list:
+   `[heading AC, taskList[taskItem("the ", code "x", " is created"), taskItem(DONE "done one")], p "after"]`
+   → `'## Acceptance criteria\nthe \nx\n is created\ndone one\nafter'`, `criteria == []`; a
+   `decisionList` reads `'## Acceptance criteria\nwe decided'`, `criteria == []`. The text is read
+   (ADR-0022 holds) and it read the same way on 1be1835, so nothing regresses. Left out of #751
+   because the fix is a decision the issue does not make: draw an action item as `- [ ] x` /
+   `- [x] x` (GitHub's shape; the parser then keeps `[ ] ` in the criterion's text,
+   `parse._keyword:271` strips it only to find a Gherkin keyword) or as `- x`, and whether a DONE
+   item is still a criterion. A `taskList` INSIDE a list item is already drawn as that item's `- `
+   line by this PR.
 
 ## Notes
 - Scope: `jira.py` `_text` only, plus tests, the plan, the ADR-0022 note, the docstrings and the

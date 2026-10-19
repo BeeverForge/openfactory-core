@@ -252,6 +252,33 @@ def test_a_list_item_of_two_paragraphs_is_one_criterion():
     assert criteria(_read(_AC, item)) == ["first second"]
 
 
+#: A `mediaSingle` (an image) as the ADF schema allows it in a `listItem`. It carries no text.
+_IMAGE = {"type": "mediaSingle", "attrs": {"layout": "center"}, "content": [
+    {"type": "media", "attrs": {"type": "file", "id": "image", "collection": "attachments"}}]}
+
+
+@pytest.mark.parametrize("opening, expected", [
+    pytest.param({"type": "codeBlock", "attrs": {"language": "bash"},
+                  "content": [_t("make test passes")]}, ["make test passes"], id="code-block"),
+    pytest.param(_IMAGE, ["the logo is shown"], id="image-then-paragraph"),
+    pytest.param(_ul("child"), ["child"], id="nested-list"),
+])
+def test_a_list_item_that_opens_with_another_block_is_still_a_criterion_of_its_own(
+        opening, expected):
+    """C2, whatever block the item opens with. `@atlaskit/adf-schema` 57.7.18 (2026-10-19) lets a
+    `listItem` open with a `codeBlock`, a `mediaSingle`, a `taskList` or a nested list, not only a
+    paragraph. The renderer drew `- ` only before a FIRST-CHILD PARAGRAPH, so an item opening with a
+    code block read as a bare line under the item above, and lazy continuation (#163) glued the two:
+    `["a make test passes", "c"]`; an item opening with an image lost its `- ` the same way. The
+    nested-list param is green on that renderer ON PURPOSE: its items already draw their own `- `,
+    and the guard is that the fix does not draw a second one (`- - child`)."""
+    rest = [_p("the logo is shown")] if opening is _IMAGE else []
+    bullets = _ul("a", {"type": "listItem", "content": [opening, *rest]}, "c")
+
+    assert _read(bullets) == "\n".join(f"- {i}" for i in ["a", *expected, "c"])
+    assert criteria(_read(_AC, bullets)) == ["a", *expected, "c"]
+
+
 # ── C4: a list ends on a blank line ────────────────────────────────────────────────────────────
 
 def test_a_paragraph_after_a_list_is_not_read_into_its_last_criterion():

@@ -7,7 +7,9 @@ The claims, each held by the test a row names (`JiraTracker._text`, the block re
     out-of-range level is a plain line. Held by the three heading tests in `TEST`, and through
     each vendor's `get_ticket` and the gate by `CROSS` (the jira params).
   - C2. Every list item, bulleted or numbered, nested or not, is a flat `- ` line, with its inline
-    marks on that line. Held by the list tests in `TEST`, and by `CROSS`.
+    marks on that line, whatever block it opens with (a paragraph, a code block, an image then a
+    paragraph, a nested list: all four are shapes `@atlaskit/adf-schema` 57.7.18 allows). Held by
+    the list tests in `TEST`, and by `CROSS`.
   - C4. A list ends on a blank line, so the paragraph after it is not read into its last
     criterion. Held by a schema-shaped document with no empty paragraph after the list, so the
     blank line can only come from the renderer, not from the editor's own empty paragraph (KAN-4).
@@ -32,9 +34,12 @@ _JOIN = 'return "".join(inline(child) for child in node)'
 _LIST_END = ("                if not nested:\n"
              "                    out.append(\"\")\n"
              "                    list_blank[0] = len(out) - 1\n")
-_NESTED = ("                else:\n"
-           "                    blocks(child, nested=True)\n"
-           "                first = False\n")
+# re-pinned 2026-10-19 (task 9): `item` now opens on whatever block gives its first line.
+_NESTED = ("                start = len(out)\n"
+           "                blocks(child, nested=True)\n")
+_OPENS = '                        out[start] = "- " + out[start]\n'
+_OWN_DASH = '                    if kind not in ("bulletList", "orderedList"):\n'
+_GAVE_A_LINE = "                if not opened and len(out) > start:\n"
 _EMPTY_PARAGRAPH = ("                out.append(line)\n"
                     "            elif kind == \"heading\":")
 _GENERIC = ("            else:\n"
@@ -80,10 +85,8 @@ MUTATIONS = [
 
     ("M7 a list nested in an item is skipped (stop descending, read literally)", JIRA,
      _NESTED,
-     ("                elif not (isinstance(child, dict)\n"
-      "                          and child.get(\"type\") in (\"bulletList\", \"orderedList\")):\n"
-      "                    blocks(child, nested=True)\n"
-      "                first = False\n"),
+     ("                if kind in (\"bulletList\", \"orderedList\"):\n"
+      "                    continue\n" + _NESTED),
      TEST + "::test_a_nested_list_item_is_a_criterion_of_its_own"),
 
     ("M8 an empty paragraph is dropped: the factory's blank lines are lost", JIRA,
@@ -127,4 +130,16 @@ MUTATIONS = [
      _PREFIX,
      'prefix = ("#" * level + " ") if type(level) is int else ""',
      TEST + "::test_a_heading_with_no_level_is_read_as_a_plain_line"),
+
+    ("M12 an item's - comes only from a first paragraph: a code block or image opens no item", JIRA,
+     _OPENS, "                        pass\n",
+     TEST + "::test_a_list_item_that_opens_with_another_block_is_still_a_criterion_of_its_own"),
+
+    ("M13 a nested list opening an item gets a second - before its own", JIRA,
+     _OWN_DASH, "                    if True:\n",
+     TEST + "::test_a_list_item_that_opens_with_another_block_is_still_a_criterion_of_its_own"),
+
+    ("M14 an image, which gives no line, is taken as the item's opening (raises IndexError)", JIRA,
+     _GAVE_A_LINE, "                if not opened:\n",
+     TEST + "::test_a_list_item_that_opens_with_another_block_is_still_a_criterion_of_its_own"),
 ]

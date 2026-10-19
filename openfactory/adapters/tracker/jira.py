@@ -248,8 +248,10 @@ class JiraTracker:
         - a `heading` is `#` × its level (1..6) plus all of its inline text on one line; a missing
           or out-of-range level is a plain line, never an invented heading;
         - every list item, bulleted or numbered, nested or not, is a flat `- ` line, the rule
-          `azure_devops._HtmlToMarkdown` already follows, so the vendors agree; an item's further
-          paragraphs sit on the lines below it, where lazy continuation (#163) joins them;
+          `azure_devops._HtmlToMarkdown` already follows, so the vendors agree; the `- ` goes on
+          the item's first line whatever block gives it (a paragraph, a code block, the paragraph
+          after an image); an item's further blocks sit on the lines below it, where lazy
+          continuation (#163) joins them;
         - a list ends on a blank line, or that same lazy continuation would read the paragraph the
           editor puts right after a list into its last criterion; the editor's own empty paragraph
           after a list is that blank, not a second one;
@@ -277,13 +279,24 @@ class JiraTracker:
             return inline(node.get("content") or [])
 
         def item(node) -> None:
-            first = True
+            # The item's first line is its `- `, whatever block gives it: the ADF schema
+            # (@atlaskit/adf-schema 57.7.18, read 2026-10-19) lets a listItem open with a codeBlock
+            # or an image, and drawing `- ` before a first paragraph only read such an item as a
+            # bare line under the one above: `["a make test passes", "c"]`. A nested list draws
+            # its own `- ` lines; an image gives no line, so the paragraph after it opens the item.
+            opened = False
             for child in node.get("content") or []:
-                if first and isinstance(child, dict) and child.get("type") == "paragraph":
+                kind = child.get("type") if isinstance(child, dict) else None
+                if not opened and kind == "paragraph":
                     out.append("- " + inline(child))
-                else:
-                    blocks(child, nested=True)
-                first = False
+                    opened = True
+                    continue
+                start = len(out)
+                blocks(child, nested=True)
+                if not opened and len(out) > start:
+                    if kind not in ("bulletList", "orderedList"):
+                        out[start] = "- " + out[start]
+                    opened = True
 
         def blocks(node, nested: bool = False) -> None:
             if isinstance(node, list):
