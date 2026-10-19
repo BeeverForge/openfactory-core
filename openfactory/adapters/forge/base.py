@@ -670,6 +670,56 @@ def review_comments_of(forge: object, pr: str) -> list[ReviewComment] | Comments
     return rows
 
 
+class RerunRefused(RuntimeError):
+    """Why a forge did not re-run a pull request's failed jobs, in the forge's words (#756).
+
+    "COULD NOT", NEVER "NOTHING TO RE-RUN" (lesson §2). A 403 for an App without `Actions: write`,
+    or a run still in progress, leaves the check as red as it was; a caller that read the refusal
+    as `[]` would wait for a re-run that was never started. Handed on AS A VALUE by
+    `rerun_failed_of`, like `GatesNotListed` and `CommentsNotListed`."""
+
+
+def rerun_failed_of(forge: object, pr: str) -> list[str] | RerunRefused | None:
+    """Re-run the failed jobs of `pr`'s red blocking checks: the names of the checks re-run, why
+    the forge refused, or `None` when the row cannot re-run anything (#756).
+
+    A ROW CAPABILITY, NOT A PORT METHOD, asked with `getattr` like `merge_gates` and
+    `review_comments`. The core calls it — the CI repair re-runs a red check that names no
+    changed file before paying an agent to repair it — so it is not a provider feature leaking
+    into a port (CONTRIBUTING, "Widening a port because a provider has a feature"). But only one
+    row can answer it today (GitHub Actions' `run rerun --failed`), so it stays optional: a
+    Protocol method would make Azure Repos, the local forge, every add-on and every test double
+    claim a re-run they cannot make, against the ADR-0022 bar of an axis born with two.
+
+    THE ANSWERS:
+      · `None` — no callable `rerun_failed` on the row: nothing was asked, repair as before;
+      · a list of check names — the checks whose failed jobs the forge re-ran; `[]` is "asked,
+        and nothing was re-runnable", which callers treat as NOT re-run;
+      · `RerunRefused` — the forge refused, or raised anything else (wrapped, its words kept), or
+        answered something that is not a list of names. The call WAS made, so this is not `None`:
+        a test double (`MagicMock`) lands here, and is never read as a success."""
+    ask = getattr(forge, "rerun_failed", None)
+    if not callable(ask):
+        return None
+    try:
+        names = ask(pr=pr)
+    except RerunRefused as said:
+        log.info("%s refused to re-run the failed jobs of %s: %s", type(forge).__name__, pr,
+                 str(said)[:300])
+        return said
+    except Exception as exc:  # noqa: BLE001 — a re-run that raised is a refusal, not "nothing to re-run"
+        log.info("%s could not re-run the failed jobs of %s (%s)", type(forge).__name__, pr,
+                 str(exc)[:300])
+        return RerunRefused(f"{display_name(forge)} could not re-run the failed jobs "
+                            f"({str(exc)[:300]})")
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        log.info("%s answered a re-run of %s with %s, not a list of check names",
+                 type(forge).__name__, pr, type(names).__name__)
+        return RerunRefused(f"{display_name(forge)} answered something that is not a list of "
+                            "re-run checks")
+    return names
+
+
 def description_ceiling(forge: object) -> tuple[int, Callable[[str], int]] | None:
     """The longest description `forge` accepts, and how it counts — or None: no declared limit.
 
