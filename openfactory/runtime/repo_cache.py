@@ -41,6 +41,7 @@ import time
 import uuid
 from pathlib import Path
 
+from openfactory.adapters import gitworktrees
 from openfactory.util.filelock import FileLock
 
 #: WARNINGS, NOT `print`. These two lines are the cache degrading, and they used to go to
@@ -341,11 +342,64 @@ class RepoCache:
         """Whether the served snapshot must be replaced: absent, corrupt, behind the master's
         commit, or dirtied by a scribbler (a cache must be IDENTICAL to base, never merged into).
         When none of that holds the snapshot is left completely untouched, so the routine
-        no-change sync costs a fetch and two reads — and churns nothing under a reader."""
+        no-change sync costs a fetch and two reads — and churns nothing under a reader.
+
+        THE FOURTH ANSWER IS "HELD" (#747): corrupt, behind or dirty, but a running job's worktree
+        stands on it, so it stays as it is and `OPENFACTORY_CACHE_HELD` says why. The decision
+        is taken here, the one place both `RepoCache._sync` and `SparseRepoCache._sync_sparse`
+        ask, before `_publish` stages, links or renames anything. The marks are read only when a
+        publish would otherwise happen, so the unmoved sync costs what it did."""
         if not (served / ".git").exists():
-            return True
+            return True     # nothing can be marked in a tree that has no `.git`
         head = _head(served)
-        return not head or head != _head(master) or _worktree_dirty(served)
+        if not head:
+            why = "its HEAD cannot be read"
+        else:
+            base = _head(master)
+            if head != base:
+                why = f"it is at {head[:12]} and the base is at {base[:12]}"
+            elif _worktree_dirty(served):
+                why = "something was written into it"
+            else:
+                return False
+        return not RepoCache._held_by_a_job(served, why)
+
+    @staticmethod
+    def _held_by_a_job(served: Path, why: str) -> bool:
+        """Whether a running job's worktree stands on `served`, said when it does.
+
+        A JOB ON THE WORKTREE BOX LIVES IN THIS TREE'S `.git` (#747). For a project registered by
+        clone URL the box runs `git worktree add` in the served checkout, so the job's admin
+        directory is `<served>/.git/worktrees/<name>`. Swapping the tree moved it into the trash,
+        and every git command in the job then exited 128, `fatal: not a git repository:
+        <root>/<key>/.git/worktrees/<name>`, its push included (82500f9, git 2.43.0). The box
+        marks the worktree it adds (`gitworktrees.mark_as_job`); git deletes the marker with the
+        admin directory on `worktree remove` and `prune`; a marker older than a day stops holding.
+
+        UNREADABLE HOLDS (engineering lessons §2): a `.git/worktrees` that cannot be listed may
+        hold a job, and the destructive act is the one that waits."""
+        marks = gitworktrees.live_job_marks(served)
+        if marks is None:
+            log.warning("OPENFACTORY_CACHE_HELD %s would be replaced (%s), but the job worktrees "
+                        "registered in it could not be read, so it is kept as it is — a running "
+                        "job may stand on it. Check the permissions of %s.",
+                        served, why, served / ".git" / "worktrees")
+            return True
+        for stale in marks.stale:
+            log.warning("OPENFACTORY_CACHE_HOLD_EXPIRED the job worktree %s was marked %d h ago, "
+                        "past the %d h a job may hold %s, so it no longer holds it — a job that "
+                        "ended without removing its worktree left it there",
+                        stale.worktree, stale.age // 3600,
+                        gitworktrees.JOB_MARKER_MAX_AGE // 3600, served)
+        if not marks.live:
+            return False
+        holders = "; ".join(f"{m.worktree} (marked {int(m.age // 60)} min ago)"
+                            for m in marks.live)
+        log.warning("OPENFACTORY_CACHE_HELD %s would be replaced (%s), but a running job's "
+                    "worktree stands on it: %s. It is kept as it is until that worktree is "
+                    "removed, for at most %d h after it was marked.",
+                    served, why, holders, gitworktrees.JOB_MARKER_MAX_AGE // 3600)
+        return True
 
     def _publish(self, project: str, served: Path, master: Path) -> None:
         """Swap a fresh snapshot of the master into the served path.
