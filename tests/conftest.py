@@ -519,6 +519,19 @@ def _a_readiness_answer_does_not_outlive_its_test() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _a_product_read_for_the_logs_does_not_outlive_its_test() -> None:
+    """Clear `openfactory/observability/logs.py`'s copy of the products and its read in flight
+    (second review of #818) — the same leak one module over: a case that read one registry's
+    products would otherwise tag the next case's lines with them for a window, and a read begun
+    in one case must not land in the next. A tree without the seam has nothing to clear."""
+    from openfactory.observability import logs as _logs
+
+    forget = getattr(_logs, "forget", None)
+    if forget is not None:
+        forget()
+
+
+@pytest.fixture(autouse=True)
 def _an_engine_client_does_not_outlive_its_test() -> None:
     """Clear `openfactory/runtime/temporal/view.py::_CLIENTS` — the pool the panel's read side now
     holds one client per engine target in (GitHub issue #134).

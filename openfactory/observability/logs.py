@@ -22,25 +22,44 @@ set logging up on purpose (an embedding host, a test runner), and this does noth
 JSON LINES, WHEN A DEPLOYMENT SAYS SO (#681). A log store reads fields, not sentences: with
 `OPENFACTORY_LOG_FORMAT=json` every record is ONE JSON object on ONE line — `ts`, `level`,
 `logger`, `message`, an `exception` when the record carries one (its newlines escaped, so a
-traceback is still one line), `deployment` when `OPENFACTORY_DEPLOYMENT` names one, and `project`
-and `product` when the record concerns one. Unset, or any other value, keeps the readable line
-above unchanged.
+traceback is still one line), a `stack` when it was logged with `stack_info`, `deployment` when
+`OPENFACTORY_DEPLOYMENT` names one, and `project` and `product` when the record concerns one.
+Unset, or any other value, keeps the readable line above unchanged.
 
 WHICH PROJECT A RECORD CONCERNS is said where the work is about one, not at each `log.info`: the
 worker's activities and the panel's routes that take a project run inside `about(...)`, and every
 record logged inside it — by the platform or by a library — carries the project, and the product the
 project belongs to (`product/key.py`). A record may also say it itself, with `extra={"project": …}`.
+
+THE PRODUCT COSTS NO REQUEST ANYTHING (second review of #818, measured: with JSON on, each request
+to a route that takes `{project}` read the registry on the default executor — the HTML shell too,
+which the gate admits without a credential — and 300 unauthenticated `GET /p/acme` against a
+registry 200 ms slow held an operator's `GET /api/whoami` for 5.1 s; a hung registry held it past
+20 s). So the product is never read for a request or an activity. It is read from `_PRODUCTS`, this
+process's copy of what the registry says each project belongs to:
+
+  · FORMATTING A LINE READS MEMORY, NEVER THE REGISTRY, and never waits: a line written before the
+    first read has landed says the project and leaves the product out, as it does for a project
+    the registry does not know — never a guess;
+  · THE REGISTRY IS READ AT MOST ONCE PER `PRODUCTS_WINDOW_S`, by one read at a time, ON A DAEMON
+    THREAD OF ITS OWN and never on the default executor the gate and the activities share — so a
+    registry that hangs holds that one thread, and the lines keep the products last read;
+  · ONLY WORK THE GATE ADMITTED ASKS FOR THE READ (`freshen_products`): an activity, and a panel
+    route behind the gate. A path the gate opens to anybody — the HTML shell — names its project
+    and asks for nothing;
+  · THE COPY IS BOUNDED BY THE REGISTRY: it holds the projects the registry names, never the names
+    a URL carries.
 """
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import contextvars
 import json
 import logging
 import os
 import sys
+import threading
 import time
 from collections.abc import Iterator
 
@@ -61,6 +80,12 @@ OURS = ("openfactory", "uvicorn")
 
 #: What a record concerns, for the JSON line: the keys a record may carry, in the order written.
 TAGS = ("project", "product")
+
+#: How long the products read from the registry serve the lines before work the gate admitted may
+#: have the registry read again. A few seconds, as readiness keeps its answers (`health.WINDOW_S`):
+#: a project registered a moment ago is named with its product within one window, and a process
+#: that writes a thousand lines a second reads the registry once in it.
+PRODUCTS_WINDOW_S = 5.0
 
 #: The project and product the work running in this context concerns (`about`). A context variable,
 #: so it follows a task, a thread `asyncio.to_thread` hands it to and a sync route's worker thread,
@@ -94,14 +119,25 @@ class _JSON(logging.Formatter):
                                 "logger": record.name, "message": record.getMessage()}
         if record.exc_info:
             line["exception"] = self.formatException(record.exc_info)
+        if record.stack_info:
+            line["stack"] = self.formatStack(record.stack_info)
         if self._deployment:
             line["deployment"] = self._deployment
-        about = dict(_ABOUT.get())
-        for tag in TAGS:
-            said = getattr(record, tag, None) or about.get(tag)
-            if said:
-                line[tag] = str(said)
+        line.update(_concerns(record))
         return json.dumps(line, ensure_ascii=False, default=str)
+
+
+def _concerns(record: logging.LogRecord) -> dict[str, str]:
+    """The project and product `record` concerns: what it says itself, else what the work it was
+    logged in is `about` — a record that names its own project never borrows the block's product —
+    and, for a project with no product said, the one `_PRODUCTS` holds. Reads memory only."""
+    about = dict(_ABOUT.get())
+    own = getattr(record, "project", None)
+    project = str(own or about.get("project") or "")
+    product = str(getattr(record, "product", None) or ("" if own else about.get("product")) or "")
+    if project and not product:
+        product = _PRODUCTS.of(project)
+    return {tag: value for tag, value in (("project", project), ("product", product)) if value}
 
 
 def structured() -> bool:
@@ -122,35 +158,86 @@ def about(project: str = "", product: str = "") -> Iterator[None]:
         _ABOUT.reset(token)
 
 
-def concerning(project: str, product: str = "") -> dict[str, str]:
-    """`about`'s arguments for work on the registry project `project`: the product the work
-    carries, else the one the registry says the project belongs to (`product.key.product_key`).
-
-    THE REGISTRY IS READ ONLY FOR JSON LINES. The readable line carries no tag, so a deployment
-    that did not ask for JSON pays nothing; one that did pays one registry read per activity or
-    request about a project. A project the registry cannot answer for is still the project: the
-    product is left out, never guessed."""
-    if not project:
-        return {}
-    if product or not structured():
-        return {"project": project, "product": product}
-    try:
-        from openfactory.product.key import product_key
-        from openfactory.registry import ProjectRegistry
-
-        product = product_key(ProjectRegistry().get(project))
-    except Exception as exc:  # noqa: BLE001 — a log tag must never fail the work it describes
-        logging.getLogger("openfactory.logs").debug(
-            "the product of %r could not be read for its log lines (%s)", project, exc)
-    return {"project": project, "product": product}
+def _clock() -> float:
+    """The clock `PRODUCTS_WINDOW_S` runs on. A function so a guard can move it, not sleep."""
+    return time.monotonic()
 
 
-async def concerning_from_a_loop(project: str, product: str = "") -> dict[str, str]:
-    """`concerning`, for a caller on an event loop: when it has the registry to read, it reads it
-    on a thread, so a request or an activity about a project never holds the loop for a file."""
-    if not project or product or not structured():
-        return concerning(project, product)
-    return await asyncio.to_thread(concerning, project, product)
+def _products_in_the_registry() -> dict[str, str]:
+    """`{project: product}` for every project of the registry that builds (`product.key`), read
+    quietly: a line's tag is not where an operator learns what is wrong with the file."""
+    from openfactory.product.key import product_key
+    from openfactory.registry import ProjectRegistry
+
+    return {name: product_key(project)
+            for name, project in ProjectRegistry().each_that_builds().items()}
+
+
+class _Products:
+    """What the registry says each project belongs to, as this process last read it — read at most
+    once per `PRODUCTS_WINDOW_S`, one read at a time, on a thread of its own, never waited for."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._known: dict[str, str] = {}
+        #: when the last read began, and the read in flight (a token) — None when there is none
+        self._began: float | None = None
+        self._flight: object | None = None
+
+    def of(self, project: str) -> str:
+        """The product `project` belongs to, or `""` — from memory, whatever the registry is
+        doing."""
+        return self._known.get(project, "")
+
+    def freshen(self) -> None:
+        """Have the registry read again when no read is in flight and the last began a window ago
+        or more. Returns at once: the read is a daemon thread's, which nobody waits for, and a
+        process can exit under it."""
+        with self._lock:
+            if self._flight is not None or (
+                    self._began is not None and _clock() - self._began < PRODUCTS_WINDOW_S):
+                return
+            flight = self._flight = object()
+            self._began = _clock()
+        threading.Thread(target=self._read, args=(flight,), name="openfactory-log-products",
+                         daemon=True).start()
+
+    def _read(self, flight: object) -> None:
+        try:
+            known: dict[str, str] | None = _products_in_the_registry()
+        except Exception as exc:  # noqa: BLE001 — a log tag must never fail the work it describes
+            logging.getLogger("openfactory.logs").debug(
+                "the registry could not be read for the products on log lines (%s)", exc)
+            known = None
+        with self._lock:
+            # KEPT ONLY WHILE THIS IS STILL THE READ IN FLIGHT: `forget` takes the slot from under
+            # a read, and an answer begun before that must not land after it.
+            if self._flight is not flight:
+                return
+            self._flight = None
+            if known is not None:
+                self._known = known
+
+    def forget(self) -> None:
+        with self._lock:
+            self._known, self._began, self._flight = {}, None, None
+
+
+#: This process's copy — one, bounded by the registry's projects.
+_PRODUCTS = _Products()
+
+
+def freshen_products() -> None:
+    """Ask, without waiting, for the products on JSON lines to be read again if they are a window
+    old (`_Products.freshen`). For work the gate admitted, as it starts: an activity, a panel
+    route behind the gate. The readable line carries no tag, so without JSON it asks nothing."""
+    if structured():
+        _PRODUCTS.freshen()
+
+
+def forget() -> None:
+    """Drop the products this process read and any read in flight. A seam for the suite."""
+    _PRODUCTS.forget()
 
 
 def announce(logger: logging.Logger, line: str) -> None:

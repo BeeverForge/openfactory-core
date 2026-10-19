@@ -115,8 +115,11 @@ async def _the_engine_did_not_answer(request: Request, exc: EngineUnreachable) -
 # EVERY ROUTE IS BUILT WITH THIS CLASS, AND IT HAS TO BE SET BEFORE THE FIRST ONE (#681): a route
 # whose path takes `{project}` runs its handler inside `logs.about(...)`, so each JSON log line it
 # writes says the project, and the product it belongs to. Routes that name no project are built
-# exactly as FastAPI builds them.
-app.router.route_class = AboutItsProject
+# exactly as FastAPI builds them. THE GATE'S OWN RULE IS HANDED IN, so only a request for a path
+# the gate guards may ask for the products to be read again, and the shell, open to anybody, asks
+# for nothing (second review of #818) — late-bound, because `_gated` is defined below, beside the
+# gate it belongs to.
+app.router.route_class = AboutItsProject.gated_by(lambda path: _gated(path))
 
 # ── SOMEBODY ELSE'S DASHBOARD ───────────────────────────────────────────────────────────────────
 #

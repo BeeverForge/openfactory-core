@@ -11,6 +11,11 @@ carries it.
 A WORKER INTERCEPTOR, NOT A LINE IN EACH ACTIVITY: the worker registers it (`worker.py`), so an
 activity added tomorrow is tagged without anybody remembering it. An activity whose input names no
 project runs exactly as it did.
+
+IT WAITS FOR NOTHING (second review of #818). It used to read the registry for the product on the
+default executor, once per activity, sharing it with the activities' own `to_thread`. Now it names
+the project and asks for the products to be read again without waiting (`logs.freshen_products`):
+the line's formatter takes the product from memory.
 """
 
 from __future__ import annotations
@@ -70,5 +75,7 @@ class _ActivityAboutItsProject(ActivityInboundInterceptor):
         project, product = named(input.fn, input.args)
         if not project:
             return await super().execute_activity(input)
-        with logs.about(**await logs.concerning_from_a_loop(project, product)):
+        if not product:
+            logs.freshen_products()
+        with logs.about(project=project, product=product):
             return await super().execute_activity(input)

@@ -20,9 +20,13 @@ THE RULES THIS FILE HOLDS:
     is not an answer), the registry that cannot be read, and the identity provider that cannot
     admit — which is the gate's own decision, so the two are held to the same verdicts;
   · the panel and the worker serve the same answers — the worker on this machine's loopback
-    unless the deployment says otherwise, once its boot's own steps are done — and every process
-    the compose file starts from this repository is health-checked by `/readyz` on the port it
-    answers on.
+    unless the deployment says otherwise, once its boot's own steps are done, and only once a
+    request has been read to its end — and every process the compose file starts from this
+    repository is health-checked by `/readyz` on the port it answers on;
+  · EVERY LAYER BETWEEN A CHECK AND A SUPERVISOR OUTLASTS THE DEADLINE (second review of #818):
+    whichever check hangs, the 503 naming it is what the probe a healthcheck runs prints, through
+    the worker's real listener — never "did not answer", never the listener's own 400 — and a
+    check's own thread never holds a process that is exiting.
 
 WHAT IS DOUBLED, AND ONLY THAT: the engine's client (a double that answers or does not), and the
 identity provider where a case needs a state the built-in rows cannot be put in. The routes, the
@@ -429,6 +433,29 @@ async def test_a_hung_check_starves_no_request_and_blames_no_other_check(deploym
     assert entered() == 1, f"the hung dependency was asked {entered()} times"
 
 
+async def test_a_check_that_hangs_holds_no_process_open(deployment, engine, monkeypatch):
+    """Every thread a check starts is a daemon: a process can exit under a dependency that hangs,
+    and a check that hangs for good is one thread nobody waits for — not a process that cannot
+    stop. Every check is hung at once and every thread started meanwhile is read."""
+    hung = {name: HANG[name](monkeypatch, engine) for name in health.CHECKS}
+    before = set(threading.enumerate())
+    asked = asyncio.create_task(health.ready())
+    try:
+        for _ in range(200):
+            if all(entered() for entered, _release in hung.values()):
+                break
+            await asyncio.sleep(0.01)
+        started = set(threading.enumerate()) - before
+    finally:
+        for _entered, release in hung.values():
+            release()
+    await asked
+
+    assert all(entered() for entered, _release in hung.values()), "a check was never asked"
+    assert len(started) >= 2, f"the checks that read a file or a store started {started}"
+    assert all(thread.daemon for thread in started), [t.name for t in started if not t.daemon]
+
+
 # ── each check, against its own dependency ──────────────────────────────────────────────────────
 
 async def _engine_said() -> dict:
@@ -659,6 +686,24 @@ async def test_the_worker_answers_nothing_else_and_echoes_nothing(worker_port, r
     assert "acme" not in json.dumps(body), body
 
 
+async def test_the_worker_reads_a_request_to_its_end_before_it_answers(worker_port):
+    """Closing a socket with bytes unread in it resets the connection, and a client can lose the
+    answer to the reset: nothing is answered until the request's headers have ended."""
+    reader, writer = await asyncio.open_connection("127.0.0.1", worker_port)
+    try:
+        writer.write(b"GET /healthz HTTP/1.1\r\n")
+        await writer.drain()
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(reader.read(1), 0.3)
+        writer.write(b"Host: x\r\nAccept: */*\r\n\r\n")
+        await writer.drain()
+        raw = await asyncio.wait_for(reader.read(), 10)
+    finally:
+        writer.close()
+
+    assert raw.startswith(b"HTTP/1.1 200 "), raw
+
+
 async def test_the_worker_answers_on_loopback_unless_the_deployment_says_otherwise(monkeypatch):
     """Readiness is asked without a credential, so it is answered beyond this machine only where
     the deployment says so — `openfactory serve`'s own default (review of #818)."""
@@ -782,6 +827,32 @@ async def test_the_probe_exits_0_when_ready_and_1_with_the_body_when_not(worker_
     BREAK["engine"](monkeypatch, engine, deployment)
     assert await asyncio.to_thread(health.main, args) == 1
     assert '"failing": ["engine"]' in capfd.readouterr().err
+
+
+@pytest.mark.parametrize("hung", sorted(health.CHECKS))
+async def test_a_supervisor_reads_which_check_hung_through_the_listener_and_the_probe(
+        worker_port, engine, monkeypatch, capfd, hung):
+    """A check that hangs is answered after `deadline()` as a 503 naming it. The worker's listener
+    and the probe a healthcheck runs must both still be waiting then, or the supervisor reads
+    "did not answer", or the listener's own 400, and never which check (second review of #818).
+
+    THE SHIPPED NUMBERS, SCALED: the deadline is made 1.5 s and the listener's time to read a
+    request is scaled by the same factor, so the two keep the order they ship in (seven seconds
+    against five), and the real listener, the real probe and their own bounds do the rest."""
+    monkeypatch.delenv("OPENFACTORY_ENGINE_DEADLINE", raising=False)
+    scale = 1.5 / health.deadline()
+    monkeypatch.setattr(health, "_READ_S", health._READ_S * scale)
+    monkeypatch.setattr(health, "deadline", lambda: 1.5)
+    _entered, release = HANG[hung](monkeypatch, engine)
+    try:
+        said = await asyncio.to_thread(health.probe, worker_port)
+    finally:
+        release()
+
+    err = capfd.readouterr().err
+    assert said == 1
+    assert "answered 503" in err and f"{health.SAID[hung]} within 1.5s" in err, err
+    assert json.loads(err.split(": ", 1)[1])["failing"] == [hung], err
 
 
 def test_the_probe_exits_1_when_nothing_answers(capfd):

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import logging
 import os
 import time
 from pathlib import Path
@@ -22,9 +23,13 @@ from urllib.parse import urlsplit
 
 from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
+from temporalio.runtime import LogForwardingConfig, LoggingConfig, Runtime, TelemetryConfig
 from temporalio.service import TLSConfig
 
 from openfactory.listeners import ENGINE
+from openfactory.observability import logs
+
+log = logging.getLogger("openfactory.engine")
 
 #: The one local target, spelled once. Named so a deployment can DECLARE it — which is the whole
 #: difference between "I meant the dev server" and "nobody told me anything" (#163). ASKED OF THE
@@ -162,7 +167,47 @@ def fingerprint() -> tuple[str, str, str]:
     return address(), namespace(), digest
 
 
+#: The logger the engine client's core writes through when the deployment asked for JSON lines.
+CORE_LOGGER = "temporalio.core"
+
+
+def core_telemetry() -> TelemetryConfig:
+    """The client core's telemetry, its lines handed to `CORE_LOGGER` at the levels it writes by
+    default (its own warnings, the libraries' errors) — and so to the deployment's one format."""
+    return TelemetryConfig(logging=LoggingConfig(
+        filter=LoggingConfig.default.filter,
+        forwarding=LogForwardingConfig(logger=logging.getLogger(CORE_LOGGER))))
+
+
+_core_lines_routed = False
+
+
+def route_the_cores_lines() -> None:
+    """With JSON log lines, the engine client's core writes through Python's logging: once per
+    process, before its first client, by making `core_telemetry()` the default runtime's.
+
+    WHY (second review of #818, measured): the client's core is not Python, and left to itself it
+    writes its own lines — `WARN temporalio_client::retry: gRPC call poll_activity_task_queue
+    retried 6 times …`, compact, coloured, on STDOUT — exactly when the engine goes away, which is
+    when somebody reads the log. With `OPENFACTORY_LOG_FORMAT=json` a worker wrote eleven of them,
+    and not one JSON line, in twenty seconds without its engine. The readable format is left as
+    it was, its lines and the core's beside each other.
+
+    A RUNTIME ALREADY SET IS KEPT: whoever set one did so on purpose (an embedding host, a test),
+    and replacing it would move the clients made after this onto another thread pool."""
+    global _core_lines_routed
+    if _core_lines_routed or not logs.structured():
+        return
+    _core_lines_routed = True
+    try:
+        Runtime.set_default(Runtime(telemetry=core_telemetry()), error_if_already_set=True)
+    except RuntimeError as exc:
+        log.warning("the durable engine's client already has a runtime (%s), so its own lines "
+                    "keep the format it was given rather than JSON", exc)
+
+
 async def connect() -> Client:
+    route_the_cores_lines()
     return await Client.connect(
         address(), namespace=namespace(), data_converter=pydantic_data_converter, **_auth()
     )

@@ -186,6 +186,7 @@ writes it again.
 **`/api/v1/` is the address a front end of its own builds on.** Each read that declares its model
 is served there, and its unversioned path — the one the default front end calls — answers the same
 body from the same handler: it is an **alias**, marked `deprecated: true` in the description. A
+read added since, like `/api/v1/version`, is born under `/api/v1/` and has no alias. A
 credential reaches a versioned path exactly where it reaches its alias: the area of
 `/api/v1/<rest>` is the area of `/api/<rest>`.
 

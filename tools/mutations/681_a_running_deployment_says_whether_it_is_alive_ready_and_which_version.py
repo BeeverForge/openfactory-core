@@ -12,14 +12,16 @@ The claims, each a row:
      for its window — no longer, and not an answer whose question lost its slot — and shares one
      question per check between callers;
   3b. readiness costs nobody else anything (review of #818): no check takes a thread of the
-     default executor the gate uses, none blocks the event loop, none is blamed for another, and
-     the product's registry read for a log line is off the loop too;
+     default executor the gate uses, none blocks the event loop, none is blamed for another, and a
+     check's own thread never holds a process open;
+  3c. every layer between a check and a supervisor outlasts the deadline (second review): the
+     probe's timeout and the worker listener's bound;
   4. each check fails for its own dependency: a pooled client is not an engine that answers, an
      undeclared engine and a missing client library are said as such, the registry is read, and
      the identity check is the gate's own decision;
   5. the worker answers the same on its own port, only when asked, on loopback unless the
-     deployment says otherwise, echoing nothing it was sent, and opens it once its boot's own steps
-     are done and before it waits for the engine;
+     deployment says otherwise, echoing nothing it was sent, only once a request has been read to
+     its end, and opens it once its boot's own steps are done and before it waits for the engine;
   6. every process the compose file starts is health-checked by `/readyz` on its own port, and the
      probe fails on anything but a 200;
   7. the version route answers the package's version, the image, the engine's address kind and
@@ -27,7 +29,15 @@ The claims, each a row:
   8. JSON lines: chosen only by the setting, with the four fields, a traceback on one line, the
      letters kept, the deployment named, and the project and product a record concerns — from
      every panel route and every worker activity that names one; the lines a process prints for a
-     person and the sentence it ends with follow the format; a failure's cause is logged once.
+     person and the sentence it ends with follow the format; a failure's cause is logged once;
+     a stack asked for is kept; a stream's body says its project;
+  9. the product costs nobody anything (second review of #818): a line reads it from memory; the
+     registry is read once per window, one read at a time, quietly, on a daemon thread of its own;
+     only work the gate admitted asks for it — never a route the gate leaves open — and neither a
+     route nor an activity takes a thread of the default executor for it; the copy holds the
+     registry's projects only, a failed read keeps the last one, and a read forgotten lands nowhere;
+  10. with JSON lines, the engine client's core writes through the log, before the first client,
+     and a runtime somebody set is kept.
 """
 
 READY = "tests/test_a_running_deployment_says_whether_it_is_alive_and_ready.py"
@@ -42,6 +52,8 @@ VIEW = "openfactory/runtime/temporal/view.py"
 PLUGINS = "openfactory/plugins.py"
 APP = "openfactory/api/app.py"
 ROUTE = "openfactory/api/project_route.py"
+REGISTRY = "openfactory/registry.py"
+CONNECTION = "openfactory/runtime/temporal/connection.py"
 INTERCEPTORS = "openfactory/runtime/temporal/interceptors.py"
 WORKER = "openfactory/runtime/temporal/worker.py"
 COMPOSE = "docker-compose.yml"
@@ -93,9 +105,15 @@ MUTATIONS = [
      "    await _off_the_loop(_registry_reads)", "    _registry_reads()"),
     ("the identity provider is asked on the event loop", HEALTH,
      "    await _off_the_loop(_identity_admits)", "    _identity_admits()"),
-    ("a log line's product is read from the registry on the event loop", LOGGING,
-     "    return await asyncio.to_thread(concerning, project, product)",
-     "    return concerning(project, product)", LOGS),
+    ("a check's thread holds a process that is exiting", HEALTH,
+     "                     daemon=True).start()", "                     daemon=False).start()"),
+
+    # 3c. every layer outlasts the deadline (second review of #818)
+    ("the probe gives up before the readiness deadline", HEALTH,
+     "timeout=deadline() + 2 if timeout is None else timeout)",
+     "timeout=1.0 if timeout is None else timeout)"),
+    ("the worker's listener gives up before the readiness deadline", HEALTH,
+     "_read_and_answer(reader), _READ_S + deadline())", "_read_and_answer(reader), _READ_S)"),
 
     # 4. each check, against its own dependency
     ("a pooled client is taken for an engine that answers", HEALTH,
@@ -143,6 +161,11 @@ MUTATIONS = [
      '    return (os.environ.get(HOST_VARIABLE) or "").strip() or "0.0.0.0"'),
     ("the deployment's host is ignored", HEALTH,
      "    host = host or host_asked()", "    host = host or LOOPBACK"),
+    ("the worker answers before it has read the request's headers", HEALTH,
+     "    for _ in range(_MOST_HEADERS):\n"
+     "        header = await asyncio.wait_for(reader.readline(), _READ_S)\n"
+     "        if header in (b\"\\r\\n\", b\"\\n\", b\"\"):\n            break\n"
+     "    else:\n        raise ValueError(\"too many header lines\")\n", ""),
     ("the worker's 404 echoes what it was sent", HEALTH,
      """    return 404, {"detail": f"only {' and '.join(PATHS)} are answered here"}""",
      """    return 404, {"detail": f"nothing is served at {path}"}"""),
@@ -206,17 +229,23 @@ MUTATIONS = [
     ("the deployment is never named", LOGGING,
      '            line["deployment"] = self._deployment', "            pass", LOGS),
     ("what the work is about never reaches the line", LOGGING,
-     "            said = getattr(record, tag, None) or about.get(tag)",
-     "            said = getattr(record, tag, None)", LOGS),
+     '    project = str(own or about.get("project") or "")', '    project = str(own or "")', LOGS),
+    ("a record that names its own project borrows the block's product", LOGGING,
+     '("" if own else about.get("product"))', 'about.get("product")', LOGS),
+    ("a stack asked for is dropped from its line", LOGGING,
+     '            line["stack"] = self.formatStack(record.stack_info)', "            pass", LOGS),
     ("what a block was about outlives the block", LOGGING,
      "        _ABOUT.reset(token)", "        pass", LOGS),
     ("the product is never read from the registry", LOGGING,
-     "        product = product_key(ProjectRegistry().get(project))", '        product = ""', LOGS),
+     "            known: dict[str, str] | None = _products_in_the_registry()",
+     "            known = {}", LOGS),
     ("the readable line pays for the registry", LOGGING,
-     "    if product or not structured():\n        return {\"project\": project,",
-     "    if product:\n        return {\"project\": project,", LOGS),
+     "    if structured():\n        _PRODUCTS.freshen()",
+     "    if True:\n        _PRODUCTS.freshen()", LOGS),
     ("the panel's routes are built without the class", APP,
-     "app.router.route_class = AboutItsProject\n", "", LOGS),
+     "app.router.route_class = AboutItsProject.gated_by(lambda path: _gated(path))\n", "", LOGS),
+    ("a stream's body says no project", ROUTE,
+     "            if isinstance(response, StreamingResponse):", "            if False:", LOGS),
     ("a route about a project does not say it", ROUTE,
      '        if "project" not in self.param_convertors:', "        if True:", LOGS),
     ("an activity whose project is one model down does not say it", INTERCEPTORS,
@@ -240,4 +269,64 @@ MUTATIONS = [
     ("a worker that cannot start ends in a plain line", LOGGING,
      "    if structured():\n        logger.error(sentence)",
      "    if False:\n        logger.error(sentence)", LOGS),
+
+    # 9. the product costs nobody anything (second review of #818)
+    ("every panel request about a project reads the product on the gate's executor", ROUTE,
+     "            with logs.about(project=project):\n"
+     "                response = await handler(request)",
+     "            with logs.about(project=project, product=(await __import__(\"asyncio\")"
+     ".to_thread(logs._products_in_the_registry)).get(project, \"\")):\n"
+     "                response = await handler(request)", LOGS),
+    ("a route the gate leaves open asks for the products", ROUTE,
+     "            if gated(request.url.path):\n                logs.freshen_products()",
+     "            if True:\n                logs.freshen_products()", LOGS),
+    ("the route class is not handed the gate's rule", APP,
+     "AboutItsProject.gated_by(lambda path: _gated(path))", "AboutItsProject", LOGS),
+    ("a route behind the gate never asks for the products", ROUTE,
+     "            if gated(request.url.path):\n                logs.freshen_products()",
+     "            if False:\n                logs.freshen_products()", LOGS),
+    ("every activity reads the product on the default executor first", INTERCEPTORS,
+     "        if not product:\n            logs.freshen_products()\n"
+     "        with logs.about(project=project, product=product):",
+     "        with logs.about(project=project, product=product or (await __import__(\"asyncio\")"
+     ".to_thread(logs._products_in_the_registry)).get(project, \"\")):", LOGS),
+    ("an activity never asks for the products", INTERCEPTORS,
+     "        if not product:\n            logs.freshen_products()\n", "", LOGS),
+    ("the products are read on the default executor", LOGGING,
+     "        threading.Thread(target=self._read, args=(flight,), "
+     "name=\"openfactory-log-products\",\n"
+     "                         daemon=True).start()",
+     "        __import__(\"asyncio\").get_running_loop().run_in_executor(None, self._read, flight)",
+     LOGS),
+    ("the products' read holds a process that is exiting", LOGGING,
+     "                         daemon=True).start()",
+     "                         daemon=False).start()", LOGS),
+    ("every ask reads the registry again, however many are in flight", LOGGING,
+     "            if self._flight is not None or (", "            if False and (", LOGS),
+    ("the products are read again on every ask, whatever the window", LOGGING,
+     "_clock() - self._began < PRODUCTS_WINDOW_S):", "_clock() - self._began < 0):", LOGS),
+    ("the copy keeps every name a line asks about", LOGGING,
+     '        return self._known.get(project, "")',
+     '        return self._known.setdefault(project, "")', LOGS),
+    ("a read that failed empties the copy", LOGGING,
+     "            if known is not None:\n                self._known = known",
+     "            self._known = known or {}", LOGS),
+    ("a read begun before `forget` lands after it", LOGGING,
+     "            if self._flight is not flight:\n                return",
+     "            if False:\n                return", LOGS),
+    ("one entry that does not build loses every product", REGISTRY,
+     "                continue  # said by `list`, by name, on every load", "                raise",
+     LOGS),
+
+    # 10. the engine client's own core
+    ("a client is made before its core is told", CONNECTION,
+     "    route_the_cores_lines()\n    return await Client.connect(",
+     "    return await Client.connect(", LOGS),
+    ("the core writes its own lines", CONNECTION,
+     "        forwarding=LogForwardingConfig(logger=logging.getLogger(CORE_LOGGER))))",
+     "        forwarding=None))", LOGS),
+    ("the core's lines are routed without JSON", CONNECTION,
+     "    if _core_lines_routed or not logs.structured():", "    if _core_lines_routed:", LOGS),
+    ("a runtime somebody set is replaced", CONNECTION,
+     "error_if_already_set=True)", "error_if_already_set=False)", LOGS),
 ]
