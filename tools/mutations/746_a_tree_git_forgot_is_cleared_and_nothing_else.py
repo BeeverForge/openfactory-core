@@ -93,6 +93,10 @@ MUTATIONS = [
      '    where, mine = path, "<a path of yours>"\n',
      NOT_OURS),
 
+    ("a symlink at the path is followed, and the job checks out into what it names", BOX,
+     '        if wt.is_symlink():\n            return "symlink", "", False\n', "",
+     NOT_OURS),  # review of 35ac306, point 1
+
     ("an empty directory at the path is refused too", BOX,
      "            if next(entries, None) is None:\n"
      "                return None\n",

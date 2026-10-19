@@ -323,3 +323,26 @@ def test_the_refusal_is_the_same_whatever_git_s_wording(tmp_path, monkeypatch, w
     said = str(_refusal(door))
     assert "já existe" not in said and "fatal:" not in said, said
     assert said == plain, (said, plain)
+
+
+@pytest.mark.parametrize("door_name", DOORS)
+def test_a_symbolic_link_at_the_box_s_path_is_refused_and_nothing_is_checked_out_where_it_points(
+        tmp_path, root, door_name):
+    """C2 and C3 for a symbolic link at the box's path (review of 35ac306). `git worktree add`
+    over a link to an empty directory answers rc 0 on 2.43.0 and registers the link's TARGET,
+    which `_same_dir` then read as the box's own: on c0a50f3 the first `prepare` checked the card
+    out into the directory the link names, and the rerun's `remove --force` deleted that
+    directory, with what had been written into it since. It is refused by name, and the link and
+    what it names are left as they were."""
+    door = _door(door_name, tmp_path, root)
+    wt = root / BRANCH.replace("/", "-")
+    theirs = tmp_path / "a directory of theirs"
+    theirs.mkdir()
+    root.mkdir(parents=True, exist_ok=True)
+    os.symlink(theirs, wt)
+    error = _refusal(door)
+    said = str(error)
+    assert not isinstance(error, BranchHeldElsewhere), said
+    assert "a symbolic link" in said, said
+    assert os.path.islink(wt) and os.readlink(wt) == str(theirs)
+    assert os.listdir(theirs) == [], "the job checked out into the directory the link names"
