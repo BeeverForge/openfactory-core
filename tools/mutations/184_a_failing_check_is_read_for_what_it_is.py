@@ -106,8 +106,10 @@ MUTATIONS = [
     # repository it asks is still the pull request's, set on the first line of the read.
     ("GitHub: the failing log is read from the DEFAULT repository's runs (C-18), so a red build "
      "on a card routed elsewhere has no evidence and is asked about instead of repaired", GITHUB,
-     "        repo = self._repo_of_pr(pr)\n        try:\n            rows = self.pr_checks(pr=pr)\n",
-     "        repo = self.repo\n        try:\n            rows = self.pr_checks(pr=pr)\n"),
+     "        repo = self._repo_of_pr(pr)\n        try:\n            rows = self.pr_checks(pr=pr)\n"
+     "        except RuntimeError as exc:\n            # Every run read below",
+     "        repo = self.repo\n        try:\n            rows = self.pr_checks(pr=pr)\n"
+     "        except RuntimeError as exc:\n            # Every run read below"),
 
     ("GitHub: an unreadable answer reads as `no checks`", GITHUB,
      '            raise RuntimeError(f"gh pr checks failed: {_redact(p.stderr)}")\n',

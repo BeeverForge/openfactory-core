@@ -131,3 +131,77 @@ the same way as the table reads its rows:
   answers `[]`, so the decision carries `nothing_expected` and the watch merges as it always did.
 - **Azure DevOps `mergeable_state` answers `blocked`, never `unstable`, for a red blocking policy** —
   `unstable` is one of the two words the self-heal merges on, there with `bypassPolicy` set.
+
+### Amendment, 2026-10-20 — a third move: re-run what the change did not touch (#756)
+
+§1 had one answer to a red build: an agent pass. A blocking check can fail for a reason no file of
+the pull request touches, such as a flaky integration test or a busy shared environment. The agent
+was paid to repair it, changed nothing, and the next attempt failed the same way until
+`_CI_REPAIR_MAX` parked the card. A first attempt (#258, `ci_flake.py`) drew the review that set the
+constraints below: the re-run goes through a forge seam, waits on no clock of its own, and #184's
+gate stays in front of it. §1's "failure → repair" now has a cheaper first step. That is an
+amendment, not a reversal: the agent still repairs every red build the step does not settle.
+
+- **The #184 gate still decides first.** `repair_ci` asks `what_to_repair` before anything else.
+  An empty log, a process check or an unreadable forge holds for a person exactly as before, so an
+  empty log never reaches the rule. Only a `repair` answer, with the failing log the decision was
+  made from, goes on, and that same log is what an agent is handed afterwards.
+- **On the first repair attempt of the watch, the log is matched against the diff.**
+  `runtime/repairable.py::changed_paths` reads the paths the pull request's diff changes, and
+  `log_names_the_change` asks whether any of them appears in the failing log as its basename with
+  the extension, with no letter, digit, `_`, `.` or `-` on its left. A log that names the full
+  path names the basename too, after a `/` or a Windows runner's `\` alike, so Windows runner
+  logs match, and the basename alone decides every case. Colour codes, as an ESC byte or as the
+  `^[` that `gh run view --log-failed` prints, are dropped first: jest colours the name of a
+  failing file on its own, and the code's closing `m` stood on its left. The stem alone never
+  matches. When no changed file appears, the failed jobs are re-run, the pull request is told
+  which checks and why, and no agent is launched.
+  `repair_ci` answers `PR_OPEN` with `code_changed=False`: nothing was pushed, so the reviewer's
+  verdict on the head stands, and the watch rests `_CI_POLL` and reads the checks again.
+- **Once, not on every attempt** (PO, 2026-10-19). The rule guesses, and it guesses wrong in the
+  commonest real-regression shape: changed `src/billing/invoice_totals.ts`, failing
+  `tests/checkout.spec.ts` (#258's review). So it is asked only when `attempt == 1`. Every later
+  attempt launches the agent whatever the log says, and a wrong "unrelated" costs one CI re-run, not
+  the repair budget.
+- **"Could not see" is "related".** A diff the forge could not read, or one `truncated` cut (it
+  carries `DIFF_CUT_MARKER`), launches the agent as before.
+- **After a pass that changed nothing, the failed jobs are re-run once.** A pass that answered
+  `PR_OPEN` with `code_changed is False` pushed nothing, so nothing would run the checks again, and
+  the watch would read the same red off the same run. The re-run is said on the pull request too
+  (PO, 2026-10-19). A pass that pushed, one whose change could not be measured
+  (`code_changed is None`), a hold, a pause or a failure, and a person's adjust pass re-run nothing.
+- **A row capability, not a port method.** `forge/base.py::rerun_failed_of` reads `rerun_failed`
+  with `getattr`, like `merge_gates` and `review_comments`. Only `GitHubForge` declares it: `gh run
+  rerun <id> --failed --repo <the pull request's repository>`, for every run the same
+  `_failing_runs` chooses for `failed_ci_logs`: the first two, and of those only a run whose
+  failing log reads (non-empty) when read again just before, so no run is re-run whose log the
+  decision did not read (one more `gh run view --log-failed` per run, at most two, on the re-run
+  paths only). A red check whose run is past the first two is neither read nor re-run, and is not
+  a refusal (refusing would launch the agent at once on logs that named no changed file): the row
+  answers it as left (`Reran.left`), and the comment and the note name it as not re-run and left
+  red. Azure Repos, the local forge and every add-on declare nothing.
+  Their diff is never read for this, nothing is said, and the agent repairs as before.
+- **A refusal falls through to the agent, and is said** (PO, 2026-10-19). A refusal is a
+  `RerunRefused` value: no `Actions: write`, a run still in progress, checks that could not be read,
+  a run whose failing log did not read.
+  The worker log warns, the pull request is told the forge's words and that an agent was launched
+  instead, and the agent gets the gate's log. A forge that found no failed job to re-run (`[]`)
+  launches the agent with a warning in the worker log and nothing on the pull request.
+- **Counted against `_CI_REPAIR_MAX`** (PO, 2026-10-19). The watch counts an attempt before it
+  calls `repair_ci`, so a re-run returned from it spends that attempt with no workflow change. The
+  bound in §1 holds as it was. The watch's sentences still say `repair pass N of 2` while a re-run
+  happens and `CI still failing after N repair attempt(s)` when it parks. Rewording them is a
+  workflow change behind `workflow.patched`, and it is left to a follow-up.
+- **No clock of its own.** The activity takes no wait after the re-run, and there is no new timeout.
+  Measured 2026-10-20 with gh 2.102.0 on a scratch pull request: after `gh run rerun --failed` the
+  check read `pending` within 3.0–3.7 s in 3 of 4 re-runs. The fourth stayed queued for 29+ minutes
+  and never read red. Before `pending`, `gh pr checks` reported no checks, and the old red was read
+  0 of 4 times. The watch's `_CI_POLL` (2 min) is longer than that gap. What a branch whose check is
+  required reads in the gap was not measured.
+- **GitHub Enterprise Server never reaches the re-run.** `_ACTIONS_RUN` matches `github.com` run
+  links only, so `failed_ci_logs` reads `""` there and the #184 gate holds for a person before the
+  rule is asked, as it did before this amendment.
+
+Proven by fakes over the activity, the seam and the GitHub row (the GitHub row's `gh` argv
+included), and by the measurement above against the real `gh`. It has not been run end to end on a
+deployment.

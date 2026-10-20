@@ -151,8 +151,12 @@ MUTATIONS = [
      "            pass\n"),
 
     ("the port swallows the row's sentence", BASE,
-     # re-pinned 2026-10-02: #330's `review_comments_of` hands its row's reason on the same way
+     # re-pinned 2026-10-02: #330's `review_comments_of` hands its row's reason on the same way;
+     # re-pinned 2026-10-19: #756's `rerun_failed_of` logs and hands on its refusal in the same
+     # two lines, so the anchor carries `merge_gates_of`'s own log sentence
+     'log.info("%s did not list the merge gates of %s: %s", type(forge).__name__, base,\n'
      "                 str(said)[:300])\n        return said\n",
+     'log.info("%s did not list the merge gates of %s: %s", type(forge).__name__, base,\n'
      "                 str(said)[:300])\n        return None\n", SEAM),
 
     ("the doctor guesses when the row said why", DOCTOR,

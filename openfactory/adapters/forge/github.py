@@ -16,6 +16,7 @@ from openfactory.adapters.forge.base import (
     BranchProtection,
     CommentsNotListed,
     ForgeAdapter,
+    Reran,
     ReviewComment,
     ReviewEvent,
 )
@@ -74,6 +75,11 @@ def _ci_status_from_checks(checks: list[dict], *, required: bool = False) -> str
 #: <run id>/job/<job id>` (recorded 2026-09-24). Another app's check run links to `/<repo>/runs/
 #: <id>`, and a commit status to wherever the app that posted it chose.
 _ACTIONS_RUN = re.compile(r"^https://github\.com/([^/]+/[^/]+)/actions/runs/(\d+)(?:/|$)")
+
+#: How many failing runs the CI repair reads a log from, and so re-runs: the two `failed_ci_logs`
+#: has read since #184. One bound for both, because a run re-run whose log the decision never
+#: read is retried blind (measured 2026-10-20 with three red runs: logs of 1 and 2, re-run 1-3).
+_RUNS_READ = 2
 
 
 def _redact(text: str) -> str:
@@ -1086,7 +1092,9 @@ class GitHubForge(ForgeAdapter):
         or none of their runs has a failing log; the core reads that as "nothing to act on".
 
         THE RUNS OF THE PULL REQUEST'S OWN REPOSITORY (C-18): `gh run` does not resolve a URL, and
-        a link to another repository's run is not this pull request's check."""
+        a link to another repository's run is not this pull request's check. The first two such
+        runs are read; `rerun_failed` re-runs the same runs, chosen by the same `_failing_runs`,
+        and of those only the ones whose log `_failing_log` reads here too."""
         repo = self._repo_of_pr(pr)
         try:
             rows = self.pr_checks(pr=pr)
@@ -1096,20 +1104,105 @@ class GitHubForge(ForgeAdapter):
             log.warning("could not read the checks of %s to collect their logs (%s)",
                         pr, str(exc)[:160])
             return ""
-        runs: list[str] = []
+        chunks: list[str] = []
+        for rid in self._failing_runs(repo, rows)[0]:
+            text, _why_not = self._failing_log(repo, rid)
+            if text:
+                chunks.append(text)
+        return _redact("\n".join(chunks))[-max_chars:]
+
+    def _failing_log(self, repo: str, rid: str) -> tuple[str, str]:
+        """`(the failing log of run rid, "")` when it reads, else `("", why not)`: one definition
+        of "the log of this run was read", for `failed_ci_logs` and `rerun_failed` (#756).
+
+        "COULD NOT BE READ" AND "WAS EMPTY" ARE TOLD APART (lesson §2): `gh run view --log-failed`
+        exits non-zero for a log it could not fetch (expired, not yet archived, a 404), and zero
+        with nothing for a run with no failing step's log."""
+        got = self._gh(["run", "view", rid, "--repo", repo, "--log-failed"], timeout=180)
+        if got.returncode != 0:
+            said = _redact(got.stderr or "").strip().removeprefix("gh: ")[-160:]
+            return "", f"could not be read ({said})" if said else "could not be read"
+        return (got.stdout, "") if got.stdout else ("", "was empty")
+
+    @staticmethod
+    def _failing_runs(repo: str, rows: list[dict]) -> tuple[dict[str, list[str]], list[str]]:
+        """Run id → the names of the failing blocking `code` rows of `pr_checks` that link to it,
+        for the workflow runs of `repo` only (C-18), in the rows' order, the first `_RUNS_READ`;
+        and the names of the rows whose run is past them.
+
+        ONE SELECTION FOR THE LOG AND THE RE-RUN (#756): the CI repair decides from the log of
+        these runs whether the change touched the failure, then re-runs their failed jobs. Two
+        loops could come to pick different runs, and the re-run would retry a check whose log the
+        decision never read. The bound is here for the same reason: when it was `[:2]` in
+        `failed_ci_logs` alone, a third red run was re-run on the first two's logs (measured
+        2026-10-20 with three red runs: logs of runs 1 and 2 read, runs 1-3 re-run). A run past
+        the bound is neither read nor re-run: it stays red, and the next attempt takes it up.
+        Its checks are answered beside the selection so that `rerun_failed` can name them: the
+        pull request is told they were not re-run (re-review on c4f591b, 2026-10-20)."""
+        runs: dict[str, list[str]] = {}
         for row in rows:
             if not (row["blocking"] and row["kind"] == "code"
                     and str(row.get("bucket") or "").lower() in ("fail", "cancel")):
                 continue
             named = _ACTIONS_RUN.match(str(row.get("url") or ""))
             if named and named.group(1).lower() == repo.lower():
-                runs.append(named.group(2))
-        chunks: list[str] = []
-        for rid in list(dict.fromkeys(runs))[:2]:
-            lp = self._gh(["run", "view", rid, "--repo", repo, "--log-failed"], timeout=180)
-            if lp.returncode == 0 and lp.stdout:
-                chunks.append(lp.stdout)
-        return _redact("\n".join(chunks))[-max_chars:]
+                runs.setdefault(named.group(2), []).append(str(row.get("name") or ""))
+        ordered = list(runs.items())
+        return (dict(ordered[:_RUNS_READ]),
+                [name for _rid, names in ordered[_RUNS_READ:] for name in names])
+
+    def rerun_failed(self, *, pr: str) -> Reran:
+        """Re-run the failed jobs of the runs `failed_ci_logs` read a log from (#756): `gh run
+        rerun <id> --failed --repo <the pull request's repository>`, once per run. Answers the
+        names of the checks whose run was re-run, and in `left` the red checks whose run was past
+        the `_RUNS_READ` whose logs were read, so neither read nor re-run; `[]` when no red
+        required check is a run of this repository (a status, another app's check, a GitHub
+        Enterprise run URL `_ACTIONS_RUN` does not match). A run left past the bound is not a
+        refusal: refusing would launch the agent at once on the logs that named no changed file.
+
+        A RUN WHOSE FAILING LOG DOES NOT READ IS NOT RE-RUN. `failed_ci_logs` skips a run whose
+        `gh run view --log-failed` fails or comes back empty, so the decision to re-run instead of
+        repairing never saw that run's failure; until the human round of 2026-10-20 it was re-run
+        all the same (measured on 28e9226: run 2's read exits 1, and `gh run rerun 2 --failed` was
+        asked). So each selected run's log is read again here, by `_failing_log`, before it is
+        re-run: one more `gh run view --log-failed` per selected run (at most `_RUNS_READ`, so
+        two), on the re-run paths only; `failed_ci_logs` makes no extra call. Read here rather
+        than remembered from `failed_ci_logs`, because the two are called from different
+        activities and nothing carries the adapter's state between them.
+
+        RAISES `RerunRefused` when the checks could not be read, when a run's log did not read
+        (naming the run and why), or when `gh` refused a run: an App without `Actions: write`
+        (HTTP 403), a run still in progress. Every run is asked even after one refused, so the
+        refusal names each run left out, and the checks that did re-run."""
+        from openfactory.adapters.forge.base import RerunRefused
+
+        repo = self._repo_of_pr(pr)
+        try:
+            rows = self.pr_checks(pr=pr)
+        except RuntimeError as exc:
+            raise RerunRefused(f"the checks of this pull request could not be read "
+                               f"({str(exc)[:160]})") from exc
+        rerun: list[str] = []
+        refusals: list[str] = []
+        unread: list[str] = []
+        selected, left = self._failing_runs(repo, rows)
+        for rid, names in selected.items():
+            _text, why_not = self._failing_log(repo, rid)
+            if why_not:
+                unread.append(f"run {rid}, whose failing log {why_not}")
+                continue
+            p = self._gh(["run", "rerun", rid, "--failed", "--repo", repo])
+            if p.returncode == 0:
+                rerun.extend(names)
+            else:
+                refusals.append(f"run {rid}: "
+                                f"{_redact(p.stderr or '').strip().removeprefix('gh: ')[-200:]}")
+        if refusals or unread:
+            done = f"; re-ran {', '.join(rerun)}" if rerun else ""
+            said = ([f"did not re-run {'; '.join(unread)}"] if unread else []) + (
+                [f"gh run rerun refused {'; '.join(refusals)}"] if refusals else [])
+            raise RerunRefused(f"{'; '.join(said)}{done}")
+        return Reran(rerun, left=left)
 
     def merge_commit_sha(self, *, pr: str) -> str | None:
         import json as _json

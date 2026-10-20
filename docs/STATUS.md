@@ -100,7 +100,7 @@ two* — is the bar for this table. Where an axis still has one implementation i
 | tracker | GitHub, **Jira**, **Azure DevOps**, **local** | the Jira one is why refs are opaque strings rather than integers |
 | forge | GitHub, **Azure Repos**, **local** | branches, PRs, merges, tags on both |
 | board | GitHub Projects v2, **Azure Boards**, **local** | plus Jira, where the workflow status IS the board |
-| CI / environment | GitHub Actions, **Azure Pipelines**, **none** | read-only observation on both; `none` is what a project with no pipeline declares, and it is not a gap |
+| CI / environment | GitHub Actions, **Azure Pipelines**, **none** | observation on both, and one act on GitHub Actions only: a CI repair re-runs the failed jobs of a red required check whose log names no changed file, or after a pass that changed nothing ([ADR-0004](adr/0004-ci-aware-autonomous-repair.md), amendment 2026-10-20). That act is proven by fakes and by a measurement against the real `gh` (2.102.0, 2026-10-20), not end to end; Azure Pipelines re-runs nothing. `none` is what a project with no pipeline declares, and it is not a gap |
 | agent | Claude Code, Codex, Kimi, **OpenCode** | four, selectable per role AND per model (`model:`); OpenCode proven end to end against Amazon Bedrock |
 | sandbox | worktree, container, `fargate` (add-on) | worktree and container are local; `fargate` is described by the core (its traits are a row) and RUN by the `openfactory-aws` add-on through the `box_runner.fargate` entry point — absent the add-on, the kind is refused by name |
 | channel | panel, Slack (add-on) | the panel is the reference surface (ADR-0038); the Slack connector leaves the public tree as `openfactory-slack` — a channel is an add-on, never a prerequisite |

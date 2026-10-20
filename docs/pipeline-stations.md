@@ -136,7 +136,11 @@ the oldest of those lines give way first, so the cost, the review and the newest
 - **CI-aware merge (ADR-0004).** When required GitHub checks gate the merge, a durable loop
   watches CI: green → merge; **red → a bounded autonomous repair** (re-invoke the executor on
   the branch with the failing CI logs) → re-push → re-check. Only a genuinely unfixable CI (or
-  the deadline) holds for a human. React and fix, don't just block.
+  the deadline) holds for a human. React and fix, don't just block. On GitHub, the failed jobs
+  are re-run in two cases, and the pull request is told which checks and why. The first is the
+  first repair, when the failing log names no file the pull request changes: the re-run takes
+  the place of the agent. The second is right after a repair pass that changed nothing. Both
+  stay within the same two repair attempts. A forge that cannot re-run jobs repairs as before.
 - **Deploy-watch (ADR-0005).** The moment a job merges it **completes** — the floor frees for
   the next ticket immediately. An **abandoned durable child** then watches the project's own
   deploy (its `deploy` workflow on the merge commit) and **notifies** the outcome

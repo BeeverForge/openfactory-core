@@ -293,7 +293,11 @@ JSON
     doesn't trigger it — a dead block. Exclude those.
   - **Prefer deterministic checks.** A flaky check (e.g. slow end-to-end) makes the CI-repair
     loop chase failures that aren't code bugs. Require the fast, reliable gates; leave flaky
-    ones advisory.
+    ones advisory. On GitHub, the first repair of a red required check whose failing log names no
+    file the pull request changes re-runs the failed jobs instead of launching an agent, and says
+    so on the pull request (ADR-0004, amendment 2026-10-20). That re-run spends one of the two
+    repair attempts, and the next attempt launches the agent, so a check that keeps failing still
+    costs an agent pass and then parks the card. Deterministic checks are still the advice.
 - **Admins not enforced** — an operator can still intervene by hand.
 
 Also enable **auto-delete of head branches on merge** (repo setting, not branch protection),
