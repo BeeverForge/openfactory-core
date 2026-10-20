@@ -3256,6 +3256,26 @@ def probes_for(project) -> Probes:
     )
 
 
+def _the_forges_own_token(project, reference: str) -> bool:
+    """Whether `reference` — the box image's pull credential — is the forge's own token: the
+    forge's `token_env`, or the deployment's `OPENFACTORY_FORGE_TOKEN` / `OPENFACTORY_BOT_TOKEN`,
+    bare or as `env:` (review of 256c5b0 for #742). Those write, and a pull needs read scope only;
+    said beside the pull's line, never failed, because the pull works."""
+    from openfactory.adapters.credential_store import registry as store
+
+    forge = str((getattr(getattr(project, "forge", None), "options", None) or {})
+                .get("token_env") or "")
+
+    def same(one: str, other: str) -> bool:
+        kind, name = store.parse(one)
+        other_kind, other_name = store.parse(other)
+        return (bool(name) and name == other_name
+                and (kind or store.ENV) == (other_kind or store.ENV))
+
+    return any(same(reference, other)
+               for other in (forge, "OPENFACTORY_FORGE_TOKEN", "OPENFACTORY_BOT_TOKEN"))
+
+
 def credential_store_line(project) -> tuple[bool, str, str]:
     """`(ok, message, remedy)` for the `credential_store` line (#742): which store this deployment's
     stored secrets are read from, and each credential reference `project` names, said by its
@@ -3294,8 +3314,11 @@ def credential_store_line(project) -> tuple[bool, str, str]:
             named.append((f"the {axis}'s `token_env`", reference))
     pull = pull_credential_of(getattr(project, "box", None))
     if pull is not None:
-        named.append((f"the box image's pull credential (as `{pull.username or '?'}`)",
-                      pull.reference))
+        what = f"the box image's pull credential (as `{pull.username or '?'}`)"
+        if _the_forges_own_token(project, pull.reference):
+            what += (", which is the forge's own token and writes — a pull needs read scope "
+                     "only, so give the image a credential of its own —")
+        named.append((what, pull.reference))
     said: list[str] = []
     wrong: list[str] = []
     for what, reference in named:

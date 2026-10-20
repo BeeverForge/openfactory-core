@@ -1356,6 +1356,13 @@ NOT_A_CONSUMER: dict[str, str] = {
     "openfactory/certify/pack.py": "it REDACTS what the store holds, and hiding a value opens no "
                                    "door: a refusal there is one value fewer to hide, never a "
                                    "credential used",
+    "openfactory/product/model.py": "it REDACTS what the store holds from the product's facts and "
+                                    "briefings, as the certify pack does: a refusal there is one "
+                                    "value fewer to hide, never a credential used",
+    "openfactory/adapters/github_cli.py": "it raises `LoginRefused` for every GitHub adapter, and "
+                                          "asks the App key's refusal again when a mint answers "
+                                          "nothing: the worker's tracker and forge, the GitHub "
+                                          "board and the CI observer above hold it",
     "openfactory/runtime/temporal/view.py": "it seals the answers the merge gate, the approval "
                                             "and another pass deliver, and raises the key's "
                                             "refusal to them: their consumers above hold it",

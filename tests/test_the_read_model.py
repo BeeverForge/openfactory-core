@@ -553,6 +553,55 @@ def test_a_credential_never_reaches_a_facts_file(made, tmp_path, monkeypatch):
     assert "clone https://github.com/acme/web.git" in got, "the URL stays, its userinfo goes"
 
 
+def test_a_credential_held_in_a_file_never_reaches_a_facts_file(made, tmp_path, monkeypatch):
+    """A token moved into a mounted file is no less a token (review of 256c5b0 for #742): the
+    scrub knows what the credential store holds, not only the environment — and a value with no
+    token's shape, which only knowing it could withhold."""
+    from openfactory.adapters.credential_store.file import DIR_VAR
+    from openfactory.adapters.credential_store.registry import STORE_VAR
+
+    directory = tmp_path / "secrets"
+    directory.mkdir()
+    directory.chmod(0o700)
+    (directory / "acme-jira").write_text("held-in-a-file-only-q7\n")
+    (directory / "acme-jira").chmod(0o600)
+    monkeypatch.setenv(DIR_VAR, str(directory))
+    monkeypatch.setenv(STORE_VAR, "file")
+    monkeypatch.setitem(bed.THREADS, ("acme-api", "7"),
+                        [("octo-dev-q7", "the key is held-in-a-file-only-q7",
+                          "2026-09-21T09:00:00Z")])
+    root = tmp_path / "pack"
+    root.mkdir()
+    got = pack(made, root)
+    assert "held-in-a-file-only-q7" not in got
+    assert read_model.WITHHELD_CREDENTIAL in got, "said where it was withheld"
+
+
+def test_a_file_held_value_is_withheld_whichever_store_the_deployment_declares(tmp_path,
+                                                                                 monkeypatch):
+    """`token_env: file:acme-jira` works with no store declared, so what the file store holds is
+    withheld then too: every store that lists what it holds is asked, not only the declared one."""
+    from openfactory.adapters.credential_store.file import DIR_VAR
+    from openfactory.adapters.credential_store.registry import STORE_VAR
+
+    directory = tmp_path / "secrets"
+    directory.mkdir()
+    directory.chmod(0o700)
+    (directory / "acme-jira").write_text("held-in-a-file-only-q7\n")
+    (directory / "acme-jira").chmod(0o600)
+    monkeypatch.setenv(DIR_VAR, str(directory))
+    for declared in ("file", None):
+        if declared:
+            monkeypatch.setenv(STORE_VAR, declared)
+        else:
+            monkeypatch.delenv(STORE_VAR, raising=False)
+        assert (read_model.scrub_credentials("the key is held-in-a-file-only-q7, it said")
+                == f"the key is {read_model.WITHHELD_CREDENTIAL}, it said"), declared
+    monkeypatch.delenv(DIR_VAR)
+    assert "held-in-a-file-only-q7" in read_model.scrub_credentials(
+        "the key is held-in-a-file-only-q7"), "with no directory, nothing is known to withhold"
+
+
 # ── what could not be read is said ──────────────────────────────────────────────────────────────
 
 def test_an_engine_that_does_not_answer_is_a_gap_never_an_idle_floor(made, tmp_path,

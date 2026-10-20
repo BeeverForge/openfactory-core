@@ -322,6 +322,29 @@ def listed(kind: str) -> list[str] | None:
         return None
 
 
+def held_values(named: Iterable[object] = ()) -> set[str]:
+    """Every value the stores hold, for a reader that must never print one — the certify pack's
+    redactor, the product role's facts (#742, review of 256c5b0): what each reference in `named`
+    answers; every entry of every store this deployment can read that lists what it holds (the
+    file store, whenever it has a directory — a `file:` reference works whatever store is
+    declared); and, for a declared store that cannot list, every credential the core reads by name.
+    Read quietly: a refusal here is one value fewer to hide, never a warning. The values are never
+    logged; they exist to be withheld."""
+    from openfactory import environ
+
+    asked: set[object] = set(named)
+    declared = deployment_store()
+    for kind in known():
+        if kind == ENV or unusable(kind):
+            continue
+        listing = listed(kind)
+        if listing is not None:
+            asked |= {f"{kind}:{name}" for name in listing}
+        elif kind == declared:
+            asked |= {n for n in environ.names_read() if environ.holds_a_credential(n)}
+    return {v.strip() for ref in asked if (v := look(ref, quiet=True).value) and v.strip()}
+
+
 class Stored:
     """The deployment's credentials as a mapping of names, for a reader that takes a mapping of
     settings (`claude_code.credential_in`, an auth route's `missing`) and is asked about THIS

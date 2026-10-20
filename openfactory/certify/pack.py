@@ -437,21 +437,14 @@ def _secret_values(rows, env: dict[str, str]) -> set[str]:
 
 
 def _held_values(named: set[str]) -> set[str]:
-    """The values the credential store holds for what the pack must never print (#742): every
-    reference the registry names (`token_env: file:acme-jira`), and — when the deployment declares
-    a store this process reads — every entry it holds, or, for a store that cannot list its
-    entries, every credential the core reads by name. Never logged; only redacted."""
-    from openfactory import environ
+    """The values the credential stores hold for what the pack must never print (#742): every
+    reference the registry names (`token_env: file:acme-jira`), every entry of a store that lists
+    what it holds, and, for a declared store that cannot list, every credential the core reads by
+    name — the store's own `held_values`, which the product role's facts withhold by too (review
+    of 256c5b0). Never logged; only redacted."""
     from openfactory.adapters.credential_store import registry as store
 
-    asked = set(named)
-    kind = store.deployment_store()
-    if kind != store.ENV and not store.unusable(kind):
-        listed = store.listed(kind)
-        asked |= set(listed) if listed is not None else {
-            n for n in environ.names_read() if environ.holds_a_credential(n)}
-    return {v.strip() for ref in asked
-            if (v := store.look(ref, quiet=True).value) and v.strip()}
+    return store.held_values(named)
 
 
 def _variable_names(rows) -> set[str]:
