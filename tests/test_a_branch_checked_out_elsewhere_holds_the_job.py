@@ -631,3 +631,39 @@ def test_a_holder_under_a_directory_the_box_cannot_search_still_holds_the_job(he
         assert "is not there" not in str(caught.value), str(caught.value)
     finally:
         closed.chmod(0o755)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root searches any directory")
+def test_a_holder_under_a_directory_the_box_cannot_search_still_holds_the_job_on_3_14(
+        held, monkeypatch):
+    """From 3.14 `Path.exists()` answers False under a directory the box cannot search instead of
+    raising (#827). Pinned without a 3.14 interpreter: the tree is still not reported gone."""
+    from openfactory.adapters.sandbox.base import BranchHeldElsewhere
+    repo, review, box = held
+    closed = review.parent / "closed"
+    closed.mkdir()
+    _git(repo, "worktree", "move", str(review), str(closed / "review"))
+    real = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda self, *a, **kw: (
+        False if closed in self.parents else real(self, *a, **kw)))
+    closed.chmod(0)
+    try:
+        with pytest.raises(BranchHeldElsewhere) as caught:
+            _keep(box, repo)
+        assert "is not there" not in str(caught.value), str(caught.value)
+    finally:
+        closed.chmod(0o755)
+
+
+def test_a_holder_whose_directory_became_a_file_is_reported_gone(held):
+    """An ancestor that is now a regular file is positive evidence the tree is not there."""
+    from openfactory.adapters.sandbox.base import BranchHeldElsewhere
+    repo, review, box = held
+    parent = review.parent / "was-a-dir"
+    parent.mkdir()
+    _git(repo, "worktree", "move", str(review), str(parent / "review"))
+    shutil.rmtree(parent)
+    parent.write_text("")
+    with pytest.raises(BranchHeldElsewhere) as caught:
+        _keep(box, repo)
+    assert "is not there" in str(caught.value), str(caught.value)

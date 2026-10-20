@@ -112,7 +112,7 @@ MUTATIONS = [
      '            return (f"{head} {again}move that checkout'),
 
     ("a tree whose directory is not there is told to commit or stash in it", BOX,
-     "    gone = not tree.main and not Path(tree.path).exists()\n",
+     "    gone = not tree.main and _not_there(Path(tree.path))\n",
      "    gone = False\n"),
 
     ("the commands lose `-C <repo>`, and pasted outside the repository they answer \"is not a "
@@ -158,8 +158,14 @@ MUTATIONS = [
      "tests/test_a_reviewers_comments_reach_the_pass.py"),
 
     ("a directory the box cannot search reads as \"not there\", and the hold is a traceback", BOX,
-     "    except OSError:  # under a directory the box cannot search",
-     "    except FileNotFoundError:  # under a directory the box cannot search"),
+     "    except OSError:  # a parent the box cannot search",
+     "    except FileNotFoundError:  # a parent the box cannot search"),
+
+    # ── #827: from Python 3.14 `Path.exists()` answers False there instead of raising ──────────
+    ("the bare `exists()` is back, and on 3.14 a tree under a directory the box cannot search is "
+     "called gone and the person is told to remove it", BOX,
+     "    gone = not tree.main and _not_there(Path(tree.path))\n",
+     "    gone = not tree.main and not Path(tree.path).exists()\n"),
 
     ("a TREE hold without the machine's mark resumes into a fresh job", WORKFLOW,
      "        passed.merge_refused = True\n",

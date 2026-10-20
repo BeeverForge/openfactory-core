@@ -502,14 +502,25 @@ def _holder(repo_path, branch: str) -> gitworktrees.WorkingTree | None:
     return held
 
 
+def _not_there(path: Path) -> bool:
+    """True only when the lookup searched every directory above `path` and found nothing.
+
+    `Path.exists()` cannot say that: under a directory the box cannot search it raised on 3.12 and
+    answers False from 3.14 (#827). Not looked at is not "not there"."""
+    try:
+        os.stat(path)
+    except (FileNotFoundError, NotADirectoryError):  # no such entry, or a parent is now a file
+        return True
+    except OSError:  # a parent the box cannot search, among others: could not tell
+        return False
+    return False
+
+
 def _branch_held_elsewhere(branch: str, tree: gitworktrees.WorkingTree, *, repo_path,
                            rebuilt: bool, ours: Path) -> BranchHeldElsewhere:
     # asked of the filesystem, not of git's `prunable`, which a locked tree whose directory is gone
     # never carries (listed `locked` only, 2.34.1 and 2.43.0, measured)
-    try:
-        gone = not tree.main and not Path(tree.path).exists()
-    except OSError:  # under a directory the box cannot search: not looked at is not "not there"
-        gone = False
+    gone = not tree.main and _not_there(Path(tree.path))
     return BranchHeldElsewhere(
         branch_held(branch, tree.path, main=tree.main, locked=tree.locked, repo=str(repo_path),
                     gone=gone, rebuilt=rebuilt, ours=_same_dir(tree.path, ours)),
