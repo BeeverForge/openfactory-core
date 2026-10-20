@@ -21,6 +21,7 @@ them here first.
 
 from __future__ import annotations
 
+import inspect
 import shlex
 
 import pytest
@@ -125,7 +126,39 @@ def _value(argv: list[str], *names: str) -> str | None:
     return None
 
 
-SHAPES = ["execute", "execute, resumed", "repair", "plan", "ask", "smoke"]
+#: Each public door of `KimiAdapter` that builds a command, and the shapes `_built` drives through
+#: it. A shape is built by hand because each door needs its own arguments (a resumed run needs a
+#: session); which doors there are is not: `test_every_door_that_builds_a_command_has_a_shape`
+#: reads them off the class. Until review round 2 on dc0efac4 (2026-10-20, point 5) this list was
+#: written by hand alone, and a new door would have left all three tables green.
+DOORS = {
+    "execute": ["execute", "execute, resumed"],
+    "repair": ["repair"],
+    "plan": ["plan"],
+    "ask": ["ask"],
+    "smoke_command": ["smoke"],
+}
+
+SHAPES = [shape for shapes in DOORS.values() for shape in shapes]
+
+
+def _doors_of_the_row() -> set[str]:
+    """The public methods of `KimiAdapter` that build a command: those that take the box to run
+    it in (`sandbox`) or the harness path to build it for (`harness`). A method that takes
+    neither (`smoke_reply` reads an answer) has no way to reach the CLI."""
+    return {name for name, method in inspect.getmembers(KimiAdapter, inspect.isfunction)
+            if not name.startswith("_")
+            and {"sandbox", "harness"} & set(inspect.signature(method).parameters)}
+
+
+def test_every_door_that_builds_a_command_has_a_shape():
+    """Review round 2 on dc0efac4, point 5: `SHAPES` matched every door then, but nothing made a
+    new one join it. Red under the cut that adds a public `review` door (plan
+    `788_the_kimi_refusal_table_turns_red`, D1)."""
+    doors = _doors_of_the_row()
+    assert doors == set(DOORS), (
+        f"doors with no shape: {sorted(doors - set(DOORS))}; "
+        f"shapes for no door: {sorted(set(DOORS) - doors)}")
 
 
 @pytest.mark.parametrize("shape", SHAPES)
