@@ -40,6 +40,7 @@ import pytest
 
 from openfactory.adapters.agent.kimi import KimiAdapter
 from openfactory.adapters.sandbox import WorktreeSandbox
+from openfactory.adapters.sandbox.timeouts import TIMEOUT_EXIT, timeout_result
 from openfactory.contracts import AcceptanceCriterion, AgentRunResult, JobState, Manifest, Ticket
 from openfactory.observability import InMemoryEventSink
 from openfactory.orchestrator import JobRunner
@@ -136,19 +137,32 @@ def box(request, tmp_path: Path):
 class _Recording:
     """A box that records every command it is handed and delegates to the real one. With
     `refuse_fingerprint`, it answers git's dubious-ownership refusal, exit 128, to the fingerprint
-    and runs everything else."""
+    from its `refuse_from`-th asking on (1: every one) and runs everything else. With
+    `wall_fingerprint`, it runs the fingerprint for real and answers what the box's own wall
+    answers (`timeout_result`: its exit code, its marker, then the output so far), as if the wall
+    hit after git had printed both hashes."""
 
-    def __init__(self, inner, *, refuse_fingerprint: bool = False) -> None:
+    def __init__(self, inner, *, refuse_fingerprint: bool = False, refuse_from: int = 1,
+                 wall_fingerprint: bool = False) -> None:
         self._inner = inner
         self._refuse = refuse_fingerprint
+        self._refuse_from = refuse_from
+        self._wall = wall_fingerprint
         self.commands: list[str] = []
+        self.fingerprints = 0
         self.refused: list[str] = []
 
     def run(self, *, workspace, command: str, timeout: int, **kw):
         self.commands.append(command)
-        if self._refuse and FINGERPRINT_RUNS in command:
-            self.refused.append(command)
-            return 128, DUBIOUS
+        if FINGERPRINT_RUNS in command:
+            self.fingerprints += 1
+            if self._refuse and self.fingerprints >= self._refuse_from:
+                self.refused.append(command)
+                return 128, DUBIOUS
+            if self._wall:
+                _, out = self._inner.run(workspace=workspace, command=command, timeout=timeout,
+                                         **kw)
+                return timeout_result(command, timeout, out)
         return self._inner.run(workspace=workspace, command=command, timeout=timeout, **kw)
 
     def __getattr__(self, name):
@@ -167,9 +181,11 @@ class _Planner:
         self.writes = writes
         self.pauses = pauses
         self.cost = cost
+        self.planned = False
         self.executed = False
 
     def plan(self, *, sandbox, workspace, context) -> AgentRunResult:
+        self.planned = True
         if self.writes:
             rc, out = sandbox.run(workspace=workspace, command=self.writes, timeout=60)
             assert rc == 0, f"the planner double could not write: {out}"
@@ -247,6 +263,20 @@ def test_a_planner_that_commits_its_edit_holds_the_job(repo, tmp_path):
     _assert_held_naming(runner, result, agent, events, tmp_path, ["committed.txt"])
 
 
+def test_a_planner_that_commits_a_file_and_deletes_it_holds_the_job_naming_it(repo, tmp_path):
+    """1a/1b, HEAD alone. A planner that commits `once.txt` and then deletes it leaves the tree
+    `git add -A` would commit equal to the one before the pass; only HEAD moved, and `_commit`
+    would have put the file in the branch's history (and its deletion after it). The tree half of
+    the fingerprint cannot see it, so this row holds the HEAD half: red under the cut that reads
+    no HEAD (task 17)."""
+    agent, events = _Planner("echo x > once.txt && git add -A && "
+                             "git -c user.email=p@p -c user.name=p -c commit.gpgSign=false "
+                             "commit -qm planner && rm once.txt"), InMemoryEventSink()
+    runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"), events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["once.txt"])
+    assert "a commit made during the pass" in (result.note or ""), result.note
+
+
 def test_a_planner_that_rewrites_what_setup_left_holds_the_job(repo, tmp_path):
     """1a/1b. Setup leaves `build.log` untracked and the planner appends to it: `git status
     --porcelain` reads `?? build.log` before and after (measured on git 2.43.0, 2026-10-20), so a
@@ -288,11 +318,54 @@ def test_a_workspace_that_cannot_be_asked_holds_the_job_rather_than_reading_as_c
     assert result.state is JobState.ON_HOLD, (
         f"the workspace could not be asked and the job went on to {result.state.value}")
     assert sandbox.refused, "the fingerprint was never asked of the box"
+    assert agent.planned is False, "a pass nobody could check was run (and paid for)"
     assert agent.executed is False
     note = result.note or ""
     assert "could not" in note and "workspace" in note, note
     assert "dubious ownership" in note, f"the hold does not name git's cause: {note}"
     assert "wrote" not in note, f"an unreadable workspace is not a planner that wrote: {note}"
+
+
+def test_a_workspace_that_cannot_be_asked_after_the_pass_holds_the_job(repo, tmp_path):
+    """1d, the second asking. git answers the fingerprint before the pass and refuses it after
+    (exit 128), so the pass ran and what it did cannot be seen. That is the same "could not see",
+    said for after the pass, never read as "nothing was written". Green since the check landed;
+    red under the cut in `tools/mutations/788_a_kimi_planner_that_writes_holds_the_job.py` that
+    deletes the after-pass branch (task 17: no row drove it until then)."""
+    sandbox = _Recording(WorktreeSandbox(root=tmp_path / "wt"), refuse_fingerprint=True,
+                         refuse_from=2)
+    agent = _Planner()
+    runner, result = _run(repo, agent, sandbox)
+
+    assert result.state is JobState.ON_HOLD, (
+        f"the workspace could not be asked after the pass and the job went on to "
+        f"{result.state.value}: {result.note}")
+    assert sandbox.fingerprints == 2 and len(sandbox.refused) == 1, (
+        f"expected the first asking answered and the second refused: {sandbox.refused}")
+    assert agent.planned is True and agent.executed is False
+    assert _branches_on_origin(tmp_path) == {"refs/heads/main"}, _branches_on_origin(tmp_path)
+    note = result.note or ""
+    assert "could not be asked after the planner ran" in note, note
+    assert "dubious ownership" in note, f"the hold does not name git's cause: {note}"
+    assert "wrote" not in note, f"an unreadable workspace is not a planner that wrote: {note}"
+
+
+def test_a_fingerprint_the_box_walled_is_not_read_even_with_both_hashes_printed(repo, tmp_path):
+    """1d, the exit code decides. The box's wall answers `TIMEOUT_EXIT` and the output so far
+    (`timeout_result`), and a wall that hits after git printed both hashes leaves two hashes as the
+    last two lines. Only an exit 0 is a fingerprint: the job holds before the pass, naming the
+    exit. Green since the check landed; red under the cut that reads the hashes whatever the exit
+    (task 17), where the walled answer read as a mark and the job went on to PR_OPEN."""
+    sandbox = _Recording(WorktreeSandbox(root=tmp_path / "wt"), wall_fingerprint=True)
+    agent = _Planner()
+    runner, result = _run(repo, agent, sandbox)
+
+    assert result.state is JobState.ON_HOLD, (
+        f"a walled fingerprint was read and the job went on to {result.state.value}")
+    assert agent.planned is False, "a pass nobody could check was run (and paid for)"
+    note = result.note or ""
+    assert "could not be asked before the planner ran" in note, note
+    assert f"exit {TIMEOUT_EXIT}" in note, f"the hold does not name the box's exit: {note}"
 
 
 class _Distrusted:
