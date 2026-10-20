@@ -126,7 +126,15 @@ def unreachable_window() -> float:
 #: eight. THE OPERATOR'S, NOT A CONSTANT,
 #: as `OPENFACTORY_SOURCES_PARALLEL` is (#369): a Temporal Cloud namespace across a region answers
 #: in tenths of a second and only the deployment knows what its workers take —
-#: `OPENFACTORY_LIST_CONCURRENCY`, read by `list_concurrency()`.
+#: `OPENFACTORY_LIST_CONCURRENCY`, read by `list_concurrency()`. Measured 2026-10-20 on the same
+#: dev server and 48 running rows: with 100 ms added to every client RPC, eight at once took
+#: 2.80 s against the 3 s default deadline (one at a time, and f37aeaa: 19.4 s, refused at 3 s;
+#: sixteen: 1.66 s). With every query replay taking 100 ms on the worker instead, eight answered in
+#: 2 of 10 scans at 3 s (3.25 s median under a 60 s deadline; sixteen 2.38 s; one at a time
+#: 14.5 s). THE WORKER'S SIDE: at most `list_concurrency()` query handlers ran at once (peak 8,
+#: 16 at sixteen; 16 once, right after a scan the deadline cut, whose handlers the worker still
+#: finished). Queries take workflow-task slots (the SDK's default 100; `worker.py` sets none), not
+#: the eight activity slots `worker.py` gives `run_job` and the checks.
 DEFAULT_LIST_CONCURRENCY = 8
 #: The unreadable values this process has already said, so a list read on every stream tick does
 #: not repeat the warning. Bounded by the values the environment has held, never by traffic.
