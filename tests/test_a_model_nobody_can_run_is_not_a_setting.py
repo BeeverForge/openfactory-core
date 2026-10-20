@@ -107,14 +107,36 @@ def test_an_unrecognised_name_is_reported_and_never_refused(monkeypatch):
     import inspect
 
     # THE SAVE IS THE `project_set_model` ROW'S since #741, and the command performs it before it
-    # asks the harness — so an unrecognised name is saved first, and the note can only follow.
+    # asks the harness — held by running it, below, not by where the words sit in its source.
     src = inspect.getsource(cli.project_set_model)
-    assert src.index('_perform("project_set_model"') < src.index("_model_recognition_note"), (
-        "the model is only saved if the harness recognises it — an enterprise route is refused")
     assert "recognis" not in inspect.getsource(catalog._project_set_model).split('"""', 2)[2], (
         "the row that saves the model asks whether the harness recognises it")
     assert "raise typer.Exit" not in src.split("_model_recognition_note")[1], (
         "an unrecognised name exits non-zero — a Bedrock ARN would be treated as a typo")
+
+
+def test_the_model_is_saved_before_the_harness_is_asked(monkeypatch, tmp_path):
+    """RUN, NOT READ: the harness is asked about the name while the registry already holds it,
+    so an unrecognised name — a typo or an enterprise route alike — is saved whatever the harness
+    says. An order read off the source text was satisfied by a comment naming the call."""
+    from typer.testing import CliRunner
+
+    from openfactory import cli
+    from openfactory.registry import ProjectRegistry
+
+    reg = tmp_path / "registry.yaml"
+    reg.write_text(json.dumps({"projects": {"demo": {
+        "name": "demo", "repo_path": str(tmp_path), "harness": "claude_code"}}}))
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(reg))
+    held: list[str | None] = []
+    monkeypatch.setattr(cli, "_model_recognition_note",
+                        lambda project, model: held.append(ProjectRegistry().get(project).model)
+                        or "⚠ the harness does not recognise it")
+
+    out = CliRunner().invoke(cli.app, ["project", "set-model", "demo", "typo-x"])
+
+    assert out.exit_code == 0, out.output
+    assert held == ["typo-x"], "the harness was asked before the row saved the model"
 
 
 def test_could_not_ask_is_never_reported_as_approved(monkeypatch, tmp_path):

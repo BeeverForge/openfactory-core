@@ -688,3 +688,93 @@ def test_a_yes_or_no_that_is_neither_is_refused_and_nothing_is_written(field, on
 
     assert out.code == actions.INVALID and "maybe" in out.message, out
     assert one_project.read_bytes() == before
+
+
+ADMIN = actions.Actor(id="rob", via="panel", admin=True)
+
+
+@pytest.mark.parametrize("argv,row", [
+    (["project", "set-model", "acme", "m"], "project_set_model"),
+    (["project", "set-language", "acme", "en"], "project_set_language"),
+    (["project", "set-preview", "acme", "--hours", "3"], "project_set_preview"),
+    (["project", "remove", "acme"], "project_remove"),
+])
+def test_each_project_verb_runs_its_row_and_writes_nothing_itself(argv, row, one_project,
+                                                                  monkeypatch):
+    """The command is a mapping: with the row's own code replaced by a recorder, the verb still
+    answers, the recorder ran once, and the registry is byte for byte as it was. A verb that wrote
+    the registry itself beside its row would pass every test that reads the registry back."""
+    from openfactory import cli
+
+    before, seen = one_project.read_bytes(), []
+
+    async def recorder(by=None, **params):
+        seen.append(params)
+        return actions.done("recorded", preview={"required": False, "auto_start": True,
+                                                 "hours": 3, "network": "", "env": {},
+                                                 "build_args": {}}, dropped=[])
+
+    monkeypatch.setattr(catalog, "CATALOG", {**catalog.CATALOG, row: dataclasses.replace(
+        catalog.CATALOG[row], run=recorder)})
+    monkeypatch.setattr(cli, "_model_recognition_note", lambda p, m: "")
+
+    out = CliRunner().invoke(cli.app, argv)
+
+    assert out.exit_code == 0, out.output
+    assert len(seen) == 1, f"{argv} did not run {row}"
+    assert one_project.read_bytes() == before, f"{argv} wrote the registry itself"
+
+
+@pytest.mark.parametrize("model", [
+    "arn:aws:bedrock:us-east-1:123:inference-profile/ACM.Fictitious.Model-" + "X" * 80,
+    " padded ", "--looks-like-a-flag"])
+def test_the_model_is_saved_verbatim(model, one_project):
+    """The harness names its models its own way, so the row passes the string on as it came: no
+    case folded, nothing stripped, nothing cut."""
+    from openfactory.registry import ProjectRegistry
+
+    out = asyncio.run(actions.perform("project_set_model", by=ADMIN, project="acme", model=model))
+
+    assert out.ok and ProjectRegistry().get("acme").model == model, out
+
+
+def test_a_model_set_through_a_front_end_says_it_was_not_checked(one_project):
+    """Only the shell asks the harness whether it runs the name, on the machine that will run it.
+    A front end is told the row did not, so silence never reads as a confirmation."""
+    out = asyncio.run(actions.perform("project_set_model", by=ADMIN, project="acme",
+                                      model="gtp-5-typo"))
+
+    assert out.ok and "not checked" in out.message.lower() and out.data.get("checked") is False, out
+
+
+def test_clear_env_drops_what_was_held(one_project):
+    from openfactory.registry import ProjectRegistry
+
+    asyncio.run(actions.perform("project_set_preview", by=ADMIN, project="acme", env="web=A"))
+    asyncio.run(actions.perform("project_set_preview", by=ADMIN, project="acme",
+                                clear_env="true", env="api=B"))
+
+    assert ProjectRegistry().get("acme").preview.env == {"api": {"B": "B"}}
+
+
+@pytest.mark.parametrize("hours", ["6h", "abc"])
+def test_hours_that_are_not_a_number_are_refused(hours, one_project):
+    """The shell types `--hours` as a number; a front end's body may carry anything, and the
+    policy reads what is not a number as its default — saved and reported as a success."""
+    before = one_project.read_bytes()
+
+    out = asyncio.run(actions.perform("project_set_preview", by=ADMIN, project="acme",
+                                      hours=hours))
+
+    assert out.code == actions.INVALID and hours in out.message, out
+    assert one_project.read_bytes() == before
+
+
+def test_a_network_a_preview_may_not_join_is_said_and_not_saved(one_project):
+    from openfactory.registry import ProjectRegistry
+
+    out = asyncio.run(actions.perform("project_set_preview", by=ADMIN, project="acme",
+                                      network="host"))
+
+    assert out.ok and "network 'host' refused" in out.message, out
+    assert ProjectRegistry().get("acme").preview.network == ""

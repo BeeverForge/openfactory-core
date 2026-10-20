@@ -7534,7 +7534,11 @@ async def _project_set_model(*, project: str, model: str, by: Actor,
     string here would refuse exactly the routes an enterprise needs. Whether the harness
     recognises it is asked of the harness, on the machine that will run it, by whoever set it —
     the shell does, after this row has saved it; a name it does not recognise is a warning there,
-    never a refusal here."""
+    never a refusal here.
+
+    AND THIS ROW SAYS IT DID NOT ASK (`checked: false`). Only the shell asks; a front end of one's
+    own reaches this row alone, and an `ok` with nothing else said is the silence the pilot read
+    as a confirmation on 2026-08-15, when a typo'd model was shown on the panel like a setting."""
     from openfactory.registry import ProjectRegistry
 
     chosen = str(role or "").strip() or None
@@ -7546,8 +7550,9 @@ async def _project_set_model(*, project: str, model: str, by: Actor,
         return refused(INVALID, str(exc), project=project)
     scope = f"role {chosen!r}" if chosen else "every role"
     return done(f"{project}: model {model!r} for {scope} — takes effect on the next job, no "
-                f"restart needed (the registry is read per run)", project=project,
-                model=str(model), role=chosen)
+                f"restart needed (the registry is read per run). Not checked against the harness "
+                f"here: the first job proves it, and fails naming this model if the harness will "
+                f"not run it", project=project, model=str(model), role=chosen, checked=False)
 
 
 async def _project_set_language(*, project: str, language: str, by: Actor) -> Outcome:
@@ -7618,6 +7623,14 @@ async def _project_set_preview(*, project: str, by: Actor, required: object = No
             policy["env"] = {}
         policy["env"] = _pairs(envs, policy["env"])
         policy["build_args"] = _pairs(args, policy["build_args"])
+        if hours is not None and hours != "":
+            # A NUMBER OR A REFUSAL: the policy reads anything else as its default, so `6h` from
+            # a front end's body was saved as 24 and reported as a success. The shell's
+            # `--hours` is typed as an int and never sent one.
+            try:
+                hours = int(str(hours).strip())
+            except ValueError:
+                raise ValueError(f"{hours!r} is not a number of hours, 1 to 168") from None
         for key, value in (("required", _either(required)), ("auto_start", _either(auto_start)),
                            ("hours", hours), ("network", network), ("cpus", cpus),
                            ("memory", memory)):
@@ -7641,6 +7654,11 @@ async def _project_set_preview(*, project: str, by: Actor, required: object = No
     if dropped:
         said += (f"; refused (a credential of the factory's own, or not a name): "
                  f"{', '.join(dropped)}")
+    if network not in (None, "") and saved.network != str(network).strip():
+        # THE POLICY DROPS IT WITH A LOG LINE, which a front end never reads: said here, or the
+        # sentence above reads "egress: none" as what was asked for.
+        said += (f"; network {network!r} refused — a preview joins an operator network by name, "
+                 f"never bridge or host")
     return done(said, project=project, preview=saved.model_dump(mode="json"), dropped=dropped)
 
 
@@ -8603,6 +8621,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="project_remove",
             summary="unregister a project — nothing else about it is touched",
             run=_project_remove,
+            refuses=(NOT_FOUND,),
             required=("project",),
             installation=True,
             # A PROJECT BEFORE ITS CODE IS REMOVED TOO (#992): taking it out of the registry reads
@@ -8613,6 +8632,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="project_set_model",
             summary="say which model the coding agent runs for a project, for every role or one",
             run=_project_set_model,
+            refuses=(INVALID, NOT_FOUND),
             required=("project", "model"),
             optional=("role",),
             installation=True,
@@ -8632,6 +8652,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="say which language a project speaks first — a reply always follows whoever "
                     "asked",
             run=_project_set_language,
+            refuses=(INVALID, NOT_FOUND),
             required=("project", "language"),
             installation=True,
             # A PROJECT BEFORE ITS CODE IS SET TOO (#992): this is the registry's row for it, and
@@ -8645,6 +8666,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="decide a project's previews: whether one is required before a merge, how "
                     "long it lives, the names each service may receive, egress and limits",
             run=_project_set_preview,
+            refuses=(INVALID, NOT_FOUND),
             required=("project",),
             optional=("required", "hours", "auto_start", "env", "build_arg", "network", "cpus",
                       "memory", "clear_env"),

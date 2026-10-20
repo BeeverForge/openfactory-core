@@ -325,8 +325,15 @@ def project_set_model(
     routes need."""
     # A MAPPING ONTO THE `project_set_model` ROW (#741). The row saves; what stays here is asking
     # the harness about the name, on the machine that will run it — after the save, and never a
-    # refusal, because a typo and an inference-profile ARN look the same to it.
-    _says_the_row(_perform("project_set_model", project=name, model=model, role=role or ""), name)
+    # refusal, because a typo and an inference-profile ARN look the same to it. The row's own
+    # sentence says the harness was NOT asked, which is true of a front end and not of this
+    # command — so the line printed is the one this command always printed, and the note follows.
+    outcome = _perform("project_set_model", project=name, model=model, role=role or "")
+    if not outcome.ok:
+        _refuse_the_row(outcome, name)
+    scope = f"role {role!r}" if role else "every role"
+    typer.echo(f"✓ {name}: model {model!r} for {scope} — takes effect on the next job, no "
+               f"restart needed (the registry is read per run)")
     if note := _model_recognition_note(name, model):
         typer.echo(note)
 
