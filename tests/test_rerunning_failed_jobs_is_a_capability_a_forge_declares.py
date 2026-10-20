@@ -244,7 +244,8 @@ def _reruns(f) -> list[list[str]]:
 def test_github_reruns_the_failed_jobs_of_the_runs_its_red_required_checks_link_to(monkeypatch):
     """The rows `failed_ci_logs` reads its log from — blocking, about the code, failed or
     cancelled — and no other: an advisory workflow, a status another app posted, a passing run.
-    Two red jobs of one run are one re-run of that run's failed jobs."""
+    Two red jobs of one run are one re-run of that run's failed jobs. A status whose link is a run
+    of this repository is still not a check about the code, and is not re-run."""
     runs = "https://github.com/acme/x/actions/runs"
     f = _github(monkeypatch, [
         _row("pytest", "fail", link=f"{runs}/1/job/7"),
@@ -252,8 +253,11 @@ def test_github_reruns_the_failed_jobs_of_the_runs_its_red_required_checks_link_
         _row("unit", "cancel", link=f"{runs}/5/job/2"),
         _row("e2e", "fail", link=f"{runs}/3/job/1"),               # advisory
         _row("license/cla", "fail", workflow="", link="https://cla.example/2"),  # another app
+        # A commit status (no workflow, so not about the code) whose link is a run of this
+        # repository, as a status-posting action leaves it: only `kind` tells it from a build.
+        _row("deploy/preview", "fail", workflow="", link=f"{runs}/6/job/1"),
         _row("build", "pass", link=f"{runs}/4/job/1"),
-    ], ["pytest", "lint", "unit", "license/cla", "build"])
+    ], ["pytest", "lint", "unit", "license/cla", "deploy/preview", "build"])
     got = f.rerun_failed(pr=PR)
     assert sorted(_reruns(f)) == [["run", "rerun", "1", "--failed", "--repo", "acme/x"],
                                   ["run", "rerun", "5", "--failed", "--repo", "acme/x"]]
