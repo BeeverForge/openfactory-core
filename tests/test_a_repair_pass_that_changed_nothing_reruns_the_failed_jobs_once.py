@@ -33,7 +33,7 @@ import logging
 import pytest
 
 from openfactory.adapters.forge import base
-from openfactory.contracts import JobState
+from openfactory.contracts import JobState, RunResult
 from openfactory.runtime.temporal import activities as acts
 from tests import test_a_red_check_the_diff_does_not_touch_is_rerun_before_an_agent_is_paid as pre
 
@@ -209,3 +209,20 @@ def test_a_forge_that_cannot_rerun_says_nothing_after_a_pass(on_the_worker):
     got = acts._run_ci_repair(SECOND, "run-r2")  # noqa: SLF001
     assert forge.comments == [], forge.comments
     assert got.note in (None, ""), f"the pass's note was rewritten: {got.note!r}"
+
+
+def test_a_forge_that_cannot_be_built_after_a_pass_returns_the_pass():
+    """The pass is done when the forge is built for its re-run. A forge that cannot be built (an
+    App token that failed to mint) is caught there, and the pass's result goes back as it came:
+    a missing re-run is not the pass's price, and it never escapes the repair activity.
+
+    Added in review round 1: the cut "the forge built after a pass is not caught" survived the
+    first 59 rows, because every row's forge could be built."""
+    passed = RunResult(ticket_id="12", state=JobState.PR_OPEN, pr_url=PR, code_changed=False)
+
+    def no_forge():
+        raise RuntimeError("the App token could not be minted")
+
+    got = acts._rerun_after_a_pass_that_changed_nothing(  # noqa: SLF001
+        no_forge, SECOND, passed, human=False)
+    assert got is passed

@@ -287,6 +287,47 @@ def test_github_a_rerun_gh_refuses_is_a_refusal_naming_why(monkeypatch):
     assert isinstance(got, base.RerunRefused) and REFUSAL in str(got)
 
 
+def test_github_checks_it_could_not_read_are_a_refusal_not_nothing(monkeypatch):
+    """Lesson §2: `pr_checks` that raises is "could not see which runs failed", not "no run
+    failed". It is a refusal naming why, so the pull request is told (PO answer Q3) and the agent
+    runs; `[]` would launch the agent in silence.
+
+    Added in review round 1: the cut "unreadable checks answer `[]`" survived the first 59 rows."""
+    f = _github(monkeypatch, [], [])
+
+    def unreadable(*, pr):
+        raise RuntimeError("gh pr checks failed: HTTP 502")
+
+    monkeypatch.setattr(f, "pr_checks", unreadable)
+    got = base.rerun_failed_of(f, PR)
+    assert isinstance(got, base.RerunRefused), f"unreadable checks answered {got!r}"
+    assert "could not be read" in str(got) and "HTTP 502" in str(got)
+
+
+def test_github_one_run_refused_of_two_is_a_refusal_naming_both(monkeypatch):
+    """Two red runs, the first re-run, the second refused with gh's measured words for a run
+    still in progress: the answer is a refusal (not every failed job re-ran) that names the run
+    gh refused AND the check that did re-run, so neither half is lost (lesson §9).
+
+    Added in review round 1: the cut "a partial refusal is answered as a success" survived."""
+    runs = "https://github.com/acme/x/actions/runs"
+    f = _github(monkeypatch, [_row("pytest", "fail", link=f"{runs}/1/job/7"),
+                              _row("e2e", "fail", link=f"{runs}/2/job/1")], ["pytest", "e2e"])
+    real = f._gh  # noqa: SLF001
+
+    def gh(args, timeout=120):
+        out = real(args, timeout)
+        if args[:3] == ["run", "rerun", "2"]:
+            out.returncode, out.stderr = 1, "run 2 cannot be rerun; This workflow is already running"
+        return out
+
+    monkeypatch.setattr(f, "_gh", gh)
+    got = base.rerun_failed_of(f, PR)
+    assert isinstance(got, base.RerunRefused), f"a partial refusal answered {got!r}"
+    assert "run 2" in str(got) and "already running" in str(got) and "pytest" in str(got)
+    assert sorted(c[2] for c in _reruns(f)) == ["1", "2"], "a run was not asked"
+
+
 def test_only_rows_that_can_rerun_declare_it():
     """GitHub Actions re-runs a run's failed jobs; Azure DevOps (until a real organisation proves
     its retry, a follow-up) and the local forge declare nothing, and are repaired as before."""

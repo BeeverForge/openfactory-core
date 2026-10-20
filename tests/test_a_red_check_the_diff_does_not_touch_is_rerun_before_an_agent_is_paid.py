@@ -34,6 +34,9 @@ Every repair input here passes `attempt=1` (or 2) explicitly: `CiRepairInput.att
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
+import subprocess
 import time
 import uuid
 from datetime import timedelta
@@ -49,6 +52,7 @@ from temporalio.worker import Worker
 from openfactory.adapters.forge import base
 from openfactory.contracts import JobState, RunResult
 from openfactory.contracts.checks import Check, decide
+from openfactory.runtime.repairable import changed_paths
 from openfactory.runtime.temporal import activities as acts
 from openfactory.runtime.temporal import workflow as wf
 from openfactory.runtime.temporal.io import CiRepairInput, JobParams
@@ -286,6 +290,36 @@ def test_a_cut_diff_is_not_read_as_unrelated(on_the_worker):
     assert agents == [UNRELATED] and forge.reruns == 0
 
 
+def test_a_diff_read_that_raises_launches_the_agent(on_the_worker):
+    """Lesson §2: `pr_diff` that raises (an HTTP 502, a credential that failed to mint) is "could
+    not see the change", as `None` is. It is caught at the move, the agent is launched with the
+    gate's log, and nothing is re-run; it never escapes the repair activity.
+
+    Added in review round 1: the cut "the diff read's `except` catches nothing" survived the
+    first 59 rows, because no row made `pr_diff` raise."""
+    forge = _Forge()
+
+    def raises(*, pr, **_kw):
+        raise RuntimeError("HTTP 502")
+
+    forge.pr_diff = raises
+    agents = on_the_worker(forge)
+    acts._run_ci_repair(FIRST, "run-r1")  # noqa: SLF001
+    assert agents == [UNRELATED] and forge.reruns == 0
+
+
+def test_nothing_rerunnable_before_the_agent_launches_the_agent_and_says_nothing(on_the_worker):
+    """`[]` from the forge is "asked, and nothing was re-runnable" (a red status another app
+    posted, a run of another repository): nothing was refused and nothing re-ran, so the agent
+    runs with the gate's log and the pull request is not told of a re-run that did not happen.
+
+    Added in review round 1: the cut "`[]` is taken as a re-run" survived the first 59 rows."""
+    forge = _Forge(reran=[])
+    agents = on_the_worker(forge)
+    acts._run_ci_repair(FIRST, "run-r1")  # noqa: SLF001
+    assert agents == [UNRELATED] and forge.comments == []
+
+
 def test_a_second_attempt_on_the_same_head_launches_the_agent(on_the_worker):
     """PO answer Q1(b): the re-run stands in for the agent once per head, on the first attempt.
     A wrong "unrelated" (the commonest real regression: changed `invoice_totals.ts`, failing
@@ -446,3 +480,71 @@ def test_the_agent_is_handed_the_log_the_decision_was_made_from(on_the_worker, w
     acts._run_ci_repair(FIRST, "run-r1")  # noqa: SLF001
     assert agents == [first], f"the agent was handed {agents}, not the gate's log"
     assert forge.log_reads == 1, f"the failing log was read {forge.log_reads} times"
+
+
+# ═══ the diff the rule reads: what git itself writes ════════════════════════════════════════════
+
+def _git(cwd, *args) -> str:
+    """git with no person's configuration: every key that changes `diff --git` headers (prefixes,
+    quoting, renames, colour) is pinned, as the factory pins the git it runs on someone's box."""
+    env = {**os.environ, "LC_ALL": "C", "HOME": str(cwd), "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_CONFIG_GLOBAL": os.devnull}
+    pinned = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgSign=false",
+              "-c", "core.quotePath=true", "-c", "diff.noprefix=false",
+              "-c", "diff.mnemonicPrefix=false", "-c", "color.ui=false"]
+    return subprocess.run(["git", *pinned, *args], cwd=cwd, env=env, check=True,
+                          capture_output=True, text=True).stdout
+
+
+def test_changed_paths_reads_what_git_itself_writes(tmp_path):
+    """`changed_paths` decides whether an agent is paid, so it is held against git's own output,
+    not a hand-written diff: `git diff --cached -M` with a rename to a name with a space, a
+    rename whose header splits two ways without its `rename` lines (`a/sub b/x.py b/sub b/y.py`),
+    a quoted UTF-8 name (`"caf\303\251.py"`, one octal escape per BYTE), a name with a `"`, and a
+    directory and a file with spaces. Every side of every rename is named.
+
+    Added in review round 1: the parser had no row of its own, and four cuts survived (rename
+    lines ignored, escapes decoded per character, a quoted header unparsed, a same-name header
+    with spaces read as ambiguous); each turns this red. Checked by hand on git 2.43.0 before."""
+    if shutil.which("git") is None:
+        pytest.skip("git is not on PATH: the diff this row reads is the one git writes")
+    _git(tmp_path, "init", "-q", ".")
+    (tmp_path / "src" / "a b").mkdir(parents=True)
+    (tmp_path / "dir").mkdir()
+    (tmp_path / "sub b").mkdir()
+    (tmp_path / "src" / "a b" / "x y.py").write_text("one\n")
+    (tmp_path / "old.py").write_text("line\n" * 30)
+    (tmp_path / "café.py").write_text("k\n")
+    (tmp_path / 'q"uote.py').write_text("t\n")
+    (tmp_path / "dir" / "b x.py").write_text("z\n" * 30)
+    (tmp_path / "sub b" / "x.py").write_text("w\n" * 30)
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "base")
+    _git(tmp_path, "mv", "old.py", "new name.py")
+    _git(tmp_path, "mv", "dir/b x.py", "dir/b x b.py")
+    _git(tmp_path, "mv", "sub b/x.py", "sub b/y.py")
+    (tmp_path / "src" / "a b" / "x y.py").write_text("two\n")
+    (tmp_path / "café.py").write_text("k2\n")
+    (tmp_path / 'q"uote.py').write_text("t2\n")
+    _git(tmp_path, "add", "-A")
+    diff = _git(tmp_path, "diff", "--cached", "-M")
+    assert sorted(changed_paths(diff) or []) == sorted([
+        "café.py", "dir/b x.py", "dir/b x b.py", "old.py", "new name.py", 'q"uote.py',
+        "src/a b/x y.py", "sub b/x.py", "sub b/y.py"]), diff
+
+
+def test_a_header_whose_rename_lines_never_came_is_not_lost_behind_the_next_one():
+    """A header that splits two ways owes its `rename from`/`rename to` lines. When the next
+    header arrives first, the diff is not one git wrote whole, and the answer is "could not see"
+    (`None`): the next ambiguous header owes two lines of its own, and its pair would otherwise
+    settle the debt, leaving `sub b/x.py`/`sub b/y.py` out of a list that reads as complete.
+
+    Why the `if owed: return None` on the next header stays (review round 1 found it redundant
+    against the final `if owed`): the final check sees only the LAST header's debt. With the line
+    removed this answers `["two b/p.py", "two b/q.py"]`."""
+    diff = ("diff --git a/sub b/x.py b/sub b/y.py\n"
+            "diff --git a/two b/p.py b/two b/q.py\n"
+            "similarity index 90%\n"
+            "rename from two b/p.py\n"
+            "rename to two b/q.py\n")
+    assert changed_paths(diff) is None
