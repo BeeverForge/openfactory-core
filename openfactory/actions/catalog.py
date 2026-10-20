@@ -2153,28 +2153,7 @@ def _write_outcome(result, *, did: str, **data) -> Outcome:
     if not ok:
         said = detail or (f"could not {did}, and the module said nothing about why — which is "
                           f"itself a defect worth reporting.")
-        why = str(getattr(result, "refusal", "") or "")
-        code = _REFUSAL_CODE.get(why)
-        # ONE `refused` PER CODE, each naming its constant: the action layer's reason guard
-        # (`tests/test_the_action_layer.py`) reads every row's codes off this source, and a code
-        # looked up at run time is one it cannot see.
-        if code == DENIED:
-            return refused(DENIED, said, **payload, refusal=why)
-        if code == NOT_FOUND:
-            return refused(NOT_FOUND, said, **payload, refusal=why)
-        if code == CONFLICT:
-            return refused(CONFLICT, said, **payload, refusal=why)
-        if code == INVALID:
-            return refused(INVALID, said, **payload, refusal=why)
-        if why:
-            # A WORD THIS PANEL DOES NOT KNOW — a worker newer than it, mid-upgrade. Read as
-            # nobody's decision rather than guessed at, and said, so the drift is seen.
-            log.error("OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN did=%s refusal=%r — answered as a "
-                      "failure; this panel knows %s", did, why, ", ".join(sorted(_REFUSAL_CODE)))
-        reference = failure_reference()
-        log.error("OPENFACTORY_PRODUCT_WRITE_FAILED reference=%s did=%s project=%s ref=%s — %s",
-                  reference, did, data.get("project") or "-", ref or "-", said)
-        return refused(FAILED, said, **payload, reference=reference)
+        return _not_done(said, _refusal_word(result), did=did, **payload)
     # THE CLIENT READS `detail`; THE REF AND THE URL ARE FOR AN OPERATOR. `detail` is the sentence
     # `product/voice.py` composed for somebody who was never meant to open a pull request — and it
     # was arriving prefixed with a branch slug and a forge URL: "accepted requirement 12 —
@@ -2183,6 +2162,68 @@ def _write_outcome(result, *, did: str, **data) -> Outcome:
     # The `did` line survives only when the module said nothing, because a silent success still
     # has to say something happened.
     return done(detail or f"{did}{f' — {ref}' if ref else ''}", **payload)
+
+
+def _refusal_word(result) -> str:
+    """The module's word for why `result` is not ok — off a `WriteResult` or off the dict the
+    worker hands back for one (`product_role_card`, `product_role_break_down`); `""` when it names
+    none, which is how a worker older than the word answers."""
+    if isinstance(result, Mapping):
+        return str(result.get("refusal", "") or "")
+    return str(getattr(result, "refusal", "") or "")
+
+
+def _not_done(said: str, why: str, *, did: str, **payload) -> Outcome:
+    """What a write the module did not make answers: the code of its refusal word, or a failure.
+
+    ONE MAPPING FOR EVERY ROW THAT RENDERS A WRITE (#908): `_write_outcome` for one result, and
+    `_none_done` for the rows that render a list of them — so a code is never chosen twice.
+
+    A word of `_REFUSAL_CODE` answers its code, with the word in `data["refusal"]`. No word, or a
+    word this panel does not know (a worker newer than it, logged), is a FAILURE: logged as
+    `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…`, with the same reference in
+    `data["reference"]`. `said` is the module's sentence, unchanged; the reference is not in it."""
+    code = _REFUSAL_CODE.get(why)
+    # ONE `refused` PER CODE, each naming its constant: the action layer's reason guard
+    # (`tests/test_the_action_layer.py`) reads every row's codes off this source, and a code
+    # looked up at run time is one it cannot see.
+    if code == DENIED:
+        return refused(DENIED, said, **payload, refusal=why)
+    if code == NOT_FOUND:
+        return refused(NOT_FOUND, said, **payload, refusal=why)
+    if code == CONFLICT:
+        return refused(CONFLICT, said, **payload, refusal=why)
+    if code == INVALID:
+        return refused(INVALID, said, **payload, refusal=why)
+    if why:
+        # A WORD THIS PANEL DOES NOT KNOW — a worker newer than it, mid-upgrade. Read as
+        # nobody's decision rather than guessed at, and said, so the drift is seen.
+        log.error("OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN did=%s refusal=%r — answered as a "
+                  "failure; this panel knows %s", did, why, ", ".join(sorted(_REFUSAL_CODE)))
+    reference = failure_reference()
+    log.error("OPENFACTORY_PRODUCT_WRITE_FAILED reference=%s did=%s project=%s ref=%s — %s",
+              reference, did, payload.get("project") or "-", payload.get("ref") or "-", said)
+    return refused(FAILED, said, **payload, reference=reference)
+
+
+def _none_done(results, said: str, *, did: str, **payload) -> Outcome:
+    """A row whose list of results holds not one that was made (`product_promote`,
+    `product_reorder`, `product_break_down`), answered through `_not_done`'s one mapping.
+
+    THE REFUSAL EVERY RESULT NAMES, OR A FAILURE (#908). Until then these rows answered FAILED
+    whenever nothing was done — measured on 620bb577, a stranger's promote and reorder, and a
+    breakdown whose every front the role declined, each answered HTTP 500. When every not-ok
+    result names the same word, that word is the answer. Mixed words, an untagged result, or no
+    result at all is nobody's single decision: a failure, with a reference."""
+    words = {_refusal_word(r) for r in results if not _was_made(r)}
+    why = next(iter(words)) if len(words) == 1 else ""
+    return _not_done(said, why, did=did, **payload)
+
+
+def _was_made(result) -> bool:
+    if isinstance(result, Mapping):
+        return bool(result.get("ok"))
+    return bool(getattr(result, "ok", False))
 
 
 async def _product_status(*, project: str, by: Actor) -> Outcome:
@@ -3861,7 +3902,8 @@ async def _product_break_down(*, project: str, number: str, by: Actor,
         return done(await asyncio.to_thread(_breakdown_said, proj, num, filed), **data)
     detail = next((r.get("detail") for r in filed if not r.get("ok") and r.get("detail")), "")
     why = f": {detail}" if detail else " — the breakdown produced no unit of work"
-    return refused(FAILED, f"nothing was filed for requirement {num}{why.rstrip('.')}.", **data)
+    return _none_done(filed, f"nothing was filed for requirement {num}{why.rstrip('.')}.",
+                      did="break the requirement down", **data)
 
 
 async def _product_drop(*, project: str, number: str, by: Actor, reason: str = "",
@@ -4036,8 +4078,9 @@ async def _product_promote(*, project: str, numbers: object, by: Actor,
     if not started:
         detail = next((str(getattr(r, "detail", "") or "") for r in results
                        if getattr(r, "detail", "")), "")
-        return refused(FAILED, detail or "nothing could be moved into the queue, and the module "
-                                         "said nothing about why.", project=proj.name)
+        return _none_done(results, detail or "nothing could be moved into the queue, and the "
+                                             "module said nothing about why.",
+                          did="queue approved work", project=proj.name)
     refs = ", ".join(str(getattr(r, "ref", "") or "?") for r in started)
     # THE PARTIAL CASE IS SAID, never rounded up to success: the client is spending on what did
     # start, and needs to know what did not.
@@ -4083,8 +4126,9 @@ async def _product_reorder(*, project: str, numbers: object, by: Actor,
     missed = [r for r in results if not getattr(r, "ok", False)]
     if not placed:
         detail = next((str(getattr(r, "detail", "") or "") for r in missed), "")
-        return refused(FAILED, detail or "nothing could be reordered, and the module said nothing "
-                                         "about why.", project=proj.name)
+        return _none_done(results, detail or "nothing could be reordered, and the module said "
+                                             "nothing about why.",
+                          did="reorder the backlog", project=proj.name)
     refs = ", ".join(str(getattr(r, "ref", "") or "?") for r in placed)
     tail = (f" {len(missed)} did not move: "
             + "; ".join(str(getattr(r, "detail", "") or "?") for r in missed)) if missed else ""

@@ -12,7 +12,11 @@ local tracker, with each person on their own named product credential (`OPENFACT
 
   · a person who neither asked for the card nor administers the product is refused 403 `denied`,
     with the module's sentence unchanged, for a close and for a removal, and nothing is written;
-  · a card that is already closed answers 409 `conflict`, with the module's sentence.
+  · a card that is already closed answers 409 `conflict`, with the module's sentence;
+  · the rows that render a LIST of results by hand — `product_promote`, `product_reorder`,
+    `product_break_down` — answer the refusal every result names, not 500: measured on 620bb577
+    (2026-10-20), a stranger's promote and reorder, and a breakdown whose every front the role
+    declined, each answered 500 / `failed`.
 """
 
 from __future__ import annotations
@@ -102,3 +106,77 @@ def test_a_card_already_closed_answers_409_with_the_modules_sentence(
     sentence = voice.card_said("already_closed", number=canonical_ref(ref), language="en")
     assert (r.status_code, said["code"]) == (409, "conflict"), (r.status_code, said)
     assert said["message"] == said["detail"] == sentence, said
+
+
+def test_a_promotion_the_person_may_not_make_answers_403_not_500(
+        client, deployment, tracker, board):  # noqa: F811 — the imported fixtures
+    """Criterion 1, second instance: `product_promote` leaves `may_act` to `ProductModule.promote`,
+    whose "not yours" came back as a one-result list the row rendered as FAILED — measured on
+    620bb577, a product-scoped stranger's promote answered HTTP 500 / `failed`."""
+    from openfactory.product.module import unauthorized_message
+
+    ref = _opened_by_product(tracker, board)
+    r = _post(client, "product_promote", who=STRANGER, numbers=ref, yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (403, "denied"), (r.status_code, said)
+    assert said["message"] == unauthorized_message(deployment), said
+    assert said["data"]["refusal"] == "not_yours", said
+
+
+def test_a_reorder_the_person_may_not_make_answers_403_not_500(
+        client, deployment, tracker, board):  # noqa: F811 — the imported fixtures
+    """Criterion 1, second instance: `product_reorder` rendered `ProductModule.reorder`'s "not
+    yours" as FAILED — measured on 620bb577, HTTP 500 / `failed` for a product-scoped stranger."""
+    from openfactory.product.module import unauthorized_message
+
+    first, second = _opened_by_product(tracker, board), _opened_by_product(tracker, board)
+    r = _post(client, "product_reorder", who=STRANGER, numbers=f"{second},{first}", yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (403, "denied"), (r.status_code, said)
+    assert said["message"] == unauthorized_message(deployment), said
+    assert said["data"]["refusal"] == "not_yours", said
+
+
+def test_a_breakdown_whose_every_front_was_refused_answers_that_refusal(
+        client, deployment, monkeypatch):  # noqa: F811 — the imported fixture
+    """Criterion 1, second instance: `product_break_down` answered FAILED whenever nothing was
+    filed, even when the worker's every front named the same deliberate refusal ("requirement 7 no
+    longer stands") — measured on 620bb577, HTTP 500 / `failed`. The worker is a stand-in that
+    hands back the rows `product_role_break_down` builds, `refusal` included (task 8's boundary)."""
+    from types import SimpleNamespace
+
+    from openfactory.actions import catalog
+    from openfactory.product import voice
+
+    class _Module:
+        """Past the row's own gates: the corpus is readable and 7 names a promise."""
+
+        def context(self):
+            promise = SimpleNamespace(is_promise=True)
+            return SimpleNamespace(available=True, reason="",
+                                   corpus=SimpleNamespace(by_number=lambda n: promise))
+
+    detail = voice.breakdown_said("retired", number=7, language="en")
+    front = {"ok": False, "ref": "", "url": "", "existed": False, "detail": detail,
+             "refusal": "not_waiting"}
+
+    class _Engine:
+        async def execute_workflow(self, name, inp, **_kw):
+            return [dict(front), dict(front)]
+
+    async def _connected():
+        return _Engine(), None
+
+    monkeypatch.setattr(catalog, "_product_module", lambda name, by=None: (
+        _Module(), deployment, None))
+    monkeypatch.setattr(catalog, "_connected", _connected)
+    monkeypatch.setattr(catalog, "_where_it_was_written", lambda project, number: ("", ""))
+
+    r = _post(client, "product_break_down", who=ADMIN, number="7", yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (409, "conflict"), (r.status_code, said)
+    assert detail.rstrip(".") in said["message"], said
+    assert said["data"]["refusal"] == "not_waiting", said
