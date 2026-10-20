@@ -8414,10 +8414,11 @@ CATALOG: dict[str, ActionSpec] = {
             params={"note": "why, if it is worth saying — it replaces the note the pause left"},
         ),
         # THE FLOOR'S, THOUGH NAMED `product_`. Naming the product role and declaring where its
-        # requirements live configure the installation, which is the administrator's — a product
-        # credential is the requirement-writer's and `installation` refuses it these rows. The HTTP
-        # gate reads `/api/act/product_…` as the product area and refuses a board credential there,
-        # so only an unscoped credential reaches them, by either door.
+        # requirements live configure the installation, which is the administrator's. A product
+        # credential is refused these rows by the area check — they are the floor's — and a board
+        # credential by `installation`; the HTTP gate also reads `/api/act/product_…` as the product
+        # area and refuses a board credential there. So only an unscoped credential reaches them,
+        # by either door.
         ActionSpec(
             name="product_name",
             summary="say what the product role is called in this project's conversations — or, "

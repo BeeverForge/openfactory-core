@@ -70,16 +70,31 @@ def _git_argv(elts: list[ast.AST]) -> tuple[str, bool] | None:
     return (sub, marker) if sub in REMOTE else None
 
 
+def _callee(node: ast.Call) -> str:
+    """The name a call is made by — `_git`, `self._git`, `git` — or "" for anything else."""
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return ""
+
+
 def _violations(text: str) -> list[tuple[int, str]]:
-    """Every list/tuple literal in `text` that is a remote-taking git argv without `--`. Reading
-    every literal — not only those passed straight to `subprocess.run` — is what catches an argv
-    built in a variable, iterated in a loop, or handed to a `_git(...)` wrapper."""
+    """Every remote-taking git argv in `text` without `--`. Two shapes carry one: a list or tuple
+    literal — passed straight to `subprocess.run`, built in a variable, iterated in a loop, or
+    handed to a `_git([...])` wrapper — and the argument list of a wrapper called with git's words
+    one by one, `_git("clone", url, dest)`, which no literal holds."""
     out = []
     for node in ast.walk(ast.parse(text)):
         if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
             got = _git_argv(node.elts)
-            if got and not got[1]:
-                out.append((node.lineno, got[0]))
+        elif isinstance(node, ast.Call) and "git" in _callee(node) and node.args:
+            got = _git_argv(node.args)
+        else:
+            continue
+        if got and not got[1]:
+            out.append((node.lineno, got[0]))
     return out
 
 
@@ -101,6 +116,11 @@ def test_the_reader_sees_a_missing_marker_and_a_present_one():
     # a non-remote subcommand is not this rule's business, marker or no marker
     assert _violations('_run(["git", "-C", p, "rev-parse", "HEAD"])') == []
     assert _violations('_git(["remote", "set-url", "origin", url])') == [(1, "remote set-url")]
+    # a wrapper handed git's words one by one is read too, with or without `self.`
+    assert _violations('_git("clone", url, dest)') == [(1, "clone")]
+    assert _violations('self._git("fetch", ".", spec, cwd=where)') == [(1, "fetch")]
+    assert _violations('_git("clone", "--", url, dest)') == []
+    assert _violations('_git("-C", path, "rev-parse", "HEAD")') == []
 
 
 ADMIN = actions.Actor(id="rob", via="panel", admin=True)

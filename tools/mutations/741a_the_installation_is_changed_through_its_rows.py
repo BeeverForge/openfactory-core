@@ -33,6 +33,7 @@ DECLARE = "tests/test_a_preexisting_context_repo_is_declarable.py"
 SHARED = "tests/test_a_shared_credential_is_who_it_is.py"
 GITMARK = "tests/test_a_value_reaches_git_behind_the_end_of_options_marker.py"
 ONBOARD = "openfactory/product/onboard.py"
+PIPELINE = "openfactory/knowledge/pipeline.py"
 
 ACTIONS = "openfactory/actions/__init__.py"
 CATALOG = "openfactory/actions/catalog.py"
@@ -192,4 +193,8 @@ MUTATIONS = [
     ("a value reaches git with no end-of-options marker before it", ONBOARD,
      '_git(["ls-remote", "--heads", "--", url])',
      '_git(["ls-remote", "--heads", url])', GITMARK),
+    ("a wrapper handed git's words one by one loses its end-of-options marker", PIPELINE,
+     '_git("remote", "set-url", "--", "origin", "https://invalid.local/scrubbed.git", cwd=repo)',
+     '_git("remote", "set-url", "origin", "https://invalid.local/scrubbed.git", cwd=repo)',
+     GITMARK),
 ]

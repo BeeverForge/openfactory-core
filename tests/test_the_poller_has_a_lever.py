@@ -228,6 +228,22 @@ def test_the_engine_refusal_is_said_once_and_on_stderr(monkeypatch, caplog):
     assert not warned, "the engine error is logged at WARNING, so the shell says it twice"
 
 
+def test_a_resume_the_engine_refuses_is_said_on_stderr(monkeypatch):
+    """`poller resume` maps onto its row the way `pause` does, and its refusal goes where the
+    pause's goes: stderr, exit 2, nothing on stdout."""
+    from openfactory.runtime.temporal import schedule as sched
+
+    def boom():
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(sched, "connect", lambda: boom())
+    result = CliRunner().invoke(app, ["poller", "resume", "--note", "x"])
+
+    assert result.exit_code == 2
+    assert "could not resume the poller" in result.stderr, "the refusal must be on stderr"
+    assert "could not resume the poller" not in (result.stdout or ""), "it leaked to stdout"
+
+
 @pytest.mark.parametrize("command", ["pause", "resume"])
 def test_the_note_defaults_to_naming_who_pulled_the_lever(monkeypatch, command):
     """An unattributed hold is the thing the note exists to prevent, so omitting `--note` must
