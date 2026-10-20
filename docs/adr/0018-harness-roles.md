@@ -83,8 +83,8 @@ model's tool list, but its body replaces Kimi's whole system prompt and 0.31.1 r
 `-S`, so adopting it is a design choice of its own.
 
 **Amended (2026-10-20, #788):** the two sentences under the table, on where a Kimi judging role
-could edit, are not what the code does. The
-judging roles never run in the box: every `ask()` caller builds its room with
+could edit, are not what the code does. Where an
+`ask()` runs is its caller's choice. A judging role's caller builds its room with
 `sandbox/registry.py::judging_worktree`, which always returns a host `WorktreeSandbox`, so a
 question runs on the host even for a project whose jobs run in a container (measured on 620bb577
 by `tests/test_where_a_kimi_judging_role_runs_is_what_its_documents_say.py`, where a `kimi` that
@@ -96,8 +96,14 @@ module's cached view for the product role, and a source clone for onboarding. Ea
 nothing commits from, so a judging role's edit does not reach a pull request, except
 `env context --ask`, which asks in the target checkout it is pointed at (the person's own
 repository on a local deployment), where a write is left in that working tree (measured in the
-review of e2b57dd1, 2026-10-20: `?? wrote.txt` in that checkout; the same test now holds it).
-Nothing but the harness confines a write to its room, and on Kimi nothing does. The planner is
+review of e2b57dd1, 2026-10-20: `?? wrote.txt` in that checkout; the same test now holds it),
+and the independent review, which runs in the job's box on the job's workspace before the push:
+`JobRunner._review` hands `HarnessReviewer.review` the job's own box and workspace, and it asks
+there, so on Kimi a write it commits, or one a review-repair pass then sweeps in, can reach the
+pull request (measured in the review of dc0efac4, 2026-10-20: `reviewed.txt` in the pushed
+branch; the same test file now holds it). Review is on by default, and that pass is not measured.
+The onboarding first run's review asks in its own rehearsal workspace, from which nothing is
+pushed. Nothing but the harness confines a write to its room, and on Kimi nothing does. The planner is
 the other way round: it does run in the box, but on the job's own workspace, which the executor
 then works in and `_commit` sweeps with `git add -A`, so a Kimi planner's edit reached the pull
 request, and a planner that wrote and then hit a rate limit had its

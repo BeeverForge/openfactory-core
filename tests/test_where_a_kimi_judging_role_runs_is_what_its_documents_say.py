@@ -3,7 +3,7 @@
 #783 made Kimi Code's planner and its `ask()` read-only by instruction only, and five documents
 rested that on one mitigation: the edit stays inside an ephemeral box, and "no such edit outlives
 the run". Re-located on 620bb577 (2026-10-20), it is not what the code does for the judging roles.
-Every `ask()` caller builds `sandbox/registry.py::judging_worktree`, which always returns a
+A judging role's caller builds `sandbox/registry.py::judging_worktree`, which always returns a
 `WorktreeSandbox`, and that box's `run` is `subprocess.Popen(command, shell=True,
 cwd=workspace.path)` on the host, whatever box the project's jobs run in. Most rooms it is handed
 (a fresh temporary directory, the repo cache's master clone, the module's cached view) are ones
@@ -11,12 +11,17 @@ nothing commits from, so no `ask()` edit made there reaches a pull request, but 
 write to its room either. One is not: `env context --ask` (`actions/catalog.py::_semantic_pass`)
 asks in the checkout `repo_for` resolves, the path the person typed or a registered `repo_path`,
 which on a local deployment is the repository they commit from (review of e2b57dd1, 2026-10-20).
+And one `ask()` is not handed `judging_worktree` at all: the independent review, which
+`JobRunner._review` runs through `HarnessReviewer.review` in the job's own box on the job's
+workspace, before the push (review of dc0efac4, 2026-10-20).
 
-THE FIRST THREE TESTS ARE THE MEASUREMENT the documents must agree with: a project that boxes its
+THE FIRST FOUR TESTS ARE THE MEASUREMENT the documents must agree with: a project that boxes its
 jobs in a container still gets a host room for its judging roles, the real `KimiAdapter.ask` that
-disobeys its instruction leaves its file there, and asked the way `env context --ask` asks, it
-leaves that file untracked in the person's checkout. They are green on main by design. They turn
-red the day `judging_worktree` routes into the box, which is when the wording must change back.
+disobeys its instruction leaves its file there, asked the way `env context --ask` asks it leaves
+that file untracked in the person's checkout, and as the reviewer of a job its committed file is
+in the pushed branch. They are green on main by design. The first three turn red the day
+`judging_worktree` routes into the box, the fourth the day the review moves into a judging room,
+which is when the wording must change back.
 
 THE DOCUMENT ROWS READ TEXT, AND HERE THE TEXT IS THE THING. CONTRIBUTING's rule is that a guard
 reads the thing rather than text about it; a release note and a docstring are read by a person, so
@@ -28,10 +33,12 @@ in its §2 stands until a later dated amendment in the same section says where t
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -39,10 +46,15 @@ import pytest
 import openfactory.adapters.agent.kimi as kimi_module
 import openfactory.adapters.agent.roles as roles_module
 from openfactory.adapters.agent.kimi import KimiAdapter
+from openfactory.adapters.reviewer.harness import HarnessReviewer
 from openfactory.adapters.sandbox import WorktreeSandbox
 from openfactory.adapters.sandbox.base import Workspace
 from openfactory.adapters.sandbox.registry import judging_worktree
+from openfactory.contracts import AcceptanceCriterion, AgentRunResult, JobState, Manifest, Ticket
 from openfactory.contracts.project import Project
+from openfactory.observability import InMemoryEventSink
+from openfactory.orchestrator import JobRunner
+from tests.test_walking_skeleton import FakeForge, FakeTracker
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -68,6 +80,22 @@ NOTHING_COMMITS = "nothing commits from"
 
 #: The one judging room the phrase above is not true of, named as the exception beside it.
 ENV_CONTEXT_ASK_EXCEPTION = "except `env context --ask`"
+
+#: The `ask()` that is not handed `judging_worktree` at all: `JobRunner._review` passes the job's
+#: own box and workspace to `HarnessReviewer.review`, which asks there (the review of dc0efac4,
+#: 2026-10-20, point 1). Named, with where its write goes, wherever a document says where the
+#: questions run.
+REVIEW_EXCEPTION = "the independent review, which runs in the job's box on the job's workspace"
+REVIEW_REACHES = "can reach the pull request"
+
+#: The universal claim that review found false: every `ask()` goes through `judging_worktree`.
+#: Matched case-insensitively on whitespace-collapsed text.
+EVERY_ASK_CLAIMS = (
+    "every `ask()` runs",
+    "every `ask()` caller",
+    "every caller hands it",
+    "where `ask()` runs is the same for every harness",
+)
 
 
 def _collapsed(text: str) -> str:
@@ -145,6 +173,68 @@ def _disobeying_kimi_on_path(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
 
 
+def _reviewing_kimi_on_path(monkeypatch, tmp_path: Path) -> None:
+    """A `kimi` that, asked to review, writes `reviewed.txt` in its working directory, commits it
+    with the factory's own `-c` overrides, and answers an approval in the one `role: assistant`
+    line the adapter reads: the advisory review the review of dc0efac4 drove by hand. The git
+    calls do not check their exit, so a room that is no repository still gets the same answer and
+    the row is red at the pushed branch, not at the stub. `HOME` is empty, as for the stub above."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    verdict = json.dumps({"decision": "approved", "score": 90, "summary": "fine"})
+    stub = bin_dir / "kimi"
+    stub.write_text(
+        f"#!{sys.executable}\n"
+        "import json, subprocess\n"
+        "open('reviewed.txt', 'w').write('the reviewer wrote this\\n')\n"
+        "git = ['git', '-c', 'commit.gpgSign=false', '-c', 'user.name=r',\n"
+        "       '-c', 'user.email=r@example.invalid']\n"
+        "subprocess.run([*git, 'add', 'reviewed.txt'])\n"
+        "subprocess.run([*git, 'commit', '-q', '-m', 'reviewed'])\n"
+        f"print(json.dumps({{'role': 'assistant', 'content': {verdict!r}}}))\n",
+        encoding="utf-8")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
+
+
+class _Executor:
+    """An executor that writes `feature.py` through the box's own `run`, as a harness CLI does."""
+
+    name = "codex"
+
+    def execute(self, *, sandbox, workspace, context) -> AgentRunResult:
+        sandbox.run(workspace=workspace, command="echo 'VALUE = 42' > feature.py", timeout=60)
+        return AgentRunResult(ok=True, summary="added feature.py", cost_usd=0.01)
+
+    def repair(self, *, sandbox, workspace, context, failure_log, **kw) -> AgentRunResult:
+        return AgentRunResult(ok=True)
+
+
+def _repository_with_a_bare_origin(tmp_path: Path) -> tuple[Path, Path]:
+    """A repository with one tracked `README.md`, pushed to a bare origin `publish_branch` pushes
+    to for real (the walking skeleton's shape)."""
+    env = {**os.environ, "LC_ALL": "C"}
+    git = ["git", "-c", "init.defaultBranch=main", "-c", "commit.gpgSign=false",
+           "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    origin, repo = tmp_path / "origin.git", tmp_path / "repo"
+    subprocess.run([*git, "init", "-q", "--bare", str(origin)], check=True, env=env)
+    repo.mkdir()
+    for args in (["init", "-q"], ["config", "user.name", "t"],
+                 ["config", "user.email", "t@example.invalid"],
+                 ["remote", "add", "origin", str(origin)]):
+        subprocess.run([*git, "-C", str(repo), *args], check=True, env=env)
+    (repo / "README.md").write_text("# app\n", encoding="utf-8")
+    for args in (["add", "README.md"], ["commit", "-q", "-m", "init"],
+                 ["push", "-q", "-u", "origin", "main"]):
+        subprocess.run([*git, "-C", str(repo), *args], check=True, env=env,
+                       capture_output=True)
+    return repo, origin
+
+
 def _room(tmp_path: Path) -> tuple[Path, Workspace]:
     room = tmp_path / "room"
     room.mkdir()
@@ -219,6 +309,46 @@ def test_a_kimi_question_asked_as_env_context_asks_leaves_its_file_in_the_person
     assert status.splitlines() == ["?? wrote.txt"], status
 
 
+def test_a_kimi_review_that_writes_reaches_the_pushed_branch(monkeypatch, tmp_path):
+    """Criterion 2's basis for the review exception (review of dc0efac4, 2026-10-20, point 1): the
+    independent review is an `ask()` that is NOT handed `judging_worktree`. `JobRunner._review`
+    passes the job's own box and workspace, and `HarnessReviewer.review` asks there, so the real
+    `KimiAdapter` as reviewer, through the worktree box, with `planner_stage` off (the #788 check
+    never runs) and review at its default (advisory), starts a `kimi` that writes and commits
+    `reviewed.txt` in the job's workspace, and the job pushes it. The reviewer measured
+    `README.md, feature.py, reviewed.txt` in `refs/heads/openfactory/1` on a scratch merge onto
+    bb929e49 while six documents said every `ask()` ran in a room nothing commits from. Green by
+    design; it turns red the day the review moves into a judging room, which is when the
+    documents must change back."""
+    repo, origin = _repository_with_a_bare_origin(tmp_path)
+    _reviewing_kimi_on_path(monkeypatch, tmp_path)
+    ticket = Ticket(id="#1", title="add feature", objective="add a feature", repo="o/app",
+                    acceptance_criteria=[AcceptanceCriterion(text="feature.py exists")])
+    runner = JobRunner(
+        tracker=FakeTracker(ticket), forge=FakeForge(), agent=_Executor(),
+        sandbox=WorktreeSandbox(root=tmp_path / "wt"),
+        manifest=Manifest(validate={"test": "true"}, planner_stage=False),
+        repo_path=repo, events=InMemoryEventSink(),
+        reviewer=HarnessReviewer(KimiAdapter()),
+    )
+    assert runner.manifest.review_mode == "advisory", runner.manifest.review_mode
+
+    result = runner.run("#1")
+
+    assert result.state is JobState.PR_OPEN, f"{result.state.value}: {result.note}"
+    assert result.review is not None and result.review.decision == "approved", result.review
+    env = {**os.environ, "LC_ALL": "C"}
+    heads = subprocess.run(["git", "-C", str(origin), "for-each-ref", "--format=%(refname)",
+                            "refs/heads/"], check=True, env=env, capture_output=True,
+                           text=True).stdout.split()
+    pushed = [h for h in heads if h != "refs/heads/main"]
+    assert len(pushed) == 1, heads
+    files = subprocess.run(["git", "-C", str(origin), "ls-tree", "-r", "--name-only", pushed[0]],
+                           check=True, env=env, capture_output=True, text=True).stdout.split()
+    assert "reviewed.txt" in files, (
+        f"the review's write did not reach the pushed branch {pushed[0]}: {files}")
+
+
 # ── the documents ─────────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("name", DOCUMENTS)
@@ -277,3 +407,26 @@ def test_each_document_names_env_context_ask_wherever_it_says_nothing_commits_fr
     silent = [p for p in saying if ENV_CONTEXT_ASK_EXCEPTION not in p]
     assert not silent, (
         f"{name} says {NOTHING_COMMITS!r} without {ENV_CONTEXT_ASK_EXCEPTION!r} in: {silent}")
+
+
+@pytest.mark.parametrize("name", DOCUMENTS)
+def test_each_document_names_the_review_wherever_it_says_where_the_questions_run(name):
+    """Criterion 2, as the review of dc0efac4 (2026-10-20, point 1) found it: the independent
+    review is an `ask()` in the job's box on the job's workspace (the row above), so no document
+    says every `ask()` goes through `judging_worktree`, and a paragraph that calls the judging
+    rooms ones "nothing commits from" names the review as an exception there, and that its write
+    can reach the pull request. On dc0efac4 six documents said "every `ask()`" (or "every caller
+    hands it", or "the same for every harness, and it is not the job's box") and none named the
+    review beside the rooms; `changes/362.limitation.md` listed the read-only questions without
+    it."""
+    text = DOCUMENTS[name]()
+    assert text, f"{name} is empty: there is nothing to read"
+    lowered = _collapsed(text).lower()
+    made = [claim for claim in EVERY_ASK_CLAIMS if claim in lowered]
+    assert not made, f"{name} still says {made}, and the independent review is an `ask()` too"
+    saying = [p for p in _paragraphs(text) if NOTHING_COMMITS in p]
+    assert saying, f"{name} does not say {NOTHING_COMMITS!r}: the row above holds that"
+    silent = [p for p in saying if REVIEW_EXCEPTION not in p or REVIEW_REACHES not in p]
+    assert not silent, (
+        f"{name} says {NOTHING_COMMITS!r} without {REVIEW_EXCEPTION!r} and {REVIEW_REACHES!r} "
+        f"in: {silent}")

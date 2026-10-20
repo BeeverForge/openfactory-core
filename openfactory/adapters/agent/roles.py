@@ -18,15 +18,19 @@ makes read-only real:
     kimi     instruction only (no mode reachable beside `-p`, #362 — weakest; `--agent-file` with
              a `tools:` list is reachable per run and not used yet, #785; see the Kimi adapter)
 
-Where `ask()` runs is the same for every harness, and it is not the job's box: every caller builds
-its room with `sandbox/registry.py::judging_worktree`, which always returns a `WorktreeSandbox`,
-so the question runs on the host even for a project whose jobs run in a container (measured by
-`tests/test_where_a_kimi_judging_role_runs_is_what_its_documents_say.py`, 2026-10-20). The room
+Where `ask()` runs is its caller's choice, not the harness's. A judging role's caller builds its
+room with `sandbox/registry.py::judging_worktree`, which always returns a `WorktreeSandbox`, so
+the question runs on the host even for a project whose jobs run in a container (measured by
+`tests/test_where_a_kimi_judging_role_runs_is_what_its_documents_say.py`, 2026-10-20). That room
 is one nothing commits from (a temporary directory, the repo cache's master clone, a module's
 cached view), so an edit does not reach a pull request, except `env context --ask`, which asks in
-the checkout it is pointed at, where a write is left in that working tree; nothing but the row
-above confines a write to either. On claude, codex and opencode the CLI enforces it; on
-kimi nothing does, and a question that disobeys its instruction writes on the host.
+the checkout it is pointed at, where a write is left in that working tree, and the independent
+review, which runs in the job's box on the job's workspace before the push, where a write it
+commits, or one a review-repair pass then sweeps in, can reach the pull request (the same test
+file holds it); the onboarding first run's review asks in its own rehearsal workspace, from which
+nothing is pushed. Nothing but the row above confines a write to any of them. On claude, codex and
+opencode the CLI enforces it; on kimi nothing does, and a question that disobeys its instruction
+writes where it is asked: on the host, or in the job's workspace for the review.
 
 Everything else — the sizer, the tech-lead's diagnosis, the coordinator's advice, the Slack answer,
 the independent review — is then one shared implementation over `ask()`, identical for every
