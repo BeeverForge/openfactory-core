@@ -9,6 +9,7 @@ The claims, each held by one named test and broken here by one cut:
 - an App beside a static token that every GitHub axis uses instead is not applicable and is not
   asked; one GitHub axis still on the App, the forge or the tracker, is enough for it to be asked
   (Q5, review rounds 1 and 2); with no App, a token is not said as used "not the GitHub App";
+  each token is named by its own axis's variables (the tracker's are not the forge's);
 - a registry that spans organisations fails the line in exactly the sentence the load path logs
   (`registry.spanning_message`), with or without an App;
 - the read is `GET /app/installations/{id}` signed with the App's own JWT — nothing is minted —
@@ -95,6 +96,12 @@ MUTATIONS = [
      "                   if settings == 3 else [])",
      "                   if True else [])",
      f"{LINE}::test_with_no_app_a_token_is_not_said_as_used_instead_of_one"),
+
+    ("the tracker's deployment token is said as the forge's pair, naming variables not set",
+     CREDENTIALS,
+     '    if source == "generic:tracker":\n        return ("this deployment\'s own tracker token',
+     '    if False:\n        return ("this deployment\'s own tracker token',
+     f"{LINE}::test_a_tracker_on_the_deployments_tracker_token_is_named_by_the_tracker_variables"),
 
     # ── the spanning registry (S2) ──────────────────────────────────────────────────────────────
     ("the spanning branch is gone — a registry over two organisations reads not applicable",

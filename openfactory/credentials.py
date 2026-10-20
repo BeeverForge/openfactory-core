@@ -498,8 +498,14 @@ def forge_credential_source(project) -> str:
 
 
 def describe_source(source: str) -> str:
-    """A credential's identity (`forge_credential_source`) as the doctor says it."""
+    """A credential's identity (`forge_credential_source` or `tracker_credential_source`) as the
+    doctor says it. `generic:tracker` is the tracker's deployment-wide pair, named as such: the
+    `installation_scope` line feeds tracker identities here too, and said as the forge's pair it
+    named two variables that were not set (review round 2 of #743, measured on b1a7d2c)."""
     kind, _, name = source.partition(":")
+    if source == "generic:tracker":
+        return ("this deployment's own tracker token (`OPENFACTORY_TRACKER_TOKEN` / "
+                "`OPENFACTORY_BOT_TOKEN`)")
     return {
         "env": f"a stored secret (`{name}`)",
         "generic": "this deployment's own token (`OPENFACTORY_FORGE_TOKEN` / "

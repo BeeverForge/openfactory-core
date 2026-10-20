@@ -250,3 +250,26 @@ def test_with_no_app_a_token_is_not_said_as_used_instead_of_one(monkeypatch):
 
     assert finding.ok is True and asked == []
     assert "no GitHub App installation is configured" in finding.message, finding.message
+
+
+def test_a_tracker_on_the_deployments_tracker_token_is_named_by_the_tracker_variables(
+        monkeypatch):
+    """Review round 2 (non-blocking): `describe_source` said every `generic:*` identity as the
+    FORGE's pair. Measured on b1a7d2c with the App trio, the forge on `token_env: DEMO_FORGE_PAT`
+    and the tracker on `OPENFACTORY_TRACKER_TOKEN`: the line said the projects use "a stored
+    secret (`DEMO_FORGE_PAT`) and this deployment's own token (`OPENFACTORY_FORGE_TOKEN` /
+    `OPENFACTORY_BOT_TOKEN`)" — two variables that were not set, and not the one that was."""
+    from openfactory.contracts.project import Project, ProviderRef
+
+    project = Project(
+        name="demo", repo_path="/tmp/demo",
+        tracker=ProviderRef(kind="github", repo="acme/demo"),
+        forge=ProviderRef(kind="github", repo="acme/demo",
+                          options={"token_env": "DEMO_FORGE_PAT"}))
+    finding, asked = _line_from_the_live_probe(monkeypatch, project, {
+        **_APP_TRIO, "DEMO_FORGE_PAT": "ghp_forge", "OPENFACTORY_TRACKER_TOKEN": "ghp_tracker"})
+
+    assert finding.ok is True and asked == [], finding.message
+    assert "`DEMO_FORGE_PAT`" in finding.message, finding.message
+    assert "`OPENFACTORY_TRACKER_TOKEN`" in finding.message, finding.message
+    assert "OPENFACTORY_FORGE_TOKEN" not in finding.message, finding.message
