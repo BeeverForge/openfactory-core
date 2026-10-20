@@ -18,6 +18,7 @@ from pathlib import Path
 
 from openfactory import after_merge, namespace
 from openfactory.adapters.agent.base import (
+    PLANNERS_READ_ONLY_BY_INSTRUCTION,
     AgentContext,
     CodingAgentAdapter,
     final_text,
@@ -65,6 +66,7 @@ from openfactory.orchestrator.merge_policy import (
     should_auto_merge,
 )
 from openfactory.orchestrator.outcomes import hands_back
+from openfactory.orchestrator.read_only_pass import Unreadable, fingerprint, written
 from openfactory.orchestrator.risk import assess as risk_assess
 from openfactory.orchestrator.risk import of_attempt as risk_of_attempt
 from openfactory.orchestrator.validation import (
@@ -1467,6 +1469,20 @@ class JobRunner:
             # executor investigates + plans + implements in one warm context (no handoff tax).
             if self.manifest.planner_stage and hasattr(self.agent, "plan"):
                 self._set_state(ticket, JobState.PLANNING)
+                # A PLANNER READ-ONLY BY INSTRUCTION ONLY IS MEASURED (#788): it runs on THIS
+                # tree, the one the executor continues from and `_commit` sweeps with `git add -A`,
+                # so on 620bb577 (2026-10-20) a Kimi planner's `planted.txt` reached the pull
+                # request. The mark is taken HERE, after `_run_setup` and a resume's restore, so
+                # what they left is not charged to the planner; and it is the tree `git add -A`
+                # would commit plus HEAD, not porcelain: measured on git 2.43.0 the same day,
+                # `?? u` read the same before and after a planner appended to it while the tree
+                # hashes differed, and a planner `git commit` left porcelain clean with HEAD moved.
+                measured = getattr(self.agent, "name", "") in PLANNERS_READ_ONLY_BY_INSTRUCTION
+                before = fingerprint(self.sandbox, ws) if measured else None
+                if isinstance(before, Unreadable):
+                    # decided before the pass is paid for: a pass nobody can check is not run
+                    return self._hold(ticket, owner, self._unaskable(before, "before the planner "
+                                      "ran"), JobState.ON_HOLD, branch=branch)
                 plan_result = self.agent.plan(sandbox=self.sandbox, workspace=ws, context=ctx)
                 for action in plan_result.actions:
                     self._emit(ticket, "agent_action", action, role="planner")
@@ -1477,6 +1493,29 @@ class JobRunner:
                 # in the journal — on the ticket that is coming back, whose spend is exactly what
                 # decides whether resuming it is worth it.
                 self._count(plan_result, "planner")
+                # ASKED BEFORE THE PAUSE, AND IT WINS OVER IT (engineering lesson 12): a planner
+                # that wrote and then hit the usage limit went `_paused` → `_preserve_partial`,
+                # which commits the tree and pushes it to the forge branch, and the resume restored
+                # the edit for the executor. So the hold comes first and preserves nothing: no
+                # `_preserve_*` here, and the `finally` below discards the tree with the sandbox.
+                if before is not None:
+                    after = fingerprint(self.sandbox, ws)
+                    if isinstance(after, Unreadable):
+                        return self._hold(ticket, owner, self._unaskable(after, "after the planner "
+                                          "ran"), JobState.ON_HOLD, branch=branch)
+                    wrote = written(self.sandbox, ws, before, after)
+                    if wrote:
+                        paths = ", ".join(wrote)
+                        self._emit(ticket, "warning", f"the planner wrote to the workspace it must "
+                                   f"only read: {paths}", role="planner")
+                        return self._hold(
+                            ticket, owner,
+                            f"the planner wrote to the workspace it must only read ({paths}). The "
+                            f"`{self.agent.name}` harness keeps its planner read-only by "
+                            f"instruction only; the job stopped before pushing anything, and "
+                            f"the workspace is discarded. Give the planner another harness, "
+                            f"or turn `planner_stage` off for this project.",
+                            JobState.ON_HOLD, branch=branch)
                 if plan_result.pause_reason:
                     self._emit(ticket, "note", f"planner paused: {plan_result.summary[:200]}",
                                cost_usd=plan_result.cost_usd, role="planner")
@@ -2772,6 +2811,19 @@ class JobRunner:
             self._set_state(ticket, JobState.DONE)
             return RunResult(ticket_id=ticket.id, state=JobState.DONE, pr_url=url)
         return self._hold(ticket, owner, f"e2e suite is RED — {url}", JobState.ON_HOLD, pr_url=url)
+
+    @staticmethod
+    def _unaskable(answer: Unreadable, when: str) -> str:
+        """The hold sentence for a workspace the box could not fingerprint around a planner held
+        read-only by instruction only. A sentence of its own, never the "planner wrote" one: could
+        not see is not "nothing was written", and not "something was" either (engineering lesson
+        2). It carries git's own words, which name the cause (a client image without
+        `safe.directory` for its mount answers "detected dubious ownership", exit 128)."""
+        said = " ".join(answer.output.split()) or "no output"
+        return (f"the job's workspace could not be asked {when} whether the planner changed it "
+                f"(exit {answer.rc}: {said}), so the job stopped before pushing anything. Make "
+                f"git usable on this workspace in the box, or turn `planner_stage` off for this "
+                f"project.")
 
     def _hold(
         self, ticket: Ticket, owner: str | None, reason: str, state: JobState, **extra: object
