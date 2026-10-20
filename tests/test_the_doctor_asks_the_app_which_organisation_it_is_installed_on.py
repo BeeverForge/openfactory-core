@@ -236,3 +236,17 @@ def test_an_app_that_is_not_fully_configured_is_said_as_such_and_not_as_no_app(
         finding.message
     assert "not fully configured" in finding.message, finding.message
     assert asked == []
+
+
+def test_with_no_app_a_token_is_not_said_as_used_instead_of_one(monkeypatch):
+    """No App configured and a static token set: the line says no App is configured, not that the
+    projects use the token "not the GitHub App", which presumes an App."""
+    from openfactory.contracts.project import Project, ProviderRef
+
+    project = Project(name="demo", repo_path="/tmp/demo",
+                      tracker=ProviderRef(kind="github", repo="acme/demo"))
+    finding, asked = _line_from_the_live_probe(
+        monkeypatch, project, {"OPENFACTORY_BOT_TOKEN": "ghp_stub"})
+
+    assert finding.ok is True and asked == []
+    assert "no GitHub App installation is configured" in finding.message, finding.message
