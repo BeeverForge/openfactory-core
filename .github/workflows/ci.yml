@@ -77,7 +77,9 @@ jobs:
         env:
           TEST_IDS: ${{ runner.temp }}/openfactory-test-ids/ran-integration.txt
           # docker is here: a live preview test fails rather than skips where the daemon does not
-          # answer or S1 cannot be built (a lost registry, a pull limit) — red, not silent (#358)
+          # answer or S1 cannot be built (a lost registry, a pull limit) — red, not silent (#358).
+          # So does the Codex tables guard: it builds the worker image's toolbox stage and reads
+          # that codex's own help; in the unit shards it had no codex and skipped every run (#805)
           TEST_REQUIRE_DOCKER: "1"
       # after the parallel run, in a process of its own: these assert their own CPU time
       - run: make test-alone

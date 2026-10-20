@@ -10,8 +10,21 @@ the two bypass flags of it global, so `-s/--sandbox`, `-C/--cd`, `--oss`, `--loc
 root (`codex-rs/utils/cli/src/config_override.rs`), so `exec resume` takes it.
 
 The two tables below are that surface, transcribed, and `test_the_tables_are_the_pinned_binarys_own_help`
-checks them against the binary's own `exec --help` and `exec resume --help` wherever a 0.146.0 is
-found. Hidden aliases `--help` does not print are left out; the row passes none of them.
+checks them against the binary's own `exec --help` and `exec resume --help`. Hidden aliases
+`--help` does not print are left out; the row passes none of them.
+
+WHERE THAT CHECK RUNS (#805). It used to look only at `CODEX_PINNED_BIN` and `PATH`, and CI has
+neither, so it skipped on every CI run: the defect above, re-introduced into a table, stayed green.
+It now reads the codex the worker image installs: it builds `docker/worker.Dockerfile`'s `toolbox`
+stage, where `HARNESS_CODEX` is installed (2026-10-19, docker 29.9.1, `node:20-slim` present: 45 s
+for the first build and 124 s for a later one with `--no-cache`, 5 s from cached layers), and runs the entry
+a box runs, `harness_path("codex")`. That entry is a wrapper naming its runtime and script by absolute paths under the toolbox's mount point, so the stage's `/toolbox` is
+linked there first. `HOME` is kept out of `/tmp`, where codex prints a PATH-alias warning. It is
+marked `slow` and `xdist_group("docker")`, so CI runs it in the integration job, beside the daemon;
+under `TEST_REQUIRE_DOCKER` (that job) it reads the image only, and anything that stops it from
+reading the image FAILS rather than skips. On a person's box it takes `CODEX_PINNED_BIN`, else the
+image where docker answers, else `codex` on `PATH`, else skips naming both remedies.
+`tests/test_the_codex_tables_are_checked_against_the_worker_images_codex_in_ci.py` holds that.
 
 A TOKEN CHECK IS ENOUGH HERE because the refusal is clap's "is this option known to this
 subcommand", not anything about what the option does: the command is tokenised as the shell would,
@@ -27,11 +40,16 @@ import shlex
 import shutil
 import subprocess
 import tomllib
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
+import dockerfiles
 import pytest
 
 from openfactory.adapters.agent.codex import CodexAdapter
+from openfactory.adapters.sandbox.container import TOOLBOX_MOUNT, ContainerSandbox
 
 #: The version whose `cli.rs` the tables below were read from.
 PINNED = "0.146.0"
@@ -261,13 +279,90 @@ def _help_options(text: str) -> dict[str, bool]:
     return found
 
 
-def test_the_tables_are_the_pinned_binarys_own_help(tmp_path):
-    """Executes the binary, not a file. Skips at run time — never at collection — wherever no
-    0.146.0 is found: CI has none, and a person's `PATH` may hold another version."""
-    # NOT `OPENFACTORY_*`: `conftest.py` strips that prefix as the operator's before any test runs.
-    binary = os.environ.get("CODEX_PINNED_BIN") or shutil.which("codex")
-    if not binary:
-        pytest.skip(f"no codex binary (set CODEX_PINNED_BIN to a codex-cli {PINNED})")
+#: The Dockerfile whose `toolbox` stage installs the codex a box runs, and that stage's name.
+WORKER_DOCKERFILE = _repo() / "docker" / "worker.Dockerfile"
+TOOLBOX_STAGE = "toolbox"
+#: A cold build pulls `node:20-slim` and npm-installs the harnesses: minutes, not seconds (#738's
+#: bound for the same kind of build).
+BUILD_TIMEOUT = 900
+#: The container's `HOME`, empty and outside `/tmp`: under `/tmp` codex 0.146.0 writes
+#: `WARNING: proceeding, even though we could not create PATH aliases` to stderr (2026-10-19).
+_CONTAINER_HOME = "/var/lib/codex-help"
+
+
+def _docker_is_required() -> bool:
+    return bool(os.environ.get("TEST_REQUIRE_DOCKER"))
+
+
+def _cannot(why: str) -> None:
+    """The image could not be read: a failure where docker is required (CI's integration job, the
+    policy of `one_live_preview.required`), a skip naming the cause anywhere else."""
+    if _docker_is_required():
+        pytest.fail(why)
+    pytest.skip(why)
+
+
+def _a_daemon_answers() -> bool:
+    """Cheap and cannot raise: whether the image route is worth trying on a person's box."""
+    try:
+        daemon = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"],
+                                capture_output=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return daemon.returncode == 0
+
+
+@contextmanager
+def _the_worker_images_codex() -> Iterator[Callable[..., str]]:
+    """`run(*args) -> stdout` of the codex the worker image installs, in a throwaway build of its
+    `toolbox` stage, with no network and no credential; the tag is removed on the way out."""
+    stages = [stage for _, stage in dockerfiles.froms(WORKER_DOCKERFILE)]
+    if TOOLBOX_STAGE not in stages:
+        pytest.fail(f"docker/worker.Dockerfile has no `{TOOLBOX_STAGE}` stage (its stages: "
+                    f"{stages}), so the stage that installs codex cannot be built for this check")
+    tag = f"openfactory-codex-guard-805-{uuid.uuid4().hex[:12]}"
+    entry = ContainerSandbox(image=tag).harness_path("codex")
+    # The entry names `TOOLBOX_MOUNT/...` absolutely; the stage holds the same tree at `/toolbox`.
+    script = (f"mkdir -p {_CONTAINER_HOME}/.codex && ln -s /toolbox {shlex.quote(TOOLBOX_MOUNT)}"
+              f' && exec {shlex.quote(entry)} "$@"')
+    try:
+        try:
+            built = subprocess.run(
+                ["docker", "build", "--progress=plain", "-f", str(WORKER_DOCKERFILE),
+                 "--target", TOOLBOX_STAGE, "-t", tag, str(_repo())],
+                capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        except FileNotFoundError:
+            _cannot("docker is not on PATH, so the worker image's codex cannot be built to read "
+                    "its help")
+        except subprocess.TimeoutExpired:
+            _cannot(f"docker did not build the worker image's {TOOLBOX_STAGE} stage within "
+                    f"{BUILD_TIMEOUT} s")
+        if built.returncode != 0:
+            _cannot(f"docker could not build the worker image's {TOOLBOX_STAGE} stage (exit "
+                    f"{built.returncode}):\n{built.stderr[-2000:]}")
+
+        def run(*args: str) -> str:
+            argv = ["docker", "run", "--rm", "--network", "none",
+                    "-e", f"HOME={_CONTAINER_HOME}", "-e", f"CODEX_HOME={_CONTAINER_HOME}/.codex",
+                    "-e", "LC_ALL=C", "--entrypoint", "sh", tag, "-c", script, "codex", *args]
+            try:
+                ran = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+            except (OSError, subprocess.SubprocessError) as error:
+                _cannot(f"docker could not run `codex {' '.join(args)}` in the worker image: {error}")
+            if ran.returncode != 0:
+                _cannot(f"`codex {' '.join(args)}` exited {ran.returncode} in the worker image:\n"
+                        f"{ran.stderr[-2000:]}")
+            return ran.stdout
+
+        yield run
+    finally:
+        with suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(["docker", "rmi", "-f", tag], capture_output=True, timeout=120)
+
+
+@contextmanager
+def _a_local_codex(binary: str, tmp_path: Path) -> Iterator[Callable[..., str]]:
+    """`run(*args) -> stdout` of a codex on this machine, with an empty `HOME`."""
     (tmp_path / ".codex").mkdir()
     env = {"HOME": str(tmp_path), "CODEX_HOME": str(tmp_path / ".codex"),
            "PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
@@ -276,8 +371,36 @@ def test_the_tables_are_the_pinned_binarys_own_help(tmp_path):
         return subprocess.run([binary, *args], env=env, cwd=tmp_path, capture_output=True,
                               text=True, timeout=60, check=True).stdout
 
-    version = run("--version").strip()
-    if version != f"codex-cli {PINNED}":
-        pytest.skip(f"{binary} is {version!r}, not codex-cli {PINNED}")
-    assert _help_options(run("exec", "--help")) == EXEC_TAKES
-    assert _help_options(run("exec", "resume", "--help")) == EXEC_RESUME_TAKES
+    yield run
+
+
+@pytest.mark.slow
+@pytest.mark.xdist_group("docker")
+def test_the_tables_are_the_pinned_binarys_own_help(tmp_path):
+    """Executes the binary, not a file, and decides which one at run time — never at collection.
+
+    Under `TEST_REQUIRE_DOCKER` (CI's integration job) only the worker image's codex counts: a
+    `codex` on the runner's `PATH` is not what the image installs, and a lost daemon or a failed
+    build fails. Elsewhere: `CODEX_PINNED_BIN`, else the image where docker answers, else `codex`
+    on `PATH`, else a skip naming both remedies. A version other than the pin fails from the image
+    (the image IS the pin) and skips from this machine's own binary."""
+    # NOT `OPENFACTORY_*`: `conftest.py` strips that prefix as the operator's before any test runs.
+    pinned_bin = os.environ.get("CODEX_PINNED_BIN")
+    if _docker_is_required() or (not pinned_bin and _a_daemon_answers()):
+        codex, from_image = _the_worker_images_codex(), True
+    elif binary := pinned_bin or shutil.which("codex"):
+        codex, from_image = _a_local_codex(binary, tmp_path), False
+    else:
+        pytest.skip(f"no codex to read: start docker (this builds the worker image's codex) or "
+                    f"set CODEX_PINNED_BIN to a codex-cli {PINNED}")
+
+    with codex as run:
+        version = run("--version").strip()
+        if version != f"codex-cli {PINNED}":
+            where = "the worker image's codex" if from_image else "this machine's codex"
+            message = f"{where} is {version!r}, not codex-cli {PINNED}, which the tables are read from"
+            if from_image:
+                pytest.fail(message)
+            pytest.skip(message)
+        assert _help_options(run("exec", "--help")) == EXEC_TAKES
+        assert _help_options(run("exec", "resume", "--help")) == EXEC_RESUME_TAKES
