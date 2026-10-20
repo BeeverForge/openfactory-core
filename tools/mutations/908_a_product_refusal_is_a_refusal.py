@@ -16,9 +16,11 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
   3. the word crosses the worker: both activities' dicts carry `refusal`;
   4. a failure is logged with a reference, in `_write_outcome`'s line and in `perform`'s RAISED
      arm, and a result that names no word (an older worker) is a failure; and a card or board the
-     card's door could not READ is a failure too, never the card's state refusing (`unread`);
+     card's door could not READ is a failure too, never the card's state refusing (`unread`) —
+     while a card the door refuses by its column (`card_unmapped`) is still a refusal;
   5. the rows that render a list — promote, reorder, breakdown — answer the refusal every result
-     names, not FAILED; words that disagree are a failure, and an unknown word is logged;
+     names, not FAILED; words that disagree are a failure, and an unknown word is logged; a card
+     outside the project's slice is a refusal, and a slice the board could not say is a failure;
   6. the family drives every row that renders a write;
   7. a refusal word this panel does not know (a worker newer than it) is read as nobody's
      decision when a breakdown's rows are said, never raised on — so the fronts that landed are
@@ -217,6 +219,32 @@ MUTATIONS = [
      '                            ok=False, ref=f"#{number}",\n'
      '                            detail=board_move_said("outside_the_slice", ref=number,\n',
      STRUCTURAL),
+
+    # 5d. the opposite side of the door and of the slice (review round 2, point 1 — each of these
+    #     survived 3814 tests on 1fd403d3): a door refusal by the card's column is a refusal, and
+    #     a slice nobody could ask about is a failure
+    ("DOOR: every refusal of the card's state is read as a failure", MODULE,
+     "    return WriteResult(ok=False, refusal=NOT_WAITING, existed=existed, ref=ref,\n",
+     "    return WriteResult(ok=False, refusal=NOT_REFUSED, existed=existed, ref=ref,\n",
+     FAILURE + "::test_a_promotion_the_cards_door_refuses_by_its_column_answers_409_not_500"),
+    ("DOOR: a column nobody maps is marked as a card the door could not read", PORTS,
+     "            return Seen(title=title, cannot_tell=card_unmapped(\n",
+     "            return Seen(title=title, unread=True, cannot_tell=card_unmapped(\n",
+     FAILURE + "::test_a_promotion_the_cards_door_refuses_by_its_column_answers_409_not_500"),
+    ("SLICE: a promotion whose slice could not be asked is read as a refusal", MODULE,
+     '                            ok=False, refusal=NOT_REFUSED, ref=f"#{number}",\n'
+     '                            detail=board_move_said("unreachable", ref=number,\n',
+     '                            ok=False, refusal=NOT_WAITING, ref=f"#{number}",\n'
+     '                            detail=board_move_said("unreachable", ref=number,\n',
+     FAILURE + "::test_a_card_whose_slice_could_not_be_asked_is_a_failure_with_a_reference"
+     "[product_promote]"),
+    ("SLICE: a reorder whose slice could not be asked is read as a refusal", MODULE,
+     '                    out.append(WriteResult(ok=False, refusal=NOT_REFUSED, ref=f"#{number}",\n'
+     '                                           detail=board_move_said("unreachable", ref=number,\n',
+     '                    out.append(WriteResult(ok=False, refusal=NOT_WAITING, ref=f"#{number}",\n'
+     '                                           detail=board_move_said("unreachable", ref=number,\n',
+     FAILURE + "::test_a_card_whose_slice_could_not_be_asked_is_a_failure_with_a_reference"
+     "[product_reorder]"),
 
     # 5c. a list's words (review round 1, the non-blocking point): disagreeing words are a
     #     failure, and a word this panel does not know is said in the log

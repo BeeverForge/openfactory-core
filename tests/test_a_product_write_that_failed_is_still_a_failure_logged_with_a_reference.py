@@ -240,3 +240,42 @@ def test_a_word_this_panel_does_not_know_is_a_failure_and_is_logged(caplog):
                                   did="break the requirement down", project="p")
     assert said.code == "failed", said
     assert "OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN" in caplog.text and "from_the_future" in caplog.text
+
+
+def test_a_promotion_the_cards_door_refuses_by_its_column_answers_409_not_500(
+        client, deployment, tracker, board, monkeypatch):  # noqa: F811 — the fixtures
+    """The door's other side (#908): a card in a column nobody maps is refused by its state —
+    `card_unmapped`, not `unread` — so 409 `not_waiting`, never the 500 of a door that could not
+    read. Measured in the review of 1fd403d3 (2026-10-20): `_the_door_said`'s NOT_WAITING branch
+    → NOT_REFUSED, and `unread=True` on `card_unmapped`, each survived 3814 tests."""
+    from openfactory.contracts.refs import canonical_ref
+
+    ref = _opened_by_product(tracker, board)
+    monkeypatch.setattr(type(board), "columns",
+                        lambda self: {canonical_ref(ref): "Somewhere nobody maps",
+                                      str(ref): "Somewhere nobody maps"})
+
+    r = _post(client, "product_promote", who=ADMIN, numbers=ref, yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (409, "conflict"), (r.status_code, said)
+    assert said["data"]["refusal"] == "not_waiting", said
+    assert "Somewhere nobody maps" in said["message"], said
+
+
+@pytest.mark.parametrize("row", ["product_promote", "product_reorder"])
+def test_a_card_whose_slice_could_not_be_asked_is_a_failure_with_a_reference(
+        row, client, deployment, tracker, board, monkeypatch):  # noqa: F811 — the fixtures
+    """#752's `holds` answering None — the board could not say whose card it is — is a failure,
+    500 with a reference, never 409. Measured in the review of 1fd403d3 (2026-10-20): the
+    `unreachable` arm → NOT_WAITING survived 3814 tests in promote and in reorder."""
+    first, second = _opened_by_product(tracker, board), _opened_by_product(tracker, board)
+    monkeypatch.setattr(type(board), "columns", lambda self: {}, raising=True)
+    monkeypatch.setattr(type(board), "holds", lambda self, number: None, raising=False)
+
+    numbers = first if row == "product_promote" else f"{second},{first}"
+    r = _post(client, row, who=ADMIN, numbers=numbers, yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (500, "failed"), (r.status_code, said)
+    assert said["data"].get("reference"), said
