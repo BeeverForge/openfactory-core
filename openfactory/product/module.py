@@ -4504,9 +4504,21 @@ class ProductModule:
                 holds = getattr(board, "holds", None)
                 inside = holds(str(number)) if callable(holds) else True
                 if inside is not True:
-                    out.append(WriteResult(ok=False, ref=f"#{number}", detail=board_move_said(
-                        "outside_the_slice" if inside is False else "unreachable",
-                        ref=number, project=getattr(self.project, "name", ""), language=lang)))
+                    # TWO ANSWERS, NOT ONE (#908): another project's card is a refusal by name, a
+                    # conflict with where the card is; a board that could not say is a failure —
+                    # "could not see" and "there is nothing" never share a value (lesson 2)
+                    if inside is False:
+                        out.append(WriteResult(
+                            ok=False, refusal=NOT_WAITING, ref=f"#{number}",
+                            detail=board_move_said("outside_the_slice", ref=number,
+                                                   project=getattr(self.project, "name", ""),
+                                                   language=lang)))
+                    else:
+                        out.append(WriteResult(
+                            ok=False, refusal=NOT_REFUSED, ref=f"#{number}",
+                            detail=board_move_said("unreachable", ref=number,
+                                                   project=getattr(self.project, "name", ""),
+                                                   language=lang)))
                     continue
             try:
                 # THROUGH THE CARD'S DOOR (ADR-0055, #414): placed in the queue by the board's own
@@ -4654,9 +4666,16 @@ class ProductModule:
             # answers True with no request, and the order has no batch read to spare a scoped one
             inside = holds(str(number)) if callable(holds) else True
             if inside is not True:
-                out.append(WriteResult(ok=False, ref=f"#{number}", detail=board_move_said(
-                    "outside_the_slice" if inside is False else "unreachable",
-                    ref=number, project=project, language=lang)))
+                # as in `promote` (#908): another project's card is a refusal, an unread board a
+                # failure
+                if inside is False:
+                    out.append(WriteResult(ok=False, refusal=NOT_WAITING, ref=f"#{number}",
+                                           detail=board_move_said("outside_the_slice", ref=number,
+                                                                  project=project, language=lang)))
+                else:
+                    out.append(WriteResult(ok=False, refusal=NOT_REFUSED, ref=f"#{number}",
+                                           detail=board_move_said("unreachable", ref=number,
+                                                                  project=project, language=lang)))
                 continue
             try:
                 url = self._issue_url(tracker, number)

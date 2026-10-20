@@ -124,6 +124,51 @@ def test_a_promotion_the_person_may_not_make_answers_403_not_500(
     assert said["data"]["refusal"] == "not_yours", said
 
 
+def test_a_promotion_of_a_card_outside_the_projects_slice_answers_409_with_the_modules_sentence(
+        client, deployment, tracker, board, monkeypatch):  # noqa: F811 — the imported fixtures
+    """Criterion 1, the instance #752 added after this branch was cut: `ProductModule.promote`
+    refuses by name a card its board says is another project's (`holds` → False) — a conflict
+    with where the card is, not a breakage. Measured on 3a996b0a merged with bb929e49
+    (2026-10-20): the site named no `refusal=`, and the row answered 500 / `failed`, with a
+    reference and an `OPENFACTORY_PRODUCT_WRITE_FAILED` line, for "… is not in acme's slice"."""
+    from openfactory.contracts.refs import canonical_ref
+    from openfactory.product.voice import board_move_said
+
+    ref = _opened_by_product(tracker, board)
+    # A shared board's slice, as Jira's `scope_jql` reads it: the batch read does not return the
+    # card, and the board, asked by key, says it is not this project's
+    monkeypatch.setattr(type(board), "columns", lambda self: {}, raising=True)
+    monkeypatch.setattr(type(board), "holds", lambda self, number: False, raising=False)
+
+    r = _post(client, "product_promote", who=ADMIN, numbers=ref, yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (409, "conflict"), (r.status_code, said)
+    assert said["data"]["refusal"] == "not_waiting", said
+    assert said["message"] == board_move_said("outside_the_slice", ref=canonical_ref(ref),
+                                              project="acme", language="en"), said
+
+
+def test_a_reorder_of_a_card_outside_the_projects_slice_answers_409_with_the_modules_sentence(
+        client, deployment, tracker, board, monkeypatch):  # noqa: F811 — the imported fixtures
+    """The same instance in `ProductModule.reorder` (#752 asks `holds` per card there): another
+    project's card is refused by name, 409 with the module's sentence — on 3a996b0a merged with
+    bb929e49 (2026-10-20) the site named no `refusal=` and the row answered 500 / `failed`."""
+    from openfactory.contracts.refs import canonical_ref
+    from openfactory.product.voice import board_move_said
+
+    first, second = _opened_by_product(tracker, board), _opened_by_product(tracker, board)
+    monkeypatch.setattr(type(board), "holds", lambda self, number: False, raising=False)
+
+    r = _post(client, "product_reorder", who=ADMIN, numbers=f"{second},{first}", yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (409, "conflict"), (r.status_code, said)
+    assert said["data"]["refusal"] == "not_waiting", said
+    assert said["message"] == board_move_said("outside_the_slice", ref=canonical_ref(second),
+                                              project="acme", language="en"), said
+
+
 def test_a_reorder_the_person_may_not_make_answers_403_not_500(
         client, deployment, tracker, board):  # noqa: F811 — the imported fixtures
     """Criterion 1, second instance: `product_reorder` rendered `ProductModule.reorder`'s "not

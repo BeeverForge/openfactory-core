@@ -135,6 +135,28 @@ MUTATIONS = [
      "    return _none_done([], f\"nothing was filed for requirement {num}{why.rstrip('.')}.\",\n",
      NEVER_500 + "::test_a_breakdown_whose_every_front_was_refused_answers_that_refusal"),
 
+    # 5b. #752's slice refusals (review round 1, point 1): another project's card is a refusal
+    ("SLICE: a promotion of another project's card is read as a failure again", MODULE,
+     '                            ok=False, refusal=NOT_WAITING, ref=f"#{number}",\n'
+     '                            detail=board_move_said("outside_the_slice", ref=number,\n',
+     '                            ok=False, refusal=NOT_REFUSED, ref=f"#{number}",\n'
+     '                            detail=board_move_said("outside_the_slice", ref=number,\n',
+     NEVER_500 + "::test_a_promotion_of_a_card_outside_the_projects_slice_answers_409_with_the_"
+     "modules_sentence"),
+    ("SLICE: a reorder of another project's card is read as a failure again", MODULE,
+     '                    out.append(WriteResult(ok=False, refusal=NOT_WAITING, ref=f"#{number}",\n'
+     '                                           detail=board_move_said("outside_the_slice", ref=number,\n',
+     '                    out.append(WriteResult(ok=False, refusal=NOT_REFUSED, ref=f"#{number}",\n'
+     '                                           detail=board_move_said("outside_the_slice", ref=number,\n',
+     NEVER_500 + "::test_a_reorder_of_a_card_outside_the_projects_slice_answers_409_with_the_"
+     "modules_sentence"),
+    ("SLICE: the promotion's out-of-slice site names no refusal (the guard sees it)", MODULE,
+     '                            ok=False, refusal=NOT_WAITING, ref=f"#{number}",\n'
+     '                            detail=board_move_said("outside_the_slice", ref=number,\n',
+     '                            ok=False, ref=f"#{number}",\n'
+     '                            detail=board_move_said("outside_the_slice", ref=number,\n',
+     STRUCTURAL),
+
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,
      '    "product_file_defect": ({"restated": "the report is weekly", "yes": True}, "file_defect"),\n',
