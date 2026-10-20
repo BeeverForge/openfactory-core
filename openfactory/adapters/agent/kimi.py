@@ -44,8 +44,14 @@ TWO DIFFERENCES FROM CODEX THAT SHAPE THIS ADAPTER
    but its body replaces Kimi's whole system prompt and it cannot be used with `-S`. Nothing
    confines what a disobedient run writes; where it lands depends on the role (#788, located on
    620bb577, 2026-10-20). The planner runs in the job's box on the job's own workspace, the one
-   the executor continues from and `_commit` sweeps with `git add -A`, so an edit it leaves
-   reaches the pull request; with `--sandbox worktree` that workspace is a directory on the host.
+   the executor continues from and `_commit` sweeps with `git add -A`, so an edit it left reached
+   the pull request; with `--sandbox worktree` that workspace is a directory on the host. So the
+   orchestrator measures that workspace before and after a Kimi plan pass
+   (`orchestrator/read_only_pass.py`; this harness is named in
+   `base.py::PLANNERS_READ_ONLY_BY_INSTRUCTION`) and holds the job when the pass wrote, naming
+   the paths, before the pause, the commit or the push: the job stops before pushing anything.
+   A workspace git cannot answer holds it too, in git's words. It detects the write; nothing here
+   prevents it.
    Every `ask()` runs on the host whatever the project's box, because each caller builds
    `sandbox/registry.py::judging_worktree`, a `WorktreeSandbox` whose `run` is a host
    subprocess; it runs in a room nothing commits from (a temporary directory, the repo cache's

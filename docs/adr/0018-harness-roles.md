@@ -97,8 +97,17 @@ for `env context --ask`. Each is a room nothing commits from, so a judging role'
 reach a pull request, but nothing but the harness confines a write to its room, and on Kimi
 nothing does. The planner is the other way round: it does run in the box, but on the job's own
 workspace, which the executor then works in and `_commit` sweeps with `git add -A`, so a Kimi
-planner's edit reaches the pull request. With `--sandbox worktree` that workspace is itself on the
-host.
+planner's edit reached the pull request, and a planner that wrote and then hit a rate limit had its
+edit pushed to the job's branch by the pause. With `--sandbox worktree` that workspace is itself on
+the host. So the orchestrator now measures that workspace around a Kimi plan pass
+(`orchestrator/read_only_pass.py`: the tree `git add -A` would commit, written from a copy of the
+index, and HEAD, before the pass and after it) and holds the job when the pass wrote, naming the
+paths, before the pause, the commit or the push; the job stops before pushing anything, and the
+workspace is discarded with the sandbox. A workspace git cannot answer holds the job too, with
+git's exit code and its words, and before the pass is run when the first reading fails. The hold
+detects the write, it does not prevent or undo it. Which harnesses are measured is
+`adapters/agent/base.py::PLANNERS_READ_ONLY_BY_INSTRUCTION`, Kimi alone. A planner runs only where
+a project turned `planner_stage` on (ADR-0014).
 
 Everything above that primitive — the sizer, the diagnosis, the coordinator's advice, the Slack
 answer, the independent review — is **one shared implementation**. Parity by construction rather

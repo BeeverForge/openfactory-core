@@ -88,11 +88,12 @@ MUTATIONS = [
      "in a directory nothing commits from, and no such edit outlives the run.",
      NO_BOX.format("changes/362.limitation.md")),
 
+    # RE-PINNED (#788, task 21): the amendment's planner sentences grew the hold, so the cut now
+    # anchors on the amendment's last line, still inside the dated paragraph.
     ("C3 the ADR-0018 amendment itself says a judging role cannot escape the box", ADR,
-     "planner's edit reaches the pull request. With `--sandbox worktree` that workspace is itself "
-     "on the\nhost.\n",
-     "planner's edit reaches the pull request. With `--sandbox worktree` that workspace is itself "
-     "on the\nhost. A judging role cannot escape the box it is handed.\n",
+     "a project turned `planner_stage` on (ADR-0014).\n",
+     "a project turned `planner_stage` on (ADR-0014). A judging role cannot escape the box it is "
+     "handed.\n",
      NO_BOX.format("ADR-0018 section 2")),
 
     ("C3 the configuration bullet is main's again: 'a mode, not an enforced policy'", CONF,
