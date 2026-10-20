@@ -75,6 +75,11 @@ def _ci_status_from_checks(checks: list[dict], *, required: bool = False) -> str
 #: <id>`, and a commit status to wherever the app that posted it chose.
 _ACTIONS_RUN = re.compile(r"^https://github\.com/([^/]+/[^/]+)/actions/runs/(\d+)(?:/|$)")
 
+#: How many failing runs the CI repair reads a log from, and so re-runs: the two `failed_ci_logs`
+#: has read since #184. One bound for both, because a run re-run whose log the decision never
+#: read is retried blind (measured 2026-10-20 with three red runs: logs of 1 and 2, re-run 1-3).
+_RUNS_READ = 2
+
 
 def _redact(text: str) -> str:
     """Strip any token embedded in an authenticated URL before it reaches a log/error."""
@@ -1086,9 +1091,8 @@ class GitHubForge(ForgeAdapter):
         or none of their runs has a failing log; the core reads that as "nothing to act on".
 
         THE RUNS OF THE PULL REQUEST'S OWN REPOSITORY (C-18): `gh run` does not resolve a URL, and
-        a link to another repository's run is not this pull request's check. `rerun_failed` re-runs
-        the runs chosen by the same `_failing_runs`: all of them, where this log keeps the first
-        two."""
+        a link to another repository's run is not this pull request's check. The first two such
+        runs are read; `rerun_failed` re-runs the same runs, chosen by the same `_failing_runs`."""
         repo = self._repo_of_pr(pr)
         try:
             rows = self.pr_checks(pr=pr)
@@ -1099,7 +1103,7 @@ class GitHubForge(ForgeAdapter):
                         pr, str(exc)[:160])
             return ""
         chunks: list[str] = []
-        for rid in list(self._failing_runs(repo, rows))[:2]:
+        for rid in self._failing_runs(repo, rows):
             lp = self._gh(["run", "view", rid, "--repo", repo, "--log-failed"], timeout=180)
             if lp.returncode == 0 and lp.stdout:
                 chunks.append(lp.stdout)
@@ -1108,14 +1112,16 @@ class GitHubForge(ForgeAdapter):
     @staticmethod
     def _failing_runs(repo: str, rows: list[dict]) -> dict[str, list[str]]:
         """Run id → the names of the failing blocking `code` rows of `pr_checks` that link to it,
-        for the workflow runs of `repo` only (C-18), in the rows' order.
+        for the workflow runs of `repo` only (C-18), in the rows' order, the first `_RUNS_READ`.
 
         ONE SELECTION FOR THE LOG AND THE RE-RUN (#756): the CI repair decides from the log of
         these runs whether the change touched the failure, then re-runs their failed jobs. Two
         loops could come to pick different runs, and the re-run would retry a check whose log the
-        decision never read. One gap is left: `failed_ci_logs` reads the first two runs and
-        `rerun_failed` re-runs all of them, so a third red run is re-run on the first two's logs
-        (measured 2026-10-20 with three red runs: logs of runs 1 and 2 read, runs 1-3 re-run)."""
+        decision never read. The bound is here for the same reason: when it was `[:2]` in
+        `failed_ci_logs` alone, a third red run was re-run on the first two's logs (measured
+        2026-10-20 with three red runs: logs of runs 1 and 2 read, runs 1-3 re-run). A run past
+        the bound is neither read nor re-run: it stays red, and the next attempt launches the
+        agent."""
         runs: dict[str, list[str]] = {}
         for row in rows:
             if not (row["blocking"] and row["kind"] == "code"
@@ -1124,7 +1130,7 @@ class GitHubForge(ForgeAdapter):
             named = _ACTIONS_RUN.match(str(row.get("url") or ""))
             if named and named.group(1).lower() == repo.lower():
                 runs.setdefault(named.group(2), []).append(str(row.get("name") or ""))
-        return runs
+        return dict(list(runs.items())[:_RUNS_READ])
 
     def rerun_failed(self, *, pr: str) -> list[str]:
         """Re-run the failed jobs of the runs `failed_ci_logs` chooses (#756): `gh run rerun

@@ -173,7 +173,8 @@ amendment, not a reversal: the agent still repairs every red build the step does
 - **A row capability, not a port method.** `forge/base.py::rerun_failed_of` reads `rerun_failed`
   with `getattr`, like `merge_gates` and `review_comments`. Only `GitHubForge` declares it: `gh run
   rerun <id> --failed --repo <the pull request's repository>`, for every run the same
-  `_failing_runs` chooses for `failed_ci_logs` (the log keeps the first two of them). Azure Repos, the local forge and every add-on declare nothing.
+  `_failing_runs` chooses for `failed_ci_logs`: the first two, so no run is re-run whose log the decision
+  did not read. Azure Repos, the local forge and every add-on declare nothing.
   Their diff is never read for this, nothing is said, and the agent repairs as before.
 - **A refusal falls through to the agent, and is said** (PO, 2026-10-19). A refusal is a
   `RerunRefused` value: no `Actions: write`, a run still in progress, checks that could not be read.

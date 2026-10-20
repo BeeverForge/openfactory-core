@@ -27,7 +27,7 @@ SIX CLAIMS:
   5. **The seam is a row capability that cannot be faked** (D): a test double's answer is not a
      list of names, and a refusal is a value carrying the forge's words, never `[]`.
   6. **The GitHub row re-runs exactly the runs the log was read from**: blocking `code` rows of
-     the pull request's own repository; one run refused of two, and checks it could not read,
+     the pull request's own repository, the first two, never a third whose log was not read; one run refused of two, and checks it could not read,
      are refusals, never a success or `[]`; and generic code never reaches a forge CLI. Both
      moves are reached from the registered `repair_ci` activity, and a forge that cannot be
      built after a pass returns the pass.
@@ -264,6 +264,13 @@ MUTATIONS = [
     ("GitHub: a run of another repository is re-run (C-18)", GITHUB,
      "            if named and named.group(1).lower() == repo.lower():\n",
      "            if named:\n",
+     CAPABILITY),
+
+    # Human round, 2026-10-20: the bound was `[:2]` in `failed_ci_logs` alone, and a third red
+    # run was re-run on the first two's logs.
+    ("GitHub: the shared selection is unbounded, so a third red run is re-run", GITHUB,
+     "        return dict(list(runs.items())[:_RUNS_READ])\n",
+     "        return runs\n",
      CAPABILITY),
 
     ("GitHub: a partial refusal is answered as a success, and the refused run is never said",

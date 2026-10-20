@@ -250,12 +250,13 @@ def test_github_reruns_the_failed_jobs_of_the_runs_its_red_required_checks_link_
     f = _github(monkeypatch, [
         _row("pytest", "fail", link=f"{runs}/1/job/7"),
         _row("lint", "fail", link=f"{runs}/1/job/8"),              # same run as pytest
+        # A commit status (no workflow, so not about the code) whose link is a run of this
+        # repository, as a status-posting action leaves it: only `kind` tells it from a build.
+        # It stands before `unit` so that, were it chosen, it would be one of the two runs read.
+        _row("deploy/preview", "fail", workflow="", link=f"{runs}/6/job/1"),
         _row("unit", "cancel", link=f"{runs}/5/job/2"),
         _row("e2e", "fail", link=f"{runs}/3/job/1"),               # advisory
         _row("license/cla", "fail", workflow="", link="https://cla.example/2"),  # another app
-        # A commit status (no workflow, so not about the code) whose link is a run of this
-        # repository, as a status-posting action leaves it: only `kind` tells it from a build.
-        _row("deploy/preview", "fail", workflow="", link=f"{runs}/6/job/1"),
         _row("build", "pass", link=f"{runs}/4/job/1"),
     ], ["pytest", "lint", "unit", "license/cla", "deploy/preview", "build"])
     got = f.rerun_failed(pr=PR)
@@ -326,6 +327,24 @@ def test_github_one_run_refused_of_two_is_a_refusal_naming_both(monkeypatch):
     assert isinstance(got, base.RerunRefused), f"a partial refusal answered {got!r}"
     assert "run 2" in str(got) and "already running" in str(got) and "pytest" in str(got)
     assert sorted(c[2] for c in _reruns(f)) == ["1", "2"], "a run was not asked"
+
+
+def test_github_reruns_only_the_runs_whose_logs_the_decision_read(monkeypatch):
+    """Three red required runs: the repair decides from the log `failed_ci_logs` reads, so the
+    re-run asks exactly the runs that log was read from, and a third run whose log nobody read
+    stays red for the next attempt's agent (one selection, `_failing_runs`, for both).
+
+    Added in the human round, 2026-10-20: on d33f056 the log read runs 1 and 2 and the re-run
+    asked runs 1, 2 and 3 (measured with three red code runs and `gh` stubbed)."""
+    runs = "https://github.com/acme/x/actions/runs"
+    f = _github(monkeypatch, [_row(f"c{i}", "fail", link=f"{runs}/{i}/job/9") for i in (1, 2, 3)],
+                ["c1", "c2", "c3"])
+    f.failed_ci_logs(pr=PR)
+    read = [c[2] for c in f.calls if c[:2] == ["run", "view"]]
+    got = f.rerun_failed(pr=PR)
+    assert [c[2] for c in _reruns(f)] == read == ["1", "2"], (
+        f"logs read of runs {read}, re-ran runs {[c[2] for c in _reruns(f)]}")
+    assert got == ["c1", "c2"]
 
 
 def test_only_rows_that_can_rerun_declare_it():
