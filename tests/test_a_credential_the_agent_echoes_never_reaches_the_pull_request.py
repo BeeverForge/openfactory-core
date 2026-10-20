@@ -236,6 +236,8 @@ NEAR_MISSES = [
     "Bearer authentication",
     'curl -H "Authorization: Bearer $GH_TOKEN"',
     "send an Authorization: Bearer token with it",
+    "- Authorization: handled centrally in middleware.py",   # a word, not a scheme (review on 28e5da94)
+    "Authorization: see docs/authorization.md for details",
     "ghp_ is the prefix of a personal token",
     "sk-learn",
     "https://octocat.github.io/x",

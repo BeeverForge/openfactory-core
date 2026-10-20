@@ -9,7 +9,8 @@ Claims:
   - each later pass's line withholds it too, before the whitespace fold (the multi-line key) and
     before the 200-character cut (a token the cut splits leaves a head no shape matches);
   - a URL's userinfo is REPLACED by the marker in the body, never silently dropped;
-  - `scrub_credentials` withholds an `Authorization` value of any scheme, and a bare `Bearer`
+  - `scrub_credentials` withholds an `Authorization` value after a NAMED scheme (any word there is
+    prose: "Authorization: handled centrally …"), and a bare `Bearer`
     value only when it is 16 token68 characters with a digit; a header value only from 8
     characters; `$` is never part of a value, so `Bearer $GH_TOKEN` stays prose;
   - the userinfo pattern needs its `@`, so a URL with no userinfo keeps its host;
@@ -72,6 +73,10 @@ MUTATIONS = [
     ("a word after an Authorization scheme is withheld", MODEL,
      '[ \\t]+)[\\w.~+/-]{8,}=*"\n',
      '[ \\t]+)[\\w.~+/-]+=*"\n', PROSE),
+    ("any word is read as an Authorization scheme", MODEL,
+     '(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM"\n'
+     '    r"|AWS4-HMAC-SHA256)',
+     "[A-Za-z][\\w-]*", PROSE),
     ("a URL with no userinfo loses its host", MODEL,
      '_USERINFO = re.compile(r"(\\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\\s/@]+@")\n',
      '_USERINFO = re.compile(r"(\\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\\s/@]+")\n', PROSE),

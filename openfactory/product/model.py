@@ -279,15 +279,18 @@ _CREDENTIAL_SHAPES = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}"
     r"|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,})")
 _USERINFO = re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+@")
-#: The value of an `Authorization` header, whatever its scheme (`Bearer`, `Basic`, `token`), as a
-#: header, a `curl -H` or a JSON key writes it — and a bare `Bearer <value>` when the value looks
-#: like one: 16 characters of the token68 alphabet with a digit in them, so "the Bearer credential"
-#: is prose. The scheme word stays; the value is withheld. Measured at 620bb577: a JWT after
-#: `Authorization: Bearer` came back unchanged, because only a vendor prefix (`Bearer ghp_…`) was
-#: caught (#885). `$` is outside the alphabet, so `Bearer $GH_TOKEN` names a variable, not a value;
+#: The value of an `Authorization` header after a scheme named by HTTP or a forge (`Bearer`,
+#: `Basic`, `token`, …), as a header, a `curl -H` or a JSON key writes it, in any case — and a bare
+#: `Bearer <value>` when the value looks like one: 16 characters of the token68 alphabet with a
+#: digit in them, so "the Bearer credential" is prose. The scheme word stays; the value is
+#: withheld. Measured at 620bb577: a JWT after `Authorization: Bearer` came back unchanged, because
+#: only a vendor prefix (`Bearer ghp_…`) was caught (#885). The scheme is NAMED, not any word:
+#: with any word, "Authorization: handled centrally in middleware.py" lost "centrally" (review on
+#: 28e5da94). `$` is outside the alphabet, so `Bearer $GH_TOKEN` names a variable, not a value;
 #: a header value under 8 characters is a word (`Authorization: Bearer token`), not a credential.
 _AUTHORIZATION = re.compile(
-    r"(\bAuthorization[\"']?\s*[:=]\s*[\"']?[A-Za-z][\w-]*[ \t]+)[\w.~+/-]{8,}=*"
+    r"(\bAuthorization[\"']?\s*[:=]\s*[\"']?(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM"
+    r"|AWS4-HMAC-SHA256)[ \t]+)[\w.~+/-]{8,}=*"
     r"|(\bBearer[ \t]+)(?=[\w.~+/-]*\d)[\w.~+/-]{16,}=*", re.IGNORECASE)
 #: An environment variable whose value is a secret, by its name.
 _SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE|CREDENTIAL|KEY_CONTENT", re.I)
