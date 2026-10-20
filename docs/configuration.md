@@ -651,8 +651,10 @@ harness would otherwise cost a rebuild and a roll). Don't configure a deployment
   context on the same engine — still useful, no longer an independent second opinion.
 - **Codex** has completed real tickets, but its plumbing is not yet at parity: no credential pool,
   no durable cross-container resume, no transcript writing. The *roles* are at parity.
-- **Kimi is wired but unproven** — no observed stream output yet. Its read-only guarantee is also
-  weaker (a mode, not an enforced policy). Don't put a client on it until a real run.
+- **Kimi is wired but unproven** — no observed stream output yet. Its read-only roles are also
+  weaker: instruction only, with no mode and no policy. The planner runs on the job's workspace,
+  so a file it writes reaches the pull request; the questions run on the host, in a directory
+  nothing commits from. Don't put a client on it until a real run.
 - **Cost from a harness that reports no price reads UNKNOWN, never `$0.00`.** A zero would make it
   look free and win every comparison.
 
