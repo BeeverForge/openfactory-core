@@ -393,15 +393,20 @@ def test_the_command_names_its_remedy_for_an_empty_repository(tmp_path, monkeypa
     assert "openfactory product declare <project> <owner/repo>" in out.output, out.output
 
 
-@pytest.mark.parametrize("jobs,said", [
-    ([{"project": "routing", "issue": "210", "status": "running"}], "wait for them"),
-    (None, "do not roll the deployment"),
-    ([], "Nothing is in flight"),
+#: A pause's `in_flight` is the RUNNING jobs the floor read, never the finished ones beside them,
+#: because the row filters the list and a front end renders exactly what it is handed. Each case
+#: carries a closed job the answer must drop, so `data.in_flight` can never list a finished job as
+#: still running.
+@pytest.mark.parametrize("jobs,flight,said", [
+    ([{"project": "routing", "issue": "210", "status": "running"}, {"project": "routing", "issue": "209", "status": "closed"}], [{"project": "routing", "issue": "210", "status": "running"}], "wait for them"),
+    (None, None, "do not roll the deployment"),
+    ([{"project": "routing", "issue": "209", "status": "closed"}], [], "Nothing is in flight"),
 ], ids=["running", "unread", "drained"])
-def test_a_pause_from_the_panel_says_what_is_still_running(monkeypatch, jobs, said):
+def test_a_pause_from_the_panel_says_what_is_still_running(monkeypatch, jobs, flight, said):
     """The sentence `poller pause` exists to print travels with the row, so a screen of one's own
     is told it too: a pause holds NEW pickups, and a pause that read as "drained" is how a job is
-    interrupted by somebody who paused to protect it. An unread list is not a drained floor."""
+    interrupted by somebody who paused to protect it. An unread list is not a drained floor, and a
+    FINISHED job beside a running one is not in flight."""
     from openfactory.api.app import app
     from tests.test_the_poller_has_a_lever import _engine, _Handle, _reading
 
@@ -422,7 +427,7 @@ def test_a_pause_from_the_panel_says_what_is_still_running(monkeypatch, jobs, sa
 
     assert r.status_code == 200, r.text
     assert said in r.json()["message"], r.json()["message"]
-    assert r.json()["data"]["in_flight"] == (None if jobs is None else jobs)
+    assert r.json()["data"]["in_flight"] == flight, "a finished job was counted as in flight"
 
 
 # ── 6. a person revoked ─────────────────────────────────────────────────────────────────────────
@@ -564,3 +569,36 @@ def test_a_revocation_nobody_signed_is_refused_before_the_store_is_read(local): 
 
     assert out.code == actions.INVALID and out.message == people.UNSIGNED_WITHDRAWAL, out
     assert local.reads == reads, "the store was read for a revocation nobody signed"
+
+
+# ── the review's minors (#741, hcristia's independent review) ───────────────────────────────────
+
+@pytest.mark.parametrize("name", ["product_name", "product_declare"])
+def test_a_scoped_credential_refused_a_product_row_is_sent_to_the_administrator(name):
+    """`product_name` and `product_declare` are the installation's, named `product_` only because
+    they configure the product role. A product credential is refused them by the area check — but
+    every floor credential is refused them too, so "ask somebody whose credential covers the
+    floor" would be the wrong remedy. The sentence names the administrator instead."""
+    product = actions.Actor(id="bia", via="panel", admin=True, scopes=frozenset({actions.PRODUCT}))
+
+    out = asyncio.run(actions.perform(name, by=product, **_params(catalog.CATALOG[name])))
+
+    assert out.code == actions.DENIED, out
+    assert "administers this deployment" in out.message, out.message
+    assert "covers the floor" not in out.message, out.message
+
+
+def test_a_revocation_is_refused_when_the_sink_keeps_nothing(monkeypatch):
+    """`people_revoke` reads the people store, which lives in the metrics sink. A sink that keeps
+    nothing cannot say who is registered, so the row refuses — UNAVAILABLE, naming the sink —
+    rather than answer "nobody called X" about a store it could not read."""
+    from openfactory.identity import people
+
+    monkeypatch.setattr(people, "sink_is_durable",
+                        lambda: "the metrics sink is `null`, which keeps nothing")
+
+    out = asyncio.run(actions.perform("people_revoke", by=actions.Actor(id="rob", via="panel",
+                                                                        admin=True),
+                                      person="ana@acme.example"))
+
+    assert out.code == actions.UNAVAILABLE and "keeps nothing" in out.message, out

@@ -324,11 +324,17 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
     # Asking `admin` first would let that credential through on every row it happens to satisfy.
     if not by.may_enter(found.scope):
         log.warning("DENIED_SCOPE %s (%s) by %s (%s)", key, found.scope, by, _loggable(params))
+        # AN INSTALLATION ROW NAMES THE ADMINISTRATOR, NOT THE AREA (#741): a row that changes the
+        # installation is refused to a credential of ANY area, so sending a product credential to
+        # "somebody whose credential covers the floor" is the wrong remedy — a floor credential is
+        # refused it too. The reason stays `out_of_scope` (the area check is what refused), but the
+        # sentence points where the fix is.
+        remedy = ("ask somebody who administers this deployment" if found.installation
+                  else f"ask somebody whose credential covers the {found.scope}")
         return refused(
             DENIED,
             f"this credential is scoped to {', '.join(sorted(by.scopes or ())) or 'nothing'} and "
-            f"{key} belongs to the {found.scope}. Nothing was done — ask somebody whose "
-            f"credential covers the {found.scope}.",
+            f"{key} belongs to the {found.scope}. Nothing was done — {remedy}.",
             reason=OUT_OF_SCOPE,
         )
 

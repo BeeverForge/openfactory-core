@@ -519,6 +519,29 @@ def test_a_label_never_vouches_for_an_invitation(
     assert local.rows == [], f"{var} with a label stored an invitation"
 
 
+@pytest.mark.parametrize(("var", "subject"), SHARED, ids=[v for v, _ in SHARED])
+def test_a_label_never_signs_a_revocation(
+        deployment, local, monkeypatch, var, subject):  # noqa: F811
+    """The other end of #759, for `people_revoke`: a revocation records who did it, and a label
+    is not who. The shared panel token names nobody, so a revocation from it is signed by nobody
+    and refused before the store is read; a scoped credential is refused the row outright. With a
+    label read as the signer, the panel token would withdraw a registered person recorded as that
+    label — the regression this asserts against."""
+    from openfactory.identity import people
+    from tests.test_a_person_is_invited_not_signed_up import invite_and_register
+
+    invite_and_register(local)  # ana@acme.example is registered
+    monkeypatch.setenv(var, SECRET)
+
+    r = deployment.post("/api/act/people_revoke", headers=_headers(LABEL),
+                        json={"params": {"person": "ana@acme.example"}})
+
+    assert r.status_code in (400, 403) and not r.json().get("ok"), r.text
+    assert not any(row["role"] == "withdrawn" for row in local.rows), \
+        f"{var} with a label withdrew a person"
+    assert [person.id for person in people.PeopleStore().people()] == ["ana@acme.example"]
+
+
 def test_the_label_is_read_in_one_place():
     """Every reader of the header goes through `_label_of`, whose answer is only ever a hint.
     Read from the package's syntax, not its text, so a comment naming the header counts for

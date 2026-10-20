@@ -205,6 +205,29 @@ def test_an_unreachable_engine_refuses_by_name_rather_than_a_traceback(monkeypat
     assert "Traceback" not in result.output
 
 
+def test_the_engine_refusal_is_said_once_and_on_stderr(monkeypatch, caplog):
+    """Two outputs the review caught (#741): the refusal belongs on stderr like the missing-client
+    one beside it, and the row logs the engine's own error at INFO — at WARNING the shell printed
+    that line AND the `✗`, saying one failure twice."""
+    import logging
+
+    from openfactory.runtime.temporal import schedule as sched
+
+    def boom():
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(sched, "connect", lambda: boom())
+    with caplog.at_level(logging.INFO, logger="openfactory.actions"):
+        result = CliRunner().invoke(app, ["poller", "pause", "--note", "x"])
+
+    assert result.exit_code == 2
+    assert "could not pause the poller" in result.stderr, "the refusal must be on stderr"
+    assert "could not pause the poller" not in (result.stdout or ""), "it leaked to stdout"
+    warned = [r for r in caplog.records if r.levelno >= logging.WARNING
+              and "could not pause" in r.getMessage()]
+    assert not warned, "the engine error is logged at WARNING, so the shell says it twice"
+
+
 @pytest.mark.parametrize("command", ["pause", "resume"])
 def test_the_note_defaults_to_naming_who_pulled_the_lever(monkeypatch, command):
     """An unattributed hold is the thing the note exists to prevent, so omitting `--note` must

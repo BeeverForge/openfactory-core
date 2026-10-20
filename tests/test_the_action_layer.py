@@ -1841,6 +1841,18 @@ def test_a_rows_reasons_are_what_perform_adds_its_own_and_what_it_relays():
     assert set(merge) <= set(ask), "ask hands back merge's refusal, so it can say merge's reasons"
 
 
+def test_not_the_installations_is_listed_only_for_a_row_that_changes_the_installation():
+    """`perform` refuses an installation row to a scoped credential with `not_the_installations`,
+    so only such a row may say it — the same narrowing `not_admin` gets, and held the same way, so
+    a row that stopped being the installation's cannot keep advertising a reason it cannot emit."""
+    installs = [n for n in actions.names() if catalog.CATALOG[n].installation]
+    assert installs, "no installation row to hold the narrowing over"
+    for name in installs:
+        assert base.NOT_THE_INSTALLATIONS in actions.reasons(name), name
+    assert base.NOT_THE_INSTALLATIONS not in actions.reasons("merge")
+    assert base.NOT_THE_INSTALLATIONS not in actions.reasons("product_status")
+
+
 def test_the_catalogue_lists_each_rows_refusal_reasons(client):
     listed = {row["name"]: row["refusals"] for row in client.get("/api/actions").json()}
 

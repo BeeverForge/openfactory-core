@@ -31,6 +31,8 @@ DOCTOR_TEST = "tests/test_doctor_json_is_a_versioned_contract.py"
 NINA = "tests/test_the_product_role_is_called_nina.py"
 DECLARE = "tests/test_a_preexisting_context_repo_is_declarable.py"
 SHARED = "tests/test_a_shared_credential_is_who_it_is.py"
+GITMARK = "tests/test_a_value_reaches_git_behind_the_end_of_options_marker.py"
+ONBOARD = "openfactory/product/onboard.py"
 
 ACTIONS = "openfactory/actions/__init__.py"
 CATALOG = "openfactory/actions/catalog.py"
@@ -168,4 +170,26 @@ MUTATIONS = [
     ("a declaration's read runs on the loop the panel serves from again", CATALOG,
      "    ok, why = await asyncio.to_thread(context_reachability, found, repo)\n",
      "    ok, why = context_reachability(found, repo)\n"),
+
+    # ── the independent review's findings (#741) ───────────────────────────────────────────────
+    ("a label signs a revocation, so the shared panel token revokes anybody as that label",
+     CATALOG,
+     '    who = (by.id or "").strip()\n',
+     '    who = (by.id or by.label or "").strip()\n', SHARED),
+    ("`reasons()` stops narrowing the installation's reason, so every row advertises it", ACTIONS,
+     "                  and (r != NOT_THE_INSTALLATIONS or found.installation)\n", "", LAYER),
+    ("a product row's scope refusal sends the credential to the floor, not the administrator",
+     ACTIONS,
+     '"ask somebody who administers this deployment" if found.installation',
+     '"ask somebody who administers this deployment" if False'),
+    ("`people_revoke` stops asking whether the sink keeps anything, so a null sink answers "
+     "\"nobody called X\"", CATALOG,
+     '        return refused(INVALID, _people.UNSIGNED_WITHDRAWAL, person=ident)\n'
+     '    why = _people.sink_is_durable()\n    if why:\n        return refused(UNAVAILABLE, why)\n',
+     '        return refused(INVALID, _people.UNSIGNED_WITHDRAWAL, person=ident)\n'),
+    ("`product_declare` stops refusing a repository that begins like an option", CATALOG,
+     '    if repo.startswith("-"):\n', '    if False and repo.startswith("-"):\n', GITMARK),
+    ("a value reaches git with no end-of-options marker before it", ONBOARD,
+     '_git(["ls-remote", "--heads", "--", url])',
+     '_git(["ls-remote", "--heads", url])', GITMARK),
 ]

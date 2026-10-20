@@ -10,6 +10,7 @@ TEST = "tests/test_the_poller_has_a_lever.py"
 CLI = "openfactory/cli.py"
 CATALOG = "openfactory/actions/catalog.py"
 SCHED = "openfactory/runtime/temporal/schedule.py"
+ROWS = "tests/test_the_installation_is_changed_through_its_rows.py"
 
 MUTATIONS = [
     ("pausing what is already paused acts anyway, and overwrites the note explaining the hold",
@@ -34,9 +35,14 @@ MUTATIONS = [
      '    running = _in_flight(jobs)\n    if not running:\n        typer.echo("in flight: nothing")\n        return',
      '    running = _in_flight(jobs)\n    if not running:\n        typer.echo("in flight: nothing")'),
 
-    ("a closed job is counted as in flight", CLI,
-     '    return [j for j in jobs if j.get("status") == "running"]',
-     "    return list(jobs)"),
+    # RE-PINNED 2026-10-20 (#741): the pause's filter moved into the `_poller_hold` row, and the
+    # CLI's `_in_flight` now re-filters a list the row already filtered — so cutting the CLI alone
+    # survives. The cut that matters is the row's own, read by a front end as `data.in_flight`,
+    # and the new module is where a finished job beside a running one is asserted dropped.
+    ("a closed job is counted as in flight (the row's answer a front end reads)", CATALOG,
+     '    running = None if jobs is None else [j for j in jobs if j.get("status") == "running"]\n',
+     "    running = None if jobs is None else list(jobs)\n",
+     ROWS),
 
     ("a schedule that could not be read is reported as ON", CLI,
      '    if not intake.get("known"):\n'
