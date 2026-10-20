@@ -35,7 +35,7 @@ from openfactory.credentials import box_credential_env, box_options
 from openfactory.factory import build_runner, resolve_box_image
 from openfactory.registry import ProjectRegistry
 from openfactory.runtime.card_repo import _checkout_key, _ref_repo, _runner_view
-from openfactory.runtime.repairable import what_to_repair
+from openfactory.runtime.repairable import changed_paths, log_names_the_change, what_to_repair
 from openfactory.runtime.temporal.io import (
     REVIEW_THREAD,
     AdjustedInput,
@@ -2707,6 +2707,70 @@ def _nothing_to_repair(project, inp: CiRepairInput) -> tuple[RunResult | None, s
     return what_to_repair(lambda: _forge_for(project), inp.issue, inp.pr_url)
 
 
+def _rerun_what_the_change_does_not_touch(project, inp: CiRepairInput, repo: str,
+                                          evidence: str) -> RunResult | None:
+    """The re-run that stands in for an agent, or `None`: launch the agent as before (#756).
+
+    A blocking check that fails for a reason no changed file touches (a flaky test, a busy shared
+    environment) was handed to a paid agent pass that had nothing to change, and the next attempt
+    failed the same way until `_CI_REPAIR_MAX` parked the card. When the forge can re-run failed
+    jobs, the failing log the gate decided from names no file the pull request changes, and this
+    is the first attempt, the failed jobs are re-run and the watch reads the checks again on its
+    own clock (`_CI_POLL`); no wait is taken here.
+
+    IN THIS ORDER, each step cheaper than the next. The capability first, so Azure Repos, the
+    local forge, every add-on and every test double without `rerun_failed` never pay a diff read
+    for a move they cannot make, and say nothing. Then the bound: the first attempt only (PO
+    answer to Q1, once per head). A wrong "unrelated" (changed `invoice_totals.ts`, failing
+    `checkout.spec.ts`, #258's review) then costs one re-run, not the whole repair budget. Then the
+    diff: one that could not be read or was cut is "could not see", and launches the agent.
+
+    A REFUSED RE-RUN FALLS THROUGH TO THE AGENT, handed the same `evidence`, and is said both in
+    the worker log and on the pull request (PO answer to Q3). `[]` (asked, and nothing was
+    re-runnable) falls through with a warning: nothing was refused, and nothing was re-run."""
+    from openfactory.adapters.forge.base import RerunRefused, rerun_failed_of
+
+    forge = _forge_for(project)
+    if not callable(getattr(forge, "rerun_failed", None)) or inp.attempt != 1:
+        return None
+    try:
+        diff = forge.pr_diff(pr=inp.pr_url, repo=repo)
+    except Exception as exc:  # noqa: BLE001 — an unread diff is "could not see": the agent runs
+        activity.logger.warning("could not read the diff of %s, so its red check is repaired, "
+                                "not re-run (%s)", inp.pr_url, str(exc)[:160])
+        return None
+    paths = changed_paths(diff if isinstance(diff, str) else None)
+    if paths is None or log_names_the_change(evidence, paths):
+        return None
+    reran = rerun_failed_of(forge, inp.pr_url)
+    if isinstance(reran, RerunRefused):
+        activity.logger.warning("the failed jobs of %s were not re-run, so an agent repairs it: "
+                                "%s", inp.pr_url, str(reran)[:300])
+        # SAID AFTER THE FORGE ANSWERED, in its words (lesson §9), and before the agent runs.
+        _say_on_the_pull_request(forge, inp.pr_url, (
+            f"The failed jobs were not re-run: {str(reran)[:300]}. No file this pull request "
+            "changes appears in their failing log, so an agent was launched to repair it "
+            "instead."))
+        return None
+    if not reran:
+        activity.logger.warning("the forge found no failed job of %s to re-run, so an agent "
+                                "repairs it", inp.pr_url)
+        return None
+    names = ", ".join(f"`{n}`" for n in reran)
+    _say_on_the_pull_request(forge, inp.pr_url, (
+        f"Re-ran the failed jobs of {names}: no file this pull request changes appears in their "
+        "failing log, so no agent was launched for it. The checks are read again once they "
+        "finish."))
+    activity.logger.info("re-ran the failed jobs of %s (%s) instead of launching an agent",
+                         inp.pr_url, ", ".join(reran))
+    # `code_changed=False`: nothing was pushed, so the reviewer's verdict on the head still stands
+    # (`_the_reviewed_code_is_still_here`), and the watch rests `_CI_POLL` before reading again.
+    return RunResult(ticket_id=inp.issue, state=JobState.PR_OPEN, pr_url=inp.pr_url,
+                     code_changed=False,
+                     note=f"re-ran the failed jobs of {', '.join(reran)}: no changed file "
+                          "appears in their failing log")
+
+
 def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
                    ci_log: str | None = None) -> RunResult:
     project = ProjectRegistry().get(inp.project)
@@ -2723,6 +2787,11 @@ def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
         held, evidence = _nothing_to_repair(project, inp)
         if held is not None:
             return held
+        # A THIRD MOVE, BETWEEN THE HOLD AND THE AGENT (#756): a log that names no changed file
+        # is re-run first. Asked only here, after the gate, so an empty log never reaches it.
+        rerun = _rerun_what_the_change_does_not_touch(project, inp, repo, evidence)
+        if rerun is not None:
+            return rerun
     else:
         evidence = ""
     if not installed_box_traits(inp.sandbox).remote:  # a local box runs the repair inline
