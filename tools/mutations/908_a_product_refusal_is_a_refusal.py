@@ -27,7 +27,10 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
      still said (human decision 2026-10-20, option A);
   8. a decision is never a failure, wherever it is made (review of PR #970): a ticket's or a
      defect's title missing or too long is `not_valid`, a front the automatic review blocked is
-     `not_valid`, a card the board would start building on its own is `not_waiting`.
+     `not_valid`, a card the board would start building on its own is `not_waiting`;
+  9. and each site names the RIGHT word: the structural guard reads the sentence a site answers
+     with and requires the word its table decides — a hold is `not_waiting`, and `WriteResult`
+     refuses a word outside the vocabulary.
 """
 
 TEST = "tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py"
@@ -294,6 +297,57 @@ MUTATIONS = [
      '                                   detail=breakdown_said("not_vetted",\n',
      NEVER_500 + "::test_each_decision_the_filing_makes_before_it_writes_names_its_word_not_a_"
      "failure[not_vetted]"),
+
+    # 9. (review of PR #970, robertocsp point 2) each site names the RIGHT word: the five cuts the
+    #    review measured green on a647d604, and the vocabulary's own check
+    ("R3.2: a hold is a failure", MODULE,
+     "    return WriteResult(ok=False, refusal=NOT_WAITING, detail=sentence)\n",
+     "    return WriteResult(ok=False, refusal=NOT_REFUSED, detail=sentence)\n",
+     STRUCTURAL + "::test_the_failure_names_no_word_and_a_hold_names_not_waiting"),
+    ("R3.2: correcting a closed card is a failure", MODULE,
+     '            return WriteResult(ok=False, refusal=ALREADY_CLOSED, existed=True, ref=f"#{number}",\n'
+     '                               detail=correction_refused("closed", number=number, language=lang))\n',
+     '            return WriteResult(ok=False, refusal=NOT_REFUSED, existed=True, ref=f"#{number}",\n'
+     '                               detail=correction_refused("closed", number=number, language=lang))\n',
+     STRUCTURAL + "::test_every_not_ok_result_names_the_word_its_sentence_decides"),
+    ("R3.2: confirming a retired capability is a failure", "openfactory/product/capabilities.py",
+     "                return WriteResult(ok=False, refusal=NOT_WAITING, ref=rel,\n"
+     '                                   detail=record_said("capability_retired", language=language))\n',
+     "                return WriteResult(ok=False, refusal=NOT_REFUSED, ref=rel,\n"
+     '                                   detail=record_said("capability_retired", language=language))\n',
+     STRUCTURAL + "::test_every_not_ok_result_names_the_word_its_sentence_decides"),
+    ("R3.2: a decision on a retired requirement is a failure", MODULE,
+     '            return WriteResult(ok=False, detail=record_said("decision_on_retired", number=number,\n'
+     "                                                            language=lang),\n"
+     "                               refusal=NOT_WAITING)\n",
+     '            return WriteResult(ok=False, detail=record_said("decision_on_retired", number=number,\n'
+     "                                                            language=lang),\n"
+     "                               refusal=NOT_REFUSED)\n",
+     STRUCTURAL + "::test_every_not_ok_result_names_the_word_its_sentence_decides"),
+    ("R3.2: removing a card that does not exist is a failure", MODULE,
+     '                              act=f"remove #{number}", cause=error)\n'
+     "        card = next((t for t in tickets if t.number == number), None)\n"
+     "        if card is None:\n"
+     '            return WriteResult(ok=False, detail=card_said("not_found", number=number,\n'
+     "                                                          language=lang),\n"
+     "                               refusal=NOT_FOUND)\n",
+     '                              act=f"remove #{number}", cause=error)\n'
+     "        card = next((t for t in tickets if t.number == number), None)\n"
+     "        if card is None:\n"
+     '            return WriteResult(ok=False, detail=card_said("not_found", number=number,\n'
+     "                                                          language=lang),\n"
+     "                               refusal=NOT_REFUSED)\n",
+     STRUCTURAL + "::test_every_not_ok_result_names_the_word_its_sentence_decides"),
+    ("R3.2: the vocabulary admits any word", AUTHORING,
+     "        if self.refusal != NOT_REFUSED and self.refusal not in REFUSALS:\n",
+     "        if False:\n",
+     STRUCTURAL + "::test_a_write_result_refuses_a_word_outside_its_vocabulary"),
+    ("R3.2: a decision handed to the failure constructor is not seen", MODULE,
+     "            return WriteResult(ok=False, refusal=NOT_VALID,\n"
+     '                               detail=said["title_too_long_ticket"].format(limit=TITLE_LIMIT))\n',
+     '            return _could_not(said["title_too_long_ticket"].format(limit=TITLE_LIMIT),\n'
+     '                              act="file a ticket")\n',
+     STRUCTURAL + "::test_every_not_ok_result_names_the_word_its_sentence_decides"),
 
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,
