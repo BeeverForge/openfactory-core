@@ -6,7 +6,11 @@ state a world instead of standing one up.
 
 THREE CADENCES, BECAUSE THE READS COST WILDLY DIFFERENT AMOUNTS — measured, not guessed:
 
-    fast   ~2-4 Temporal RPCs   the job list. Safe every couple of seconds.
+    fast   1 listing + up to 4  the job list: a describe and up to three worker queries per
+           per running job      RUNNING row ("~2-4 RPCs" stood here, which was never its cost).
+                                Asked `OPENFACTORY_LIST_CONCURRENCY` rows at a time (8 unset),
+                                and one scan is shared by every reader asking together or within
+                                `view.LIST_TTL_S` of it (#754). Safe every couple of seconds.
     slow   1+N+P schedule reads the poller's cadence, the build stamps, and the registry with
            + git per project    each project's box.
                                 `intake` describes the poller, one schedule per enabled project,
@@ -258,7 +262,10 @@ def forget_intake() -> None:
     the next request — and neither can consult this memo until the engine has just answered
     something else: `gather` gates intake behind `got.connected`, and the jobs route builds
     `"jobs": await tv.list_jobs(...)` before `"intake"` in the same dict. The stream is the one
-    caller holding a loop across a blip, and the one with this invariant written into it.
+    caller holding a loop across a blip, and the one with this invariant written into it. It
+    drops the engine's job list memo beside this one (`view.forget_jobs`, #754) for the same
+    reason: that list is process-wide too, and a list scanned before the blip is not the list
+    after it.
 
     AND A READ STILL IN FLIGHT IS DETACHED, NOT WAITED FOR (#166). It STARTED before the blip, so
     letting it land in the window would serve a pre-blip answer as fresh for ten seconds — the

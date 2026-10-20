@@ -1728,8 +1728,10 @@ function applyEngine(){
   // as a second-level guard. NOT memoized, each for its own reason — the project registry and box verdicts (local
   // reads, and the one an operator changes by hand: `openfactory box prove` must show up on the
   // next frame, not up to 10 s later), the build stamps (#135 says the split banner may not lag),
-  // and the job list (that is the frame). So a frame costs the job list, a registry+box read and
-  // arithmetic — not a round trip per project per frame.
+  // and the job list (that is the frame; it is remembered for no longer than the stream's own tick,
+  // `view.LIST_TTL_S`, so browsers asking together or right after share one scan, and a write
+  // through the panel drops it, #754). So a frame costs at most the job list, a registry+box read
+  // and arithmetic — not a round trip per project per frame.
   loadFloor();
   syncDecisions();
   paintBuildSplit();  // before anything else reads this page: it may not be the page it thinks

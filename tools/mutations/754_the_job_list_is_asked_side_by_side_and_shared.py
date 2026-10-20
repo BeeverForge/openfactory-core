@@ -4,7 +4,8 @@ one scan.
 Claims, each held by the row named under it:
 
   - the jobs are asked about `OPENFACTORY_LIST_CONCURRENCY` at a time (8 unset), the value is the
-    operator's and an unreadable one is said once;
+    operator's and an unreadable one is said once, and the configuration reference names the
+    default the code has;
   - the list is the one the sequential walk made: the same rows, in list order, `limit` counted on
     the rows shown, and a row that cannot be built fails the list with its own error;
   - a list that ran out of time leaves no question running behind it;
@@ -14,11 +15,9 @@ Claims, each held by the row named under it:
   - an engine remembered as silent refuses the list even when a list is remembered;
   - a write through this process, and the stream's blip, drop the remembered list.
 
-THE DEFAULT TARGET IS ONE TEST, NOT THE FILE: the reference-row test in the same file stays red
-until the configuration reference gains its row (the plan's task 11), and a red baseline refuses
-the whole plan. Every row names its own test, so each cut is seen by the guard written for it.
-The reference's own row ("the documented default is 16", cut in the document the guard reads)
-joins this plan with that document row; until then its anchor would match nothing.
+THE DEFAULT TARGET IS ONE TEST, NOT THE FILE, and every row names its own test, so each cut is
+seen by the guard written for it. The reference's own row cuts the document the guard reads
+(`docs/reference/configuration.md`), not the code: the documented default is what it holds.
 
 NOT DUPLICATED HERE: "one reader going away cancels the read under everybody waiting on it"
 (`asyncio.shield(flight.task)` → a bare await) is a row of
@@ -33,6 +32,7 @@ TEST = ("tests/test_the_job_list_asks_about_its_jobs_eight_at_a_time.py::"
 VIEW = "openfactory/runtime/temporal/view.py"
 SINGLE_FLIGHT = "openfactory/util/single_flight.py"
 APP = "openfactory/api/app.py"
+REFERENCE = "docs/reference/configuration.md"
 
 EIGHT = "tests/test_the_job_list_asks_about_its_jobs_eight_at_a_time.py::"
 SAME = "tests/test_the_job_list_is_the_same_list_however_many_are_asked_at_once.py::"
@@ -54,6 +54,19 @@ MUTATIONS = [
     ("the workflows are taken from the listing one at a time, so a batch is one job", VIEW,
      "        if len(batch) < k:\n            continue",
      "        if len(batch) < 1:\n            continue"),
+
+    ("the reference says sixteen jobs are asked about at once and the code asks eight", REFERENCE,
+     "said once in the log |\n| `OPENFACTORY_LIST_CONCURRENCY` | how many recent jobs the job list "
+     "asks the engine about at once — the list the panel, the floor and the tech-lead read. Each "
+     "running job is a describe plus up to three queries a worker answers by replaying its "
+     "history; readers asking the same question together share one scan. Unset → `8`; a value "
+     "that is not a positive number is 8, said once in the log |",
+     "said once in the log |\n| `OPENFACTORY_LIST_CONCURRENCY` | how many recent jobs the job list "
+     "asks the engine about at once — the list the panel, the floor and the tech-lead read. Each "
+     "running job is a describe plus up to three queries a worker answers by replaying its "
+     "history; readers asking the same question together share one scan. Unset → `16`; a value "
+     "that is not a positive number is 16, said once in the log |",
+     EIGHT + "test_the_reference_documents_the_concurrency_the_code_has"),
 
     ("the operator's concurrency is never read, so it is always eight", VIEW,
      '    raw = (os.environ.get("OPENFACTORY_LIST_CONCURRENCY") or "").strip()',

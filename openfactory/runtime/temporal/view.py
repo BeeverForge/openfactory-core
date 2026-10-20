@@ -68,10 +68,15 @@ log = logging.getLogger("openfactory.panel.temporal")
 #:     job_detail             8 ms
 #:     intake                 5 ms
 #:
-#: So three seconds is roughly ten times what the panel's largest list costs. The cost grows with
-#: the number of RUNNING jobs, because each one is queried for its state — which is also why this
-#: bound catches a second real case: a workflow whose worker is gone cannot answer a query at all,
-#: and `list_jobs` did not return in 120 s against eight such jobs. It now degrades in three.
+#: So three seconds was roughly ten times what the panel's largest list cost, asked one job after
+#: another as it was then. Each RUNNING row is a describe plus up to three queries a worker answers,
+#: and that sum is what overran this bound on a busy floor (#754). The listed jobs are now asked
+#: about in batches of `list_concurrency()` (8 unset), so a list costs about one slowest row per
+#: batch of the listing instead of every running row's round trips added up. Readers asking
+#: together, or within `LIST_TTL_S`, share one scan (`list_jobs`). The bound also catches a second
+#: real case: a workflow whose worker is gone cannot answer a query at all, and `list_jobs` did not
+#: return in 120 s against eight such jobs. It now degrades in three. The deadline sits on the
+#: shared scan (`_scan`), so running out of time cancels every question the scan still has out.
 #:
 #: A NUMBER A DEPLOYMENT CAN CHANGE, because "slow" is a property of somebody's network: a Temporal
 #: Cloud namespace across a region answers in tenths of a second, and this must not call that
@@ -1249,6 +1254,10 @@ async def list_jobs(
         loop must not be left with queries running until the SDK gives up).
       - `forget_jobs()` drops the answer: the stream's blip (#139) and every write this module
         makes.
+      - A RATE LIMIT ON A NETWORK READ, NOT A DERIVED VALUE, so ADR-0023 ("the map is derived,
+        not learned") does not reach it, as it does not reach `floor.reading.intake_cached`
+        (engineering-lessons §11): what is held is how often the engine is asked, for a stated
+        window.
 
     ASKED SIDE BY SIDE, `list_concurrency()` at a time (#754). One after another, the list cost
     the sum of every running row's round trips (a describe and up to three worker queries each)
