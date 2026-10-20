@@ -281,6 +281,10 @@ _JEST = ("macOS with shard 3/3 / Node v24.x\tUNKNOWN STEP\t2026-10-20T10:29:48.6
                  id="jest's FAIL line, another nested file"),
     pytest.param("setup.py", "\x1b[1msetup.py\x1b[0m:3: SyntaxError",
                  id="a top-level file, coloured with real ESC bytes"),
+    # cargo and rustc colour a path with codes of several parameters (`38;5;12`); the
+    # re-review on d33f056 found the `;` held by no row.
+    pytest.param("setup.py", "^[[1;31msetup.py^[[0m:3: SyntaxError",
+                 id="a code with two parameters, as gh prints it"),
 ])
 def test_a_changed_file_named_in_colour_is_read_as_named(changed, log):
     """A tool that colours a file name puts `...[1m` right before it, and the `m` is a character

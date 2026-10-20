@@ -70,6 +70,13 @@ MUTATIONS = [
      '    text = _COLOUR.sub("", log)\n',
      '    text = log\n'),
 
+    # Re-review on d33f056: no row held the `;`, so a code of two parameters (cargo's `1;31`)
+    # left its `;31m` before the name.
+    ("a colour code of several parameters is not stripped: `^[[1;31msetup.py` reads as not named",
+     REPAIRABLE,
+     '_COLOUR = re.compile(r"(?:\\x1b|\\^\\[)\\[[0-9;]*[A-Za-z]")\n',
+     '_COLOUR = re.compile(r"(?:\\x1b|\\^\\[)\\[[0-9]*[A-Za-z]")\n'),
+
     # The changed files, read off git's own `diff --cached -M` (review round 1: these four
     # survived the first 59 rows; `test_changed_paths_reads_what_git_itself_writes` holds them).
     ("the `rename`/`copy` lines are ignored: a rename's sides that the header cannot split are lost",
