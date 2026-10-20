@@ -7,7 +7,8 @@ Claims, each held by the row named under it:
     operator's and an unreadable one is said once, and the configuration reference names the
     default the code has;
   - the list is the one the sequential walk made: the same rows, in list order, `limit` counted on
-    the rows shown, and a row that cannot be built fails the list with its own error;
+    the rows shown, the asking stopped at `limit` (one batch past it at most), and a row that
+    cannot be built fails the list with its own error;
   - a list that ran out of time leaves no question running behind it;
   - readers arriving together share one scan, and only for the same loop, client and question;
   - a reader within `LIST_TTL_S` of a scan that answered is handed its rows, a copy of its own,
@@ -126,6 +127,11 @@ MUTATIONS = [
      "    taken = 0\n    async for wf in client.list_workflows(full):\n        taken += 1\n"
      "        if taken > limit:\n            break\n        batch.append(wf)",
      SAME + "test_the_limit_counts_the_jobs_shown_not_the_jobs_asked_about"),
+
+    ("the list never stops at its limit, so it asks about every job the listing holds", VIEW,
+     "        batch = []\n        if len(rows) >= limit:\n            break\n",
+     "        batch = []\n",
+     EIGHT + "test_a_list_asks_about_no_more_than_one_batch_past_its_limit"),
 
     ("a row that cannot be built fails the list as an ExceptionGroup, not as itself", VIEW,
      "        raise (raised[0] if raised else failed.exceptions[0]) from None",

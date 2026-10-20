@@ -245,3 +245,28 @@ async def test_a_job_list_that_ran_out_of_time_leaves_no_question_running(monkey
     assert client.flight["now"] == 0
     left = [t for t in asyncio.all_tasks() if t is not asyncio.current_task() and not t.done()]
     assert left == []
+
+
+async def test_a_list_asks_about_no_more_than_one_batch_past_its_limit(monkeypatch):
+    """Criterion 1's cost, bounded. The listing is every `JobWorkflow` visibility still holds; the
+    list stops asking once it has `limit` rows, give or take the last batch (`k - 1` past it),
+    never at the end of the listing. Passes on the sequential list, which asked about exactly
+    `limit`; it holds the concurrent list's `break` (review of 9e282ff, cut B: without it a list of
+    10 asked about all 200 jobs listed, and every changed module still passed)."""
+    monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", "10")
+    monkeypatch.delenv(VARIABLE, raising=False)
+    client = _Busy(200, on_describe=_nothing, on_query=_nothing)
+    asked: list[str] = []
+    real = client.get_workflow_handle
+
+    def handle(wf_id, run_id=None):
+        asked.append(wf_id)
+        return real(wf_id, run_id)
+
+    client.get_workflow_handle = handle
+
+    rows = await tv.list_jobs(client, "default", limit=10)
+
+    assert len(rows) == 10
+    assert len(set(asked)) <= 10 + tv.list_concurrency() - 1, (
+        f"a list of 10 asked about {len(set(asked))} jobs of the 200 listed")
