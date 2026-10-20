@@ -52,6 +52,23 @@ where nothing finer applies, or one of `bad_parameters`, `bad_ref`, `out_of_scop
 `engine_unreachable`, `raised`, `reported_nothing`, and `unknown_action` for a name no action has.
 `GET /api/v1/actions` lists, as `refusals`, every reason each action can answer.
 
+**A product row's refusal is a refusal, not a 500.** When the product role declines a write on
+purpose, a `product_*` row (and `card_close`, `card_remove`) answers with the role's own sentence as
+`message`, and with the role's word in `data.refusal`:
+
+| `data.refusal` | status | `code` |
+|---|---|---|
+| `not_yours` | 403 | `denied` |
+| `not_found` | 404 | `not_found` |
+| `not_waiting`, `already_closed`, `already_there` | 409 | `conflict` |
+| `not_valid` | 400 | `invalid` |
+
+`data.reason` stays the code, so the list of reasons above is unchanged. Only a write that was
+tried and did not happen — the board unreadable, the forge down — answers 500 `failed`; it carries
+`data.reference`, the same reference the panel's `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…`
+log line names. A row whose implementation raised answers 500 `raised`, and its `data.reference`
+names the `action … raised` log line.
+
 A socket is refused before it is accepted: the upgrade is answered with a 403 and closed with code
 **1008** for a refusal, **1011** when nobody could be judged.
 

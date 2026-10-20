@@ -842,6 +842,12 @@ def _could_not(sentence: str, *, act: str, cause: object = "", ref: str = "") ->
     Every `except` branch in this file goes through here, and a test asserts that none builds a
     `WriteResult` of its own — the guard is structural because the next writer of a failure branch
     will not have read this docstring.
+
+    A FAILURE, NEVER A REFUSAL (#908). The result names no `refusal` — `NOT_REFUSED`, nobody
+    decided this — and there is no argument that would set one: a write that was tried and did not
+    happen answers 500 `failed` over `/api/act`, with a `data.reference` that the action layer's
+    own `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…` line names. A decision not to write is
+    `_held`, or a `WriteResult` built with its word of `authoring.REFUSALS`, never this.
     """
     log.warning("OPENFACTORY_PRODUCT_WRITE_FAILED act=%s ref=%s — %s", act, ref or "-", cause)
     return WriteResult(ok=False, ref=ref, detail=sentence)
