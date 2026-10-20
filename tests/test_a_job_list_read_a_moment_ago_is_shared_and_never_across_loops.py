@@ -452,3 +452,79 @@ async def test_the_panels_scan_is_seen_by_the_next_list(monkeypatch):
 
     assert engine.scans == 3, "the list after the panel's Scan was the one from before it"
     assert scans_of(after) == {"3"}
+
+
+async def test_a_scan_whose_second_start_raised_still_drops_the_list(monkeypatch):
+    """`_scan`'s "on every exit": the first card started, the second's start raised, and the
+    list after the button holds the job that did start. Every Scan case above succeeds, so a
+    `_scan` that forgot only after its loop finished kept them green: the review of 8f695a8
+    measured 74 passed under that cut, and this test red (`assert 2 == 3`)."""
+    from openfactory.actions import catalog
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.registry import ProjectRegistry
+
+    class _TwoCards(_Board):
+        def items_in_status(self, status: str) -> list[str]:
+            return [WRITTEN, "998"]
+
+    project = Project(name=PROJECT, repo_path="/tmp/books",
+                      tracker=ProviderRef(kind="github", repo="o/books",
+                                          options={"board_owner": "o", "board_number": "1"}))
+    monkeypatch.setattr(ProjectRegistry, "get", lambda self, name: project)
+    monkeypatch.setattr("openfactory.credentials.tracker_token", lambda: "tok")
+    monkeypatch.setattr("openfactory.factory.resolve_box_image", lambda *_a, **_kw: "an-image")
+    monkeypatch.setattr("openfactory.adapters.board.build_board", lambda *_a, **_kw: _TwoCards())
+    monkeypatch.setattr("openfactory.runtime.temporal.max_concurrent_jobs", lambda: 100)
+    engine = CountedEngine()
+    real = engine.start_workflow
+
+    async def second_raises(run, params, *, id, task_queue, **kw):
+        if engine.writes:
+            raise RuntimeError("the transport gave up on the reply")
+        return await real(run, params, id=id, task_queue=task_queue, **kw)
+
+    engine.start_workflow = second_raises
+    _engine_through_the_catalogue(monkeypatch, engine)
+
+    await tv.list_jobs(engine, "default")
+    with pytest.raises(RuntimeError, match="gave up on the reply"):
+        await catalog._scan(by=_a_panel_admin(), project=PROJECT)
+    assert engine.writes == [("start", tv.job_id(PROJECT, WRITTEN))], "nothing started first"
+    after = await tv.list_jobs(engine, "default")
+
+    assert engine.scans == 3, "the list after a Scan whose second start raised was the one from before it"
+    assert scans_of(after) == {"3"}
+
+
+async def test_a_stop_whose_terminate_raised_still_drops_the_list(monkeypatch):
+    """`_stop`'s "on every exit": the engine took the terminate, the reply was lost, and the list
+    after the button is read again. Every Stop case above succeeds, so a `_stop` that forgot only
+    when `terminate` returned kept them green: the review of 8f695a8 measured 74 passed under that
+    cut, and this test red (`assert 1 == 2`)."""
+    from openfactory.actions import catalog
+
+    engine, terminated = CountedEngine(), []
+    real = engine.get_workflow_handle
+
+    def handle(wf_id, run_id=None):
+        h = real(wf_id, run_id)
+
+        async def terminate(reason=""):
+            terminated.append(wf_id)
+            raise RuntimeError("the transport gave up on the reply")
+
+        h.terminate = terminate
+        return h
+
+    engine.get_workflow_handle = handle
+    _engine_through_the_catalogue(monkeypatch, engine)
+    monkeypatch.setattr(catalog, "_board_pair",
+                        lambda name: (SimpleNamespace(name=PROJECT), _Tracker(), None, None))
+
+    await tv.list_jobs(engine, "default")
+    await catalog._stop(by=_a_panel_admin(), project=PROJECT, issue="3")
+    assert terminated, "the Stop never reached the engine, so this proves nothing"
+    after = await tv.list_jobs(engine, "default")
+
+    assert engine.scans == 2, "the list after a Stop whose terminate raised was the one from before it"
+    assert scans_of(after) == {"2"}

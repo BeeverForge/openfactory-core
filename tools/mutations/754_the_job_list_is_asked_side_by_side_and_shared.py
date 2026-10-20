@@ -283,4 +283,20 @@ MUTATIONS = [
      "        # raised may still have been taken, and the ones before it were.\n"
      "        pass\n",
      AFTER + "test_the_panels_scan_is_seen_by_the_next_list"),
+
+    # The two rows above cut the forget on every path at once, so a `finally` "simplified" into a
+    # plain line after the work kept every success-only test green (the review of 8f695a8: 74
+    # passed under each of the two cuts below). Each cut moves the forget onto the success path: the
+    # Stop's `try` has an `except`, so its `finally` → `else`; the Scan's forget after the `try`.
+    ("the panel's Stop forgets only when the terminate returned, so a lost reply keeps the job "
+     "listed as running", CATALOG,
+     "        finally:\n            # THE PANEL RE-READS THE LIST RIGHT AFTER THIS,",
+     "        else:\n            # THE PANEL RE-READS THE LIST RIGHT AFTER THIS,",
+     AFTER + "test_a_stop_whose_terminate_raised_still_drops_the_list"),
+
+    ("the panel's Scan forgets only after every start returned, so the jobs started before a "
+     "start that raised are missing from the list", CATALOG,
+     "        tv.forget_jobs()\n    if started:\n",
+     "        pass\n    tv.forget_jobs()\n    if started:\n",
+     AFTER + "test_a_scan_whose_second_start_raised_still_drops_the_list"),
 ]
