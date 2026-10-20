@@ -295,6 +295,42 @@ def test_a_workspace_that_cannot_be_asked_holds_the_job_rather_than_reading_as_c
     assert "wrote" not in note, f"an unreadable workspace is not a planner that wrote: {note}"
 
 
+class _Distrusted:
+    """The real worktree box, with git told the workspace belongs to someone else: the refusal
+    real git gives a mount it does not trust, rather than a canned answer to the fingerprint."""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+
+    def run(self, *, workspace, command: str, timeout: int, **kw):
+        return self._inner.run(workspace=workspace, timeout=timeout, **kw,
+                               command=f"export GIT_TEST_ASSUME_DIFFERENT_OWNER=1; {command}")
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+def test_a_workspace_git_refuses_holds_the_job_with_gits_exit_and_its_words_once(repo, tmp_path):
+    """1d, against real git. Measured 2026-10-20 through the real `ContainerSandbox` on a client
+    image whose HOME cannot hold a global config (so the box's own `safe.directory` write fails):
+    the fingerprint asked git three times after the first refusal, and the hold read "exit 1:" and
+    then "fatal: detected dubious ownership …" three times; as a uid that cannot enter the mount
+    it also carried "rm: cannot remove '.openfactory-plan-14'". git itself exits 128, once."""
+    probe = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=repo, capture_output=True,
+                           env={**os.environ, "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"})
+    if probe.returncode == 0:
+        pytest.skip("this machine's git has no ownership check to refuse with (git 2.35.2 added "
+                    "it; GIT_TEST_ASSUME_DIFFERENT_OWNER is how a test reaches it)")
+    agent = _Planner()
+    runner, result = _run(repo, agent, _Distrusted(WorktreeSandbox(root=tmp_path / "wt")))
+
+    assert result.state is JobState.ON_HOLD, result.note
+    note = result.note or ""
+    assert note.count("detected dubious ownership") == 1, f"git's refusal is not said once: {note}"
+    assert "exit 128" in note, f"the hold does not carry git's own exit code: {note}"
+    assert "openfactory-plan" not in note, f"the hold carries the fingerprint's own debris: {note}"
+
+
 # ── 1e: the reverses, green on main by design ────────────────────────────────────────────────────
 
 def test_what_setup_leaves_in_the_tree_is_not_charged_to_the_planner(repo, tmp_path, box):

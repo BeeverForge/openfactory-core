@@ -43,10 +43,15 @@ _log = logging.getLogger("openfactory.orchestrator.read_only_pass")
 
 #: The POSIX `sh` command that fingerprints the workspace: the tree `git add -A` would commit,
 #: written from a copy of the index, then HEAD. Prints two hash lines and exits 0, or exits non-zero
-#: with git's own words. `rc` keeps the add/write-tree failure; a HEAD that cannot be read fails it
-#: too. Every option is older than git 2.28, the oldest git CONTRIBUTING supports.
+#: with git's own words. A git dir git refuses ends it at the first question, with git's exit code
+#: and its refusal said once: measured 2026-10-20 through `ContainerSandbox` on a client image whose
+#: HOME cannot hold the box's `safe.directory` write, going on asked git twice more and the hold
+#: read "exit 1" and "detected dubious ownership" three times (git exits 128), and an empty `$idx`
+#: left the copy's name relative to the working tree. `rc` keeps the add/write-tree failure; a HEAD
+#: that cannot be read fails it too. Every option is older than git 2.28, the oldest git
+#: CONTRIBUTING supports.
 FINGERPRINT = (
-    'idx="$(git rev-parse --git-path index)"; t="$idx.openfactory-plan-$$"; '
+    'idx="$(git rev-parse --git-path index)" || exit; t="$idx.openfactory-plan-$$"; '
     'cp "$idx" "$t" 2>/dev/null; '
     'GIT_INDEX_FILE="$t" git add -A && GIT_INDEX_FILE="$t" git write-tree; rc=$?; '
     'rm -f "$t"; git rev-parse HEAD || rc=1; exit $rc'
