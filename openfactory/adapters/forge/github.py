@@ -1087,7 +1087,8 @@ class GitHubForge(ForgeAdapter):
 
         THE RUNS OF THE PULL REQUEST'S OWN REPOSITORY (C-18): `gh run` does not resolve a URL, and
         a link to another repository's run is not this pull request's check. `rerun_failed` re-runs
-        these same runs, chosen by the same `_failing_runs`."""
+        the runs chosen by the same `_failing_runs`: all of them, where this log keeps the first
+        two."""
         repo = self._repo_of_pr(pr)
         try:
             rows = self.pr_checks(pr=pr)
@@ -1112,7 +1113,9 @@ class GitHubForge(ForgeAdapter):
         ONE SELECTION FOR THE LOG AND THE RE-RUN (#756): the CI repair decides from the log of
         these runs whether the change touched the failure, then re-runs their failed jobs. Two
         loops could come to pick different runs, and the re-run would retry a check whose log the
-        decision never read."""
+        decision never read. One gap is left: `failed_ci_logs` reads the first two runs and
+        `rerun_failed` re-runs all of them, so a third red run is re-run on the first two's logs
+        (measured 2026-10-20 with three red runs: logs of runs 1 and 2 read, runs 1-3 re-run)."""
         runs: dict[str, list[str]] = {}
         for row in rows:
             if not (row["blocking"] and row["kind"] == "code"
@@ -1124,9 +1127,9 @@ class GitHubForge(ForgeAdapter):
         return runs
 
     def rerun_failed(self, *, pr: str) -> list[str]:
-        """Re-run the failed jobs of the runs `failed_ci_logs` reads (#756): `gh run rerun <id>
-        --failed --repo <the pull request's repository>`, once per run. Answers the names of the
-        checks whose run was re-run; `[]` when no red required check is a run of this repository
+        """Re-run the failed jobs of the runs `failed_ci_logs` chooses (#756): `gh run rerun
+        <id> --failed --repo <the pull request's repository>`, once per run. Answers the names of
+        the checks whose run was re-run; `[]` when no red required check is a run of this repository
         (a status, another app's check, a GitHub Enterprise run URL `_ACTIONS_RUN` does not match).
 
         RAISES `RerunRefused` when the checks could not be read, or when `gh` refused a run: an

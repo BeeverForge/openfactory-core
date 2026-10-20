@@ -61,7 +61,7 @@ On the form, in order:
   | Repository | Contents | **Read and write** |
   | Repository | Issues | **Read and write** |
   | Repository | Pull requests | **Read and write** |
-  | Repository | Actions | **Read and write** |
+  | Repository | Actions | **Read and write** ² |
   | Repository | Checks | Read-only |
   | Repository | Deployments | Read-only |
   | Repository | Administration | **Read and write** ¹ | 
@@ -73,6 +73,14 @@ On the form, in order:
   context repository already exists — declare it with `openfactory product declare` — Read-only
   is enough. On a **personal account** no App permission can create a repository at all; the
   classic PAT of §6 is what does it there, and the command says so when it applies.
+
+  ² Actions write exists for two acts: dispatching a `workflow_dispatch` workflow (the on-demand
+  end-to-end run), and re-running the failed jobs of a red required check during a CI repair, when
+  its failing log names no file the pull request changes or a repair pass changed nothing. Without
+  it the re-run is refused and the pull request says so; a first repair then launches an agent,
+  as it did before. The re-run was measured with a
+  classic token carrying `repo` (2026-10-20). That an App needs Actions write for it comes from
+  GitHub's REST documentation; it was not measured on an App installation.
 
   **Do not grant Workflows — its absence is a feature.** It is what makes a push touching
   `.github/workflows/**` fail, which keeps CI/CD definitions human-only. A client who needs the

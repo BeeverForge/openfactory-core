@@ -348,7 +348,8 @@ class ForgeAdapter(Protocol):
         NEVER ANOTHER RUN'S LOG (#184). The log is what makes a red check repairable, so a log
         that is not the red build's own — every failed run on the branch, a run a status's link
         points at — is a blind repair with a log in hand. A forge that types its rows has its log
-        read as evidence about its `code` rows only."""
+        read as evidence about its `code` rows only. A row that can re-run failed jobs
+        (`rerun_failed_of`, #756) re-runs the failed jobs of the builds this chooses."""
         ...
 
     def pr_diff(self, *, pr: str, repo: str = "", max_chars: int = 60000) -> str | None:
