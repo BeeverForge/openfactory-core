@@ -846,13 +846,15 @@ def _could_not(sentence: str, *, act: str, cause: object = "", ref: str = "") ->
     A FAILURE, NEVER A REFUSAL (#908). The result names no `refusal` — `NOT_REFUSED`, nobody
     decided this — and there is no argument that would set one: a write that was tried and did not
     happen answers 500 `failed` over `/api/act`, with a `data.reference` that the action layer's
-    own `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…` line names. A decision not to write is
-    `_held`, or a `WriteResult` built with its word of `authoring.REFUSALS`, never this: a title
-    missing or too long, a front the automatic review blocked and a card the board would start
-    building on its own came through here until the review of PR #970, and answered 500. What is
-    left is what could not be done or could not be seen — the harness that drafted nothing, the
-    store busy (`semaphore_busy`, `too_much_at_once`: retried, and built in an `except` branch), a
-    board that could not say where a card starts (`filing_held("unread"/"undeclared")`).
+    own `OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=…` line names — a prefix of its own, so
+    this function's line is the only `OPENFACTORY_PRODUCT_WRITE_FAILED` the write logs. A decision
+    not to write is `_held`, or a `WriteResult` built with its word of `authoring.REFUSALS`, never
+    this: a title missing or too long, a front the automatic review blocked and a card the board
+    would start building on its own came through here until the review of PR #970, and answered
+    500. What is left is what could not be done or could not be seen — the harness that drafted
+    nothing, the store busy (`semaphore_busy`, `too_much_at_once`: retried, and built in an
+    `except` branch), a board that could not say where a card starts
+    (`filing_held("unread"/"undeclared")`).
     """
     log.warning("OPENFACTORY_PRODUCT_WRITE_FAILED act=%s ref=%s — %s", act, ref or "-", cause)
     return WriteResult(ok=False, ref=ref, detail=sentence)

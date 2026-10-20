@@ -33,7 +33,9 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
      refuses a word outside the vocabulary;
  10. the rows the worker runs carry a reference too: refine, align, the breakdown (its worker not
      answering, or the running one having filed nothing) and the first pass; and a running
-     breakdown whose every front was refused answers that refusal.
+     breakdown whose every front was refused answers that refusal;
+ 11. a failed write is logged once under `OPENFACTORY_PRODUCT_WRITE_FAILED`; the line its
+     reference names is `OPENFACTORY_PRODUCT_FAILURE_ANSWERED`.
 """
 
 TEST = "tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py"
@@ -120,9 +122,9 @@ MUTATIONS = [
 
     # 4. a failure is a failure, with a reference
     ("the failure's log line names no reference", CATALOG,
-     '    log.error("OPENFACTORY_PRODUCT_WRITE_FAILED reference=%s did=%s project=%s ref=%s — %s",\n'
+     '    log.error("OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=%s did=%s project=%s ref=%s — %s",\n'
      "              reference, did,",
-     '    log.error("OPENFACTORY_PRODUCT_WRITE_FAILED did=%s project=%s ref=%s — %s",\n'
+     '    log.error("OPENFACTORY_PRODUCT_FAILURE_ANSWERED did=%s project=%s ref=%s — %s",\n'
      "              did,",
      FAILURE),
     ("an action that raised answers no reference", ACTIONS,
@@ -398,6 +400,13 @@ MUTATIONS = [
      '    why = next(iter(words)) if len(words) == 1 else ""\n',
      '    why = ""\n',
      HTTP_FAMILY),
+
+    # 12. (review of PR #970, robertocsp, not blocking) one failed write, one line under the
+    #     failed-write prefix: the catalogue's reference line has a prefix of its own
+    ("R3.5: the catalogue's reference line is counted as a failed write again", CATALOG,
+     '    log.error("OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=%s did=%s project=%s ref=%s — %s",\n',
+     '    log.error("OPENFACTORY_PRODUCT_WRITE_FAILED reference=%s did=%s project=%s ref=%s — %s",\n',
+     FAILURE + "::test_a_failed_write_is_counted_once_and_its_reference_is_in_a_line_of_its_own"),
 
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,

@@ -16,7 +16,8 @@ WHAT IS PROVEN HERE, through the real panel (`TestClient(app)`) and the real `Pr
 local tracker, as the product admin on a named product credential:
 
   · a board that cannot be read answers 500 `failed`, with the module's sentence (no traceback), and
-    a `data.reference` that the row's `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…` line carries;
+    a `data.reference` that the row's `OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=…` line
+    carries;
   · a module that raises answers 500 `raised`, with the message it gives today, and a
     `data.reference` that the `action … raised` line carries;
   · a result from a worker older than `refusal` (its dict names none) is a failure with a
@@ -73,9 +74,9 @@ def test_a_board_that_cannot_be_read_answers_500_and_its_reference_is_in_the_log
     assert "Traceback" not in said["message"] and "did not answer" not in said["message"], said
     reference = said["data"].get("reference")
     assert reference, f"the failure carries no reference to its log line: {said['data']}"
-    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_WRITE_FAILED reference={reference}"), (
+    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference={reference}"), (
         f"no log line names reference {reference}: "
-        f"{_lines(caplog, carrying='OPENFACTORY_PRODUCT_WRITE_FAILED')}")
+        f"{_lines(caplog, carrying='OPENFACTORY_PRODUCT_FAILURE_ANSWERED')}")
     assert tracker.get_ticket(ref).state == "open"
 
 
@@ -121,7 +122,7 @@ def test_a_card_its_door_could_not_read_is_a_failure_with_a_reference_not_a_conf
     assert said["data"].get("refusal") is None, said
     reference = said["data"].get("reference")
     assert reference, f"the failure carries no reference to its log line: {said['data']}"
-    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_WRITE_FAILED reference={reference}"), (
+    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference={reference}"), (
         f"no log line names reference {reference}")
     assert tracker.get_ticket(ref).state == "open"
 
@@ -143,7 +144,7 @@ def test_a_board_its_door_could_not_read_is_a_failure_with_a_reference_not_a_con
     assert said["message"].startswith("acme's board could not be read"), said
     reference = said["data"].get("reference")
     assert reference, f"the failure carries no reference to its log line: {said['data']}"
-    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_WRITE_FAILED reference={reference}")
+    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference={reference}")
 
 
 def test_a_module_that_raises_answers_500_and_its_reference_is_in_the_log_and_the_answer(
@@ -200,7 +201,7 @@ def test_a_result_from_an_older_worker_that_names_no_refusal_is_a_failure(
     assert "refusal" not in out.data or not out.data["refusal"], out.data
     reference = out.data.get("reference")
     assert reference, f"the failure carries no reference to its log line: {out.data}"
-    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_WRITE_FAILED reference={reference}")
+    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference={reference}")
 
 
 @pytest.mark.parametrize("word", ["", "not_yours"])
@@ -433,3 +434,28 @@ def test_a_running_breakdown_whose_every_front_was_refused_answers_that_refusal(
     assert (r.status_code, said["code"]) == (409, "conflict"), (r.status_code, said)
     assert said["data"]["refusal"] == "not_waiting", said
     assert said["data"]["running"] is True, said
+
+
+def test_a_failed_write_is_counted_once_and_its_reference_is_in_a_line_of_its_own(
+        client, deployment, tracker, board, told, monkeypatch, caplog):  # noqa: F811 — fixtures
+    """`_held`'s promise (review of #586): whoever counts `OPENFACTORY_PRODUCT_WRITE_FAILED` counts
+    writes that were tried and did not happen. On a647d604 each module failure answered over
+    `/api/act` was logged twice under that prefix — the module's `act=…` line and the catalogue's
+    `reference=…` line (review of PR #970, robertocsp) — so a count doubled. The catalogue's line,
+    the one a person's reference names, now has a prefix of its own."""
+    ref = _opened_by_product(tracker, board)
+
+    def unreadable(*_a, **_k):
+        raise ConnectionError("the tracker did not answer")
+    monkeypatch.setattr(type(tracker), "list_tickets", unreadable)
+
+    with caplog.at_level(logging.INFO):
+        r = _post(client, "product_withdraw_card", who=ADMIN, number=ref, reason="filed twice")
+
+    reference = r.json()["data"]["reference"]
+    counted = [m for m in (rec.getMessage() for rec in caplog.records)
+               if m.startswith("OPENFACTORY_PRODUCT_WRITE_FAILED")]
+    quoted = [m for m in (rec.getMessage() for rec in caplog.records)
+              if m.startswith(f"OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference={reference} ")]
+    assert len(counted) == 1 and " act=close " in counted[0], counted
+    assert len(quoted) == 1, quoted

@@ -2140,7 +2140,7 @@ def _write_outcome(result, *, did: str, **data) -> Outcome:
 
     Only a result nobody decided — `refusal` empty, absent (a worker older than the field), or a
     word this panel does not know (a worker newer than it) — is a FAILURE: it is logged as
-    `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…`, and the same reference travels in
+    `OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=…`, and the same reference travels in
     `data["reference"]`. The sentence is the module's, unchanged; the reference is not in it."""
     ok = bool(getattr(result, "ok", False))
     detail = str(getattr(result, "detail", "") or "")
@@ -2181,7 +2181,7 @@ def _not_done(said: str, why: str, *, did: str, **payload) -> Outcome:
 
     A word of `_REFUSAL_CODE` answers its code, with the word in `data["refusal"]`. No word, or a
     word this panel does not know (a worker newer than it, logged), is a FAILURE: logged as
-    `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…`, with the same reference in
+    `OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=…`, with the same reference in
     `data["reference"]`. `said` is the module's sentence, unchanged; the reference is not in it."""
     code = _REFUSAL_CODE.get(why)
     # ONE `refused` PER CODE, each naming its constant: the action layer's reason guard
@@ -2208,9 +2208,14 @@ def _failed(said: str, *, did: str, **payload) -> Outcome:
     the sentence unchanged, and a reference that is in `data["reference"]` AND in the one line
     logged here — `_not_done`'s failure arm, and a worker's answer that is not ok where no word can
     travel (`product_baseline`). FAILED only, so a row that reaches this and not `_not_done`
-    declares no refusal code it cannot answer."""
+    declares no refusal code it cannot answer.
+
+    A PREFIX OF ITS OWN, NOT `OPENFACTORY_PRODUCT_WRITE_FAILED`: the module already logged that
+    line for the same write (`_could_not`, `act=…`), and whoever counts that prefix counts writes
+    that did not happen — on a647d604 each one counted twice (review of PR #970). This line is the
+    one a person's reference names, and the one to quote."""
     reference = failure_reference()
-    log.error("OPENFACTORY_PRODUCT_WRITE_FAILED reference=%s did=%s project=%s ref=%s — %s",
+    log.error("OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=%s did=%s project=%s ref=%s — %s",
               reference, did, payload.get("project") or "-", payload.get("ref") or "-", said)
     return refused(FAILED, said, **payload, reference=reference)
 
