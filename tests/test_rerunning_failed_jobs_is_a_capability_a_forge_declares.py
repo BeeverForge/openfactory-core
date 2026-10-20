@@ -14,11 +14,12 @@ re-run answers. Every other forge, add-on and test double is repaired as it alwa
                   agent, a warning naming why, and the pull request told (PO answer Q3)
     GitHub        `gh run rerun <id> --failed --repo <own repository>`, once per run that a red
                   blocking `code` row links to: the runs `failed_ci_logs` reads, and no other
-    the core      `openfactory/runtime/**` never reaches `gh` itself
+    the core      `openfactory/runtime/**` never reaches `gh` itself, and the registered
+                  `repair_ci` activity reaches the seam through both of its moves
 
-ON MAIN (9a421ae) every case but the last is red: the seam does not exist (`AttributeError` on
-`base.rerun_failed_of` / `base.RerunRefused`) and `GitHubForge` has no `rerun_failed`. The AST
-guard is green there by design (nothing calls a forge CLI from the core yet); the mutation plan
+ON MAIN (9a421ae) 15 of these 17 cases are red: the seam does not exist (`AttributeError` on
+`base.rerun_failed_of` / `base.RerunRefused`), `GitHubForge` has no `rerun_failed`, and
+`repair_ci` reaches no re-run. The AST guard and its self-check are green there by design (nothing calls a forge CLI from the core yet); the mutation plan
 `tools/mutations/756_an_unrelated_red_check_is_rerun_not_repaired.py` writes
 `forge._gh(["run", "rerun", ...])` into `activities.py` to turn it red.
 """
@@ -325,3 +326,34 @@ def test_generic_code_never_reaches_a_forge_cli():
         if hits:
             offenders[str(path.relative_to(ROOT))] = hits
     assert offenders == {}, f"the core reaches a forge CLI itself: {offenders}"
+
+
+# ═══ the seam is reached from the activity the worker runs ══════════════════════════════════════
+
+_BOTH_MOVES = ("_rerun_what_the_change_does_not_touch", "_rerun_after_a_pass_that_changed_nothing")
+
+
+def test_the_rerun_is_reached_from_the_repair_activity():
+    """Lesson §1: a capability every test calls and nothing in production reaches is the defect
+    this repository has met twelve times (`tests/test_loops_are_reachable.py`). The re-run must be
+    reached from `repair_ci`, the activity the workflow's CI loop calls, through EACH of its two
+    moves (before an agent is launched, and after a pass that changed nothing), and that activity
+    must be registered on the worker. On main (9a421ae) `rerun_failed_of` and both moves do not
+    exist, so nothing reaches them.
+
+    The graph is name-based and stops at the seam: `rerun_failed_of` asks the row with
+    `getattr(forge, "rerun_failed")`, which no call edge shows. That last link is held by
+    `tests/test_auto_merge_is_judged_from_the_gates_that_were_read.py::
+    test_no_capability_is_asked_of_a_forge_row_that_no_shipped_row_declares` and by
+    `test_only_rows_that_can_rerun_declare_it` above."""
+    from openfactory.runtime.temporal.worker import WORKER_ACTIVITIES
+    from tests.test_loops_are_reachable import _call_graph, _reachable_from
+
+    assert acts.repair_ci in WORKER_ACTIVITIES, "repair_ci is not registered on the worker"
+    edges, _ = _call_graph()
+    from_the_activity = _reachable_from(edges, {"repair_ci"})
+    unreached = [move for move in _BOTH_MOVES if move not in from_the_activity]
+    assert unreached == [], f"repair_ci never reaches {unreached}"
+    stops_short = [move for move in _BOTH_MOVES
+                   if "rerun_failed_of" not in _reachable_from(edges, {move})]
+    assert stops_short == [], f"{stops_short} never ask the forge to re-run anything"
