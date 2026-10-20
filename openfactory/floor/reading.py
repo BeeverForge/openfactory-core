@@ -6,7 +6,11 @@ state a world instead of standing one up.
 
 THREE CADENCES, BECAUSE THE READS COST WILDLY DIFFERENT AMOUNTS — measured, not guessed:
 
-    fast   ~2-4 Temporal RPCs   the job list. Safe every couple of seconds.
+    fast   1 listing + up to 4  the job list: a describe and up to three worker queries per
+           per running job      RUNNING row ("~2-4 RPCs" stood here, which was never its cost).
+                                Asked `OPENFACTORY_LIST_CONCURRENCY` rows at a time (8 unset),
+                                and one scan is shared by every reader asking together or within
+                                `view.LIST_TTL_S` of it (#754). Safe every couple of seconds.
     slow   1+N+P schedule reads the poller's cadence, the build stamps, and the registry with
            + git per project    each project's box.
                                 `intake` describes the poller, one schedule per enabled project,
@@ -48,10 +52,13 @@ import asyncio
 import copy
 import logging
 import os
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from openfactory.floor.ladder import FloorInputs
+
+# The single flight lives in `util` so the engine's job list can share it without a runtime
+# module importing the floor (#754); the names here are the ones this module always used.
+from openfactory.util.single_flight import _Flight, _OneAtATime
 
 log = logging.getLogger("openfactory.floor")
 
@@ -153,83 +160,6 @@ INTAKE_TTL_S = 10.0
 _intake_memo: tuple[float, dict] | None = None
 
 
-@dataclass
-class _Flight:
-    """The ONE read of its kind this process has in flight, and the loop it belongs to.
-
-    THE LOOP IS PART OF IT, for the reason `view.connect()` keys its pool by the running loop: a
-    task belongs to the loop that made it. This module is reached from more than one loop in a
-    process's life — `techlead/conversation.py` opens an `asyncio.run` per question and so does the
-    CLI's `poller status` — and awaiting a task from another loop raises `RuntimeError: … attached
-    to a different loop`, while one whose loop has stopped never resolves at all. So a reader joins
-    a flight only while the RUNNING loop is the one that made it, by identity and nothing else."""
-
-    loop: asyncio.AbstractEventLoop
-    task: asyncio.Task | None = None
-
-
-class _OneAtATime:
-    """Readers arriving together share ONE read; each is handed the answer separately.
-
-    THE MECHANISM IS #166's AND #165's, AND IT IS HERE SO THERE IS ONE OF IT. It was built for the
-    schedule read and the budget read needed exactly the same thing (a subprocess per concurrent
-    reader — ten floor reads at the window's expiry spawned ten `gh` processes, measured
-    2026-09-19). A second copy beside the first is two mechanisms to keep true; this is one, with
-    two instances. Each argument below is `intake_cached`'s, and it holds for any read at all.
-
-    A TASK, NOT A LOCK:
-
-      - A LOCK IS SINGLE FLIGHT ON SUCCESS ONLY. Behind one, a reader queued on a failing read
-        takes the lock, finds nothing stored — neither memo stores a failure — and reads again:
-        six callers behind a 0.5 s refusal fail at 0.5 / 1.0 / … / 3.0 s, an outage turned into a
-        queue. Waiting on the one task hands every waiter THAT read's failure at the instant it
-        fails, and it is shared, not stored: the slot empties when the task ends, so a reader
-        arriving afterwards tries again, which is what lets a recovered vendor be picked up.
-      - IT BELONGS TO NO CALLER. Were the read run inside the first reader's coroutine, that
-        reader's cancellation — a browser that went away — would cancel the read under everybody
-        queued behind it. Every reader waits through `asyncio.shield`, so one going away takes
-        only itself; the read lands, and fills the window, whoever is left to see it.
-
-    ONE SLOT, NOT A TABLE — at most one read in flight is ever registered, so there is nothing here
-    for traffic to grow. A reader on another loop does not join it and does not queue behind it: it
-    reads for itself and takes the slot, and the displaced read still lands for its own waiters.
-    """
-
-    def __init__(self) -> None:
-        self.flight: _Flight | None = None
-
-    async def shared(self, read):
-        """Join the read in flight, or start it. `read(flight)` is the coroutine function that
-        does the work; it is handed its own flight so it can ask `holds` before storing."""
-        loop = asyncio.get_running_loop()
-        flight = self.flight
-        if flight is None or flight.loop is not loop:
-            flight = self.flight = _Flight(loop=loop)
-            flight.task = loop.create_task(read(flight))
-            # THE SLOT IS GIVEN UP BY THE TASK'S ENDING, NOT BY ITS BODY. A `finally` inside the
-            # read does not run for a task cancelled before its first step — the coroutine is
-            # never entered — and that would leave a finished task in the slot, handing its
-            # `CancelledError` to every later reader on this loop until something forgot it. A
-            # done callback runs however the task ended. Added HERE, before any waiter's `shield`
-            # adds its own, because callbacks run in the order they were added: the slot is empty
-            # by the time the first waiter resumes.
-            flight.task.add_done_callback(lambda _task, landed=flight: self._give_up(landed))
-        return await asyncio.shield(flight.task)
-
-    def _give_up(self, flight: _Flight) -> None:
-        """…unless the slot already names somebody else's read, which is not this one's to empty."""
-        if self.flight is flight:
-            self.flight = None
-
-    def holds(self, flight: _Flight) -> bool:
-        """Whether this read is still the registered one — `forget` and a reader on another loop
-        both take the slot from under a read in flight, and a read that lost it stores nothing."""
-        return self.flight is flight
-
-    def forget(self) -> None:
-        self.flight = None
-
-
 _intake_read = _OneAtATime()
 
 
@@ -285,8 +215,9 @@ async def intake_cached(client, *, now: datetime | None = None) -> dict:
     times the browsers. Now the first reader starts the read as a task of its own and everybody,
     the first included, waits on that one task: six concurrent readers, **1** read.
 
-    THE SHARING ITSELF LIVES IN `_OneAtATime`, which says why it is a task and not a lock — and
-    which the budget memo below now shares, rather than carrying a second copy of it.
+    THE SHARING ITSELF LIVES IN `_OneAtATime` (`openfactory/util/single_flight.py`), which says
+    why it is a task and not a lock — and which the budget memo below and the engine's job list
+    (`view.list_jobs`, #754) share, rather than carrying a copy of it each.
 
     The flight's clock is the clock of the reader that started it, and its `client` likewise: the
     read side has one pooled client per process (`view.connect()`), so there is no second engine
@@ -331,7 +262,10 @@ def forget_intake() -> None:
     the next request — and neither can consult this memo until the engine has just answered
     something else: `gather` gates intake behind `got.connected`, and the jobs route builds
     `"jobs": await tv.list_jobs(...)` before `"intake"` in the same dict. The stream is the one
-    caller holding a loop across a blip, and the one with this invariant written into it.
+    caller holding a loop across a blip, and the one with this invariant written into it. It
+    drops the engine's job list memo beside this one (`view.forget_jobs`, #754) for the same
+    reason: that list is process-wide too, and a list scanned before the blip is not the list
+    after it.
 
     AND A READ STILL IN FLIGHT IS DETACHED, NOT WAITED FOR (#166). It STARTED before the blip, so
     letting it land in the window would serve a pre-blip answer as fresh for ten seconds — the

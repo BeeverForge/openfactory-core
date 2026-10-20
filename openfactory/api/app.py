@@ -3187,8 +3187,17 @@ async def temporal_stream(request: Request) -> StreamingResponse:
                 # generator's own dict. Costs one fresh 1 + N + P read after a blip, on the
                 # exceptional path; during a real outage there is nothing cached to drop, because
                 # a read that raised is never stored.
+                #
+                # AND BOTH MEMOS, since the job list became process-wide too (#754): for
+                # `tv.LIST_TTL_S` it hands every reader the list one of them scanned, and another
+                # browser's stream or the floor may have scanned it just before the engine failed.
+                # Without this line the pass after a blip, asked inside that window, was handed
+                # the list from before it (measured 2026-10-19 with no sleep between passes, the
+                # blip job-list case in `tests/test_a_frame_does_not_erase_what_it_omits.py`: 1
+                # scan across the blip, the third frame's rows built by the first).
                 slow, slow_at = {}, 0.0
                 _floor_reading.forget_intake()
+                tv.forget_jobs()
                 frame = {"connected": False, "address": addr, "error": str(exc)[:200],
                          "jobs": None, "build": _build_report()}
             payload = json.dumps(frame, sort_keys=True)

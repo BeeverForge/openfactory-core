@@ -33,8 +33,8 @@ MUTATIONS = [
 
     ("the browser decides what wedged means",
      "openfactory/runtime/temporal/view.py",
-     '        row["wedged"] = is_wedged(row, live=live)',
-     '        row["wedged"] = False'),
+     '    row["wedged"] = is_wedged(row, live=live)',
+     '    row["wedged"] = False'),
 
     ("the wedged rule stops excluding a gated job",
      "openfactory/runtime/temporal/view.py",

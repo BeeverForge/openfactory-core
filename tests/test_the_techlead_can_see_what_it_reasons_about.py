@@ -357,9 +357,12 @@ def test_the_panel_holds_no_second_copy_of_the_vocabulary():
 def _keys_a_row_can_carry() -> set[str]:
     """Every key the tech-lead's job dicts can hold, read from the code that WRITES them.
 
-    Three producers: `view._row` (a dict literal), `view.list_jobs` (`row["x"] = …`), and
+    Three producers: `view._row` (a dict literal), `view._enriched` (`row["x"] = …`), and
     `conversation.gather_jobs` (`j["x"] = …`). Read from source rather than listed here, so a
-    field added upstream reaches this guard without anybody remembering to."""
+    field added upstream reaches this guard without anybody remembering to. `_enriched` is
+    `list_jobs`' loop body since #754 asked about the rows side by side; this walker read
+    `list_jobs` and found none of `action`, `deploy`, `state` there after the move (measured
+    2026-10-19, the vacuity check below red)."""
     def named(target) -> set[str]:
         """The string keys a single assignment target writes.
 
@@ -376,7 +379,7 @@ def _keys_a_row_can_carry() -> set[str]:
         return set()
 
     found: set[str] = set()
-    for obj in (tv._row, tv.list_jobs, conv.gather_jobs):
+    for obj in (tv._row, tv._enriched, conv.gather_jobs):
         tree = ast.parse(inspect.cleandoc("\n" + inspect.getsource(obj)))
         for node in ast.walk(tree):
             if isinstance(node, ast.Dict):

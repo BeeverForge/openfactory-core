@@ -35,7 +35,7 @@ MUTATIONS = [
      "            (lambda *_: None)(\"OPENFACTORY_SOURCES_PARALLEL=%r"),
 
     ("the reference tells an operator a default the code does not have", REFERENCE,
-     "Unset → `8`; a value that is not a positive number is 8",
-     "Unset → `16`; a value that is not a positive number is 8",
+     "talking to its forge. Unset → `8`; a value that is not a positive number is 8",
+     "talking to its forge. Unset → `16`; a value that is not a positive number is 8",
      "tests/test_the_documented_default_is_the_real_one.py"),
 ]

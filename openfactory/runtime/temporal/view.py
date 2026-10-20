@@ -26,6 +26,7 @@ as "a front-end file that is not really a front-end file" is a guard the next pe
 from __future__ import annotations
 
 import asyncio
+import copy
 import functools
 import logging
 import os
@@ -44,6 +45,7 @@ from openfactory.runtime.temporal.io import JobParams
 from openfactory.runtime.temporal.vocabulary import ATTENTION_STATES, MERGE_WAIT, EngineUnreachable
 from openfactory.runtime.temporal.workflow import JobWorkflow
 from openfactory.util.bounded import BoundedDict
+from openfactory.util.single_flight import _Flight, _OneAtATime
 
 log = logging.getLogger("openfactory.panel.temporal")
 
@@ -66,10 +68,32 @@ log = logging.getLogger("openfactory.panel.temporal")
 #:     job_detail             8 ms
 #:     intake                 5 ms
 #:
-#: So three seconds is roughly ten times what the panel's largest list costs. The cost grows with
-#: the number of RUNNING jobs, because each one is queried for its state — which is also why this
-#: bound catches a second real case: a workflow whose worker is gone cannot answer a query at all,
-#: and `list_jobs` did not return in 120 s against eight such jobs. It now degrades in three.
+#: So three seconds was roughly ten times what the panel's largest list cost, asked one job after
+#: another as it was then. Each RUNNING row is a describe plus up to three queries a worker answers,
+#: and that sum is what overran this bound on a busy floor (#754). The listed jobs are now asked
+#: about in batches of `list_concurrency()` (8 unset), so a list costs about one slowest row per
+#: batch of the listing instead of every running row's round trips added up. Readers asking
+#: together, or within `LIST_TTL_S`, share one scan (`list_jobs`). Measured 2026-10-19 on
+#: `temporal server start-dev` 1.9.1 (Server 1.32.0), temporalio 1.34.0, a stand-in registered as
+#: `JobWorkflow` answering its real queries: 98 listed, the 50 read being 48 running (8 at a merge
+#: gate) and 2 closed, 10 scans each:
+#:
+#:     one after another (f37aeaa)        558 ms median, 583 ms max   185 describes and queries
+#:     8 at a time (unset)                357 ms median, 364 ms max   188 (the last batch's extra)
+#:     OPENFACTORY_LIST_CONCURRENCY=1     564 ms median, 594 ms max
+#:     six readers at once                6 scans in ~2.0-2.2 s on f37aeaa; 1 scan in ~350 ms
+#:
+#: The compose stack's `temporalio/auto-setup:1.25.2` on Postgres 16 gave the same: 557 against
+#: 345 ms, 6 scans against 1. On loopback a scan is bound by THIS process's CPU (a 354 ms scan
+#: at eight spent 327 ms of it; one at a time, 307 ms of 576), which is why eight at once buys a
+#: third here and not eightfold: what it overlaps is the round trips, and those are what a
+#: namespace across a network pays.
+#:
+#: The bound also catches a second real case: a workflow whose worker is gone cannot answer a
+#: query at all, and `list_jobs` did not return in 120 s against eight such jobs. It now degrades
+#: in three (measured again 2026-10-19 on the dev server above, f37aeaa and now alike: 3.00 s,
+#: the same sentence, and no task still running 1 s later). The deadline sits on the shared scan
+#: (`_scan`), so running out of time cancels every question the scan still has out.
 #:
 #: A NUMBER A DEPLOYMENT CAN CHANGE, because "slow" is a property of somebody's network: a Temporal
 #: Cloud namespace across a region answers in tenths of a second, and this must not call that
@@ -83,6 +107,58 @@ def read_deadline() -> float:
 #: restart, which is the rule `connect()` already holds for a failed connect.
 def unreachable_window() -> float:
     return _seconds("OPENFACTORY_ENGINE_UNREACHABLE_FOR", 3.0)
+
+
+#: How many recent jobs the job list asks the engine about at once when the operator does not say.
+#: Each RUNNING row is a `describe()` plus up to three queries a WORKER answers by replaying the
+#: job's history, so one-at-a-time made the list's cost the sum of every running row's round trips
+#: and a busy floor ran past `read_deadline()` (#754: 48 running jobs at 10 ms an RPC is four
+#: round trips each, ~1.9 s in sequence; on f37aeaa that test's list was refused at its 1 s
+#: deadline with one RPC in flight, and the breaker opened for every reader). Eight is up to eight
+#: query replays at once on the worker for one scan, the same default the product's sources are
+#: brought up with (`OPENFACTORY_SOURCES_PARALLEL`). On a real dev server (2026-10-19, the
+#: measurement beside `read_deadline`) 48 running rows took 564 ms one at a time, 362 ms four at a
+#: time, 357 ms at eight and 384 ms at sixteen: past eight this process's own CPU is the bound on
+#: loopback. WHAT IT COSTS THE LOOP: a 10 ms heartbeat on the same loop as a scan saw its longest
+#: gap grow with the batch, from 14 ms one at a time to 27 ms at four, 40 ms at eight and 74 ms at
+#: sixteen (medians of 10 scans; about 5 ms a row asked at once). The merge-gate rows' registry
+#: read (`_lists_review_comments`, 3.6 ms each) is not that gap: stubbed out, it measured 44 ms at
+#: eight. THE OPERATOR'S, NOT A CONSTANT,
+#: as `OPENFACTORY_SOURCES_PARALLEL` is (#369): a Temporal Cloud namespace across a region answers
+#: in tenths of a second and only the deployment knows what its workers take —
+#: `OPENFACTORY_LIST_CONCURRENCY`, read by `list_concurrency()`. Measured 2026-10-20 on the same
+#: dev server and 48 running rows: with 100 ms added to every client RPC, eight at once took
+#: 2.80 s against the 3 s default deadline (one at a time, and f37aeaa: 19.4 s, refused at 3 s;
+#: sixteen: 1.66 s). With every query replay taking 100 ms on the worker instead, eight answered in
+#: 2 of 10 scans at 3 s (3.25 s median under a 60 s deadline; sixteen 2.38 s; one at a time
+#: 14.5 s). THE WORKER'S SIDE: at most `list_concurrency()` query handlers ran at once (peak 8,
+#: 16 at sixteen; 16 once, right after a scan the deadline cut, whose handlers the worker still
+#: finished). Queries take workflow-task slots (the SDK's default 100; `worker.py` sets none), not
+#: the eight activity slots `worker.py` gives `run_job` and the checks.
+DEFAULT_LIST_CONCURRENCY = 8
+#: The unreadable values this process has already said, so a list read on every stream tick does
+#: not repeat the warning. Bounded by the values the environment has held, never by traffic.
+_LIST_CONCURRENCY_SAID: set[str] = set()
+
+
+def list_concurrency() -> int:
+    """`OPENFACTORY_LIST_CONCURRENCY`, else `DEFAULT_LIST_CONCURRENCY`. READ ON EVERY CALL, never at
+    import (#185). A value that is not a positive number is the default, said once in the log: a
+    bound nobody can read must not become no bound, nor one job at a time."""
+    raw = (os.environ.get("OPENFACTORY_LIST_CONCURRENCY") or "").strip()
+    if not raw:
+        return DEFAULT_LIST_CONCURRENCY
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        if raw not in _LIST_CONCURRENCY_SAID:
+            _LIST_CONCURRENCY_SAID.add(raw)
+            log.warning("OPENFACTORY_LIST_CONCURRENCY=%r is not a positive number — %d jobs are "
+                        "asked about at once", raw, DEFAULT_LIST_CONCURRENCY)
+        return DEFAULT_LIST_CONCURRENCY
+    return value
 
 
 def _seconds(name: str, fallback: float) -> float:
@@ -125,9 +201,7 @@ async def _within(what: str, coro, *, seconds: float | None = None):
     left = unreachable_for()
     if left:
         coro.close()
-        raise EngineUnreachable(
-            f"the engine did not answer {what} a moment ago, so this read did not wait for it "
-            f"again ({left:.1f}s left before it is asked again)")
+        raise _still_silent(what, left)
     try:
         answer = await asyncio.wait_for(coro, read_deadline() if seconds is None else seconds)
     except TimeoutError:
@@ -142,6 +216,14 @@ async def _within(what: str, coro, *, seconds: float | None = None):
     return answer
 
 
+def _still_silent(what: str, left: float) -> EngineUnreachable:
+    """The refusal of a read while the engine is remembered as silent — one sentence, said by
+    `_within` and by `list_jobs`, which consults the same memory before its shared answer."""
+    return EngineUnreachable(
+        f"the engine did not answer {what} a moment ago, so this read did not wait for it "
+        f"again ({left:.1f}s left before it is asked again)")
+
+
 def _bounded_read(what: str):
     """Bound one of this module's reads — the seam every read-side caller already goes through."""
 
@@ -153,6 +235,32 @@ def _bounded_read(what: str):
         return bounded
 
     return wrap
+
+
+def _a_write(fn):
+    """Mark one of this module's writes: whatever it did, the job list remembered before it is
+    dropped when it returns (`forget_jobs`, #754).
+
+    THE PANEL RE-READS 600-800 MS AFTER A CLICK, inside the job list's window (`LIST_TTL_S`), so
+    without this an Approve, a Merge or a Resume was followed by the list from before it: a button
+    that looks as if it did nothing. ON EVERY EXIT, NOT ONLY A RETURN: a write that raised after
+    the engine took it (a transport that gave up on the reply) changed the list as surely as one
+    that answered, and dropping a list nothing changed costs one scan. A write made by another
+    process (the worker, the CLI) is not seen here; the window is its cost. The panel's Stop and
+    Scan TO-DO now write from this process outside this module (`actions.catalog._stop`, `_scan`)
+    and call `forget_jobs` there, on every exit too. One decorator rather
+    than a line in each write, so a write added later is one line to mark, and
+    `tests/test_a_job_list_read_a_moment_ago_is_shared_and_never_across_loops.py` finds the writes
+    by walking this file, not from a list."""
+
+    @functools.wraps(fn)
+    async def wrote(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        finally:
+            forget_jobs()
+
+    return wrote
 
 
 _WF_ID_PREFIX = "openfactory-"
@@ -398,6 +506,7 @@ async def _true_status(client: Client, wf) -> WorkflowExecutionStatus | None:
         return None
 
 
+@_a_write
 async def gate_key_refusal(client: Client, *, within: float = 20.0) -> str:
     """Whether the worker accepts a seal made with THIS process's gate key: "" when it does,
     otherwise its refusal. Raises when no worker answers within `within` seconds — which is not
@@ -1041,59 +1150,209 @@ def _watcher_schedule_ids() -> list[str]:
     return ids
 
 
-@_bounded_read("the job list")
+async def _enriched(client: Client, wf, namespace: str) -> dict | None:
+    """One listed workflow as the job list's row, every engine question it needs asked; `None`
+    when visibility still lists a workflow that aged out (`gone`), which is not a card."""
+    row = _row(wf, namespace)
+    row["state"], row["action"], live = await _domain_state(client, wf)
+    if row["state"] == "gone":
+        return None  # visibility still lists it but the workflow aged out — not a real card
+    # The merge gate carries its refusal in `action`; the approval gate has no action, so
+    # its refusal travels on the row.
+    row["refused"] = (await _gate_refusal(client, wf.id, wf.run_id)
+                      if row["state"] == "awaiting_prod_approval" else "")
+    # WHETHER `address` IS REAL AT THIS GATE (#330) is the forge's to say, and the job cannot:
+    # a workflow does not know its project's forge row. Asked only of a job at a merge gate,
+    # and asking builds the row without a call.
+    if row["state"] == "awaiting_your_merge" and isinstance(row["action"], dict):
+        row["action"] = {**row["action"],
+                         "can_address": _lists_review_comments(row.get("project") or "")}
+    # Reconcile the visibility status (which LAGS) with the truth: the panel paints an
+    # 'in production' machine card for any job whose status=='running', so a lagged
+    # 'running' on an already-closed workflow was the frozen ghost. Only a genuinely live
+    # workflow keeps 'running'; a closed one is stamped 'closed' so the card clears.
+    if not live and row["status"] == "running":
+        row["status"] = "closed"
+    # ATTENTION means "a human must act on a LIVE job". A closed workflow (completed/
+    # terminated/gone) can still carry a cached parked-ish state (e.g. a run that was
+    # on_hold then terminated, or needs_refinement then completed) — gate on `live` so a
+    # finished job never shows a phantom "needs attention" in the panel/Slack count.
+    row["attention"] = live and row["state"] in ATTENTION_STATES
+    row["title"] = await _memo_title(wf)  # panel shows it beside the #number
+    # WEDGED: running, at no gate, for longer than any real pass takes (#127). A job in this
+    # state holds the single-slot floor and no verb could reach it — `resume`/`skip` answer a
+    # park and the engine refuses them, the merge verbs answer a gate — so the honest exit was
+    # "open Temporal and terminate", a raw-engine operation on the one surface this product
+    # promises an operator will never need.
+    #
+    # DECIDED HERE, not in the browser, and against the SAME constant the tech-lead's rounds
+    # use to raise the alarm. Two readings of "stuck" would disagree by next month, and the
+    # one on the button is the one that matters.
+    row["wedged"] = is_wedged(row, live=live)
+    # surface the post-merge deploy outcome (ADR-0005) so the watch isn't invisible when
+    # no external notifier is configured — only merged jobs can have a deploy running.
+    row["deploy"] = await _deploy_state(client, row["project"], row["issue"]) \
+        if row["state"] == "merged" and row["project"] and row["issue"] else None
+    return row
+
+
+async def _enriched_in_order(client: Client, batch: list, namespace: str,
+                             room: asyncio.Semaphore) -> list[dict | None]:
+    """`batch`'s rows, asked about side by side and handed back IN THE BATCH'S ORDER.
+
+    A TaskGroup, so a deadline or a caller that went away cancels every question still asked
+    (nothing outlives the read: a query a silent worker never answers waits until the SDK gives
+    up). The first row that failed is raised as itself, and the group cancels the others: callers
+    catch the SDK's errors, not an `ExceptionGroup`. Not necessarily the first in list order: a
+    later row that fails first cancels an earlier one before it raises (row 1 raising after 50 ms,
+    row 2 after 1 ms → row 2's error, measured 2026-10-20), where the sequential walk raised row
+    1's. Callers catch broadly, so which row's error it is changes nothing they do."""
+
+    async def one(wf):
+        async with room:
+            return await _enriched(client, wf, namespace)
+
+    try:
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(one(wf)) for wf in batch]
+    except BaseExceptionGroup as failed:
+        raise failed.exceptions[0] from None
+    return [t.result() for t in tasks]
+
+
+#: How long a job list just read is handed to the next reader who asks the same question (#754).
+#: THE STREAM'S TICK (`api/app.py::temporal_stream`, 2 s): each connected browser then costs at most
+#: one scan a tick between them, and the panel's re-read 600-800 ms after a click is answered by
+#: the scan before it only when no write went through this process in between (`forget_jobs`). A
+#: write made by ANOTHER process (the worker, the CLI) is seen when the window ends, at most this
+#: long after: the stated cost of the window. A constant, not a variable: the issue names only the
+#: concurrency as the operator's.
+LIST_TTL_S = 2.0
+
+#: The ONE job list this process remembers: `(loop, client, (namespace, limit, query), stamp,
+#: rows)`, or `None`. One slot, replaced, never added to: a reader asking another question reads
+#: for itself and takes it.
+_jobs_memo: tuple[asyncio.AbstractEventLoop, Client, tuple, float, list[dict]] | None = None
+
+#: The one job-list scan in flight, shared by every reader asking the same question on its loop.
+_jobs_read = _OneAtATime()
+
+
+def forget_jobs() -> None:
+    """Drop the remembered job list and give up the scan in flight, so the next reader scans afresh.
+
+    THE STREAM'S BLIP (#139) AND THIS PROCESS'S WRITES are why: a list read before the engine
+    failed, or before Approve/Merge/Resume went through, is not the list after it. A scan still in
+    flight is detached, not cancelled, as `floor.reading.forget_intake` detaches its read: its
+    waiters asked before the forget and keep their answer, and it stores nothing once the slot is
+    no longer its own. Synchronous, so it may be called from any loop."""
+    global _jobs_memo
+
+    _jobs_memo = None
+    _jobs_read.forget()
+
+
 async def list_jobs(
     client: Client, namespace: str, *, limit: int = 50, query: str | None = None
 ) -> list[dict]:
     """Recent jobs, newest first, each enriched with its domain `state`. `query` is an
-    optional Temporal list filter (e.g. a StartTime range) for searchable history."""
+    optional Temporal list filter (e.g. a StartTime range) for searchable history.
+
+    ONE SCAN FOR READERS TOGETHER, ONE ANSWER FOR READERS RIGHT AFTER (#754). The stream asks on
+    every tick of every browser, the floor, inbox and decisions on each request, and the panel
+    re-reads after each click; each paid a whole scan. Now:
+
+      - A READER WITHIN `LIST_TTL_S` OF A SCAN THAT ANSWERED is handed that scan's rows, when the
+        RUNNING LOOP and the CLIENT are the ones it was read on, BY IDENTITY, and the question
+        (`namespace`, `limit`, `query`) is the same. The loop because a client belongs to the
+        loop that made it (#134), and the tech-lead and the CLI open an `asyncio.run` per
+        question; holding it strongly is what keeps a dead loop's id from being reused under the
+        memo. The question because what a cache is keyed on has to be what the work it skips
+        would have read (engineering-lessons §11): the tech-lead asks `limit=50`, a history read
+        passes a `query`. The clock is `time.monotonic()`, as the breaker's is, never the wall.
+      - READERS ARRIVING WHILE A SCAN IS IN FLIGHT wait on that one scan (`_OneAtATime`, a task
+        and not a lock, #166): a failure reaches every waiter at once and is NEVER STORED, so a
+        recovered engine is asked again by the next reader; one reader going away takes only
+        itself.
+      - EVERY READER IS HANDED A COPY OF ITS OWN (#165): callers annotate rows before rendering.
+      - THE BREAKER IS STILL ASKED FIRST, with `_within`'s own sentence: an engine remembered as
+        silent refuses this read for `OPENFACTORY_ENGINE_UNREACHABLE_FOR` even when a list is
+        remembered, as before #754.
+      - THE BOUND IS ON THE SCAN, NOT AROUND ITS READERS. It was `@_bounded_read`, a `wait_for`
+        around the whole read; around a shared task that is a wait that gives up while the task
+        it gave up on keeps asking. Measured 2026-10-19 with both bounds: a list that ran out of
+        its 0.3 s still had 8 worker queries in flight when it raised (the job-list test "ran out
+        of time leaves no question running"). So `_scan` runs under `_within` (`read_deadline()`,
+        the breaker, the same sentence), its deadline cancels every question still asked before
+        anyone is told, and a reader waits no longer than the scan it joined (#147's standing
+        loop must not be left with queries running until the SDK gives up).
+      - `forget_jobs()` drops the answer: the stream's blip (#139), every write this module
+        makes, and the panel's Stop and Scan in `actions.catalog`.
+      - A RATE LIMIT ON A NETWORK READ, NOT A DERIVED VALUE, so ADR-0023 ("the map is derived,
+        not learned") does not reach it, as it does not reach `floor.reading.intake_cached`
+        (engineering-lessons §11): what is held is how often the engine is asked, for a stated
+        window.
+
+    ASKED SIDE BY SIDE, `list_concurrency()` at a time (#754). One after another, the list cost
+    the sum of every running row's round trips (a describe and up to three worker queries each)
+    and a busy floor ran past `read_deadline()`, which then refused every reader in the process.
+    The workflows are taken from the listing in batches of `k`; each batch is asked about at once
+    and kept IN LIST ORDER, so the order the engine answers in never reaches the rows: the same
+    rows are chosen, and the newest-first sort below breaks ties as the listing does. THE COST:
+    the last batch may ask about up to `k-1` jobs past `limit` that are then dropped."""
+    if left := unreachable_for():
+        raise _still_silent("the job list", left)
+    loop = asyncio.get_running_loop()
+    question = (namespace, limit, query)
+    stamp = time.monotonic()
+    memo = _jobs_memo
+    if (memo is not None and memo[0] is loop and memo[1] is client and memo[2] == question
+            and stamp - memo[3] < LIST_TTL_S):
+        return copy.deepcopy(memo[4])
+    return copy.deepcopy(await _jobs_read.shared(
+        lambda flight: _scan(flight, client, namespace, limit, query, stamp),
+        key=(id(client), *question)))
+
+
+async def _scan(flight: _Flight, client: Client, namespace: str, limit: int, query: str | None,
+                stamp: float) -> list[dict]:
+    """The scan every waiter shares, BOUNDED ON ITS OWN by `_within`, so a deadline cancels its
+    questions when nobody is waiting any more, and says so in the same sentence as every read. It
+    is remembered only when it answered and only while the slot is still its own: `forget_jobs`
+    and a reader asking from another loop or another question take the slot from under it."""
+    global _jobs_memo
+
+    rows = await _within("the job list", _listed(client, namespace, limit, query))
+    if _jobs_read.holds(flight):
+        _jobs_memo = (flight.loop, client, (namespace, limit, query), stamp, rows)
+    return rows
+
+
+async def _listed(client: Client, namespace: str, limit: int, query: str | None) -> list[dict]:
+    """The job list as the engine answers it now, read side by side (see `list_jobs`)."""
     base = 'WorkflowType = "JobWorkflow"'
     full = f"{base} AND ({query})" if query else base
+    k = list_concurrency()
+    # Made per call, never at module level: a semaphore belongs to the loop it was first awaited on.
+    room = asyncio.Semaphore(k)
     rows: list[dict] = []
+    batch: list = []
+
+    async def keep(asked: list) -> None:
+        for row in await _enriched_in_order(client, asked, namespace, room):
+            if row is not None and len(rows) < limit:
+                rows.append(row)
+
     async for wf in client.list_workflows(full):
-        row = _row(wf, namespace)
-        row["state"], row["action"], live = await _domain_state(client, wf)
-        if row["state"] == "gone":
-            continue  # visibility still lists it but the workflow aged out — not a real card
-        # The merge gate carries its refusal in `action`; the approval gate has no action, so
-        # its refusal travels on the row.
-        row["refused"] = (await _gate_refusal(client, wf.id, wf.run_id)
-                          if row["state"] == "awaiting_prod_approval" else "")
-        # WHETHER `address` IS REAL AT THIS GATE (#330) is the forge's to say, and the job cannot:
-        # a workflow does not know its project's forge row. Asked only of a job at a merge gate,
-        # and asking builds the row without a call.
-        if row["state"] == "awaiting_your_merge" and isinstance(row["action"], dict):
-            row["action"] = {**row["action"],
-                             "can_address": _lists_review_comments(row.get("project") or "")}
-        # Reconcile the visibility status (which LAGS) with the truth: the panel paints an
-        # 'in production' machine card for any job whose status=='running', so a lagged
-        # 'running' on an already-closed workflow was the frozen ghost. Only a genuinely live
-        # workflow keeps 'running'; a closed one is stamped 'closed' so the card clears.
-        if not live and row["status"] == "running":
-            row["status"] = "closed"
-        # ATTENTION means "a human must act on a LIVE job". A closed workflow (completed/
-        # terminated/gone) can still carry a cached parked-ish state (e.g. a run that was
-        # on_hold then terminated, or needs_refinement then completed) — gate on `live` so a
-        # finished job never shows a phantom "needs attention" in the panel/Slack count.
-        row["attention"] = live and row["state"] in ATTENTION_STATES
-        row["title"] = await _memo_title(wf)  # panel shows it beside the #number
-        # WEDGED: running, at no gate, for longer than any real pass takes (#127). A job in this
-        # state holds the single-slot floor and no verb could reach it — `resume`/`skip` answer a
-        # park and the engine refuses them, the merge verbs answer a gate — so the honest exit was
-        # "open Temporal and terminate", a raw-engine operation on the one surface this product
-        # promises an operator will never need.
-        #
-        # DECIDED HERE, not in the browser, and against the SAME constant the tech-lead's rounds
-        # use to raise the alarm. Two readings of "stuck" would disagree by next month, and the
-        # one on the button is the one that matters.
-        row["wedged"] = is_wedged(row, live=live)
-        # surface the post-merge deploy outcome (ADR-0005) so the watch isn't invisible when
-        # no external notifier is configured — only merged jobs can have a deploy running.
-        row["deploy"] = await _deploy_state(client, row["project"], row["issue"]) \
-            if row["state"] == "merged" and row["project"] and row["issue"] else None
-        rows.append(row)
+        batch.append(wf)
+        if len(batch) < k:
+            continue
+        await keep(batch)
+        batch = []
         if len(rows) >= limit:
             break
+    if batch and len(rows) < limit:
+        await keep(batch)
     # stable order (newest first) so the SSE frame doesn't churn on list reordering — an
     # unstable order made the panel re-render (and reset) a running job's card each tick.
     rows.sort(key=lambda r: r.get("start_time") or "", reverse=True)
@@ -1197,6 +1456,7 @@ async def review_verdicts(client: Client, jobs: list[dict]) -> dict[str, dict | 
     return out
 
 
+@_a_write
 async def start_job(client: Client, params: JobParams) -> str:
     wf_id = job_id(params.project, params.issue)
     await client.start_workflow(JobWorkflow.run, params, id=wf_id, task_queue=TASK_QUEUE)
@@ -1208,6 +1468,7 @@ class PreviewAlreadyStarted(RuntimeError):
     engine refusing a duplicate, and the answer a person gets is that it is starting."""
 
 
+@_a_write
 async def start_preview(client: Client, params) -> str:
     """Start one unit's `PreviewWorkflow` through the same client and queue a job uses, under the
     unit's one id. `PreviewAlreadyStarted` when it is already running."""
@@ -1224,6 +1485,7 @@ async def start_preview(client: Client, params) -> str:
     return wf_id
 
 
+@_a_write
 async def signal_preview(client: Client, project: str, unit: str, signal: str, by: str) -> bool:
     """Deliver `stop` or `rebuild` to a unit's RUNNING preview workflow. False when none is
     running — asked first, because a signal is fire-and-forget and one sent to a finished
@@ -1247,6 +1509,7 @@ async def signal_preview(client: Client, project: str, unit: str, signal: str, b
     return True
 
 
+@_a_write
 async def approve_job(
     client: Client, project: str, issue: str, *, version: str, approver: str, comment: str = ""
 ) -> None:
@@ -1265,6 +1528,7 @@ async def approve_job(
     await handle.signal(JobWorkflow.approve_prod, args=[version, approver, comment, seal])
 
 
+@_a_write
 async def answer_merge_gate(client: Client, project: str, issue: str, *, answer: str,
                             instruction: str = "", by: str = "") -> dict:
     """Deliver a human's answer to a PR waiting on them (#68). Returns the merge-wait dict.
@@ -1335,6 +1599,7 @@ async def release_gate(client: Client, project: str, issue: str) -> dict | None:
     return dict(await handle.query(JobWorkflow.release_wait) or {"hears": False})
 
 
+@_a_write
 async def another_change(client: Client, project: str, issue: str, *, instruction: str,
                          by: str) -> dict:
     """Deliver "not yet" to the job parked at the last gate, sending its card back for another
@@ -1430,6 +1695,7 @@ def gate_cannot_hear(gate: dict) -> str:
     return ""
 
 
+@_a_write
 async def act_job(client: Client, project: str, issue: str, *, action: str,
                   choice: str = "") -> None:
     """Single-line strict (ADR-0010): deliver the operator's (or a bot's) decision on a PARKED

@@ -484,6 +484,27 @@ def _a_floor_read_does_not_outlive_its_test() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _a_job_list_does_not_outlive_its_test() -> None:
+    """Clear `openfactory/runtime/temporal/view.py`'s job-list memo and the scan in flight (#754).
+
+    THE FLOOR READ'S SHAPE ABOVE, AND ITS REASON: a list one test's fake engine answered is handed
+    to the next reader asking the same question for `LIST_TTL_S`, and the memo holds the loop and
+    the client by identity, so only a test reusing that very client and loop could be served it;
+    but this file's rule is that a test starts from nothing, not from something inert. Cleared
+    BEFORE each test, for the reason the fixtures above give.
+
+    ASKED WITH `getattr` and IMPORTED INSIDE THE FIXTURE, for the two reasons the fixtures on
+    either side give: a red-first run points the suite at a tree with no `forget_jobs`, and `view`
+    imports `temporalio`, an extra a collection-time import would turn into a suite that collects
+    nothing."""
+    from openfactory.runtime.temporal import view as _view
+
+    forget_jobs = getattr(_view, "forget_jobs", None)
+    if forget_jobs is not None:
+        forget_jobs()
+
+
+@pytest.fixture(autouse=True)
 def _an_engine_client_does_not_outlive_its_test() -> None:
     """Clear `openfactory/runtime/temporal/view.py::_CLIENTS` — the pool the panel's read side now
     holds one client per engine target in (GitHub issue #134).

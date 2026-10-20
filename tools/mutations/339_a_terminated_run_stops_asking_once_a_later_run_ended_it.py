@@ -34,8 +34,8 @@ MUTATIONS = [
 
     # ── the engine answers `live` once ──────────────────────────────────────────────────────────
     ("the engine's row forgets `live`, so a closed run is flagged as needing a person", VIEW,
-     '        row["attention"] = live and row["state"] in ATTENTION_STATES',
-     '        row["attention"] = row["state"] in ATTENTION_STATES'),
+     '    row["attention"] = live and row["state"] in ATTENTION_STATES',
+     '    row["attention"] = row["state"] in ATTENTION_STATES'),
 
     # ── the tech-lead says the same ─────────────────────────────────────────────────────────────
     ("the tech-lead tells somebody to skip a closed run again", CONV,
