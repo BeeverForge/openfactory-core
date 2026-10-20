@@ -21,7 +21,7 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
   5. the rows that render a list — promote, reorder, breakdown — answer the refusal every result
      names, not FAILED; words that disagree are a failure, and an unknown word is logged; a card
      outside the project's slice is a refusal, and a slice the board could not say is a failure;
-  6. the family drives every row that renders a write;
+  6. the family drives every row that renders a write — one result, or a list of them;
   7. a refusal word this panel does not know (a worker newer than it) is read as nobody's
      decision when a breakdown's rows are said, never raised on — so the fronts that landed are
      still said (human decision 2026-10-20, option A);
@@ -387,6 +387,17 @@ MUTATIONS = [
      '            return _none_done(running.filed, said, did="break the requirement down", **data)\n',
      "            return refused(FAILED, said, **data)\n",
      FAILURE + "::test_a_running_breakdown_that_filed_nothing_is_a_failure_with_a_reference"),
+
+    # 11. (review of PR #970, robertocsp, not blocking) the family drives the rows that render a
+    #     list too — promote, reorder, the breakdown — read off `_none_done` in the walk
+    ("R3.4: the family stops driving the promotion", TEST,
+     '    "product_promote": ({"numbers": "7", "yes": True}, "promote"),\n',
+     "",
+     TEST + "::test_every_row_that_renders_a_write_is_in_the_table_this_family_drives"),
+    ("R3.4: a list whose every result names one word answers a failure", CATALOG,
+     '    why = next(iter(words)) if len(words) == 1 else ""\n',
+     '    why = ""\n',
+     HTTP_FAMILY),
 
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,

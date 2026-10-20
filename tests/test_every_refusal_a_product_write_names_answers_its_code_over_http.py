@@ -7,16 +7,17 @@ module's own sentence "only the person who asked for #1 … can close or remove 
 
 THE FAMILY IS READ, NOT LISTED. The reasons are the module's vocabulary
 (`openfactory.product.authoring.REFUSALS`); the rows are every catalogue row whose runner reaches
-`_write_outcome` inside `catalog.py`, derived from its call graph with the action layer's own walk
-(`tests/test_the_action_layer.py`). What this file states by hand is only what a reader cannot
-derive: how to get each row past its own checks to the module (`ROWS`), and the code each reason
-answers (`DECIDED`, the decision of #908's Q1) — and both are held to the derived sets, so a row or
-a reason added tomorrow fails here until it is driven and decided.
+`_write_outcome` or `_none_done` inside `catalog.py`, derived from its call graph with the action
+layer's own walk (`tests/test_the_action_layer.py`). What this file states by hand is only what a
+reader cannot derive: how to get each row past its own checks to the module (`ROWS`), and the code
+each reason answers (`DECIDED`, the decision of #908's Q1) — and both are held to the derived sets,
+so a row or a reason added tomorrow fails here until it is driven and decided.
 
 EACH CASE drives the real panel (`TestClient(app)`) on a named operator credential, with the
-module replaced by one whose called method refuses with that reason and a sentence (the worker's
-dict, for the two rows the worker runs), and asserts the status, the code, the sentence unchanged,
-and the module's word in `data.refusal`.
+module replaced by one whose called method refuses with that reason and a sentence (two of them
+for the rows that render a list; the worker's dict, or two, for the three rows the worker runs),
+and asserts the status, the code, the sentence unchanged, and the module's word in
+`data.refusal`.
 """
 
 from __future__ import annotations
@@ -44,6 +45,11 @@ DECIDED = {"not_yours": "denied", "not_found": "not_found", "not_waiting": "conf
 CARD = "<a product card>"
 #: The worker runs these two rows' module call; the panel reads back the activity's dict.
 WORKER = "<the worker>"
+#: The breakdown runs on the worker too, and hands back one dict per front: the panel reads the
+#: module only for its own gates (`context`), then renders the list through `_none_done`.
+BREAKDOWN = "<the worker's breakdown>"
+#: The module methods that answer a LIST of results, of which the row renders none made.
+LISTS = {"promote", "reorder"}
 
 #: Per row: the parameters that get it past its own checks, and the module method it then calls.
 ROWS: dict[str, tuple[dict[str, object], str]] = {
@@ -68,17 +74,28 @@ ROWS: dict[str, tuple[dict[str, object], str]] = {
     "product_withdraw_card": ({"number": CARD, "reason": "filed twice"}, "withdraw_card"),
     "card_close": ({"issue": CARD, "reason": "filed twice"}, "withdraw_card"),
     "card_remove": ({"issue": CARD, "reason": "filed twice"}, "withdraw_card"),
+    "product_promote": ({"numbers": "7", "yes": True}, "promote"),
+    "product_reorder": ({"numbers": "7,8", "yes": True}, "reorder"),
+    "product_break_down": ({"number": "7", "yes": True}, BREAKDOWN),
 }
 
 #: One fictitious operator — named, unscoped — so every row above, floor or product, is reachable.
 OPERATOR = "fictitious-operator-credential-6604"
 
 
+#: The two renderings of a module's not-ok result: one `WriteResult` (`_write_outcome`), and a list
+#: of them of which none was made (`_none_done`: promote, reorder, the breakdown). A row reaching
+#: either is in the family — the second joined after the review of PR #970 found a future list row
+#: would not be driven.
+_RENDERINGS = {"_write_outcome", "_none_done"}
+
+
 def _rendering_a_write() -> set[str]:
-    """Every catalogue row whose runner reaches `_write_outcome`, by the action layer's own walk."""
+    """Every catalogue row whose runner reaches `_write_outcome` or `_none_done`, by the action
+    layer's own walk."""
     functions = _catalog_functions()
     return {name for name, spec in catalog.CATALOG.items()
-            if "_write_outcome" in _reachable_from(spec.run.__name__, functions)}
+            if _RENDERINGS & _reachable_from(spec.run.__name__, functions)}
 
 
 @pytest.fixture
@@ -107,8 +124,20 @@ class _Refusing:
 
         def write(*_args, **_kwargs):
             self.called.append(method)
-            return self.result
+            return [self.result, self.result] if method in LISTS else self.result
         return write
+
+
+class _PastTheGates:
+    """The breakdown row's module: its own gates pass — the corpus is readable and 7 names a
+    promise — and nothing else is asked of it here; the fronts come from the worker."""
+
+    def context(self):
+        from types import SimpleNamespace
+
+        promise = SimpleNamespace(is_promise=True)
+        return SimpleNamespace(available=True, reason="",
+                               corpus=SimpleNamespace(by_number=lambda n: promise))
 
 
 class _Worker:
@@ -118,6 +147,9 @@ class _Worker:
         self.answer, self.called = answer, []
 
     async def execute_workflow(self, workflow, *_args, **_kwargs):
+        if workflow == "ProductBreakdownWorkflow":
+            self.called.append(BREAKDOWN)
+            return [dict(self.answer), dict(self.answer)]
         self.called.append(WORKER if workflow == "ProductCardWorkflow" else workflow)
         return dict(self.answer)
 
@@ -159,13 +191,24 @@ def test_each_refusal_reason_answers_its_code_and_the_modules_sentence_on_every_
         ref = _opened_by_product(tracker, board)
         params = {k: (ref if v == CARD else v) for k, v in params.items()}
 
-    if method == WORKER:
+    said_as = sentence
+    if method in (WORKER, BREAKDOWN):
         called = _Worker({"ok": False, "detail": sentence, "ref": "", "url": "",
                           "existed": False, "refusal": reason})
 
         async def connected():
             return called, None
         monkeypatch.setattr(catalog, "_connected", connected)
+        if method == BREAKDOWN:
+            monkeypatch.setattr(catalog, "_product_module", lambda name, by=None: (
+                _PastTheGates(), deployment, None))
+            monkeypatch.setattr(catalog, "_where_it_was_written", lambda project, number: ("", ""))
+            # the row asks `may_act` itself, before the worker: the operator administers the floor,
+            # not acme's product — what is driven here is the rendering, not that gate
+            from openfactory.product import module as product_module
+            monkeypatch.setattr(product_module, "may_act", lambda *_a, **_k: True)
+            # the row heads the fronts' sentence with what was not filed (`_product_break_down`)
+            said_as = f"nothing was filed for requirement 7: {sentence.rstrip('.')}."
     else:
         called = _Refusing(WriteResult(ok=False, refusal=reason, detail=sentence))
         the_real = catalog._product_module
@@ -183,5 +226,5 @@ def test_each_refusal_reason_answers_its_code_and_the_modules_sentence_on_every_
     assert r.status_code != 500, (row, reason, said)
     expected = DECIDED[reason]
     assert (r.status_code, said["code"]) == (_STATUS[expected], expected), (row, reason, said)
-    assert said["message"] == said["detail"] == sentence, said
+    assert said["message"] == said["detail"] == said_as, said
     assert said["data"]["refusal"] == reason, said["data"]

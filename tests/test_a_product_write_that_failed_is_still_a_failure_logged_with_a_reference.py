@@ -284,11 +284,12 @@ def test_a_card_whose_slice_could_not_be_asked_is_a_failure_with_a_reference(
     assert said["data"].get("reference"), said
 
 
-# ---------------------------------------------------------------------------------------------------
-# THE ROWS THE WORKER RUNS (review of PR #970, robertocsp point 3 and hermesfelipe). The API reference
-# and the release note said every 500 `failed` of a product write carries a `data.reference` its log
-# line names; on a647d604 the rows that dispatch to the worker answered their engine's failure —
-# which is what the panel sees when the module raised on the worker — with no reference at all:
+# ------------------------------------------------------------------------------------------------
+# THE ROWS THE WORKER RUNS (review of PR #970, robertocsp point 3 and hermesfelipe). The API
+# reference and the release note said every 500 `failed` of a product write carries a
+# `data.reference` its log line names; on a647d604 the rows that dispatch to the worker answered
+# their engine's failure — which is what the panel sees when the module raised on the worker —
+# with no reference at all:
 # `product_refine_card` 500 `data={"project", "reason"}`, `product_break_down` 500
 # `data={"project", "number", "reason"}`, `product_baseline` 500 with none.
 

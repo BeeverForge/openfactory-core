@@ -123,13 +123,14 @@ def test_the_detector_would_catch_one():
     assert found == ["synthetic.py:4", "synthetic.py:5", "synthetic.py:6"], found
 
 
-# ---------------------------------------------------------------------------------------------------
-# THE WORD IS THE RIGHT ONE, NOT ONLY A WORD (review of PR #970, robertocsp point 2). The guard above
-# held that a site names a word of the vocabulary; it did not hold WHICH. On a647d604 five one-line
-# cuts each put one deliberate refusal back to 500 and survived every module that names its symbol
-# (`_held` → NOT_REFUSED: 5634 passed; `correct_card`'s closed card, `capability_retired`,
-# `decision_on_retired`, `_remove_one`'s not-found, each → NOT_REFUSED). So the sentence a site
-# answers with is read off the same tree, and the table below decides the word for it.
+# ------------------------------------------------------------------------------------------------
+# THE WORD IS THE RIGHT ONE, NOT ONLY A WORD (review of PR #970, robertocsp point 2). The guard
+# above held that a site names a word of the vocabulary; it did not hold WHICH. On a647d604 five
+# one-line cuts each put one deliberate refusal back to 500 and survived every module that names
+# its symbol (`_held` → NOT_REFUSED: 5634 passed; `correct_card`'s closed card,
+# `capability_retired`, `decision_on_retired`, `_remove_one`'s not-found, each → NOT_REFUSED). So
+# the sentence a site answers with is read off the same tree, and the table below decides the
+# word for it.
 
 
 #: The two helpers that build a not-ok result from a sentence handed to them, and the word that
