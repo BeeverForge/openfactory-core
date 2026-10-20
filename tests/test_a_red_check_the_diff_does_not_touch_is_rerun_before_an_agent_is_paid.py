@@ -52,7 +52,7 @@ from temporalio.worker import Worker
 from openfactory.adapters.forge import base
 from openfactory.contracts import JobState, RunResult
 from openfactory.contracts.checks import Check, decide
-from openfactory.runtime.repairable import changed_paths
+from openfactory.runtime.repairable import changed_paths, log_names_the_change
 from openfactory.runtime.temporal import activities as acts
 from openfactory.runtime.temporal import workflow as wf
 from openfactory.runtime.temporal.io import CiRepairInput, JobParams
@@ -263,6 +263,33 @@ def test_a_short_basename_is_matched_as_a_file_not_as_a_substring(on_the_worker,
         assert len(agents) == 1 and forge.reruns == 0, f"{log!r} was not read as naming {changed}"
     else:
         assert agents == [] and forge.reruns == 1, f"{log!r} was read as naming {changed}"
+
+
+#: jest's own failed run 39405383814 (jestjs/jest), read with `gh run view --log-failed` on gh
+#: 2.102.0, 2026-10-20: gh keeps the colour codes, printed as the two characters `^[` (0 ESC bytes
+#: in 789,642), so an `m` stands right before the name jest colours on its own.
+_JEST = ("macOS with shard 3/3 / Node v24.x\tUNKNOWN STEP\t2026-10-20T10:29:48.6547730Z "
+         "^[[0m^[[7m^[[1m^[[31m FAIL ^[[39m^[[22m^[[27m^[[0m ^[[2m{dir}^[[22m^[[1m{name}^[[22m")
+
+
+@pytest.mark.parametrize("changed,log", [
+    pytest.param("packages/jest-circus/src/__tests__/utils.test.ts",
+                 _JEST.format(dir="packages/jest-circus/src/__tests__/", name="utils.test.ts"),
+                 id="jest's FAIL line, a nested file"),
+    pytest.param("e2e/__tests__/focusedTests.test.ts",
+                 _JEST.format(dir="e2e/__tests__/", name="focusedTests.test.ts"),
+                 id="jest's FAIL line, another nested file"),
+    pytest.param("setup.py", "\x1b[1msetup.py\x1b[0m:3: SyntaxError",
+                 id="a top-level file, coloured with real ESC bytes"),
+])
+def test_a_changed_file_named_in_colour_is_read_as_named(changed, log):
+    """A tool that colours a file name puts `...[1m` right before it, and the `m` is a character
+    a name holds: the rule read the log as naming no changed file, and the failed jobs of the
+    change's own failure were re-run instead of repaired (one CI round, and a false comment).
+    Colour codes, as ESC bytes or as gh's printed `^[`, are not part of the log's words.
+
+    Added in review round 1, measured on jest's run 39405383814: False on all three before."""
+    assert log_names_the_change(log, [changed]) is True
 
 
 def test_a_diff_that_could_not_be_read_is_not_read_as_unrelated(on_the_worker):

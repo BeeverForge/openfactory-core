@@ -201,17 +201,24 @@ def changed_paths(diff: str | None) -> list[str] | None:
 #: its LEFT is not one of these: `a.py` is a suffix of `data.py`, and is not that file.
 _NAME_CHAR = r"[\w.\-]"
 
+#: A colour code, as an ESC byte or as the two characters `^[` that `gh run view --log-failed`
+#: prints in its place (0 ESC bytes in 789,642 of jest's run 39405383814, gh 2.102.0,
+#: 2026-10-20). Left in, its closing `m` stands on the left of a name a tool colours on its own,
+#: and jest's `FAIL ... ^[[1mutils.test.ts` read as naming no changed file.
+_COLOUR = re.compile(r"(?:\x1b|\^\[)\[[0-9;]*[A-Za-z]")
+
 
 def log_names_the_change(log: str, paths: list[str]) -> bool:
     """Whether the failing log names any changed file: its full path, or its basename with its
     extension, with the start of the log or a character no file name holds on its left.
 
-    CASE-SENSITIVE, like the file systems the runners check out onto. `\\` READS AS `/`, because a
+    COLOUR CODES ARE NOT WORDS: they are dropped before the log is read. CASE-SENSITIVE, like
+    the file systems the runners check out onto. `\\` READS AS `/`, because a
     Windows runner logs `D:\\a\\x\\x\\src\\billing\\invoice.py(12)`. NEVER THE STEM: `invoice` is
     any word in a sentence, and reading it as `invoice.py` would launch an agent on every log
     that says "invoice". Nothing is required on the RIGHT, so `a.pyc` reads as naming `a.py`: a
     wrong "related" launches the agent, which is what happened before this rule existed."""
-    text = log.replace("\\", "/")
+    text = _COLOUR.sub("", log).replace("\\", "/")
     for path in paths:
         for name in {path, posixpath.basename(path)} - {""}:
             if re.search(rf"(?<!{_NAME_CHAR}){re.escape(name)}", text):
