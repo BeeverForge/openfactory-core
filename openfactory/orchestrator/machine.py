@@ -78,6 +78,7 @@ from openfactory.policy import protected as protected_policy
 from openfactory.policy.census import inventory_command, inventory_of
 from openfactory.policy.census import vanished as census_vanished
 from openfactory.policy.protected import violations as protected_violations
+from openfactory.product.model import WITHHELD_CREDENTIAL, scrub_credentials
 from openfactory.techlead import voice as tl_voice
 from openfactory.techlead.classify import TREE
 
@@ -572,6 +573,13 @@ def _spans(row: str) -> list[tuple[int, int]]:
             ticks.append(i)
         i += 1
     return [(ticks[j], ticks[j + 1] + 1) for j in range(0, len(ticks) - 1, 2)]
+
+
+def _without_credentials(text: str) -> str:
+    """Agent text with every credential in it shown as `WITHHELD_CREDENTIAL`: a token by its
+    prefix, an `Authorization` value, a secret this process holds, and a URL's userinfo — replaced
+    by the marker, not dropped, so the reader is told (#885)."""
+    return scrub_credentials(text, userinfo=WITHHELD_CREDENTIAL + "@")
 
 
 def _quoted(text: str) -> list[str]:
