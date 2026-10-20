@@ -278,6 +278,16 @@ _CREDENTIAL_SHAPES = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}"
     r"|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,})")
 _USERINFO = re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+@")
+#: The value of an `Authorization` header, whatever its scheme (`Bearer`, `Basic`, `token`), as a
+#: header, a `curl -H` or a JSON key writes it — and a bare `Bearer <value>` when the value looks
+#: like one: 16 characters of the token68 alphabet with a digit in them, so "the Bearer credential"
+#: is prose. The scheme word stays; the value is withheld. Measured at 620bb577: a JWT after
+#: `Authorization: Bearer` came back unchanged, because only a vendor prefix (`Bearer ghp_…`) was
+#: caught (#885). `$` is outside the alphabet, so `Bearer $GH_TOKEN` names a variable, not a value;
+#: a header value under 8 characters is a word (`Authorization: Bearer token`), not a credential.
+_AUTHORIZATION = re.compile(
+    r"(\bAuthorization[\"']?\s*[:=]\s*[\"']?[A-Za-z][\w-]*[ \t]+)[\w.~+/-]{8,}=*"
+    r"|(\bBearer[ \t]+)(?=[\w.~+/-]*\d)[\w.~+/-]{16,}=*", re.IGNORECASE)
 #: An environment variable whose value is a secret, by its name.
 _SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE|CREDENTIAL|KEY_CONTENT", re.I)
 WITHHELD_CREDENTIAL = "[credential withheld]"
@@ -288,6 +298,7 @@ def scrub_credentials(text: str) -> str:
     withheld. A facts file is read by a model and written to a workspace; a token in one is a token
     handed to whatever reads that directory."""
     text = _USERINFO.sub(r"\1", text)
+    text = _AUTHORIZATION.sub(lambda m: (m.group(1) or m.group(2)) + WITHHELD_CREDENTIAL, text)
     text = _CREDENTIAL_SHAPES.sub(WITHHELD_CREDENTIAL, text)
     for secret in _secrets_of_this_process():
         if secret in text:
