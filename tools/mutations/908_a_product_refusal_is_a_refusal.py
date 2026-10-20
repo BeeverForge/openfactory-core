@@ -30,7 +30,10 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
      `not_valid`, a card the board would start building on its own is `not_waiting`;
   9. and each site names the RIGHT word: the structural guard reads the sentence a site answers
      with and requires the word its table decides — a hold is `not_waiting`, and `WriteResult`
-     refuses a word outside the vocabulary.
+     refuses a word outside the vocabulary;
+ 10. the rows the worker runs carry a reference too: refine, align, the breakdown (its worker not
+     answering, or the running one having filed nothing) and the first pass; and a running
+     breakdown whose every front was refused answers that refusal.
 """
 
 TEST = "tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py"
@@ -348,6 +351,42 @@ MUTATIONS = [
      '            return _could_not(said["title_too_long_ticket"].format(limit=TITLE_LIMIT),\n'
      '                              act="file a ticket")\n',
      STRUCTURAL + "::test_every_not_ok_result_names_the_word_its_sentence_decides"),
+
+    # 10. (review of PR #970, robertocsp point 3 and hermesfelipe) the rows the worker runs: a
+    #     failure there carries a reference too, and a running breakdown's refusal is a refusal
+    ("R3.3: a card rewrite the worker did not finish answers no reference", CATALOG,
+     '        return refused(FAILED, f"I could not rewrite #{ref} just now.", project=proj.name,\n'
+     "                       reference=reference)\n",
+     '        return refused(FAILED, f"I could not rewrite #{ref} just now.", project=proj.name)\n',
+     FAILURE + "::test_a_write_the_worker_did_not_finish_is_a_failure_with_a_reference"
+     "[product_refine_card-params0]"),
+    ("R3.3: a first pass the worker did not finish answers no reference", CATALOG,
+     '        return refused(FAILED, "I could not run the first pass just now.", project=proj.name,\n'
+     "                       reference=reference)\n",
+     '        return refused(FAILED, "I could not run the first pass just now.", project=proj.name)\n',
+     FAILURE + "::test_a_write_the_worker_did_not_finish_is_a_failure_with_a_reference"
+     "[product_baseline-params2]"),
+    ("R3.3: a first pass the worker reports unfinished answers no reference", CATALOG,
+     '        return _failed(text or "the first pass did not finish.", did="run the first pass",\n'
+     "                       project=proj.name)\n",
+     '        return refused(FAILED, text or "the first pass did not finish.", project=proj.name)\n',
+     FAILURE + "::test_a_first_pass_the_worker_reports_unfinished_is_a_failure_with_a_reference"),
+    ("R3.3: a breakdown the worker did not answer answers no reference", CATALOG,
+     "                       project=proj.name, number=num, reference=reference)\n",
+     "                       project=proj.name, number=num)\n",
+     FAILURE + "::test_a_breakdown_the_worker_did_not_answer_is_a_failure_with_a_reference"),
+    ("R3.3: the breakdown's failure line names no reference", CATALOG,
+     '                      "person asked for the breakdown and no work was filed", reference,\n',
+     '                      "person asked for the breakdown and no work was filed", "-",\n',
+     FAILURE + "::test_a_breakdown_the_worker_did_not_answer_is_a_failure_with_a_reference"),
+    ("R3.3: a running breakdown that filed nothing is FAILED again, refusal or not", CATALOG,
+     '            return _none_done(running.filed, said, did="break the requirement down", **data)\n',
+     "            return refused(FAILED, said, **data)\n",
+     FAILURE + "::test_a_running_breakdown_whose_every_front_was_refused_answers_that_refusal"),
+    ("R3.3: a running breakdown that filed nothing answers no reference", CATALOG,
+     '            return _none_done(running.filed, said, did="break the requirement down", **data)\n',
+     "            return refused(FAILED, said, **data)\n",
+     FAILURE + "::test_a_running_breakdown_that_filed_nothing_is_a_failure_with_a_reference"),
 
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,

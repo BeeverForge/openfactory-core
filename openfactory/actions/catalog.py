@@ -2200,6 +2200,15 @@ def _not_done(said: str, why: str, *, did: str, **payload) -> Outcome:
         # nobody's decision rather than guessed at, and said, so the drift is seen.
         log.error("OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN did=%s refusal=%r — answered as a "
                   "failure; this panel knows %s", did, why, ", ".join(sorted(_REFUSAL_CODE)))
+    return _failed(said, did=did, **payload)
+
+
+def _failed(said: str, *, did: str, **payload) -> Outcome:
+    """A product write that was tried and did not happen, as `/api/act` answers it: 500 `failed`,
+    the sentence unchanged, and a reference that is in `data["reference"]` AND in the one line
+    logged here — `_not_done`'s failure arm, and a worker's answer that is not ok where no word can
+    travel (`product_baseline`). FAILED only, so a row that reaches this and not `_not_done`
+    declares no refusal code it cannot answer."""
     reference = failure_reference()
     log.error("OPENFACTORY_PRODUCT_WRITE_FAILED reference=%s did=%s project=%s ref=%s — %s",
               reference, did, payload.get("project") or "-", payload.get("ref") or "-", said)
@@ -2685,8 +2694,13 @@ async def _product_baseline(*, project: str, by: Actor, yes: object = False) -> 
             ProductBaselineInput(project=proj.name, actor=by.id, via=via),
             id=f"openfactory-product-baseline-{proj.name}", task_queue=TASK_QUEUE)
     except Exception as exc:  # noqa: BLE001 — a write path must report, never raise
-        log.exception("the baseline pass could not run for %s (%s)", proj.name, exc)
-        return refused(FAILED, "I could not run the first pass just now.", project=proj.name)
+        # THE REFERENCE IS IN THE LINE AND IN THE ANSWER (#908), as `perform`'s RAISED arm: this is
+        # where the module raising on the worker lands — on a647d604 a 500 with no reference
+        reference = failure_reference()
+        log.exception("the baseline pass could not run for %s reference=%s (%s)", proj.name,
+                      reference, exc)
+        return refused(FAILED, "I could not run the first pass just now.", project=proj.name,
+                       reference=reference)
 
     raw = raw or {}
     from openfactory.product.voice import strip_markup
@@ -2697,7 +2711,9 @@ async def _product_baseline(*, project: str, by: Actor, yes: object = False) -> 
     # stack trace with a link in it.
     text = strip_markup(str(raw.get("text") or ""))
     if not raw.get("ok"):
-        return refused(FAILED, text or "the first pass did not finish.", project=proj.name)
+        # nobody's decision — the code copy unreadable, the survey drafted nothing (#908)
+        return _failed(text or "the first pass did not finish.", did="run the first pass",
+                       project=proj.name)
     return done(text, project=proj.name, existed=bool(raw.get("existed")),
                 url=str(raw.get("url") or ""), ref=str(raw.get("ref") or ""),
                 measured_on=_measured_on(by))
@@ -3881,17 +3897,23 @@ async def _product_break_down(*, project: str, number: str, by: Actor,
                 "running": True}
         said = _the_running_breakdown(num, running.filed)
         if running.filed is not None and not any(r.get("ok") for r in running.filed):
-            return refused(FAILED, said, **data)
+            # THE RUNNING ONE FILED NOTHING: its fronts' one refusal, or a failure with a
+            # reference, through the same mapping as this row's own (#908; on a647d604 a 500
+            # with neither — review of PR #970)
+            return _none_done(running.filed, said, did="break the requirement down", **data)
         return done(said, **data)
     except Exception as exc:  # noqa: BLE001 — an engine that is down is an answer, not a crash
         from openfactory.util.causes import first_message
 
-        log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_FAILED project=%s req=%s — a person asked "
-                      "for the breakdown and no work was filed", proj.name, num)
+        # the reference is in the line and in the answer (#908): on a647d604 neither had one
+        reference = failure_reference()
+        log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_FAILED reference=%s project=%s req=%s — a "
+                      "person asked for the breakdown and no work was filed", reference,
+                      proj.name, num)
         return refused(FAILED, f"nothing was filed for requirement {num}: the breakdown runs on "
                                f"the worker and it did not answer "
                                f"({first_message(exc, limit=160)}). Asking again is safe.",
-                       project=proj.name, number=num)
+                       project=proj.name, number=num, reference=reference)
 
     data = {"project": proj.name, "number": num, "filed": filed}
     made = [r for r in filed if r.get("ok")]
@@ -5613,8 +5635,13 @@ async def _product_card(verb: str, *, project: str, number: str, by: Actor,
                              requirement=requirement, actor=by.id),
             id=f"openfactory-product-card-{verb}-{proj.name}-{ref}", task_queue=TASK_QUEUE)
     except Exception as exc:  # noqa: BLE001 — a write path must degrade, never raise
-        log.exception("the product role could not %s #%s on %s (%s)", verb, ref, proj.name, exc)
-        return refused(FAILED, f"I could not rewrite #{ref} just now.", project=proj.name)
+        # the module raising on the worker lands here: the reference is in the line and in the
+        # answer (#908) — on a647d604 a 500 with `data={"project", "reason"}`
+        reference = failure_reference()
+        log.exception("the product role could not %s #%s on %s reference=%s (%s)", verb, ref,
+                      proj.name, reference, exc)
+        return refused(FAILED, f"I could not rewrite #{ref} just now.", project=proj.name,
+                       reference=reference)
 
     # The activity returns the `WriteResult`'s fields as data (it crossed a Temporal boundary);
     # `_write_outcome` reads them off an object, so it is handed one. Missing keys fall through to

@@ -66,8 +66,10 @@ purpose, a `product_*` row (and `card_close`, `card_remove`) answers with the ro
 `data.reason` stays the code, so the list of reasons above is unchanged. Only a write the product
 role tried and that did not happen — the board unreadable when the role reads it, the forge down —
 answers 500 `failed`; the row's own card check, which runs first, still answers a board it cannot
-read as 409 `conflict` (a known limitation). A 500 `failed` carries `data.reference`, the same
-reference the panel's `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…` log line names. A row whose implementation raised answers 500 `raised`, and its `data.reference`
+read as 409 `conflict` (a known limitation). A 500 `failed` from one of these rows, or from
+`product_refine_card`, `product_align_card`, `product_break_down` and `product_baseline` (which
+the worker runs), carries `data.reference`, and the panel's log line for that failure carries the
+same `reference=…`. A row whose implementation raised answers 500 `raised`, and its `data.reference`
 names the `action … raised` log line.
 
 A socket is refused before it is accepted: the upgrade is answered with a 403 and closed with code

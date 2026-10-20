@@ -21,7 +21,10 @@ local tracker, as the product admin on a named product credential:
     `data.reference` that the `action … raised` line carries;
   · a result from a worker older than `refusal` (its dict names none) is a failure with a
     reference — the rolling-deploy case. It passes before the change on the code and the status;
-    it is red only on the reference.
+    it is red only on the reference;
+  · the rows the worker runs — refine, align, the breakdown, the first pass — answer their engine's
+    failure (the module raising on the worker) with a reference too, and a running breakdown whose
+    every front was refused answers that refusal (review of PR #970).
 """
 
 from __future__ import annotations
@@ -279,3 +282,153 @@ def test_a_card_whose_slice_could_not_be_asked_is_a_failure_with_a_reference(
     said = r.json()
     assert (r.status_code, said["code"]) == (500, "failed"), (r.status_code, said)
     assert said["data"].get("reference"), said
+
+
+# ---------------------------------------------------------------------------------------------------
+# THE ROWS THE WORKER RUNS (review of PR #970, robertocsp point 3 and hermesfelipe). The API reference
+# and the release note said every 500 `failed` of a product write carries a `data.reference` its log
+# line names; on a647d604 the rows that dispatch to the worker answered their engine's failure —
+# which is what the panel sees when the module raised on the worker — with no reference at all:
+# `product_refine_card` 500 `data={"project", "reason"}`, `product_break_down` 500
+# `data={"project", "number", "reason"}`, `product_baseline` 500 with none.
+
+
+class _EngineThatRaises:
+    """The engine as the panel meets it when the activity raised on the worker."""
+
+    async def execute_workflow(self, name, inp, **_kw):
+        raise RuntimeError("activity task failed: the forge is down")
+
+
+@pytest.fixture
+def the_worker_raises(monkeypatch):
+    from openfactory.actions import catalog
+
+    async def _connected():
+        return _EngineThatRaises(), None
+
+    monkeypatch.setattr(catalog, "_connected", _connected)
+
+
+def _a_reference_its_line_names(r, caplog) -> str:
+    said = r.json()
+    assert (r.status_code, said["code"]) == (500, "failed"), (r.status_code, said)
+    reference = said["data"].get("reference")
+    assert reference, f"the failure carries no reference to its log line: {said['data']}"
+    assert [rec for rec in caplog.records if f"reference={reference}" in rec.getMessage()], (
+        f"no log line names reference {reference}")
+    return reference
+
+
+@pytest.mark.parametrize("row, params", [
+    ("product_refine_card", {"number": "1"}),
+    ("product_align_card", {"number": "1", "requirement": "7"}),
+    ("product_baseline", {}),
+])
+def test_a_write_the_worker_did_not_finish_is_a_failure_with_a_reference(
+        client, deployment, the_worker_raises, caplog, row, params):  # noqa: F811 — fixtures
+    """Criterion 2, "the module raising", on the rows it lands on: the engine's failure answers
+    500 `failed` with a `data.reference`, and a log line names the same reference."""
+    with caplog.at_level(logging.INFO):
+        r = _post(client, row, who=ADMIN, yes=True, **params)
+
+    _a_reference_its_line_names(r, caplog)
+
+
+def test_a_first_pass_the_worker_reports_unfinished_is_a_failure_with_a_reference(
+        client, deployment, monkeypatch, caplog):  # noqa: F811 — the imported fixtures
+    """The baseline's other failure arm: the worker answered, and its answer is not ok (the code
+    copy could not be read, the survey drafted nothing) — no decision of anybody's, a failure with
+    a reference, the worker's sentence unchanged."""
+    from openfactory.actions import catalog
+
+    class _Engine:
+        async def execute_workflow(self, name, inp, **_kw):
+            return {"ok": False, "text": "I could not get a copy of the code to read."}
+
+    async def _connected():
+        return _Engine(), None
+
+    monkeypatch.setattr(catalog, "_connected", _connected)
+    with caplog.at_level(logging.INFO):
+        r = _post(client, "product_baseline", who=ADMIN, yes=True)
+
+    _a_reference_its_line_names(r, caplog)
+    assert r.json()["message"] == "I could not get a copy of the code to read."
+
+
+def _past_the_breakdowns_gates(monkeypatch, deployment):  # noqa: F811 — the imported fixture
+    """`product_break_down`'s own gates pass: the corpus is readable and 7 names a promise."""
+    from types import SimpleNamespace
+
+    from openfactory.actions import catalog
+
+    class _Module:
+        def context(self):
+            promise = SimpleNamespace(is_promise=True)
+            return SimpleNamespace(available=True, reason="",
+                                   corpus=SimpleNamespace(by_number=lambda n: promise))
+
+    monkeypatch.setattr(catalog, "_product_module", lambda name, by=None: (
+        _Module(), deployment, None))
+    monkeypatch.setattr(catalog, "_where_it_was_written", lambda project, number: ("", ""))
+
+
+def test_a_breakdown_the_worker_did_not_answer_is_a_failure_with_a_reference(
+        client, deployment, the_worker_raises, monkeypatch, caplog):  # noqa: F811 — fixtures
+    """Criterion 2 on `product_break_down`: the worker did not answer — 500 `failed`, a
+    `data.reference`, and the `OPENFACTORY_PRODUCT_BREAKDOWN_FAILED` line names it."""
+    _past_the_breakdowns_gates(monkeypatch, deployment)
+
+    with caplog.at_level(logging.INFO):
+        r = _post(client, "product_break_down", who=ADMIN, number="7", yes=True)
+
+    reference = _a_reference_its_line_names(r, caplog)
+    assert _lines(caplog, carrying="OPENFACTORY_PRODUCT_BREAKDOWN_FAILED")[0].count(reference)
+
+
+def _a_breakdown_already_running(monkeypatch, filed):
+    from openfactory.actions import catalog
+
+    async def _running(**_kw):
+        raise catalog._AlreadyBreakingDown(filed)
+
+    monkeypatch.setattr(catalog, "_broken_down_on_the_worker", _running)
+
+
+def test_a_running_breakdown_that_filed_nothing_is_a_failure_with_a_reference(
+        client, deployment, monkeypatch, caplog):  # noqa: F811 — the imported fixtures
+    """The breakdown already running filed nothing, and none of its fronts names a refusal: a
+    failure, 500 `failed`, with a reference — on a647d604 the same 500 with none."""
+    _past_the_breakdowns_gates(monkeypatch, deployment)
+    _a_breakdown_already_running(monkeypatch, [
+        {"ok": False, "ref": "", "url": "", "existed": False,
+         "detail": "I could not open that card.", "refusal": ""}])
+
+    with caplog.at_level(logging.INFO):
+        r = _post(client, "product_break_down", who=ADMIN, number="7", yes=True)
+
+    _a_reference_its_line_names(r, caplog)
+    assert r.json()["data"]["running"] is True
+
+
+def test_a_running_breakdown_whose_every_front_was_refused_answers_that_refusal(
+        client, deployment, monkeypatch):  # noqa: F811 — the imported fixtures
+    """Criterion 1 on the running breakdown (hermesfelipe, review of PR #970): its every filed
+    front names the same deliberate refusal, so the answer is that refusal — 409 with
+    `data.refusal` — through `_none_done`'s one mapping. On a647d604 it was `refused(FAILED)`: a
+    500 with no reference and no refusal."""
+    from openfactory.product import voice
+
+    _past_the_breakdowns_gates(monkeypatch, deployment)
+    detail = voice.breakdown_said("retired", number=7, language="en")
+    _a_breakdown_already_running(monkeypatch, [
+        {"ok": False, "ref": "", "url": "", "existed": False, "detail": detail,
+         "refusal": "not_waiting"}] * 2)
+
+    r = _post(client, "product_break_down", who=ADMIN, number="7", yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (409, "conflict"), (r.status_code, said)
+    assert said["data"]["refusal"] == "not_waiting", said
+    assert said["data"]["running"] is True, said
