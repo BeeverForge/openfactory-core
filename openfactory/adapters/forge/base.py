@@ -9,7 +9,7 @@ deploy with its own secrets (ADR-0001 D-12). Merge rights are governed by the fl
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
@@ -686,7 +686,24 @@ class RerunRefused(RuntimeError):
     `rerun_failed_of`, like `GatesNotListed` and `CommentsNotListed`."""
 
 
-def rerun_failed_of(forge: object, pr: str) -> list[str] | RerunRefused | None:
+class Reran(list[str]):
+    """The names of the checks a forge re-ran, and `left`: the red checks it did not re-run
+    because their run was past the ones whose failing log was read (#756).
+
+    A LIST, so every caller and every row that answers a plain list of names reads it as before;
+    `left` is the one thing more. GitHub reads the failing logs of the first two red runs, and
+    re-runs those two only: a third run is neither read nor re-run, and stays red when the checks
+    are read again. That is not a refusal (refusing would launch the agent at once on the first
+    two's logs, which named no changed file), but it is not "every red check was re-run" either,
+    and a comment that names only the re-run checks lets the reader believe it was (lesson §9;
+    the re-review on c4f591b, 2026-10-20)."""
+
+    def __init__(self, names: Iterable[str] = (), *, left: Iterable[str] = ()):
+        super().__init__(names)
+        self.left: list[str] = list(left)
+
+
+def rerun_failed_of(forge: object, pr: str) -> Reran | RerunRefused | None:
     """Re-run the failed jobs of `pr`'s red blocking checks: the names of the checks re-run, why
     the forge refused, or `None` when the row cannot re-run anything (#756).
 
@@ -700,8 +717,9 @@ def rerun_failed_of(forge: object, pr: str) -> list[str] | RerunRefused | None:
 
     THE ANSWERS:
       · `None` — no callable `rerun_failed` on the row: nothing was asked, repair as before;
-      · a list of check names — the checks whose failed jobs the forge re-ran; `[]` is "asked,
-        and nothing was re-runnable", which callers treat as NOT re-run;
+      · a `Reran` — the names of the checks whose failed jobs the forge re-ran, and in `left`
+        the red checks it left past its bound (empty for a row that answers a plain list); `[]`
+        is "asked, and nothing was re-runnable", which callers treat as NOT re-run;
       · `RerunRefused` — the forge refused, or raised anything else (wrapped, its words kept), or
         answered something that is not a list of names. The call WAS made, so this is not `None`:
         a test double (`MagicMock`) lands here, and is never read as a success."""
@@ -719,12 +737,13 @@ def rerun_failed_of(forge: object, pr: str) -> list[str] | RerunRefused | None:
                  str(exc)[:300])
         return RerunRefused(f"{display_name(forge)} could not re-run the failed jobs "
                             f"({str(exc)[:300]})")
-    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+    left = names.left if isinstance(names, Reran) else []
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in [*names, *left]):
         log.info("%s answered a re-run of %s with %s, not a list of check names",
                  type(forge).__name__, pr, type(names).__name__)
         return RerunRefused(f"{display_name(forge)} answered something that is not a list of "
                             "re-run checks")
-    return names
+    return Reran(names, left=left)
 
 
 def description_ceiling(forge: object) -> tuple[int, Callable[[str], int]] | None:

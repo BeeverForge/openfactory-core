@@ -176,7 +176,10 @@ amendment, not a reversal: the agent still repairs every red build the step does
   `_failing_runs` chooses for `failed_ci_logs`: the first two, and of those only a run whose
   failing log reads (non-empty) when read again just before, so no run is re-run whose log the
   decision did not read (one more `gh run view --log-failed` per run, at most two, on the re-run
-  paths only). Azure Repos, the local forge and every add-on declare nothing.
+  paths only). A red check whose run is past the first two is neither read nor re-run, and is not
+  a refusal (refusing would launch the agent at once on logs that named no changed file): the row
+  answers it as left (`Reran.left`), and the comment and the note name it as not re-run and left
+  red. Azure Repos, the local forge and every add-on declare nothing.
   Their diff is never read for this, nothing is said, and the agent repairs as before.
 - **A refusal falls through to the agent, and is said** (PO, 2026-10-19). A refusal is a
   `RerunRefused` value: no `Actions: write`, a run still in progress, checks that could not be read,

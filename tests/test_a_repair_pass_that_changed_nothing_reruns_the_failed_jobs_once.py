@@ -142,6 +142,26 @@ def test_a_rerun_refused_for_one_run_of_two_after_a_pass_does_not_say_none_was_r
     assert "were not re-run" not in note and "not every failed job could be re-run" in note, note
 
 
+def test_a_red_check_past_the_runs_read_is_named_as_not_rerun_after_a_pass(on_the_worker,
+                                                                           monkeypatch):
+    """Lesson §9, after the pass: three red required runs on GitHub, the pass changed nothing, so
+    the failed jobs of the two runs whose logs were read (`c1`, `c2`) are re-run. `c3`'s run is
+    past them: not re-run, it stays red when the checks are read again. The pull request and the
+    note name it, rather than leave the reader to think every red check was re-run.
+
+    Added in the human round, 2026-10-20 (re-review on c4f591b): the comment and the note named
+    `c1` and `c2` alone."""
+    forge = pre._three_red_runs_on_github(monkeypatch)  # noqa: SLF001
+    agents = on_the_worker(forge, changed=False)
+    got = acts._run_ci_repair(SECOND, "run-r2")  # noqa: SLF001
+    assert len(agents) == 1, agents
+    assert [c[2] for c in forge.calls if c[:2] == ["run", "rerun"]] == ["1", "2"], forge.calls
+    assert len(forge.comments) == 1, forge.comments
+    said = forge.comments[0]
+    assert "`c3` was not re-run: its failing log was not read" in said, said
+    assert "c3 was not re-run" in (got.note or ""), got.note
+
+
 def test_nothing_to_rerun_after_a_pass_is_said_in_the_note(on_the_worker):
     """The forge was asked and found no failed job of this pull request to re-run (`[]`: the check
     finished green since, or its run lives where the forge cannot reach it). Nothing was refused

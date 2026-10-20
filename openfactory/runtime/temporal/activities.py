@@ -2707,6 +2707,23 @@ def _nothing_to_repair(project, inp: CiRepairInput) -> tuple[RunResult | None, s
     return what_to_repair(lambda: _forge_for(project), inp.issue, inp.pr_url)
 
 
+def _not_rerun(left: list[str], *, quoted: bool, then: str = "") -> str:
+    """"`c3` was not re-run: its failing log was not read, so it is left red<then>", naming the
+    red checks the forge left past the runs whose failing log was read (`Reran.left`), or ""
+    when it left none (#756).
+
+    WITHOUT IT THE COMMENT WAS FALSE (lesson §9; re-review on c4f591b, 2026-10-20). With three
+    red runs GitHub re-runs the two whose logs were read, and the pull request was told "Re-ran
+    the failed jobs of `c1`, `c2` ... so no agent was launched for it". `c3` stayed red, and the
+    watch's next read (`_CI_POLL` later; a fail outranks a pending) launched an agent on it."""
+    if not left:
+        return ""
+    names = ", ".join(f"`{n}`" if quoted else n for n in left)
+    if len(left) == 1:
+        return f"{names} was not re-run: its failing log was not read, so it is left red{then}"
+    return f"{names} were not re-run: their failing logs were not read, so they are left red{then}"
+
+
 def _rerun_what_the_change_does_not_touch(project, inp: CiRepairInput, repo: str,
                                           evidence: str) -> RunResult | None:
     """The re-run that stands in for an agent, or `None`: launch the agent as before (#756).
@@ -2727,7 +2744,11 @@ def _rerun_what_the_change_does_not_touch(project, inp: CiRepairInput, repo: str
 
     A REFUSED RE-RUN FALLS THROUGH TO THE AGENT, handed the same `evidence`, and is said both in
     the worker log and on the pull request (PO answer to Q3). `[]` (asked, and nothing was
-    re-runnable) falls through with a warning: nothing was refused, and nothing was re-run."""
+    re-runnable) falls through with a warning: nothing was refused, and nothing was re-run.
+
+    A RED CHECK THE FORGE LEFT PAST THE RUNS WHOSE LOG WAS READ (`Reran.left`) is named on the
+    pull request and in the note as not re-run and left red for the next repair attempt; it does
+    not turn the re-run into a refusal."""
     from openfactory.adapters.forge.base import RerunRefused, rerun_failed_of
 
     forge = _forge_for(project)
@@ -2760,10 +2781,13 @@ def _rerun_what_the_change_does_not_touch(project, inp: CiRepairInput, repo: str
                                 "repairs it", inp.pr_url)
         return None
     names = ", ".join(f"`{n}`" for n in reran)
+    # A red check past the runs read stays red, and the attempt after this one takes it up: this
+    # is attempt 1 (the bound above) of `_CI_REPAIR_MAX` = 2 (workflow.py).
+    left = _not_rerun(reran.left, quoted=True, then=" for the next repair attempt")
     _say_on_the_pull_request(forge, inp.pr_url, (
         f"Re-ran the failed jobs of {names}: no file this pull request changes appears in their "
         "failing log, so no agent was launched for it. The checks are read again once they "
-        "finish."))
+        "finish." + (f" {left}." if left else "")))
     activity.logger.info("re-ran the failed jobs of %s (%s) instead of launching an agent",
                          inp.pr_url, ", ".join(reran))
     # `code_changed=False`: nothing was pushed, so the reviewer's verdict on the head still stands
@@ -2776,7 +2800,8 @@ def _rerun_what_the_change_does_not_touch(project, inp: CiRepairInput, repo: str
     return RunResult(ticket_id=inp.issue, state=JobState.PR_OPEN, pr_url=inp.pr_url,
                      code_changed=False,
                      note=f"re-ran the failed jobs of {', '.join(reran)}: no changed file "
-                          "appears in their failing log")
+                          "appears in their failing log"
+                          + (f"; {_not_rerun(reran.left, quoted=False)}" if reran.left else ""))
 
 
 def _rerun_after_a_pass_that_changed_nothing(forge_of, inp: CiRepairInput, result: RunResult,
@@ -2797,7 +2822,8 @@ def _rerun_after_a_pass_that_changed_nothing(forge_of, inp: CiRepairInput, resul
     pass that changed the code, and says nothing: the result goes back exactly as it came.
 
     SAID ON THE PULL REQUEST, AFTER THE FORGE ANSWERED (lesson §9): the checks it re-ran (PO answer
-    Q4), or its refusal in its words (Q3), besides the worker log and the result's note. `[]`
+    Q4) and any red check it left past the runs whose log was read (`Reran.left`), or its refusal
+    in its words (Q3), besides the worker log and the result's note. `[]`
     (asked, nothing re-runnable) is said in the note and the log only: nothing happened to tell."""
     if human or result.state is not JobState.PR_OPEN or result.code_changed is not False:
         return result
@@ -2827,12 +2853,17 @@ def _rerun_after_a_pass_that_changed_nothing(forge_of, inp: CiRepairInput, resul
         added = "no failed job was found to re-run"
     else:
         names = ", ".join(f"`{n}`" for n in reran)
+        # Not "for the next repair attempt" here: after the last attempt's pass none is left, and
+        # the card parks for a person. What is true on every attempt is that it stays red.
+        left = _not_rerun(reran.left, quoted=True)
         _say_on_the_pull_request(forge, inp.pr_url, (
             f"Re-ran the failed jobs of {names}: a repair pass changed nothing in this pull "
-            "request, so its checks are run once more. They are read again once they finish."))
+            "request, so its checks are run once more. They are read again once they finish."
+            + (f" {left}." if left else "")))
         activity.logger.info("re-ran the failed jobs of %s (%s) after a repair pass that changed "
                              "nothing", inp.pr_url, ", ".join(reran))
-        added = f"re-ran the failed jobs of {', '.join(reran)}: the pass changed nothing"
+        added = f"re-ran the failed jobs of {', '.join(reran)}: the pass changed nothing" + (
+            f"; {_not_rerun(reran.left, quoted=False)}" if reran.left else "")
     return result.model_copy(update={"note": f"{result.note}; {added}" if result.note else added})
 
 

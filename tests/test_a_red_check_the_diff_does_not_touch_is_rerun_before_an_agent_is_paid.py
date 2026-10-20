@@ -374,6 +374,45 @@ def test_a_rerun_refused_for_one_run_of_two_does_not_say_none_was_rerun(on_the_w
     assert "were not re-run" not in said and PARTIAL in said, said
 
 
+def _three_red_runs_on_github(monkeypatch):
+    """A real `GitHubForge` whose `gh` answers three red required code runs, checks `c1`-`c3`,
+    each failing log reading `FAIL in run N` (no changed file); its diff and its comments are
+    stubbed. Imported here, not at the top: a module-level import of another test module made
+    this one a collection error on main once (review round 1)."""
+    from tests import test_rerunning_failed_jobs_is_a_capability_a_forge_declares as cap
+
+    runs = "https://github.com/acme/x/actions/runs"
+    forge = cap._github(monkeypatch,  # noqa: SLF001
+                        [cap._row(f"c{i}", "fail", link=f"{runs}/{i}/job/9")  # noqa: SLF001
+                         for i in (1, 2, 3)], ["c1", "c2", "c3"])
+    forge.comments = []
+    monkeypatch.setattr(forge, "pr_diff", lambda *, pr, **_kw: DIFF)
+    monkeypatch.setattr(forge, "review_pr",
+                        lambda *, pr, event, body: forge.comments.append(body))
+    return forge
+
+
+def test_a_red_check_past_the_runs_read_is_named_as_not_rerun(on_the_worker, monkeypatch):
+    """Lesson §9. Three red required runs on GitHub: the failing logs of the first two are read
+    and name no changed file, so `c1` and `c2` are re-run and no agent is launched. `c3`'s run is
+    past the two whose logs were read, so it is neither read nor re-run and stays red for the next
+    repair attempt. The pull request and the note say so by name.
+
+    Added in the human round, 2026-10-20 (re-review on c4f591b): the comment said "Re-ran the
+    failed jobs of `c1`, `c2` ... so no agent was launched for it" and never named `c3`, and the
+    watch's next read, `_CI_POLL` later, launched an agent on `c3` (a fail outranks a pending)."""
+    forge = _three_red_runs_on_github(monkeypatch)
+    agents = on_the_worker(forge)
+    got = acts._run_ci_repair(FIRST, "run-r1")  # noqa: SLF001
+    assert agents == [], f"an agent was launched: {agents}"
+    assert [c[2] for c in forge.calls if c[:2] == ["run", "rerun"]] == ["1", "2"], forge.calls
+    assert len(forge.comments) == 1, forge.comments
+    said = forge.comments[0]
+    assert "`c3` was not re-run: its failing log was not read" in said, said
+    assert "next repair attempt" in said, said
+    assert "c3 was not re-run" in (got.note or ""), got.note
+
+
 def test_a_second_attempt_on_the_same_head_launches_the_agent(on_the_worker):
     """PO answer Q1(b): the re-run stands in for the agent once per head, on the first attempt.
     A wrong "unrelated" (the commonest real regression: changed `invoice_totals.ts`, failing

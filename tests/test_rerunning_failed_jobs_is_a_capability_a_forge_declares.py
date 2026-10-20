@@ -351,6 +351,51 @@ def test_github_reruns_only_the_runs_whose_logs_the_decision_read(monkeypatch):
     assert got == ["c1", "c2"]
 
 
+def test_github_names_the_red_checks_it_left_past_the_runs_read(monkeypatch):
+    """Three red required runs: `c1` and `c2` are re-run, and the answer also names `c3`, whose run
+    is past the two whose logs were read, as left red. It is not a refusal: refusing would launch
+    the agent at once on `c1` and `c2`'s logs, which name no changed file.
+
+    Added in the human round, 2026-10-20 (re-review on c4f591b): `c3` was dropped in silence, so
+    neither the pull request nor the note could name it."""
+    runs = "https://github.com/acme/x/actions/runs"
+    f = _github(monkeypatch, [_row(f"c{i}", "fail", link=f"{runs}/{i}/job/9") for i in (1, 2, 3)],
+                ["c1", "c2", "c3"])
+    got = base.rerun_failed_of(f, PR)
+    assert got == ["c1", "c2"], f"answered {got!r}"
+    assert getattr(got, "left", None) == ["c3"], (
+        f"the check left past the runs read is not named: {getattr(got, 'left', None)!r}")
+
+
+def test_a_row_answering_a_plain_list_leaves_no_check_unnamed():
+    """A row that answers only the names it re-ran (a test double, an add-on) is read as having
+    left nothing past a bound, so the caller reads `left` off every success alike."""
+    got = base.rerun_failed_of(SimpleNamespace(rerun_failed=lambda *, pr: ["build"]), PR)
+    assert got == ["build"] and getattr(got, "left", None) == [], f"answered {got!r}"
+
+
+def test_github_logs_none_of_which_read_are_no_log(monkeypatch):
+    """No selected run's failing log reads: the log is empty (the #184 gate holds for a person),
+    never a placeholder standing in for a log nobody read.
+
+    Added in the human round, 2026-10-20: the re-review on c4f591b found the cut "an unread run
+    adds `LOG`" survived every row."""
+    runs = "https://github.com/acme/x/actions/runs"
+    f = _github(monkeypatch, [_row("pytest", "fail", link=f"{runs}/1/job/7"),
+                              _row("e2e", "fail", link=f"{runs}/2/job/1")], ["pytest", "e2e"])
+    real = f._gh  # noqa: SLF001
+
+    def gh(args, timeout=120):
+        out = real(args, timeout)
+        if args[:2] == ["run", "view"]:
+            out.returncode, out.stdout, out.stderr = 1, "", "HTTP 404: Not Found"
+        return out
+
+    monkeypatch.setattr(f, "_gh", gh)
+    assert f.failed_ci_logs(pr=PR) == ""
+    assert sorted(c[2] for c in f.calls if c[:2] == ["run", "view"]) == ["1", "2"], f.calls
+
+
 #: The two ways `gh run view <id> --log-failed` gives the repair no log of a run: it exits
 #: non-zero (the run's logs expired or are not yet archived, a 404, a rate limit), or exits zero
 #: with nothing on stdout. `failed_ci_logs` skips the run either way.

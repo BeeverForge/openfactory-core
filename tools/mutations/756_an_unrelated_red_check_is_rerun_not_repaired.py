@@ -27,8 +27,8 @@ SIX CLAIMS:
   5. **The seam is a row capability that cannot be faked** (D): a test double's answer is not a
      list of names, and a refusal is a value carrying the forge's words, never `[]`.
   6. **The GitHub row re-runs exactly the runs the log was read from**: blocking `code` rows of
-     the pull request's own repository, the first two, never a third whose log was not read,
-     nor one whose log read failed or came back empty (that run is named in a refusal); one run
+     the pull request's own repository, the first two, never a third whose log was not read
+     (named on the pull request and in the note as left red, not refused), nor one whose log read failed or came back empty (that run is named in a refusal); one run
      refused of two, and checks it could not read, are refusals, never a success or `[]`; and
      generic code never reaches a forge CLI. Both moves are reached from the registered
      `repair_ci` activity, and a forge that cannot be built after a pass returns the pass.
@@ -111,7 +111,7 @@ MUTATIONS = [
      '        f"Re-ran the failed jobs of {names}: no file this pull request changes appears in'
      ' their "\n'
      '        "failing log, so no agent was launched for it. The checks are read again once they "\n'
-     '        "finish."))\n',
+     '        "finish." + (f" {left}." if left else "")))\n',
      ""),
 
     ("the comment is posted BEFORE the re-run, naming the red checks it predicts", ACTIVITIES,
@@ -238,13 +238,14 @@ MUTATIONS = [
      '        _say_on_the_pull_request(forge, inp.pr_url, (\n'
      '            f"Re-ran the failed jobs of {names}: a repair pass changed nothing in this pull "\n'
      '            "request, so its checks are run once more. They are read again once they'
-     ' finish."))\n',
+     ' finish."\n'
+     '            + (f" {left}." if left else "")))\n',
      "",
      AFTER_A_PASS),
 
     # ── claim 5: the seam cannot be faked, and a refusal is a value ───────────────────────────
     ("any answer is taken for the names of re-run checks: a test double claims a re-run", BASE,
-     "    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):\n",
+     "    if not isinstance(names, list) or not all(isinstance(n, str) for n in [*names, *left]):\n",
      "    if False:\n",
      CAPABILITY),
 
@@ -277,8 +278,38 @@ MUTATIONS = [
     # Human round, 2026-10-20: the bound was `[:2]` in `failed_ci_logs` alone, and a third red
     # run was re-run on the first two's logs.
     ("GitHub: the shared selection is unbounded, so a third red run is re-run", GITHUB,
-     "        return dict(list(runs.items())[:_RUNS_READ])\n",
-     "        return runs\n",
+     "        return (dict(ordered[:_RUNS_READ]),\n",
+     "        return (dict(ordered),\n",
+     CAPABILITY),
+
+    # Human round, 2026-10-20 (H.4, re-review on c4f591b): with three red runs the pull request
+    # was told "Re-ran the failed jobs of `c1`, `c2` ... so no agent was launched for it", and
+    # `c3`, left red past the runs read, was never named; the next read launched an agent on it.
+    ("GitHub: the checks left past the runs read are dropped in silence", GITHUB,
+     "        return Reran(rerun, left=left)\n",
+     "        return Reran(rerun)\n",
+     CAPABILITY),
+
+    ("the seam drops the checks a row left past its bound", BASE,
+     "    return Reran(names, left=left)\n",
+     "    return Reran(names)\n",
+     CAPABILITY),
+
+    ("the pull request and the note never name a check left red past the runs read", ACTIVITIES,
+     "    if not left:\n        return \"\"\n    names = \", \".join(",
+     "    if True:\n        return \"\"\n    names = \", \".join(",
+     TEST),
+
+    ("the post-pass comment and note never name a check left red past the runs read", ACTIVITIES,
+     "        left = _not_rerun(reran.left, quoted=True)\n",
+     "        left = _not_rerun([], quoted=True)\n",
+     AFTER_A_PASS),
+
+    # The re-review on c4f591b: a synthetic cut, an unread run standing in as a placeholder log,
+    # survived every row; `test_github_logs_none_of_which_read_are_no_log` holds it.
+    ("GitHub: a run whose failing log did not read adds a placeholder to the log", GITHUB,
+     "            if text:\n                chunks.append(text)\n",
+     "            chunks.append(text or \"LOG\")\n",
      CAPABILITY),
 
     ("GitHub: a partial refusal is answered as a success, and the refused run is never said",
