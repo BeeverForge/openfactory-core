@@ -8,8 +8,8 @@ a re-run's worth of trouble.
 SIX CLAIMS:
 
   1. **The first attempt re-runs instead of paying an agent** when the failing log the #184 gate
-     decided from names no file the pull request changes (full path, or basename with its
-     extension; never the stem, never a suffix of another name; a colour code is not a word),
+     decided from names no file the pull request changes (its basename with its
+     extension, which a full path holds; never the stem, never a suffix of another name; a colour code is not a word),
      on either door, and says so on the pull request AFTER the forge answered, naming what it
      re-ran (A, lesson §9). The
      changed files are read off git's own `diff -M`: both sides of a rename, quoted UTF-8 names,
@@ -55,20 +55,20 @@ MUTATIONS = [
 
     ("every log reads as unrelated: a failure in a changed file is re-run, not repaired",
      REPAIRABLE,
-     "                return True\n    return False\n",
-     "                return False\n    return False\n"),
+     "            return True\n    return False\n",
+     "            return False\n    return False\n"),
 
     ("the stem is matched instead of the basename: `invoice` in prose reads as `invoice.py`",
      REPAIRABLE,
-     "        for name in {path, posixpath.basename(path)} - {\"\"}:\n",
-     "        for name in {path, posixpath.splitext(posixpath.basename(path))[0]} - {\"\"}:\n"),
+     "        name = posixpath.basename(path)\n",
+     "        name = posixpath.splitext(posixpath.basename(path))[0]\n"),
 
     # Review round 1, measured on jest's run 39405383814 (gh 2.102.0): the `m` closing a colour
     # code stood left of the name jest coloured, and its own failure read as unrelated.
     ("colour codes are read as words: a changed file a tool colours is read as not named",
      REPAIRABLE,
-     '    text = _COLOUR.sub("", log).replace("\\\\", "/")\n',
-     '    text = log.replace("\\\\", "/")\n'),
+     '    text = _COLOUR.sub("", log)\n',
+     '    text = log\n'),
 
     # The changed files, read off git's own `diff --cached -M` (review round 1: these four
     # survived the first 59 rows; `test_changed_paths_reads_what_git_itself_writes` holds them).

@@ -209,18 +209,24 @@ _COLOUR = re.compile(r"(?:\x1b|\^\[)\[[0-9;]*[A-Za-z]")
 
 
 def log_names_the_change(log: str, paths: list[str]) -> bool:
-    """Whether the failing log names any changed file: its full path, or its basename with its
-    extension, with the start of the log or a character no file name holds on its left.
+    """Whether the failing log names any changed file: its basename with its extension, with the
+    start of the log or a character no file name holds on its left.
+
+    THE BASENAME DECIDES EVERY CASE. A log that names the full path names its basename too, after
+    a `/` — or after a Windows runner's `\\` (`D:\\a\\x\\x\\src\\billing\\invoice.py(12)`), since
+    neither is a character a name holds. Matching the full path as well, and reading `\\` as `/`,
+    changed no answer (2026-10-20: cutting either left every row green), so neither is done. So
+    `lib/invoice.py` in a log reads as naming `src/billing/invoice.py`: a wrong "related"
+    launches the agent, which is what happened before this rule existed.
 
     COLOUR CODES ARE NOT WORDS: they are dropped before the log is read. CASE-SENSITIVE, like
-    the file systems the runners check out onto. `\\` READS AS `/`, because a
-    Windows runner logs `D:\\a\\x\\x\\src\\billing\\invoice.py(12)`. NEVER THE STEM: `invoice` is
-    any word in a sentence, and reading it as `invoice.py` would launch an agent on every log
-    that says "invoice". Nothing is required on the RIGHT, so `a.pyc` reads as naming `a.py`: a
-    wrong "related" launches the agent, which is what happened before this rule existed."""
-    text = _COLOUR.sub("", log).replace("\\", "/")
+    the file systems the runners check out onto. NEVER THE STEM: `invoice` is any word in a
+    sentence, and reading it as `invoice.py` would launch an agent on every log that says
+    "invoice". Nothing is required on the RIGHT, so `a.pyc` reads as naming `a.py`, the same
+    wrong "related"."""
+    text = _COLOUR.sub("", log)
     for path in paths:
-        for name in {path, posixpath.basename(path)} - {""}:
-            if re.search(rf"(?<!{_NAME_CHAR}){re.escape(name)}", text):
-                return True
+        name = posixpath.basename(path)
+        if name and re.search(rf"(?<!{_NAME_CHAR}){re.escape(name)}", text):
+            return True
     return False

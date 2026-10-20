@@ -148,12 +148,14 @@ amendment, not a reversal: the agent still repairs every red build the step does
   made from, goes on, and that same log is what an agent is handed afterwards.
 - **On the first repair attempt of the watch, the log is matched against the diff.**
   `runtime/repairable.py::changed_paths` reads the paths the pull request's diff changes, and
-  `log_names_the_change` asks whether any of them appears in the failing log, as its full path or
-  as its basename with the extension, with no letter, digit, `_`, `.` or `-` on its left. A `\` in the log reads as
-  `/`, so Windows runner logs match. Colour codes, as an ESC byte or as the `^[` that
-  `gh run view --log-failed` prints, are dropped first: jest colours the name of a failing
-  file on its own, and the code's closing `m` stood on its left. The stem alone never matches. When no changed file appears, the
-  failed jobs are re-run, the pull request is told which checks and why, and no agent is launched.
+  `log_names_the_change` asks whether any of them appears in the failing log as its basename with
+  the extension, with no letter, digit, `_`, `.` or `-` on its left. A log that names the full
+  path names the basename too, after a `/` or a Windows runner's `\` alike, so Windows runner
+  logs match, and the basename alone decides every case. Colour codes, as an ESC byte or as the
+  `^[` that `gh run view --log-failed` prints, are dropped first: jest colours the name of a
+  failing file on its own, and the code's closing `m` stood on its left. The stem alone never
+  matches. When no changed file appears, the failed jobs are re-run, the pull request is told
+  which checks and why, and no agent is launched.
   `repair_ci` answers `PR_OPEN` with `code_changed=False`: nothing was pushed, so the reviewer's
   verdict on the head stands, and the watch rests `_CI_POLL` and reads the checks again.
 - **Once, not on every attempt** (PO, 2026-10-19). The rule guesses, and it guesses wrong in the

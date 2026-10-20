@@ -10,7 +10,7 @@ forge's own seam (`base.rerun_failed_of`, criterion D, in
 checks again.
 
     A  the first attempt on a head whose failing log names no file the pull request changes
-       (no full path, no basename with its extension) re-runs the failed jobs, says so on the
+       (not even its basename with its extension) re-runs the failed jobs, says so on the
        pull request naming what the forge re-ran, and launches no agent, on either door (the
        inline runner and a remote box). A log that names a changed file, a diff that could not be
        read, a diff that was cut, and any later attempt (PO answer Q1: once per head) launch the
