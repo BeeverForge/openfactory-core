@@ -51,6 +51,8 @@ property, each aimed at the row that holds it:
      dot paths out of the fingerprint's add (`git add -A -- . ":(exclude).*"`): on dc0efac4 it left
      T1 and the documents guard green, 46 passed and 4 skipped, because no row wrote a dot path.
      The row whose planner writes `.openfactory/project.yaml` goes red under it.
+     K9 (#967) drops ", or turn `planner_stage` off in its `.openfactory/project.yaml`" from the
+     hold's remedy, which left every row green on dc0efac4; `_assert_held_naming` now asks for it.
 
 HOW THE CUTS DIFFER FROM THE PLAN'S SKETCH (task 17), because the code differs from it:
   - `fingerprint` returns `Mark | Unreadable`, not `Mark | None`. U1 removes `rc == 0` from the
@@ -355,4 +357,11 @@ MUTATIONS = [
      """'GIT_INDEX_FILE="$t" git add -A && """,
      """'GIT_INDEX_FILE="$t" git add -A -- . ":(exclude).*" && """,
      DOT_PATH.format("worktree")),
+    ("K9 the remedy drops \", or turn `planner_stage` off\": only another harness is offered",
+     MACHINE,
+     _REMEDY,
+     _REMEDY.replace(_I + 'f"project registry), or turn `planner_stage` off in its "\n'
+                     + _I + 'f"`.openfactory/project.yaml`.",\n',
+                     _I + 'f"project registry).",\n'),
+     CREATE),
 ]

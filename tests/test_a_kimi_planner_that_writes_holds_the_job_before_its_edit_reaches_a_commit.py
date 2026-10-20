@@ -221,8 +221,9 @@ def _run(repo: Path, agent, sandbox, *, setup: list[str] | None = None,
 
 def _assert_held_naming(runner, result, agent, events: InMemoryEventSink, tmp_path: Path,
                         paths: list[str]) -> None:
-    """Criteria 1a and 1b: held, the executor never ran, nothing pushed or opened, and the note
-    and one journal warning name every path the planner wrote."""
+    """Criteria 1a and 1b: held, the executor never ran, nothing pushed or opened, the note and
+    one journal warning name every path the planner wrote, and the note offers both remedies
+    (another harness for the executor, or `planner_stage` off in the project's manifest)."""
     assert result.state is JobState.ON_HOLD, (
         f"the planner wrote {paths} and the job went on to {result.state.value}: {result.note}")
     assert agent.executed is False, "the executor ran on the tree the planner wrote to"
@@ -237,6 +238,10 @@ def _assert_held_naming(runner, result, agent, events: InMemoryEventSink, tmp_pa
     note = result.note or ""
     assert "executor" in note and "planner another harness" not in note, (
         f"the hold's remedy does not name the executor, whose harness the planner runs on: {note}")
+    # THE SECOND REMEDY IS OFFERED TOO (#967): turning the planner stage off in the project's
+    # manifest needs no second harness. On dc0efac4 (2026-10-20) a cut that dropped it from the
+    # hold left every row green.
+    assert "planner_stage" in note and ".openfactory/project.yaml" in note, note
     naming =[e for e in events.events
               if e.kind == "warning" and all(p in e.message for p in paths)]
     assert len(naming) == 1, (
