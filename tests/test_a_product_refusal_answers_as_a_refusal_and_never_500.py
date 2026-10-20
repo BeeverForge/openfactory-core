@@ -206,3 +206,84 @@ def test_a_refusal_in_a_portuguese_project_answers_403_with_the_modules_portugue
     assert said["message"] == said["detail"] == sentence, said
     assert said["data"]["refusal"] == "not_yours", said
     assert tracker.get_ticket(ref).state == "open", "the card was closed"
+
+
+#: A worker newer than this panel, mid-upgrade: one front landed, the other names a refusal word
+#: this panel's `authoring.REFUSALS` does not hold.
+_A_WORD_FROM_A_NEWER_WORKER = "not_yet_a_word_this_panel_knows"
+_FILED_AND_ONE_NEWER = [
+    {"ok": True, "ref": "acme#41", "url": "", "existed": False, "detail": "", "refusal": ""},
+    {"ok": False, "ref": "", "url": "", "existed": False, "detail": "the role held this one back.",
+     "refusal": _A_WORD_FROM_A_NEWER_WORKER},
+]
+
+
+def _a_newer_worker(monkeypatch, deployment):  # noqa: F811 — the imported fixture
+    """The breakdown's engine hands back `_FILED_AND_ONE_NEWER`; the row's own gates pass."""
+    from types import SimpleNamespace
+
+    from openfactory.actions import catalog
+
+    class _Module:
+        def context(self):
+            promise = SimpleNamespace(is_promise=True)
+            return SimpleNamespace(available=True, reason="",
+                                   corpus=SimpleNamespace(by_number=lambda n: promise))
+
+    class _Engine:
+        async def execute_workflow(self, name, inp, **_kw):
+            return [dict(row) for row in _FILED_AND_ONE_NEWER]
+
+    async def _connected():
+        return _Engine(), None
+
+    monkeypatch.setattr(catalog, "_product_module", lambda name, by=None: (
+        _Module(), deployment, None))
+    monkeypatch.setattr(catalog, "_connected", _connected)
+    monkeypatch.setattr(catalog, "_where_it_was_written", lambda project, number: ("", ""))
+
+
+def test_a_breakdown_from_a_newer_worker_whose_front_names_an_unknown_refusal_still_answers_what_landed(  # noqa: E501
+        client, deployment, monkeypatch, caplog):  # noqa: F811 — the imported fixture
+    """Criterion 1, the rolling upgrade the other way round (human decision 2026-10-20, option A):
+    a worker NEWER than the panel hands back a front whose `refusal` this panel does not know.
+    `confirm.breakdown_outcome` rebuilt a `WriteResult` from that dict, and `WriteResult`'s check
+    raised `ValueError` — measured on this branch at 37d4ebf3: HTTP 500, `reason="raised"`, for a
+    breakdown whose other front HAD landed. An unknown word is read as nobody's decision (as
+    `_not_done` reads it), logged as `OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN`, and the landed front
+    is said."""
+    import logging
+
+    _a_newer_worker(monkeypatch, deployment)
+
+    with caplog.at_level(logging.ERROR):
+        r = _post(client, "product_break_down", who=ADMIN, number="7", yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["ok"]) == (200, True), (r.status_code, said)
+    assert "acme#41" in said["message"], said
+    unknown = [rec.getMessage() for rec in caplog.records
+               if "OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN" in rec.getMessage()]
+    assert unknown and _A_WORD_FROM_A_NEWER_WORKER in unknown[0], caplog.text
+
+
+def test_an_acceptance_whose_breakdown_came_from_a_newer_worker_still_says_what_landed(
+        deployment, monkeypatch):  # noqa: F811 — the imported fixture
+    """The acceptance's door (`_with_the_work_filed`) renders the same rows through the same
+    `_breakdown_said`: before option A it raised inside the acceptance's courtesy — after the
+    promise was written — measured on this branch at 37d4ebf3 as a `ValueError` out of
+    `WriteResult.__post_init__`."""
+    import asyncio
+
+    from openfactory.actions import catalog
+    from openfactory.actions.base import done
+    from tests.test_the_confirmation_executor import _actor
+
+    _a_newer_worker(monkeypatch, deployment)
+    accepted = done("accepted requirement 7.", project="acme", number=7)
+
+    out = asyncio.run(catalog._with_the_work_filed(accepted, project="acme", number=7,
+                                                   by=_actor(), proj=deployment))
+
+    assert out.ok and out.message.startswith("accepted requirement 7."), out.message
+    assert "acme#41" in out.message, out.message

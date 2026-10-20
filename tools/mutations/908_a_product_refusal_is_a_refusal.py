@@ -18,7 +18,10 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
      arm, and a result that names no word (an older worker) is a failure;
   5. the rows that render a list — promote, reorder, breakdown — answer the refusal every result
      names, not FAILED;
-  6. the family drives every row that renders a write.
+  6. the family drives every row that renders a write;
+  7. a refusal word this panel does not know (a worker newer than it) is read as nobody's
+     decision when a breakdown's rows are said, never raised on — so the fronts that landed are
+     still said (human decision 2026-10-20, option A).
 """
 
 TEST = "tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py"
@@ -33,6 +36,7 @@ CATALOG = "openfactory/actions/catalog.py"
 ACTIONS = "openfactory/actions/__init__.py"
 MODULE = "openfactory/product/module.py"
 ACTIVITIES = "openfactory/runtime/temporal/activities.py"
+CONFIRM = "openfactory/product/confirm.py"
 
 MUTATIONS = [
     # 1. a refusal answers its code — the issue's own sabotage, then each word's code
@@ -136,4 +140,11 @@ MUTATIONS = [
      '    "product_file_defect": ({"restated": "the report is weekly", "yes": True}, "file_defect"),\n',
      "",
      TEST + "::test_every_row_that_renders_a_write_is_in_the_table_this_family_drives"),
+
+    # 7. a newer worker's word
+    ("a breakdown front naming a word this panel does not know raises again", CONFIRM,
+     '            fields["refusal"] = NOT_REFUSED\n',
+     "            pass\n",
+     NEVER_500 + "::test_a_breakdown_from_a_newer_worker_whose_front_names_an_unknown_refusal_"
+     "still_answers_what_landed"),
 ]

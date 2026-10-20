@@ -1133,15 +1133,31 @@ def breakdown_outcome(rows, *, number: int, project=None, backlog: str = "") -> 
     another landed: a person learned of the missing front from a parked job an hour later, while
     the conversation's reply named it from the same rows. `rows` are the workflow's rows (dicts) or
     the module's `WriteResult`s; the text is plain, because emphasis is a surface's, not the
-    action layer's."""
+    action layer's.
+
+    A REFUSAL WORD THIS PANEL DOES NOT KNOW is read as nobody's decision (`NOT_REFUSED`) and
+    logged as `OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN`, the line the catalog's `_not_done` logs —
+    a worker newer than the panel, mid-upgrade, is said, not raised on (#908)."""
     import dataclasses
 
-    from openfactory.product.authoring import WriteResult
+    from openfactory.product.authoring import NOT_REFUSED, REFUSALS, WriteResult
 
     known = {f.name for f in dataclasses.fields(WriteResult)}
-    results = [r if isinstance(r, WriteResult) else
-               WriteResult(**{k: v for k, v in dict(r).items() if k in known})
-               for r in rows or []]
+
+    def _rebuilt(r) -> WriteResult:
+        fields = {k: v for k, v in dict(r).items() if k in known}
+        why = fields.get("refusal") or NOT_REFUSED
+        if why not in REFUSALS and why != NOT_REFUSED:
+            # A WORKER NEWER THAN THIS PANEL: `WriteResult` refuses a word outside `REFUSALS`, and
+            # that raise answered a breakdown whose other front HAD landed as HTTP 500 `raised`
+            # (measured on 37d4ebf3, 2026-10-20). The word is dropped here, never guessed at.
+            log.error("OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN did=%s refusal=%r — answered as a "
+                      "failure; this panel knows %s", "break the requirement down", why,
+                      ", ".join(sorted(REFUSALS)))
+            fields["refusal"] = NOT_REFUSED
+        return WriteResult(**fields)
+
+    results = [r if isinstance(r, WriteResult) else _rebuilt(r) for r in rows or []]
     return _breakdown_reply(results, number, "", getattr(project, "language", None),
                             project=project, backlog=backlog, marked=False)
 
