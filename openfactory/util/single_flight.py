@@ -45,9 +45,11 @@ class _OneAtATime:
 
     THE MECHANISM IS #166's AND #165's. It was built for the schedule read, and the budget read
     needed exactly the same thing (a subprocess per concurrent reader — ten floor reads at the
-    window's expiry spawned ten `gh` processes, measured 2026-09-19). There is one mechanism, with
-    one instance per read that needs it. Each argument below is `intake_cached`'s, and it holds
-    for any read at all.
+    window's expiry spawned ten `gh` processes, measured 2026-09-19), and so did the engine's job
+    list (#754: six askers together cost six scans, measured on f37aeaa). There is one mechanism,
+    with one instance per read that needs it: `floor.reading._intake_read`,
+    `floor.reading._budget_read` and `runtime.temporal.view._jobs_read`. Each argument below is
+    `intake_cached`'s, and it holds for any read at all.
 
     A TASK, NOT A LOCK:
 

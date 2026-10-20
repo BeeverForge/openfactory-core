@@ -26,6 +26,7 @@ as "a front-end file that is not really a front-end file" is a guard the next pe
 from __future__ import annotations
 
 import asyncio
+import copy
 import functools
 import logging
 import os
@@ -44,6 +45,7 @@ from openfactory.runtime.temporal.io import JobParams
 from openfactory.runtime.temporal.vocabulary import ATTENTION_STATES, MERGE_WAIT, EngineUnreachable
 from openfactory.runtime.temporal.workflow import JobWorkflow
 from openfactory.util.bounded import BoundedDict
+from openfactory.util.single_flight import _Flight, _OneAtATime
 
 log = logging.getLogger("openfactory.panel.temporal")
 
@@ -162,9 +164,7 @@ async def _within(what: str, coro, *, seconds: float | None = None):
     left = unreachable_for()
     if left:
         coro.close()
-        raise EngineUnreachable(
-            f"the engine did not answer {what} a moment ago, so this read did not wait for it "
-            f"again ({left:.1f}s left before it is asked again)")
+        raise _still_silent(what, left)
     try:
         answer = await asyncio.wait_for(coro, read_deadline() if seconds is None else seconds)
     except TimeoutError:
@@ -177,6 +177,14 @@ async def _within(what: str, coro, *, seconds: float | None = None):
     # `unreachable_for()` is 0. A `_answered()` here was dead — the mutation row that removed it
     # survived, which in this repository means the code was not doing anything.
     return answer
+
+
+def _still_silent(what: str, left: float) -> EngineUnreachable:
+    """The refusal of a read while the engine is remembered as silent — one sentence, said by
+    `_within` and by `list_jobs`, which consults the same memory before its shared answer."""
+    return EngineUnreachable(
+        f"the engine did not answer {what} a moment ago, so this read did not wait for it "
+        f"again ({left:.1f}s left before it is asked again)")
 
 
 def _bounded_read(what: str):
@@ -1148,12 +1156,74 @@ async def _enriched_in_order(client: Client, batch: list, namespace: str,
     return [t.result() for t in tasks]
 
 
-@_bounded_read("the job list")
+#: How long a job list just read is handed to the next reader who asks the same question (#754).
+#: THE STREAM'S TICK (`api/app.py::temporal_stream`, 2 s): each connected browser then costs at most
+#: one scan a tick between them, and the panel's re-read 600-800 ms after a click is answered by
+#: the scan before it only when no write went through this process in between (`forget_jobs`). A
+#: write made by ANOTHER process (the worker, the CLI) is seen when the window ends, at most this
+#: long after: the stated cost of the window. A constant, not a variable: the issue names only the
+#: concurrency as the operator's.
+LIST_TTL_S = 2.0
+
+#: The ONE job list this process remembers: `(loop, client, (namespace, limit, query), stamp,
+#: rows)`, or `None`. One slot, replaced, never added to: a reader asking another question reads
+#: for itself and takes it.
+_jobs_memo: tuple[asyncio.AbstractEventLoop, Client, tuple, float, list[dict]] | None = None
+
+#: The one job-list scan in flight, shared by every reader asking the same question on its loop.
+_jobs_read = _OneAtATime()
+
+
+def forget_jobs() -> None:
+    """Drop the remembered job list and give up the scan in flight, so the next reader scans afresh.
+
+    THE STREAM'S BLIP (#139) AND THIS PROCESS'S WRITES are why: a list read before the engine
+    failed, or before Approve/Merge/Resume went through, is not the list after it. A scan still in
+    flight is detached, not cancelled, as `floor.reading.forget_intake` detaches its read: its
+    waiters asked before the forget and keep their answer, and it stores nothing once the slot is
+    no longer its own. Synchronous, so it may be called from any loop."""
+    global _jobs_memo
+
+    _jobs_memo = None
+    _jobs_read.forget()
+
+
 async def list_jobs(
     client: Client, namespace: str, *, limit: int = 50, query: str | None = None
 ) -> list[dict]:
     """Recent jobs, newest first, each enriched with its domain `state`. `query` is an
     optional Temporal list filter (e.g. a StartTime range) for searchable history.
+
+    ONE SCAN FOR READERS TOGETHER, ONE ANSWER FOR READERS RIGHT AFTER (#754). The stream asks on
+    every tick of every browser, the floor, inbox and decisions on each request, and the panel
+    re-reads after each click; each paid a whole scan. Now:
+
+      - A READER WITHIN `LIST_TTL_S` OF A SCAN THAT ANSWERED is handed that scan's rows, when the
+        RUNNING LOOP and the CLIENT are the ones it was read on, BY IDENTITY, and the question
+        (`namespace`, `limit`, `query`) is the same. The loop because a client belongs to the
+        loop that made it (#134), and the tech-lead and the CLI open an `asyncio.run` per
+        question; holding it strongly is what keeps a dead loop's id from being reused under the
+        memo. The question because what a cache is keyed on has to be what the work it skips
+        would have read (engineering-lessons §11): the tech-lead asks `limit=50`, a history read
+        passes a `query`. The clock is `time.monotonic()`, as the breaker's is, never the wall.
+      - READERS ARRIVING WHILE A SCAN IS IN FLIGHT wait on that one scan (`_OneAtATime`, a task
+        and not a lock, #166): a failure reaches every waiter at once and is NEVER STORED, so a
+        recovered engine is asked again by the next reader; one reader going away takes only
+        itself.
+      - EVERY READER IS HANDED A COPY OF ITS OWN (#165): callers annotate rows before rendering.
+      - THE BREAKER IS STILL ASKED FIRST, with `_within`'s own sentence: an engine remembered as
+        silent refuses this read for `OPENFACTORY_ENGINE_UNREACHABLE_FOR` even when a list is
+        remembered, as before #754.
+      - THE BOUND IS ON THE SCAN, NOT AROUND ITS READERS. It was `@_bounded_read`, a `wait_for`
+        around the whole read; around a shared task that is a wait that gives up while the task
+        it gave up on keeps asking. Measured 2026-10-19 with both bounds: a list that ran out of
+        its 0.3 s still had 8 worker queries in flight when it raised (the job-list test "ran out
+        of time leaves no question running"). So `_scan` runs under `_within` (`read_deadline()`,
+        the breaker, the same sentence), its deadline cancels every question still asked before
+        anyone is told, and a reader waits no longer than the scan it joined (#147's standing
+        loop must not be left with queries running until the SDK gives up).
+      - `forget_jobs()` drops the answer: the stream's blip (#139) and every write this module
+        makes.
 
     ASKED SIDE BY SIDE, `list_concurrency()` at a time (#754). One after another, the list cost
     the sum of every running row's round trips (a describe and up to three worker queries each)
@@ -1162,6 +1232,36 @@ async def list_jobs(
     and kept IN LIST ORDER, so the order the engine answers in never reaches the rows: the same
     rows are chosen, and the newest-first sort below breaks ties as the listing does. THE COST:
     the last batch may ask about up to `k-1` jobs past `limit` that are then dropped."""
+    if left := unreachable_for():
+        raise _still_silent("the job list", left)
+    loop = asyncio.get_running_loop()
+    question = (namespace, limit, query)
+    stamp = time.monotonic()
+    memo = _jobs_memo
+    if (memo is not None and memo[0] is loop and memo[1] is client and memo[2] == question
+            and stamp - memo[3] < LIST_TTL_S):
+        return copy.deepcopy(memo[4])
+    return copy.deepcopy(await _jobs_read.shared(
+        lambda flight: _scan(flight, client, namespace, limit, query, stamp),
+        key=(id(client), *question)))
+
+
+async def _scan(flight: _Flight, client: Client, namespace: str, limit: int, query: str | None,
+                stamp: float) -> list[dict]:
+    """The scan every waiter shares, BOUNDED ON ITS OWN by `_within`, so a deadline cancels its
+    questions when nobody is waiting any more, and says so in the same sentence as every read. It
+    is remembered only when it answered and only while the slot is still its own: `forget_jobs`
+    and a reader asking from another loop or another question take the slot from under it."""
+    global _jobs_memo
+
+    rows = await _within("the job list", _listed(client, namespace, limit, query))
+    if _jobs_read.holds(flight):
+        _jobs_memo = (flight.loop, client, (namespace, limit, query), stamp, rows)
+    return rows
+
+
+async def _listed(client: Client, namespace: str, limit: int, query: str | None) -> list[dict]:
+    """The job list as the engine answers it now, read side by side (see `list_jobs`)."""
     base = 'WorkflowType = "JobWorkflow"'
     full = f"{base} AND ({query})" if query else base
     k = list_concurrency()

@@ -212,8 +212,8 @@ async def intake_cached(client, *, now: datetime | None = None) -> dict:
     the first included, waits on that one task: six concurrent readers, **1** read.
 
     THE SHARING ITSELF LIVES IN `_OneAtATime` (`openfactory/util/single_flight.py`), which says
-    why it is a task and not a lock — and which the budget memo below shares, rather than
-    carrying a second copy of it.
+    why it is a task and not a lock — and which the budget memo below and the engine's job list
+    (`view.list_jobs`, #754) share, rather than carrying a copy of it each.
 
     The flight's clock is the clock of the reader that started it, and its `client` likewise: the
     read side has one pooled client per process (`view.connect()`), so there is no second engine
