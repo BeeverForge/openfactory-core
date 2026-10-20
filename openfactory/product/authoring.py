@@ -75,11 +75,42 @@ _MERGE_ATTEMPTS = 6
 _MERGE_DELAY = 2.0
 
 
+#: WHY A WRITE DID NOT HAPPEN, WHEN SOMEBODY DECIDED IT DID NOT (#908). The closed vocabulary of
+#: `WriteResult.refusal`: the module looked and declined, on purpose, with a sentence of its own.
+#: Before it existed `_write_outcome` (`actions/catalog.py`) could not tell "this card is not yours"
+#: from "the forge is down", and answered both as an internal error: measured on 620bb577
+#: (2026-10-20), `product_withdraw_card` by a product-scoped stranger answered HTTP 500 / `failed`
+#: with the module's own "only the person who asked for #1 … can close or remove it".
+#:
+#: the person asking may not do this to this thing (not theirs, no permission to approve)
+NOT_YOURS = "not_yours"
+#: what the write names does not exist (the card, the requirement, the survivor of a merge)
+NOT_FOUND = "not_found"
+#: it exists, and its state does not admit this now (retired, held, not at the gate it needs)
+NOT_WAITING = "not_waiting"
+#: the card is already closed
+ALREADY_CLOSED = "already_closed"
+#: what the write would create is already there (`existed=True`: a fact known, a question asked)
+ALREADY_THERE = "already_there"
+#: what was asked is not a thing this write takes (not a promise, not a capability, empty, too long)
+NOT_VALID = "not_valid"
+
+#: Every word `WriteResult.refusal` may carry other than `NOT_REFUSED`.
+REFUSALS = frozenset({NOT_YOURS, NOT_FOUND, NOT_WAITING, ALREADY_CLOSED, ALREADY_THERE, NOT_VALID})
+
+#: NOBODY DECIDED THIS: the write was tried and did not happen — a failure, never a refusal. It is
+#: the default, and what a result from a worker older than this field decodes to, so a rolling
+#: deploy degrades to "failed" and never to a refusal nobody made.
+NOT_REFUSED = ""
+
+
 @dataclass
 class WriteResult:
     """What a write produced, or why it produced nothing. `ok=False` is always accompanied by a
     sentence a human can act on — a write that failed silently is how a requirement discussed at
-    length turns out never to have been recorded."""
+    length turns out never to have been recorded — and by why it did not happen: `refusal` names
+    the decision when the module declined on purpose, and is `NOT_REFUSED` (`""`) when nobody
+    decided it, which is a failure."""
 
     ok: bool
     url: str = ""
@@ -130,6 +161,18 @@ class WriteResult:
     #: (`voice.queued`): the poller pulls in board order, and a sentence about an order nothing
     #: wrote is a promise with nothing behind it.
     ranked: str = ""
+
+    #: WHY THE MODULE DECLINED, one of `REFUSALS` — or `NOT_REFUSED` (`""`): nobody decided this,
+    #: the write was tried and did not happen, a failure. `""` is also what a result rebuilt from
+    #: an older worker's dict, which never carried the key, decodes to. Always `""` when `ok`.
+    refusal: str = NOT_REFUSED
+
+    def __post_init__(self) -> None:
+        # the same shape as `actions.base.refused`'s check: a word outside the vocabulary is a
+        # typo at a refusal site, and would otherwise travel as a failure nobody can trace
+        if self.refusal != NOT_REFUSED and self.refusal not in REFUSALS:
+            raise ValueError(
+                f"unknown refusal {self.refusal!r} — one of {sorted(REFUSALS)}, or empty")
 
 
 def next_number(corpus: Corpus) -> int:
