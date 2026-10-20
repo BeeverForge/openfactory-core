@@ -38,6 +38,9 @@ ACTIONS = "openfactory/actions/__init__.py"
 MODULE = "openfactory/product/module.py"
 ACTIVITIES = "openfactory/runtime/temporal/activities.py"
 CONFIRM = "openfactory/product/confirm.py"
+AUTHORING = "openfactory/product/authoring.py"
+GATES = "tests/test_a_merge_gates_answer_is_a_refusal_or_a_failure_as_it_is.py"
+DROPPED = "tests/test_requirement_can_be_dropped.py"
 PORTS = "openfactory/lifecycle/ports.py"
 CARD = "openfactory/lifecycle/card.py"
 
@@ -142,6 +145,42 @@ MUTATIONS = [
      "                              unread=seen.unread)\n",
      "            return Transition(card=card, event=event, refused=seen.cannot_tell)\n",
      FAILURE + "::test_a_card_its_door_could_not_read_is_a_failure_with_a_reference_not_a_conflict"),
+
+    # 4c. the classification tables: a failure is never read as a refusal (review round 1,
+    #     point 3 — each of these survived 1229 to 2965 tests on 3a996b0a)
+    ("TABLES: an acceptance that could not be written is read as a gate state", MODULE,
+     "    waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,\n"
+     "             accept.MOVED}\n",
+     "    waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,\n"
+     "             accept.MOVED, accept.UNRECORDED}\n",
+     GATES),
+    ("TABLES: an engine that could not be asked is read as a gate state", MODULE,
+     "    waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,\n"
+     "             accept.MOVED}\n",
+     "    waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,\n"
+     "             accept.MOVED, adjust.UNREACHABLE}\n",
+     GATES),
+    ("TABLES: an unparseable requirement's acceptance answers 409", AUTHORING,
+     "            if outcome in _SETTLED:\n",
+     "            if True:\n",
+     DROPPED),
+    ("TABLES: the client's own decision is read as a broken file", AUTHORING,
+     "            if outcome in _SETTLED:\n",
+     "            if False:\n",
+     DROPPED),
+    ("TABLES: a superseded requirement's drop is read as a broken file", AUTHORING,
+     '            if outcome == "superseded":\n'
+     "                # already off the table: a state with a next step, as `_drop_refusal` says (#908)\n",
+     "            if False:\n"
+     "                # already off the table: a state with a next step, as `_drop_refusal` says (#908)\n",
+     DROPPED + "::test_dropping_a_requirement_another_already_replaced_is_a_refusal_with_a_next_"
+     "step"),
+    ("TABLES: an unparseable requirement's drop answers 409", AUTHORING,
+     '            if outcome == "superseded":\n'
+     "                # already off the table: a state with a next step, as `_drop_refusal` says (#908)\n",
+     "            if True:\n"
+     "                # already off the table: a state with a next step, as `_drop_refusal` says (#908)\n",
+     DROPPED + "::test_dropping_a_requirement_file_NOBODY_can_parse_is_a_failure"),
 
     # 5. the rows that render a list
     ("a promotion nobody may make answers FAILED again", CATALOG,
