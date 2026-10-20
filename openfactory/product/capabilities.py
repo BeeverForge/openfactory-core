@@ -361,11 +361,20 @@ def confirm_in_repository(*, docs_repo: str, clone_url: str, slug: str, flow: Fl
     the write raises."""
     import shutil
 
-    from openfactory.product.authoring import WriteResult, _git, _scrub
+    from openfactory.product.authoring import (
+        NOT_FOUND,
+        NOT_REFUSED,
+        NOT_VALID,
+        NOT_WAITING,
+        WriteResult,
+        _git,
+        _scrub,
+    )
     from openfactory.product.voice import record_said
 
     if not is_slug(slug):
-        return WriteResult(ok=False, detail=record_said("not_a_capability", language=language))
+        return WriteResult(ok=False, detail=record_said("not_a_capability", language=language),
+                           refusal=NOT_VALID)
     day = today or datetime.now(UTC).date().isoformat()
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-capability-"))
     rel = path_for(slug)
@@ -374,7 +383,8 @@ def confirm_in_repository(*, docs_repo: str, clone_url: str, slug: str, flow: Fl
         log.warning("OPENFACTORY_PRODUCT_WRITE_FAILED act=confirm capability %s ref=%s — %s in "
                     "%s: %s", slug, rel, step, docs_repo, _scrub(out)[-200:])
         return WriteResult(ok=False, detail=record_said("capability_failed", term=slug,
-                                                        language=language))
+                                                        language=language),
+                           refusal=NOT_REFUSED)
 
     try:
         rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
@@ -383,26 +393,26 @@ def confirm_in_repository(*, docs_repo: str, clone_url: str, slug: str, flow: Fl
             return failed("could not clone", out)
         target = tmp / rel
         if target.is_symlink():
-            return WriteResult(ok=False, ref=rel,
+            return WriteResult(ok=False, refusal=NOT_VALID, ref=rel,
                                detail=record_said("capability_is_a_link", language=language))
         if target.is_file():
             cap, _ = parse_capability(target.read_text(encoding="utf-8"), path=rel)
             if cap is None:
-                return WriteResult(ok=False, ref=rel,
+                return WriteResult(ok=False, refusal=NOT_REFUSED, ref=rel,
                                    detail=record_said("capability_unreadable", language=language))
             if cap.curated:
                 return WriteResult(ok=True, ref=rel, existed=True,
                                    detail=record_said("capability_already_confirmed",
                                                       language=language))
             if cap.status == RETIRED:
-                return WriteResult(ok=False, ref=rel,
+                return WriteResult(ok=False, refusal=NOT_WAITING, ref=rel,
                                    detail=record_said("capability_retired", language=language))
             cap = cap.model_copy(update={"status": CONFIRMED, "confirmed_by": confirmed_by,
                                          "confirmed_at": day})
         elif flow is not None:
             cap = from_flow(flow, confirmed_by=confirmed_by, confirmed_at=day)
         else:
-            return WriteResult(ok=False, ref=rel,
+            return WriteResult(ok=False, refusal=NOT_FOUND, ref=rel,
                                detail=record_said("capability_not_found", language=language))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_capability(cap.model_copy(update={"path": rel})),
