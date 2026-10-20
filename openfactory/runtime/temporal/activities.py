@@ -2771,6 +2771,61 @@ def _rerun_what_the_change_does_not_touch(project, inp: CiRepairInput, repo: str
                           "appears in their failing log")
 
 
+def _rerun_after_a_pass_that_changed_nothing(forge_of, inp: CiRepairInput, result: RunResult,
+                                             *, human: bool) -> RunResult:
+    """The pass's `result`, the failed jobs re-run once first if the pass changed nothing (#756).
+
+    A pass that answered `PR_OPEN` with `code_changed is False` looked, and found nothing in the
+    change to fix: the red check is not the change's. Nothing was pushed, so nothing asks the forge
+    to run the checks again, and the watch would rest `_CI_POLL` and read the same red off the same
+    run, paying a second agent pass for it. So the failed jobs are re-run once, here, and the watch
+    reads them on its own clock; the attempt the pass spent counts against `_CI_REPAIR_MAX` as it
+    always did.
+
+    NOTHING ELSE RE-RUNS. A pass that pushed has its checks re-run by the push. `code_changed is
+    None` is "could not see" (lesson §2): it may have pushed. A hold, a pause or a failure is the
+    watch's to settle as it is. A person's adjust pass (`human`, #68) answered their words, not a
+    red build. A forge without the capability (`rerun_failed_of` → `None`) is not even built for a
+    pass that changed the code, and says nothing: the result goes back exactly as it came.
+
+    SAID ON THE PULL REQUEST, AFTER THE FORGE ANSWERED (lesson §9): the checks it re-ran (PO answer
+    Q4), or its refusal in its words (Q3), besides the worker log and the result's note. `[]`
+    (asked, nothing re-runnable) is said in the note and the log only: nothing happened to tell."""
+    if human or result.state is not JobState.PR_OPEN or result.code_changed is not False:
+        return result
+    from openfactory.adapters.forge.base import RerunRefused, rerun_failed_of
+
+    try:
+        forge = forge_of()
+    except Exception as exc:  # noqa: BLE001 — the pass is done; a missing re-run is not its price
+        activity.logger.warning("could not reach the forge of %s to re-run its failed jobs after a "
+                                "pass that changed nothing (%s)", inp.pr_url, str(exc)[:160])
+        return result
+    reran = rerun_failed_of(forge, inp.pr_url)
+    if reran is None:
+        return result
+    if isinstance(reran, RerunRefused):
+        why = str(reran)[:300]
+        activity.logger.warning("the failed jobs of %s were not re-run after a repair pass that "
+                                "changed nothing: %s", inp.pr_url, why)
+        _say_on_the_pull_request(forge, inp.pr_url, (
+            f"The failed jobs were not re-run after a repair pass that changed nothing: {why}."))
+        added = f"the failed jobs were not re-run: {why}"
+    elif not reran:
+        activity.logger.warning("the forge found no failed job of %s to re-run after a repair pass "
+                                "that changed nothing", inp.pr_url)
+        added = "no failed job was found to re-run"
+    else:
+        names = ", ".join(f"`{n}`" for n in reran)
+        _say_on_the_pull_request(forge, inp.pr_url, (
+            f"Re-ran the failed jobs of {names}: a repair pass changed nothing in this pull "
+            "request, so its checks are run once more. They are read again once they finish."))
+        activity.logger.info("re-ran the failed jobs of %s (%s) after a repair pass that changed "
+                             "nothing", inp.pr_url, ", ".join(reran))
+        added = f"re-ran the failed jobs of {', '.join(reran)}: the pass changed nothing"
+    return result.model_copy(update={"note": f"{result.note}; {added}" if result.note else added})
+
+
 def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
                    ci_log: str | None = None) -> RunResult:
     project = ProjectRegistry().get(inp.project)
@@ -2807,11 +2862,14 @@ def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
         # the project — so a client who configured their own box got it everywhere EXCEPT the CI
         # repair, which is the shape of bug that surfaces on the second failure of the day and
         # looks like the repair agent being incompetent rather than the toolchain being absent.
-        return build_runner(
+        passed = build_runner(
             view, inp.issue, sandbox=inp.sandbox,
             image=_resolved_image(project, sandbox=inp.sandbox), review=False,
             repo_key=repo_key, change=inp.change,
         ).repair_ci(inp.issue, ci_log, pr_url=inp.pr_url, human=human)
+        # A PASS THAT CHANGED NOTHING RE-RUNS ONCE (#756), on this door and the box's alike.
+        return _rerun_after_a_pass_that_changed_nothing(lambda: _forge_for(project), inp, passed,
+                                                        human=human)
 
     from openfactory.observability.registry import journal_for
     from openfactory.paths import events_file
@@ -2834,11 +2892,15 @@ def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
     extra["OPENFACTORY_ADJUST" if human else "OPENFACTORY_CI_REPAIR"] = "1"
     if human:
         extra["OPENFACTORY_ADJUST_TEXT"] = ci_log
-    return remote_box(inp.sandbox).launch(
+    passed = remote_box(inp.sandbox).launch(
         box, variant="-adjust" if human else "-ci-repair",
         extra_env={**extra, **_the_change_env(inp.change), **box_credential_env(project)},
         journal=journal, timeout=1800, run_id=run_id,
     )
+    # The box hands `code_changed` back on its result line (`boxed_job._emit` dumps the whole
+    # `RunResult`, measured by the box's own `repair_ci`), so the worker can decide here.
+    return _rerun_after_a_pass_that_changed_nothing(lambda: _forge_for(project), inp, passed,
+                                                    human=human)
 
 
 @activity.defn

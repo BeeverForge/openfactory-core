@@ -130,8 +130,8 @@ def on_the_worker(monkeypatch):
     a project, its forge, and the two doors an agent pass goes through — the inline runner
     (`build_runner(...).repair_ci`) and a remote box (`remote_box(...).launch`) — each recorded.
 
-    `use(forge, door=..., changed=...)` installs the forge and the door; `changed` is the
-    `code_changed` the agent's pass answers. It returns the list of passes launched: the log each
+    `use(forge, door=..., changed=..., state=...)` installs the forge and the door; `changed` and
+    `state` are the `code_changed` and the state the agent's pass answers. It returns the list of passes launched: the log each
     inline pass was handed, or the variant each remote box was launched with."""
     agents: list[str] = []
     project = SimpleNamespace(name="p", tracker=SimpleNamespace(options={}, kind="github"),
@@ -146,7 +146,7 @@ def on_the_worker(monkeypatch):
     monkeypatch.setattr("openfactory.observability.registry.journal_for",
                         lambda *_a, **_k: None)
 
-    def use(forge, *, door="inline", changed=True):
+    def use(forge, *, door="inline", changed=True, state=JobState.PR_OPEN):
         monkeypatch.setattr(acts, "_forge_for", lambda _p: forge)
         monkeypatch.setattr(acts, "installed_box_traits",
                             lambda _s: SimpleNamespace(remote=door == "remote"))
@@ -154,13 +154,13 @@ def on_the_worker(monkeypatch):
         def runner(*a, **kw):
             def repair_ci(issue, ci_log, pr_url="", human=False):
                 agents.append(ci_log)
-                return RunResult(ticket_id=issue, state=JobState.PR_OPEN, pr_url=pr_url,
+                return RunResult(ticket_id=issue, state=state, pr_url=pr_url,
                                  code_changed=changed)
             return SimpleNamespace(repair_ci=repair_ci)
 
         def launch(box, *, variant, extra_env, journal, timeout, run_id):
             agents.append(variant)
-            return RunResult(ticket_id=box.issue, state=JobState.PR_OPEN,
+            return RunResult(ticket_id=box.issue, state=state,
                              pr_url=extra_env["OPENFACTORY_PR"], code_changed=changed)
 
         monkeypatch.setattr(acts, "build_runner", runner)
