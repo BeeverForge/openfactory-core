@@ -229,12 +229,13 @@ def test_a_secret_of_this_process_that_spans_lines_is_withheld_from_the_quote_an
 # ── "Plain prose is quoted unchanged" ───────────────────────────────────────────────────────────
 
 #: Each a near miss of a shape the withholding reads: the scheme word with no value, a variable
-#: reference where a value would stand, a prefix named but not used, an address with no userinfo.
+#: reference where a value would stand, a word too short to be a header's value, a prefix named but not used, an address with no userinfo.
 NEAR_MISSES = [
     "a Bearer header",
     "the Bearer credential every route accepts",
     "Bearer authentication",
     'curl -H "Authorization: Bearer $GH_TOKEN"',
+    "send an Authorization: Bearer token with it",
     "ghp_ is the prefix of a personal token",
     "sk-learn",
     "https://octocat.github.io/x",
