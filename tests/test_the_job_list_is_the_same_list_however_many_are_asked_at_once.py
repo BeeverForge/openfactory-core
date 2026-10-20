@@ -249,7 +249,8 @@ async def test_a_row_that_cannot_be_built_fails_the_list_with_its_own_error(monk
     list with THAT error, and every caller (`_within`, the routes, the floor) is written against
     the SDK's errors. Asked side by side inside a TaskGroup, the same failure arrives wrapped in an
     `ExceptionGroup` no caller catches, unless the list unwraps it. Passes on the sequential list;
-    the mutation plan's "the group reaches the caller" cut turns it red."""
+    plan 754's "fails the list as an ExceptionGroup, not as itself" cut (the unwrap removed) turns
+    it red. One failing row, so it holds the type and not which of two failing rows is raised."""
     engine, _ = _floor()
     real_row = tv._row
 

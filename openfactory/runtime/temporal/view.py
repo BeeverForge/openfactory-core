@@ -1202,21 +1202,21 @@ async def _enriched_in_order(client: Client, batch: list, namespace: str,
 
     A TaskGroup, so a deadline or a caller that went away cancels every question still asked
     (nothing outlives the read: a query a silent worker never answers waits until the SDK gives
-    up). A row that raised is raised as itself, the first in list order, as the sequential walk
-    raised it: callers catch the SDK's errors, not an `ExceptionGroup`."""
+    up). The first row that failed is raised as itself, and the group cancels the others: callers
+    catch the SDK's errors, not an `ExceptionGroup`. Not necessarily the first in list order: a
+    later row that fails first cancels an earlier one before it raises (row 1 raising after 50 ms,
+    row 2 after 1 ms → row 2's error, measured 2026-10-20), where the sequential walk raised row
+    1's. Callers catch broadly, so which row's error it is changes nothing they do."""
 
     async def one(wf):
         async with room:
             return await _enriched(client, wf, namespace)
 
-    tasks: list[asyncio.Task] = []
     try:
         async with asyncio.TaskGroup() as group:
             tasks = [group.create_task(one(wf)) for wf in batch]
     except BaseExceptionGroup as failed:
-        raised = [t.exception() for t in tasks if t.done() and not t.cancelled()
-                  and t.exception() is not None]
-        raise (raised[0] if raised else failed.exceptions[0]) from None
+        raise failed.exceptions[0] from None
     return [t.result() for t in tasks]
 
 

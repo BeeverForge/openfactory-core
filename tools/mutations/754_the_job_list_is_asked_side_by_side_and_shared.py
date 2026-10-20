@@ -95,14 +95,11 @@ MUTATIONS = [
      "        async with room:\n"
      "            return await _enriched(client, wf, namespace)\n"
      "\n"
-     "    tasks: list[asyncio.Task] = []\n"
      "    try:\n"
      "        async with asyncio.TaskGroup() as group:\n"
      "            tasks = [group.create_task(one(wf)) for wf in batch]\n"
      "    except BaseExceptionGroup as failed:\n"
-     "        raised = [t.exception() for t in tasks if t.done() and not t.cancelled()\n"
-     "                  and t.exception() is not None]\n"
-     "        raise (raised[0] if raised else failed.exceptions[0]) from None\n"
+     "        raise failed.exceptions[0] from None\n"
      "    return [t.result() for t in tasks]",
      "    finished: list = []\n"
      "\n"
@@ -112,14 +109,11 @@ MUTATIONS = [
      "        finished.append(row)\n"
      "        return row\n"
      "\n"
-     "    tasks: list[asyncio.Task] = []\n"
      "    try:\n"
      "        async with asyncio.TaskGroup() as group:\n"
      "            tasks = [group.create_task(one(wf)) for wf in batch]\n"
      "    except BaseExceptionGroup as failed:\n"
-     "        raised = [t.exception() for t in tasks if t.done() and not t.cancelled()\n"
-     "                  and t.exception() is not None]\n"
-     "        raise (raised[0] if raised else failed.exceptions[0]) from None\n"
+     "        raise failed.exceptions[0] from None\n"
      "    return finished",
      SAME + "test_the_same_rows_in_the_same_order_one_at_a_time_and_eight_at_a_time"),
 
@@ -135,7 +129,7 @@ MUTATIONS = [
      EIGHT + "test_a_list_asks_about_no_more_than_one_batch_past_its_limit"),
 
     ("a row that cannot be built fails the list as an ExceptionGroup, not as itself", VIEW,
-     "        raise (raised[0] if raised else failed.exceptions[0]) from None",
+     "        raise failed.exceptions[0] from None",
      "        raise",
      SAME + "test_a_row_that_cannot_be_built_fails_the_list_with_its_own_error"),
 
