@@ -261,6 +261,18 @@ def test_a_planner_that_edits_a_tracked_file_holds_the_job(repo, tmp_path, box):
     _assert_held_naming(runner, result, agent, events, tmp_path, ["README.md"])
 
 
+def test_a_planner_that_writes_the_project_manifest_holds_the_job_naming_it(repo, tmp_path, box):
+    """1a/1b, a dot path. `.openfactory/project.yaml` is the file a planner is likeliest to
+    "fix", and the remedy itself names it. On dc0efac4 (2026-10-20) the reviewer's cut that leaves
+    top-level dot paths out of the fingerprint's add (`git add -A -- . ":(exclude).*"`) left every
+    row green, 46 passed and 4 skipped, because no row wrote a dot path; measured by hand, such a
+    planner was held."""
+    agent, events = _Planner("mkdir -p .openfactory && echo 'planner_stage: false' > "
+                             ".openfactory/project.yaml"), InMemoryEventSink()
+    runner, result = _run(repo, agent, box, events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, [".openfactory/project.yaml"])
+
+
 def test_a_planner_that_commits_its_edit_holds_the_job(repo, tmp_path):
     """1a/1b. A planner `git commit` leaves porcelain clean and moves HEAD; on main the pull
     request opened on top of the planner's commit."""

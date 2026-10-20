@@ -47,6 +47,10 @@ property, each aimed at the row that holds it:
      `planted.txt`) is held by the ref alone and names no path. B3 tells the fingerprint no branch
      name, with the same effect. B4 and B5 drop the moved ref's entry, and the moved branch's, from
      what `written` names.
+  9. **The reviewer's surviving cuts** (review round 2 on dc0efac4, point 3). K7 leaves top-level
+     dot paths out of the fingerprint's add (`git add -A -- . ":(exclude).*"`): on dc0efac4 it left
+     T1 and the documents guard green, 46 passed and 4 skipped, because no row wrote a dot path.
+     The row whose planner writes `.openfactory/project.yaml` goes red under it.
 
 HOW THE CUTS DIFFER FROM THE PLAN'S SKETCH (task 17), because the code differs from it:
   - `fingerprint` returns `Mark | Unreadable`, not `Mark | None`. U1 removes `rc == 0` from the
@@ -92,6 +96,8 @@ RENAME = TEST + "::test_a_planner_that_renames_a_file_holds_the_job_naming_both_
 MOVES_BRANCH = TEST + "::test_a_planner_that_moves_the_job_branch_holds_the_job_naming_it[{}]"
 OTHER_BRANCH = TEST + ("::test_a_planner_that_puts_head_on_another_branch_holds_the_job_naming_it"
                        "[{}]")
+DOT_PATH = TEST + ("::test_a_planner_that_writes_the_project_manifest_holds_the_job_naming_it"
+                   "[{}]")
 AS_ENVIRONMENT = TEST + "::test_a_workspace_that_cannot_be_asked_is_held_as_the_environment[{}]"
 
 BASE = "openfactory/adapters/agent/base.py"
@@ -337,8 +343,16 @@ MUTATIONS = [
      "        pass\n",
      OTHER_BRANCH.format("worktree")),
     ("B5 the moved job branch is not named in the hold, only the paths its commit carries", PASS,
-     '        names.append(f"the job\'s branch {ws.branch} (the one pushed) moved during the pass "\n'
+     '        names.append(f"the job\'s branch {ws.branch} (the one pushed) moved during the '
+     'pass "\n'
      '                     f"from {before.branch[:12]} to {after.branch[:12]}")\n',
      "",
      MOVES_BRANCH.format("worktree")),
+
+    # ── 9. the reviewer's surviving cuts (review round 2 on dc0efac4, point 3) ──────────────────
+    ("K7 the fingerprint's add leaves out top-level dot paths: `.openfactory/project.yaml` unseen",
+     PASS,
+     """'GIT_INDEX_FILE="$t" git add -A && """,
+     """'GIT_INDEX_FILE="$t" git add -A -- . ":(exclude).*" && """,
+     DOT_PATH.format("worktree")),
 ]
