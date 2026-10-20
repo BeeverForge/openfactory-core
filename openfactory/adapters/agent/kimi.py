@@ -41,11 +41,31 @@ TWO DIFFERENCES FROM CODEX THAT SHAPE THIS ADAPTER
    read-only by INSTRUCTION ONLY, not by mode and not by enforcement — the weakest guarantee of
    the shipped rows, stated rather than papered over. `--agent-file` with a `tools:` list is
    reachable per run and not used yet (#785): measured, it removes `Write` from the model's tools,
-   but its body replaces Kimi's whole system prompt and it cannot be used with `-S`. The isolation
-   that does hold is the sandbox the platform already puts around it: an ephemeral,
-   credential-less Fargate box (ADR-0001 D-4).
-   It cannot escape the box; it could edit inside it during a plan, and no such edit outlives the
-   run, whose output is text.
+   but its body replaces Kimi's whole system prompt and it cannot be used with `-S`. Nothing
+   confines what a disobedient run writes; where it lands depends on the role (#788, located on
+   620bb577, 2026-10-20). The planner runs in the job's box on the job's own workspace, the one
+   the executor continues from and `_commit` sweeps with `git add -A`, so an edit it left reached
+   the pull request; with `--sandbox worktree` that workspace is a directory on the host. So the
+   orchestrator measures that workspace before and after a Kimi plan pass
+   (`orchestrator/read_only_pass.py`; this harness is named in
+   `base.py::PLANNERS_READ_ONLY_BY_INSTRUCTION`) and holds the job when the pass wrote, naming
+   the paths, before the pause, the commit or the push: the job stops before pushing anything.
+   A workspace git cannot answer holds it too, in git's words. It detects the write; nothing here
+   prevents it, and it sees only what is there at the second reading: a process the planner
+   leaves running that writes after it is not seen (measured in the review of dc0efac4,
+   2026-10-20: a background `late.txt` written a second later reached the pushed branch).
+   Where an `ask()` runs is its caller's choice. A judging role's caller builds
+   `sandbox/registry.py::judging_worktree`, a `WorktreeSandbox` whose `run` is a host
+   subprocess, so the question runs on the host whatever the project's box, in a room nothing
+   commits from (a temporary directory, the repo cache's master clone, a module's cached view),
+   and its edit reaches no pull request but stays where it was written, except `env context
+   --ask`, which asks in the checkout it is pointed at (the person's own repository on a local
+   deployment), where a write is left in that working tree, and the independent review, which
+   runs in the job's box on the job's workspace before the push (`JobRunner._review` hands
+   `HarnessReviewer.review` both), where a write it commits, or one a review-repair pass then
+   sweeps in, can reach the pull request (measured in the review of dc0efac4, 2026-10-20).
+   Review is on by default and that pass is not measured. The onboarding first run's review asks
+   in its own rehearsal workspace, from which nothing is pushed.
 
    There is also no `--cd`: the working directory is the process's, which is exactly what the
    platform's sandbox already sets (`sandbox.run(workspace=…)` runs in the workspace). Nothing to
@@ -120,7 +140,14 @@ BEFORE_THE_HARNESS = NOT_WHILE_DECLARED
 
 
 class KimiAdapter:
-    """Kimi Code, driven non-interactively through the sandbox (never on the host)."""
+    """Kimi Code, driven non-interactively through whatever box the caller hands it.
+
+    That is the job's box for `plan`, `execute` and `repair`, a directory on the host under
+    `--sandbox worktree`; for a judging role's `ask()` it is `judging_worktree`, on the host
+    whatever the project's box, in a room nothing commits from, except `env context --ask`,
+    which asks in the checkout it is pointed at, and the independent review, which runs in the
+    job's box on the job's workspace before the push, where its write can reach the pull request
+    (see the module docstring, difference 2)."""
 
     name = "kimi"
 
@@ -153,9 +180,15 @@ class KimiAdapter:
 
         WEAKER than the other harnesses: Kimi exposes no sandbox-policy flag, and 0.31.1 refuses
         `--plan` beside `-p`, so this is instruction only — no mode, no enforcement (#362);
-        `--agent-file` with a `tools:` list is reachable per run and not used yet (#785). It
-        cannot escape the platform's own ephemeral box, but it could edit inside it while
-        judging."""
+        `--agent-file` with a `tools:` list is reachable per run and not used yet (#785), so
+        there is no enforcement until a per-run agent file is wired. A judging role's caller hands
+        it `judging_worktree`, which runs it on the host whatever the project's box, in a room
+        nothing commits from, except `env context --ask`, which asks in the checkout it is pointed
+        at, where a write is left in that working tree, and the independent review, which runs in
+        the job's box on the job's workspace before the push (`HarnessReviewer.review`), where a
+        write it commits, or one a review-repair pass then sweeps in, can reach the pull request.
+        An edit made while judging elsewhere reaches no pull request, and nothing confines it to
+        its room either."""
         return self._run(sandbox, workspace,
                          "Answer READ-ONLY. Do not modify any file.\n\n" + prompt,
                          model=self.planner_model, phase=phase)

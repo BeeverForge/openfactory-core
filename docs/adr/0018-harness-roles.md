@@ -82,6 +82,46 @@ reachable per run and not used yet (#785): measured in the review of #783, it ta
 model's tool list, but its body replaces Kimi's whole system prompt and 0.31.1 refuses it beside
 `-S`, so adopting it is a design choice of its own.
 
+**Amended (2026-10-20, #788):** the two sentences under the table, on where a Kimi judging role
+could edit, are not what the code does. Where an
+`ask()` runs is its caller's choice. A judging role's caller builds its room with
+`sandbox/registry.py::judging_worktree`, which always returns a host `WorktreeSandbox`, so a
+question runs on the host even for a project whose jobs run in a container (measured on 620bb577
+by `tests/test_where_a_kimi_judging_role_runs_is_what_its_documents_say.py`, where a `kimi` that
+disobeys its instruction leaves its file in the host room). The rooms are a fresh temporary clone
+for the tech-lead's conversation and the diagnosis, a fresh temporary directory for the
+coordinator's advice, the cards and the documents extractor, the battery's workdir for the
+evaluation judge, the repo cache's master clone for the sizer and the product baseline, the
+module's cached view for the product role, and a source clone for onboarding. Each is a room
+nothing commits from, so a judging role's edit does not reach a pull request, except
+`env context --ask`, which asks in the target checkout it is pointed at (the person's own
+repository on a local deployment), where a write is left in that working tree (measured in the
+review of e2b57dd1, 2026-10-20: `?? wrote.txt` in that checkout; the same test now holds it),
+and the independent review, which runs in the job's box on the job's workspace before the push:
+`JobRunner._review` hands `HarnessReviewer.review` the job's own box and workspace, and it asks
+there, so on Kimi a write it commits, or one a review-repair pass then sweeps in, can reach the
+pull request (measured in the review of dc0efac4, 2026-10-20: `reviewed.txt` in the pushed
+branch; the same test file now holds it). Review is on by default, and that pass is not measured.
+The onboarding first run's review asks in its own rehearsal workspace, from which nothing is
+pushed. Nothing but the harness confines a write to its room, and on Kimi nothing does. The planner is
+the other way round: it does run in the box, but on the job's own workspace, which the executor
+then works in and `_commit` sweeps with `git add -A`, so a Kimi planner's edit reached the pull
+request, and a planner that wrote and then hit a rate limit had its
+edit pushed to the job's branch by the pause. With `--sandbox worktree` that workspace is itself on
+the host. So the orchestrator now measures that workspace around a Kimi plan pass
+(`orchestrator/read_only_pass.py`: the tree `git add -A` would commit, written from a copy of the
+index, HEAD, the ref HEAD is on and the commit of the job's branch, the one that is pushed, before
+the pass and after it) and holds the job when the pass wrote, naming the
+paths, before the pause, the commit or the push; the job stops before pushing anything, and the
+workspace is discarded with the sandbox. A workspace git cannot answer holds the job too, with
+git's exit code and its words, and before the pass is run when the first reading fails. The hold
+detects the write, it does not prevent or undo it, and it sees only what is there at the second
+reading: a process the planner leaves running that writes after it is not seen, and that write can
+reach the pull request (measured in the review of dc0efac4, 2026-10-20: a background process that
+wrote `late.txt` a second after the pass left the job unheld and the file in the pushed branch). Which harnesses are measured is
+`adapters/agent/base.py::PLANNERS_READ_ONLY_BY_INSTRUCTION`, Kimi alone. A planner runs only where
+a project turned `planner_stage` on (ADR-0014).
+
 Everything above that primitive — the sizer, the diagnosis, the coordinator's advice, the Slack
 answer, the independent review — is **one shared implementation**. Parity by construction rather
 than by four more copies per harness.

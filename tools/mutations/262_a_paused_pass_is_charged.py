@@ -43,17 +43,14 @@ MUTATIONS = [
      "                )\n"
      "            self._count(agent_result, \"executor\")\n"),
 
+    # RE-PINNED 2026-10-20 (#788): the planner's write check now sits between its `_count` and
+    # its pause, so the old anchor (the count, then the pause directly below it) matches nothing.
+    # The cut puts the old order back at the count's own line: the pause is asked and returns,
+    # journalled as before, and only then is the pass counted. The same three tests go red as the
+    # old cut did on c0ab4ff7 (both `[planner]` rows and the AST order guard); the #788 check
+    # below it is left as it is.
     ("the planner is counted after its pause again, where it used to be", MACHINE,
-     "                self._count(plan_result, \"planner\")\n"
-     "                if plan_result.pause_reason:\n"
-     "                    self._emit(ticket, \"note\", f\"planner paused: "
-     "{plan_result.summary[:200]}\",\n"
-     "                               cost_usd=plan_result.cost_usd, role=\"planner\")\n"
-     "                    return self._paused(\n"
-     "                        ticket, plan_result.pause_reason, plan_result.retry_at, "
-     "branch=branch,\n"
-     "                        ws=ws, resume_handle=plan_result.resume_handle,\n"
-     "                    )\n",
+     "                self._count(plan_result, \"planner\")\n",
      "                if plan_result.pause_reason:\n"
      "                    self._emit(ticket, \"note\", f\"planner paused: "
      "{plan_result.summary[:200]}\",\n"

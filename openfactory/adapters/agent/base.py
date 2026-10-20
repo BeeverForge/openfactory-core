@@ -223,6 +223,19 @@ MAX_ARG_STRLEN = 32 * 4096
 HARNESSES_WITHOUT_STAGED_PROMPT = frozenset({"kimi"})
 
 
+#: Harness KINDS whose planner is read-only by INSTRUCTION ONLY, so the orchestrator measures the
+#: job's workspace before and after the plan pass and holds the job if the planner wrote (#788).
+#: Today only `kimi` (`kimi-code`): 0.31.1 refuses `--plan` beside `-p` (review of #783) and has
+#: no sandbox-policy flag, so nothing stops a disobedient planner editing the workspace the
+#: executor continues from and `_commit` sweeps with `git add -A` — located on 620bb577,
+#: 2026-10-20. The others are confined by their CLI (claude `--tools`, codex `-s read-only`,
+#: opencode's profile). The kind STAYS here the day `--agent-file` is wired (#785): that file
+#: removes `Write` from the model's tools, but a shell tool left in the list can still write, and
+#: the measurement costs one `git` call per plan pass. ONE PLACE, read by the planner check in
+#: `JobRunner.run`, so which harnesses are measured cannot drift from what the adapters claim.
+PLANNERS_READ_ONLY_BY_INSTRUCTION = frozenset({"kimi"})
+
+
 #: What the rest of the command costs — the harness's absolute path, the flags, the model, the
 #: session id. Held back from the ceiling so the check measures the argument the shell will
 #: actually carry, with room for what is built around the prompt (review of #360).
