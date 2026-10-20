@@ -33,6 +33,13 @@ property, each aimed at the row that holds it:
   6. **The remedy names a role that exists** (review round 1 on e2b57dd1, point 3). The planner
      runs on the executor's harness and `harness_kind(None, "planner")` raises, so R1 puts back
      "Give the planner another harness", the sentence 6db1677c held with.
+  7. **The fingerprint keeps its own promises** (review round 1 on e2b57dd1, not blocking: five
+     cuts of `read_only_pass.py` left all 19 rows green). P1 drops `GIT_INDEX_FILE`, so the real
+     index is written and setup's leftover reads `A  build.log` to the planner. P2 drops
+     `rm -f "$t"`, so the index copy stays in the git dir. P3 makes `_diff_names` answer `[]`
+     when git names no path, so a changed tree reads as nothing written. P4 drops the `SHOWN`
+     bound, so 25 paths are named with no "and 5 more". P5 drops `--no-renames`, so a `git mv`
+     names only the path it came to.
 
 HOW THE CUTS DIFFER FROM THE PLAN'S SKETCH (task 17), because the code differs from it:
   - `fingerprint` returns `Mark | Unreadable`, not `Mark | None`. U1 removes `rc == 0` from the
@@ -69,6 +76,10 @@ GIT_REFUSES = TEST + ("::test_a_workspace_git_refuses_holds_the_job_with_gits_ex
 SETUP_NOT_CHARGED = TEST + "::test_what_setup_leaves_in_the_tree_is_not_charged_to_the_planner"
 SCOPE = TEST + "::test_a_harness_whose_planner_cannot_write_is_not_asked"
 THROTTLING = TEST + "::test_a_planner_hold_is_not_read_as_throttling_whatever_the_path"
+REAL_INDEX = TEST + "::test_the_fingerprint_leaves_the_real_index_and_no_copy_behind"
+NO_NAMES = TEST + "::test_a_tree_that_changed_holds_even_when_git_names_no_path"
+MANY = TEST + "::test_a_planner_that_writes_many_files_is_named_up_to_the_bound"
+RENAME = TEST + "::test_a_planner_that_renames_a_file_holds_the_job_naming_both_paths"
 AS_ENVIRONMENT = TEST + "::test_a_workspace_that_cannot_be_asked_is_held_as_the_environment[{}]"
 
 BASE = "openfactory/adapters/agent/base.py"
@@ -266,4 +277,26 @@ MUTATIONS = [
      _I + 'f"the workspace is discarded. Give the planner another harness, "\n'
      + _I + 'f"or turn `planner_stage` off for this project.",\n',
      CREATE),
+
+    # ── 7. the fingerprint keeps its own promises (review round 1, not blocking) ────────────────
+    ("P1 the fingerprint writes the real index: `GIT_INDEX_FILE` dropped", PASS,
+     """'GIT_INDEX_FILE="$t" git add -A && GIT_INDEX_FILE="$t" git write-tree; rc=$?; '""",
+     """'git add -A && git write-tree; rc=$?; '""",
+     REAL_INDEX),
+    ("P2 the index copy is left in the git dir: `rm -f \"$t\"` dropped", PASS,
+     """'rm -f "$t"; git rev-parse HEAD || rc=1; exit $rc'""",
+     """'git rev-parse HEAD || rc=1; exit $rc'""",
+     REAL_INDEX),
+    ("P3 a changed tree git names no path for reads as nothing written", PASS,
+     '        return [f"{what}, and git named no path ({said})"]\n',
+     "        return []\n",
+     NO_NAMES),
+    ("P4 the `SHOWN` bound is dropped: every path is named, with no \"and N more\"", PASS,
+     "    if len(unique) > SHOWN:\n",
+     "    if False:\n",
+     MANY),
+    ("P5 `--no-renames` is dropped: a rename names only the path it came to", PASS,
+     '(f"git -c core.quotePath=false diff --no-renames --name-only "',
+     '(f"git -c core.quotePath=false diff --name-only "',
+     RENAME),
 ]

@@ -537,3 +537,63 @@ def test_a_workspace_that_cannot_be_asked_is_held_as_the_environment(repo, tmp_p
     verdict = classify(result.note or "", state=result.state.value, cause=result.hold_cause)
     assert (result.hold_cause, verdict.cause) == (ENVIRONMENT, ENVIRONMENT), (
         result.hold_cause, verdict.cause, verdict.detail)
+
+
+# ── 1j: the fingerprint's own promises (review round 1 on e2b57dd1, not blocking) ────────────────
+# Each row passes on 3e54a1cf by design and turns red under its cut in plan
+# 788_a_kimi_planner_that_writes_holds_the_job: on e2b57dd1 the reviewer measured five cuts of
+# `read_only_pass.py` that left all 19 rows green.
+
+def test_the_fingerprint_leaves_the_real_index_and_no_copy_behind(repo, tmp_path):
+    """The module's headline promise: the fingerprint's `git add -A` writes a copy of the index,
+    removed in the same shell. Setup leaves `build.log` untracked, and the planner, run after the
+    first fingerprint, still reads `?? build.log` (not `A  build.log`) and no copy in the git dir.
+    A staged leftover would vanish from the executor's `git diff`."""
+    agent, seen = _Planner(), {}
+    inner = agent.plan
+
+    def plan(*, sandbox, workspace, context):
+        seen["status"] = sandbox.run(workspace=workspace, timeout=60,
+                                     command="git status --porcelain")[1]
+        seen["copies"] = sandbox.run(workspace=workspace, timeout=60,
+                                     command='ls "$(git rev-parse --git-dir)"')[1]
+        return inner(sandbox=sandbox, workspace=workspace, context=context)
+
+    agent.plan = plan
+    _, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"),
+                     setup=["echo built > build.log"])
+    assert result.state is JobState.PR_OPEN, result.note
+    assert seen["status"].strip() == "?? build.log", seen["status"]
+    assert "openfactory-plan" not in seen["copies"], seen["copies"]
+
+
+def test_a_tree_that_changed_holds_even_when_git_names_no_path(repo, tmp_path):
+    """Positive evidence is never lost: two trees that differ hold the job even when `git diff`
+    names no path (here it answers exit 128), and git's words stand in for the paths."""
+    class NoNames(_Recording):
+        def run(self, *, workspace, command, timeout, **kw):
+            if "diff --no-renames --name-only" in command:
+                return 128, "fatal: bad object"
+            return super().run(workspace=workspace, command=command, timeout=timeout, **kw)
+
+    _, result = _run(repo, _Planner("echo x > planted.txt"),
+                     NoNames(WorktreeSandbox(root=tmp_path / "wt")))
+    assert result.state is JobState.ON_HOLD, result.note
+    assert "git named no path" in (result.note or ""), result.note
+
+
+def test_a_planner_that_writes_many_files_is_named_up_to_the_bound(repo, tmp_path):
+    """A note a person reads names at most `SHOWN` (20) paths, then "and N more": 25 files give
+    20 names and "and 5 more"."""
+    _, result = _run(repo, _Planner("for i in $(seq 1 25); do echo x > f$i.txt; done"),
+                     WorktreeSandbox(root=tmp_path / "wt"))
+    assert result.state is JobState.ON_HOLD, result.note
+    assert "and 5 more" in (result.note or ""), result.note
+
+
+def test_a_planner_that_renames_a_file_holds_the_job_naming_both_paths(repo, tmp_path):
+    """A rename names the path that left and the path that came: `diff.renames` is on by default
+    since git 2.9, and without `--no-renames` `git diff --name-only` names only `DOCS.md`."""
+    agent, events = _Planner("git mv README.md DOCS.md"), InMemoryEventSink()
+    runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"), events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["README.md", "DOCS.md"])
