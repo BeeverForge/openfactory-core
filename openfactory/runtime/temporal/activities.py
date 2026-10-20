@@ -2765,6 +2765,11 @@ def _rerun_what_the_change_does_not_touch(project, inp: CiRepairInput, repo: str
                          inp.pr_url, ", ".join(reran))
     # `code_changed=False`: nothing was pushed, so the reviewer's verdict on the head still stands
     # (`_the_reviewed_code_is_still_here`), and the watch rests `_CI_POLL` before reading again.
+    # NO SETTLE WAIT HERE, measured 2026-10-20 with gh 2.102.0 on a scratch pull request: after
+    # `gh run rerun --failed` the check read `pending` within 3.0-3.7 s in 3 of 4 reruns (the
+    # fourth stayed queued, still not red), and before that `gh pr checks` reported no checks
+    # ("none"); the old red was read 0 of 4 times. The watch's rest of `_CI_POLL` (2 min,
+    # workflow.py after `repair_ci`) is far longer than that gap, so its next read is not stale.
     return RunResult(ticket_id=inp.issue, state=JobState.PR_OPEN, pr_url=inp.pr_url,
                      code_changed=False,
                      note=f"re-ran the failed jobs of {', '.join(reran)}: no changed file "
