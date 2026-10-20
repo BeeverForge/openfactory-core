@@ -332,3 +332,92 @@ def test_an_acceptance_whose_breakdown_came_from_a_newer_worker_still_says_what_
 
     assert out.ok and out.message.startswith("accepted requirement 7."), out.message
     assert "acme#41" in out.message, out.message
+
+
+def test_a_ticket_title_longer_than_the_limit_answers_400_with_the_modules_sentence(
+        client, deployment, tracker):  # noqa: F811 — the imported fixtures
+    """Criterion 1, at a site `_could_not` used to hide: `_product_file_ticket` refuses an empty
+    title but never checks the length, so an 81-character title reaches `ProductModule.file_ticket`,
+    which declines it on purpose ("write a shorter one; nothing was opened"). Measured by the
+    maintainers' review of PR #970 on a647d604 (2026-10-20): HTTP 500 `failed`, a `data.reference`,
+    and two `OPENFACTORY_PRODUCT_WRITE_FAILED` lines for a title nobody failed to write."""
+    from openfactory.product.cards import TITLE_LIMIT
+    from openfactory.product.module import _FILING
+
+    title = "A" * (TITLE_LIMIT + 1)
+    r = _post(client, "product_file_ticket", who=ADMIN, title=title, yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (400, "invalid"), (r.status_code, said)
+    assert said["data"]["refusal"] == "not_valid", said
+    assert said["message"] == _FILING["en"]["title_too_long_ticket"].format(limit=TITLE_LIMIT)
+    assert "reference" not in said["data"], "a refusal was given a failure's reference"
+    # (the local deployment has no docs clone, so the module files its own impediment card about
+    # the unreadable corpus on the way: only a card BY THIS TITLE would be the write refused)
+    assert not [s for s in tracker.list_tickets(state="open") if s.title == title], "it was opened"
+
+
+def _module_of(deployment):  # noqa: F811 — the imported fixture
+    from openfactory.product.module import ProductModule
+
+    return ProductModule(deployment)
+
+
+def _no_title(deployment, tracker, board, monkeypatch):  # noqa: F811
+    return _module_of(deployment).file_ticket(title=" . ", described="x", reported_by=ADMIN,
+                                              tracker=tracker, board=board)
+
+
+def _defect_title_too_long(deployment, tracker, board, monkeypatch):  # noqa: F811
+    from openfactory.product.cards import TITLE_LIMIT
+
+    return _module_of(deployment).file_defect(restated="the export is empty", reported_by=ADMIN,
+                                              violates=None, title="B" * (TITLE_LIMIT + 1),
+                                              tracker=tracker, board=board)
+
+
+def _born_in_the_queue(deployment, tracker, board, monkeypatch):  # noqa: F811
+    from types import SimpleNamespace
+
+    from openfactory.adapters.board import base
+
+    monkeypatch.setattr(base, "intake_held", lambda *_a, **_k: SimpleNamespace(
+        queued=True, column="Todo", queue="Todo", unknown=""))
+    return _module_of(deployment)._born_in_the_queue(tracker, board, act="file a ticket")
+
+
+def _not_vetted(deployment, tracker, board, monkeypatch):  # noqa: F811
+    from types import SimpleNamespace
+
+    module = _module_of(deployment)
+    monkeypatch.setattr(module, "_reused_card", lambda *_a, **_k: None)
+    draft = SimpleNamespace(title="export the ledger nightly")
+    return module._file_one(draft, None, tracker, board,
+                            vet=lambda d: (None, "no criterion says when"))
+
+
+@pytest.mark.parametrize("site, word", [
+    (_no_title, "not_valid"),
+    (_defect_title_too_long, "not_valid"),
+    (_born_in_the_queue, "not_waiting"),
+    (_not_vetted, "not_valid"),
+], ids=["no_title", "title_too_long_defect", "filing_held_queue", "not_vetted"])
+def test_each_decision_the_filing_makes_before_it_writes_names_its_word_not_a_failure(
+        site, word, deployment, tracker, board, monkeypatch, caplog):  # noqa: F811
+    """Criterion 1, the other sites `_could_not` hid (review of PR #970, robertocsp point 1): a
+    title missing or too long, a card the board would start building on its own (`filing_held
+    ("queue")`), a front the automatic review blocked (`not_vetted`) — each a decision the module
+    makes before it writes, by its sentence ("write a shorter one", "I filed nothing … whoever runs
+    this factory sets", "did not pass the automatic review, so I did not open that card"). On
+    a647d604 each came back `refusal=""` through `_could_not`, which is a 500 `failed` with a
+    reference, and was logged as a failed write."""
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        held = site(deployment, tracker, board, monkeypatch)
+
+    assert (held.ok, held.refusal) == (False, word), (held.refusal, held.detail)
+    assert held.detail, "a refusal without the module's sentence"
+    assert not [r for r in caplog.records
+                if r.getMessage().startswith("OPENFACTORY_PRODUCT_WRITE_FAILED ")], (
+        "a decision was logged as a failed write")

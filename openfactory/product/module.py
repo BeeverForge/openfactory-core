@@ -847,7 +847,12 @@ def _could_not(sentence: str, *, act: str, cause: object = "", ref: str = "") ->
     decided this — and there is no argument that would set one: a write that was tried and did not
     happen answers 500 `failed` over `/api/act`, with a `data.reference` that the action layer's
     own `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…` line names. A decision not to write is
-    `_held`, or a `WriteResult` built with its word of `authoring.REFUSALS`, never this.
+    `_held`, or a `WriteResult` built with its word of `authoring.REFUSALS`, never this: a title
+    missing or too long, a front the automatic review blocked and a card the board would start
+    building on its own came through here until the review of PR #970, and answered 500. What is
+    left is what could not be done or could not be seen — the harness that drafted nothing, the
+    store busy (`semaphore_busy`, `too_much_at_once`: retried, and built in an `except` branch), a
+    board that could not say where a card starts (`filing_held("unread"/"undeclared")`).
     """
     log.warning("OPENFACTORY_PRODUCT_WRITE_FAILED act=%s ref=%s — %s", act, ref or "-", cause)
     return WriteResult(ok=False, ref=ref, detail=sentence)
@@ -855,10 +860,11 @@ def _could_not(sentence: str, *, act: str, cause: object = "", ref: str = "") ->
 
 def _held(sentence: str, *, act: str, why: str) -> WriteResult:
     """A write the module DECIDED not to start — a front held on the one it builds on (#576), a
-    front past the breakdown's budget — reported as a refusal (`NOT_WAITING`, #908), never as the
-    failure `_could_not` reports, and logged as what it is (review of #586): whoever counts
-    `OPENFACTORY_PRODUCT_WRITE_FAILED` counts writes that were tried and did not happen, never a
-    hold."""
+    front past the breakdown's budget, a card the board would start building on its own (#536's
+    `filing_held("queue")`, a decision since #908) — reported as a refusal (`NOT_WAITING`, #908),
+    never as the failure `_could_not` reports, and logged as what it is (review of #586): whoever
+    counts `OPENFACTORY_PRODUCT_WRITE_FAILED` counts writes that were tried and did not happen,
+    never a hold."""
     log.info("OPENFACTORY_PRODUCT_WRITE_HELD act=%s — %s", act, why)
     return WriteResult(ok=False, refusal=NOT_WAITING, detail=sentence)
 
@@ -3209,14 +3215,17 @@ class ProductModule:
         # the role's words, with its paths as the repository reads them (journey 0, #640)
         name = _in_repository_terms(self, title.strip().rstrip("."))
         described = _in_repository_terms(self, described)
+        # A TITLE MISSING OR TOO LONG IS THE PERSON'S TO MEND, NOT A WRITE THAT FAILED (#908):
+        # through `_could_not` an 81-character title answered 500 `failed` with a reference
+        # (measured by the review of PR #970 on a647d604, 2026-10-20); it is `NOT_VALID`, a 400
         if not name:
-            return _could_not(said["no_title"], act="file a ticket")
+            return WriteResult(ok=False, refusal=NOT_VALID, detail=said["no_title"])
         if len(name) > TITLE_LIMIT:
             # NEVER SLICED (#383): a cut title is one nobody confirmed. The gesture's card is
             # checked against the bound before it is staged, so this refuses only a caller that
             # wrote a title by hand — and says so, rather than filing the first 80 characters.
-            return _could_not(said["title_too_long_ticket"].format(limit=TITLE_LIMIT),
-                              act="file a ticket")
+            return WriteResult(ok=False, refusal=NOT_VALID,
+                               detail=said["title_too_long_ticket"].format(limit=TITLE_LIMIT))
         # A CARD FOR AN ACCEPTED REQUIREMENT IS ITS BREAKDOWN'S (#563 slice 18c, ADR-0051 D18 item
         # 4): asked before anything is written, and never filed here
         held = self._held_for_its_requirement(f"{name}\n{described}", ctx)
@@ -3310,8 +3319,9 @@ class ProductModule:
         if title.strip():
             title = title.strip().rstrip(".")
             if len(title) > TITLE_LIMIT:
-                return _could_not(said["title_too_long_defect"].format(limit=TITLE_LIMIT),
-                                  act="file a defect")
+                # the person's to mend, as `file_ticket`'s (#908): `NOT_VALID`, never a failure
+                return WriteResult(ok=False, refusal=NOT_VALID,
+                                   detail=said["title_too_long_defect"].format(limit=TITLE_LIMIT))
         else:
             title = restated.strip().rstrip(".")[:80]
         # the role's words, with its paths as the repository reads them (journey 0, #640)
@@ -3867,9 +3877,15 @@ class ProductModule:
         if vet is not None:
             vetted, why = vet(draft)
             if vetted is None:
-                return _could_not(breakdown_said("not_vetted", title=draft.title.strip()[:80],
-                                                 why=why, language=lang),
-                                  act="vet a requirement's card", cause=why)
+                # THE REVIEW'S DECISION, NOT A WRITE THAT FAILED (#908): nothing was tried, the
+                # judge blocked the card's content — `NOT_VALID`. Logged under its own name, so
+                # neither `OPENFACTORY_PRODUCT_WRITE_FAILED` nor `…_WRITE_HELD` counts it
+                log.info("OPENFACTORY_PRODUCT_FRONT_NOT_VETTED act=vet a requirement's card — %s",
+                         why)
+                return WriteResult(ok=False, refusal=NOT_VALID,
+                                   detail=breakdown_said("not_vetted",
+                                                         title=draft.title.strip()[:80],
+                                                         why=why, language=lang))
             draft = vetted
         where, elsewhere = self._filing_repo(draft, tracker)
         # IN THE TERMS OF THE REPOSITORY IT IS FILED IN (journey 0, #640): the role wrote its
@@ -3965,9 +3981,13 @@ class ProductModule:
             return None
         lang = getattr(getattr(self, "project", None), "language", None)
         if born.queued:
-            return _could_not(filing_held("queue", column=str(born.column), language=lang),
-                              act=act, cause=f"a card filed now is born in {born.column!r}, the "
-                                             f"pickup column {born.queue!r} (#536)")
+            # A DECISION, NOT A FAILURE (#908): the board was read and says a card filed now would
+            # start being built on its own, so the module files nothing on purpose — a hold
+            # (`NOT_WAITING`, 409). `unread` and `undeclared` below stay failures: the board could
+            # not say, and "could not see" never shares a value with "there is nothing".
+            return _held(filing_held("queue", column=str(born.column), language=lang),
+                         act=act, why=f"a card filed now is born in {born.column!r}, the "
+                                      f"pickup column {born.queue!r} (#536)")
         if born.unknown:
             return _could_not(filing_held("undeclared", language=lang), act=act,
                               cause=born.unknown)

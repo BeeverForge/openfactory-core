@@ -24,7 +24,10 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
   6. the family drives every row that renders a write;
   7. a refusal word this panel does not know (a worker newer than it) is read as nobody's
      decision when a breakdown's rows are said, never raised on — so the fronts that landed are
-     still said (human decision 2026-10-20, option A).
+     still said (human decision 2026-10-20, option A);
+  8. a decision is never a failure, wherever it is made (review of PR #970): a ticket's or a
+     defect's title missing or too long is `not_valid`, a front the automatic review blocked is
+     `not_valid`, a card the board would start building on its own is `not_waiting`.
 """
 
 TEST = "tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py"
@@ -257,6 +260,40 @@ MUTATIONS = [
      '                  "failure; this panel knows %s", did, why, ", ".join(sorted(_REFUSAL_CODE)))\n',
      "        pass\n",
      FAILURE + "::test_a_word_this_panel_does_not_know_is_a_failure_and_is_logged"),
+
+    # 8. (review of PR #970, robertocsp point 1) the decisions `_could_not` used to hide: a
+    #    title missing or too long, a front the review blocked, a card born in the queue
+    ("R3.1: a ticket title over the limit is a failure again", MODULE,
+     "            return WriteResult(ok=False, refusal=NOT_VALID,\n"
+     '                               detail=said["title_too_long_ticket"].format(limit=TITLE_LIMIT))\n',
+     "            return WriteResult(ok=False, refusal=NOT_REFUSED,\n"
+     '                               detail=said["title_too_long_ticket"].format(limit=TITLE_LIMIT))\n',
+     NEVER_500 + "::test_a_ticket_title_longer_than_the_limit_answers_400_with_the_modules_"
+     "sentence"),
+    ("R3.1: a ticket with no title is a failure again", MODULE,
+     '            return WriteResult(ok=False, refusal=NOT_VALID, detail=said["no_title"])\n',
+     '            return WriteResult(ok=False, refusal=NOT_REFUSED, detail=said["no_title"])\n',
+     NEVER_500 + "::test_each_decision_the_filing_makes_before_it_writes_names_its_word_not_a_"
+     "failure[no_title]"),
+    ("R3.1: a defect title over the limit is a failure again", MODULE,
+     "                return WriteResult(ok=False, refusal=NOT_VALID,\n"
+     '                                   detail=said["title_too_long_defect"].format(',
+     "                return WriteResult(ok=False, refusal=NOT_REFUSED,\n"
+     '                                   detail=said["title_too_long_defect"].format(',
+     NEVER_500 + "::test_each_decision_the_filing_makes_before_it_writes_names_its_word_not_a_"
+     "failure[title_too_long_defect]"),
+    ("R3.1: a card born in the queue is read as a board nobody could read", MODULE,
+     "        if born.queued:\n",
+     "        if False:\n",
+     NEVER_500 + "::test_each_decision_the_filing_makes_before_it_writes_names_its_word_not_a_"
+     "failure[filing_held_queue]"),
+    ("R3.1: a front the review blocked is a failure again", MODULE,
+     "                return WriteResult(ok=False, refusal=NOT_VALID,\n"
+     '                                   detail=breakdown_said("not_vetted",\n',
+     "                return WriteResult(ok=False, refusal=NOT_REFUSED,\n"
+     '                                   detail=breakdown_said("not_vetted",\n',
+     NEVER_500 + "::test_each_decision_the_filing_makes_before_it_writes_names_its_word_not_a_"
+     "failure[not_vetted]"),
 
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,
