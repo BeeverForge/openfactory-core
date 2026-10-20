@@ -18,6 +18,13 @@ The claims, each held by a row of `TEST` (named per cut below):
   - C4. Each of those documents says where the judging roles run (`judging_worktree` or "on the
     host") and that nothing commits from that room. One cut per document drops "nothing commits
     from"; one more drops the configuration bullet's only "on the host", the other arm of the check.
+  - C5. `env context --ask` asks in the person's own checkout, and each document says so wherever
+    it says "nothing commits from" (review of e2b57dd1, 2026-10-20, point 2). The fact is held by
+    `test_a_kimi_question_asked_as_env_context_asks_leaves_its_file_in_the_persons_checkout`
+    (`judging_worktree(None, root=<a git checkout>)`, the real `KimiAdapter.ask`, the disobeying
+    stub, `?? wrote.txt`); the wording by
+    `test_each_document_names_env_context_ask_wherever_it_says_nothing_commits_from`. One cut
+    moves the room, one cut per document drops the exception clause.
 
 The fact cut points `run`'s `cwd` at `self.root.parent` rather than the plan's `self.root`:
 `self.root` (the `worktrees` directory) does not exist in the test, so Popen would raise
@@ -30,6 +37,9 @@ NO_BOX = TEST + "::test_no_document_says_the_kimi_roles_are_kept_in_a_box[{}]"
 NAMES = TEST + "::test_each_document_names_where_the_kimi_judging_roles_run[{}]"
 FACT = TEST + "::test_a_judging_role_runs_on_the_host_even_where_the_project_boxes_its_jobs"
 WRITES = TEST + "::test_a_kimi_question_that_writes_leaves_its_file_in_the_host_room"
+CHECKOUT = (TEST + "::test_a_kimi_question_asked_as_env_context_asks_leaves_its_file_in_the_"
+            "persons_checkout")
+EXCEPT = TEST + "::test_each_document_names_env_context_ask_wherever_it_says_nothing_commits_from[{}]"
 
 KIMI = "openfactory/adapters/agent/kimi.py"
 ROLES = "openfactory/adapters/agent/roles.py"
@@ -54,6 +64,11 @@ MUTATIONS = [
      _RUN_CWD, "                command, shell=True, cwd=self.root.parent,\n",
      WRITES),
 
+    ("C5 the host box runs a command somewhere other than the room: the question asked as "
+     "`env context --ask` asks leaves nothing in the person's checkout", WORKTREE,
+     _RUN_CWD, "                command, shell=True, cwd=self.root.parent,\n",
+     CHECKOUT),
+
     ("C1 judging_worktree routes the judging roles into the project's container box", REGISTRY,
      _JUDGING_RETURN,
      "    return _container(image=getattr(box, \"image\", None))\n",
@@ -61,8 +76,8 @@ MUTATIONS = [
 
     # ── C3: a false clause back in each document ───────────────────────────────────────────────
     ("C3 kimi.__doc__ says again that no such edit outlives the run", KIMI,
-     "   but stays where it was written.\n",
-     "   but stays where it was written. No such edit outlives the run.\n",
+     "   was written, except `env context --ask`",
+     "   was written; no such edit outlives the run, except `env context --ask`",
      NO_BOX.format("kimi.__doc__")),
 
     ("C3 KimiAdapter.__doc__ is main's again: 'through the sandbox (never on the host)'", KIMI,
@@ -72,8 +87,8 @@ MUTATIONS = [
 
     ("C3 KimiAdapter.ask.__doc__ says again it cannot escape the platform's own ephemeral box",
      KIMI,
-     '        confines it to that room either."""\n',
-     '        confines it to that room either. '
+     '        reaches no pull request, and nothing confines it to its room either."""\n',
+     '        reaches no pull request, and nothing confines it to its room either. '
      'It cannot escape the platform\'s own ephemeral box."""\n',
      NO_BOX.format("KimiAdapter.ask.__doc__")),
 
@@ -84,8 +99,8 @@ MUTATIONS = [
      NO_BOX.format("roles.__doc__")),
 
     ("C3 the 0.7.0 limitation note says again that no such edit outlives the run", NOTE,
-     "in a directory nothing commits from, and nothing confines a write to it.",
-     "in a directory nothing commits from, and no such edit outlives the run.",
+     "that working tree; nothing confines a write to either.",
+     "that working tree; no such edit outlives the run.",
      NO_BOX.format("changes/362.limitation.md")),
 
     # RE-PINNED (#788, task 21): the amendment's planner sentences grew the hold, so the cut now
@@ -108,13 +123,13 @@ MUTATIONS = [
      NAMES.format("kimi.__doc__")),
 
     ("C4 KimiAdapter.__doc__ no longer says nothing commits from the room", KIMI,
-     "in a room nothing commits from (see the module docstring",
-     "in a room of its own (see the module docstring",
+     "project's box, in a room nothing commits from, except",
+     "project's box, in a room of its own, except",
      NAMES.format("KimiAdapter.__doc__")),
 
     ("C4 KimiAdapter.ask.__doc__ no longer says nothing commits from the room", KIMI,
-     "in a room\n        nothing commits from: an edit made while judging",
-     "in a room\n        of its own: an edit made while judging",
+     "in a room\n        nothing commits from, except",
+     "in a room\n        of its own, except",
      NAMES.format("KimiAdapter.ask.__doc__")),
 
     ("C4 roles.__doc__ no longer says nothing commits from the room", ROLES,
@@ -128,17 +143,63 @@ MUTATIONS = [
      NAMES.format("changes/362.limitation.md")),
 
     ("C4 the ADR-0018 amendment no longer says nothing commits from the rooms", ADR,
-     "Each is a room nothing commits from, so",
-     "Each is a room of its own, so",
+     "Each is a room\nnothing commits from, so",
+     "Each is a room\nof its own, so",
      NAMES.format("ADR-0018 section 2")),
 
     ("C4 the configuration bullet no longer says nothing commits from the directory", CONF,
-     "in a directory\n  nothing commits from. Don't put",
-     "in a directory\n  of their own. Don't put",
+     "in a directory\n  nothing commits from, except",
+     "in a directory\n  of their own, except",
      NAMES.format("docs/configuration.md Kimi bullet")),
 
     ("C4 the configuration bullet no longer says the questions run on the host", CONF,
      "the questions run on the host, in a directory",
      "the questions run elsewhere, in a directory",
      NAMES.format("docs/configuration.md Kimi bullet")),
+
+    # ── C5: each document drops the `env context --ask` exception beside "nothing commits from" ──
+    ("C5 kimi.__doc__ drops the env context --ask exception", KIMI,
+     "   was written, except `env context --ask`, which asks in the checkout it is pointed at (the\n"
+     "   person's own repository on a local deployment), where a write is left in that working "
+     "tree.\n",
+     "   was written.\n",
+     EXCEPT.format("kimi.__doc__")),
+
+    ("C5 KimiAdapter.__doc__ drops the env context --ask exception", KIMI,
+     "project's box, in a room nothing commits from, except `env context --ask`, which asks in "
+     "the\n    checkout it is pointed at (see the module docstring",
+     "project's box, in a room nothing commits from (see the module docstring",
+     EXCEPT.format("KimiAdapter.__doc__")),
+
+    ("C5 KimiAdapter.ask.__doc__ drops the env context --ask exception", KIMI,
+     "        nothing commits from, except `env context --ask`, which asks in the checkout it is "
+     "pointed\n        at, where a write is left in that working tree. An edit made",
+     "        nothing commits from. An edit made",
+     EXCEPT.format("KimiAdapter.ask.__doc__")),
+
+    ("C5 roles.__doc__ drops the env context --ask exception", ROLES,
+     ", except `env context --ask`, which asks in\nthe checkout it is pointed at, where a write is "
+     "left in that working tree; nothing but the row\nabove confines a write to either.",
+     ", and nothing but the row\nabove confines a write to it.",
+     EXCEPT.format("roles.__doc__")),
+
+    ("C5 the 0.7.0 limitation note drops the env context --ask exception", NOTE,
+     ", except `env context --ask`, which asks in the checkout it is pointed at, where a write is "
+     "left in that working tree; nothing confines a write to either.",
+     ", and nothing confines a write to it.",
+     EXCEPT.format("changes/362.limitation.md")),
+
+    ("C5 the ADR-0018 amendment lists the target checkout among the rooms nothing commits from "
+     "again", ADR,
+     "pull request, except\n`env context --ask`, which asks in the target checkout it is "
+     "pointed at",
+     "pull request, and that includes\n`env context --ask`, which asks in the target checkout it "
+     "is pointed at",
+     EXCEPT.format("ADR-0018 section 2")),
+
+    ("C5 the configuration bullet drops the env context --ask exception", CONF,
+     ", except `env context --ask`, which asks in the checkout it is pointed at\n"
+     "  and leaves a write in that working tree. Don't put",
+     ". Don't put",
+     EXCEPT.format("docs/configuration.md Kimi bullet")),
 ]

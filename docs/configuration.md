@@ -661,7 +661,8 @@ harness would otherwise cost a rebuild and a roll). Don't configure a deployment
 - **Kimi is wired but unproven** — no observed stream output yet. Its read-only roles are also
   weaker: instruction only, with no mode and no policy. A planner pass that writes to the job's
   workspace holds the job, naming the files (§10); the questions run on the host, in a directory
-  nothing commits from. Don't put a client on it until a real run.
+  nothing commits from, except `env context --ask`, which asks in the checkout it is pointed at
+  and leaves a write in that working tree. Don't put a client on it until a real run.
 - **Cost from a harness that reports no price reads UNKNOWN, never `$0.00`.** A zero would make it
   look free and win every comparison.
 

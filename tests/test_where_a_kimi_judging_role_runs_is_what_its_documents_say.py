@@ -5,14 +5,17 @@ rested that on one mitigation: the edit stays inside an ephemeral box, and "no s
 the run". Re-located on 620bb577 (2026-10-20), it is not what the code does for the judging roles.
 Every `ask()` caller builds `sandbox/registry.py::judging_worktree`, which always returns a
 `WorktreeSandbox`, and that box's `run` is `subprocess.Popen(command, shell=True,
-cwd=workspace.path)` on the host, whatever box the project's jobs run in. The rooms it is handed
-(a fresh temporary directory, the repo cache's master clone, the module's cached view, a target
-checkout) are ones nothing commits from, so no `ask()` edit reaches a pull request, but nothing
-confines a write to its room either.
+cwd=workspace.path)` on the host, whatever box the project's jobs run in. Most rooms it is handed
+(a fresh temporary directory, the repo cache's master clone, the module's cached view) are ones
+nothing commits from, so no `ask()` edit made there reaches a pull request, but nothing confines a
+write to its room either. One is not: `env context --ask` (`actions/catalog.py::_semantic_pass`)
+asks in the checkout `repo_for` resolves, the path the person typed or a registered `repo_path`,
+which on a local deployment is the repository they commit from (review of e2b57dd1, 2026-10-20).
 
-THE FIRST TWO TESTS ARE THE MEASUREMENT the documents must agree with: a project that boxes its
-jobs in a container still gets a host room for its judging roles, and the real `KimiAdapter.ask`
-that disobeys its instruction leaves its file there. They are green on main by design. They turn
+THE FIRST THREE TESTS ARE THE MEASUREMENT the documents must agree with: a project that boxes its
+jobs in a container still gets a host room for its judging roles, the real `KimiAdapter.ask` that
+disobeys its instruction leaves its file there, and asked the way `env context --ask` asks, it
+leaves that file untracked in the person's checkout. They are green on main by design. They turn
 red the day `judging_worktree` routes into the box, which is when the wording must change back.
 
 THE DOCUMENT ROWS READ TEXT, AND HERE THE TEXT IS THE THING. CONTRIBUTING's rule is that a guard
@@ -28,6 +31,7 @@ from __future__ import annotations
 import os
 import re
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -61,6 +65,9 @@ WHERE_THEY_RUN = re.compile(r"judging_worktree|(?<!never )\bon the host\b")
 
 #: What keeps an `ask()` edit out of a pull request, in the one phrasing every document reuses.
 NOTHING_COMMITS = "nothing commits from"
+
+#: The one judging room the phrase above is not true of, named as the exception beside it.
+ENV_CONTEXT_ASK_EXCEPTION = "except `env context --ask`"
 
 
 def _collapsed(text: str) -> str:
@@ -120,6 +127,24 @@ def _project_whose_jobs_run_in_a_container(monkeypatch) -> Project:
                         "env": ["MODEL_GATEWAY_KEY"]})
 
 
+def _disobeying_kimi_on_path(monkeypatch, tmp_path: Path) -> None:
+    """A `kimi` that writes `wrote.txt` in its working directory and answers `done`. It stands
+    where kimi-code 0.31.1 would and prints the one `role: assistant` line the adapter reads;
+    `HOME` is empty, so `BEFORE_THE_HARNESS` finds no account MCP file and lets it start."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "kimi"
+    stub.write_text("#!/bin/sh\n"
+                    "echo disobeyed > wrote.txt\n"
+                    "echo '{\"role\":\"assistant\",\"content\":\"done\"}'\n", encoding="utf-8")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
+
+
 def _room(tmp_path: Path) -> tuple[Path, Workspace]:
     room = tmp_path / "room"
     room.mkdir()
@@ -153,19 +178,7 @@ def test_a_kimi_question_that_writes_leaves_its_file_in_the_host_room(monkeypatc
     no account MCP file and lets it start. Green on main (620bb577)."""
     project = _project_whose_jobs_run_in_a_container(monkeypatch)
     room, ws = _room(tmp_path)
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    stub = bin_dir / "kimi"
-    stub.write_text("#!/bin/sh\n"
-                    "echo disobeyed > wrote.txt\n"
-                    "echo '{\"role\":\"assistant\",\"content\":\"done\"}'\n", encoding="utf-8")
-    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
+    _disobeying_kimi_on_path(monkeypatch, tmp_path)
 
     sandbox = judging_worktree(project, root=tmp_path / "worktrees")
     result = KimiAdapter().ask(sandbox=sandbox, workspace=ws, prompt="Is this repository tidy?")
@@ -173,6 +186,37 @@ def test_a_kimi_question_that_writes_leaves_its_file_in_the_host_room(monkeypatc
     assert result.ok, result.raw_output
     assert result.summary == "done", result.raw_output
     assert (room / "wrote.txt").read_text(encoding="utf-8") == "disobeyed\n"
+
+
+def test_a_kimi_question_asked_as_env_context_asks_leaves_its_file_in_the_persons_checkout(
+        monkeypatch, tmp_path):
+    """Criterion 2's basis for the `env context --ask` exception: `_semantic_pass`
+    (`actions/catalog.py`) asks with `judging_worktree(project, root=checkout)` and
+    `Workspace(path=checkout)`, where `checkout` is what `repo_for` resolved, the person's own
+    repository on a local deployment. Driven the same way with no project (`env context` on a bare
+    path) and the disobeying stub, the file is left untracked in that checkout. The review of
+    e2b57dd1 (2026-10-20) measured `?? wrote.txt` there while four documents called every judging
+    room one nothing commits from. Green on main by design; it is the fact the wording names."""
+    checkout = tmp_path / "persons-repo"
+    checkout.mkdir()
+    git = ["git", "-c", "init.defaultBranch=main", "-c", "commit.gpgSign=false",
+           "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-C", str(checkout)]
+    env = {**os.environ, "LC_ALL": "C"}
+    subprocess.run([*git, "init", "-q"], check=True, env=env)
+    (checkout / "README.md").write_text("mine\n", encoding="utf-8")
+    subprocess.run([*git, "add", "README.md"], check=True, env=env)
+    subprocess.run([*git, "commit", "-q", "-m", "mine"], check=True, env=env)
+    _disobeying_kimi_on_path(monkeypatch, tmp_path)
+
+    result = KimiAdapter().ask(
+        sandbox=judging_worktree(None, root=checkout),
+        workspace=Workspace(path=str(checkout), branch="main", base_branch="main"),
+        prompt="What does this repository build?")
+
+    assert result.ok, result.raw_output
+    status = subprocess.run([*git, "status", "--porcelain"], check=True, env=env,
+                            capture_output=True, text=True).stdout
+    assert status.splitlines() == ["?? wrote.txt"], status
 
 
 # ── the documents ─────────────────────────────────────────────────────────────────────────────────
@@ -216,3 +260,20 @@ def test_each_document_names_where_the_kimi_judging_roles_run(name):
         f"{name} does not say where the judging roles run (`judging_worktree` or 'on the host')")
     assert NOTHING_COMMITS in collapsed, (
         f"{name} does not say {NOTHING_COMMITS!r} the room the judging roles run in")
+
+
+@pytest.mark.parametrize("name", DOCUMENTS)
+def test_each_document_names_env_context_ask_wherever_it_says_nothing_commits_from(name):
+    """Criterion 2, as the review of e2b57dd1 (2026-10-20) found it: `env context --ask` asks in
+    the person's own checkout (the row above), so a paragraph that calls the judging rooms ones
+    "nothing commits from" names that verb as the exception in the same paragraph. On a72dffe6
+    none did: `kimi.py` and `roles.py` listed "a target checkout" among those rooms, ADR-0018's
+    amendment said of the target checkout for `env context --ask` "Each is a room nothing commits
+    from", and the 0.7.0 note and the configuration bullet said it of every read-only question."""
+    text = DOCUMENTS[name]()
+    assert text, f"{name} is empty: there is nothing to read"
+    saying = [p for p in _paragraphs(text) if NOTHING_COMMITS in p]
+    assert saying, f"{name} does not say {NOTHING_COMMITS!r}: the row above holds that"
+    silent = [p for p in saying if ENV_CONTEXT_ASK_EXCEPTION not in p]
+    assert not silent, (
+        f"{name} says {NOTHING_COMMITS!r} without {ENV_CONTEXT_ASK_EXCEPTION!r} in: {silent}")

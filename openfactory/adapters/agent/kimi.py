@@ -55,8 +55,9 @@ TWO DIFFERENCES FROM CODEX THAT SHAPE THIS ADAPTER
    Every `ask()` runs on the host whatever the project's box, because each caller builds
    `sandbox/registry.py::judging_worktree`, a `WorktreeSandbox` whose `run` is a host
    subprocess; it runs in a room nothing commits from (a temporary directory, the repo cache's
-   master clone, a module's cached view, a target checkout), so its edit reaches no pull request
-   but stays where it was written.
+   master clone, a module's cached view), so its edit reaches no pull request but stays where it
+   was written, except `env context --ask`, which asks in the checkout it is pointed at (the
+   person's own repository on a local deployment), where a write is left in that working tree.
 
    There is also no `--cd`: the working directory is the process's, which is exactly what the
    platform's sandbox already sets (`sandbox.run(workspace=…)` runs in the workspace). Nothing to
@@ -135,7 +136,8 @@ class KimiAdapter:
 
     That is the job's box for `plan`, `execute` and `repair`, a directory on the host under
     `--sandbox worktree`; for `ask()` it is `judging_worktree`, on the host whatever the
-    project's box, in a room nothing commits from (see the module docstring, difference 2)."""
+    project's box, in a room nothing commits from, except `env context --ask`, which asks in the
+    checkout it is pointed at (see the module docstring, difference 2)."""
 
     name = "kimi"
 
@@ -171,8 +173,9 @@ class KimiAdapter:
         `--agent-file` with a `tools:` list is reachable per run and not used yet (#785), so
         there is no enforcement until a per-run agent file is wired. Every caller hands it
         `judging_worktree`, which runs it on the host whatever the project's box, in a room
-        nothing commits from: an edit made while judging reaches no pull request, but nothing
-        confines it to that room either."""
+        nothing commits from, except `env context --ask`, which asks in the checkout it is pointed
+        at, where a write is left in that working tree. An edit made while judging elsewhere
+        reaches no pull request, and nothing confines it to its room either."""
         return self._run(sandbox, workspace,
                          "Answer READ-ONLY. Do not modify any file.\n\n" + prompt,
                          model=self.planner_model, phase=phase)

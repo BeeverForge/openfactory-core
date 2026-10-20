@@ -92,12 +92,15 @@ disobeys its instruction leaves its file in the host room). The rooms are a fres
 for the tech-lead's conversation and the diagnosis, a fresh temporary directory for the
 coordinator's advice, the cards and the documents extractor, the battery's workdir for the
 evaluation judge, the repo cache's master clone for the sizer and the product baseline, the
-module's cached view for the product role, a source clone for onboarding, and the target checkout
-for `env context --ask`. Each is a room nothing commits from, so a judging role's edit does not
-reach a pull request, but nothing but the harness confines a write to its room, and on Kimi
-nothing does. The planner is the other way round: it does run in the box, but on the job's own
-workspace, which the executor then works in and `_commit` sweeps with `git add -A`, so a Kimi
-planner's edit reached the pull request, and a planner that wrote and then hit a rate limit had its
+module's cached view for the product role, and a source clone for onboarding. Each is a room
+nothing commits from, so a judging role's edit does not reach a pull request, except
+`env context --ask`, which asks in the target checkout it is pointed at (the person's own
+repository on a local deployment), where a write is left in that working tree (measured in the
+review of e2b57dd1, 2026-10-20: `?? wrote.txt` in that checkout; the same test now holds it).
+Nothing but the harness confines a write to its room, and on Kimi nothing does. The planner is
+the other way round: it does run in the box, but on the job's own workspace, which the executor
+then works in and `_commit` sweeps with `git add -A`, so a Kimi planner's edit reached the pull
+request, and a planner that wrote and then hit a rate limit had its
 edit pushed to the job's branch by the pause. With `--sandbox worktree` that workspace is itself on
 the host. So the orchestrator now measures that workspace around a Kimi plan pass
 (`orchestrator/read_only_pass.py`: the tree `git add -A` would commit, written from a copy of the

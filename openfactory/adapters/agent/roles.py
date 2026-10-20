@@ -23,8 +23,9 @@ its room with `sandbox/registry.py::judging_worktree`, which always returns a `W
 so the question runs on the host even for a project whose jobs run in a container (measured by
 `tests/test_where_a_kimi_judging_role_runs_is_what_its_documents_say.py`, 2026-10-20). The room
 is one nothing commits from (a temporary directory, the repo cache's master clone, a module's
-cached view, a target checkout), so an edit does not reach a pull request, but nothing but the
-row above confines a write to that room. On claude, codex and opencode the CLI enforces it; on
+cached view), so an edit does not reach a pull request, except `env context --ask`, which asks in
+the checkout it is pointed at, where a write is left in that working tree; nothing but the row
+above confines a write to either. On claude, codex and opencode the CLI enforces it; on
 kimi nothing does, and a question that disobeys its instruction writes on the host.
 
 Everything else — the sizer, the tech-lead's diagnosis, the coordinator's advice, the Slack answer,
