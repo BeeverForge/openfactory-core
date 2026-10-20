@@ -51,7 +51,9 @@ TWO DIFFERENCES FROM CODEX THAT SHAPE THIS ADAPTER
    `base.py::PLANNERS_READ_ONLY_BY_INSTRUCTION`) and holds the job when the pass wrote, naming
    the paths, before the pause, the commit or the push: the job stops before pushing anything.
    A workspace git cannot answer holds it too, in git's words. It detects the write; nothing here
-   prevents it.
+   prevents it, and it sees only what is there at the second reading: a process the planner
+   leaves running that writes after it is not seen (measured in the review of dc0efac4,
+   2026-10-20: a background `late.txt` written a second later reached the pushed branch).
    Where an `ask()` runs is its caller's choice. A judging role's caller builds
    `sandbox/registry.py::judging_worktree`, a `WorktreeSandbox` whose `run` is a host
    subprocess, so the question runs on the host whatever the project's box, in a room nothing

@@ -114,7 +114,10 @@ index, and HEAD, before the pass and after it) and holds the job when the pass w
 paths, before the pause, the commit or the push; the job stops before pushing anything, and the
 workspace is discarded with the sandbox. A workspace git cannot answer holds the job too, with
 git's exit code and its words, and before the pass is run when the first reading fails. The hold
-detects the write, it does not prevent or undo it. Which harnesses are measured is
+detects the write, it does not prevent or undo it, and it sees only what is there at the second
+reading: a process the planner leaves running that writes after it is not seen, and that write can
+reach the pull request (measured in the review of dc0efac4, 2026-10-20: a background process that
+wrote `late.txt` a second after the pass left the job unheld and the file in the pushed branch). Which harnesses are measured is
 `adapters/agent/base.py::PLANNERS_READ_ONLY_BY_INSTRUCTION`, Kimi alone. A planner runs only where
 a project turned `planner_stage` on (ADR-0014).
 
