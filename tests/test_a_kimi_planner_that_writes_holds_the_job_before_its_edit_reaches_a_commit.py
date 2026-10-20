@@ -1,0 +1,388 @@
+"""A Kimi planner that writes holds the job before its edit reaches a commit (#788, criterion 1).
+
+#783 made Kimi Code's planner read-only by instruction only: kimi-code 0.31.1 refuses `--plan`
+beside `-p` and has no policy flag. The planner runs on the job's own workspace. `JobRunner.run`
+prepares `ws` once, runs `_run_setup`, then `agent.plan(workspace=ws)` and `agent.execute(
+workspace=ws)` on the same tree, and `_commit` sweeps it with `git add -A && git commit`. Measured
+on 620bb577 (2026-10-20): a planner that writes `planted.txt` reaches `PR_OPEN` with the file in
+the pushed branch. A planner that writes and then hits a rate limit goes through `_paused` →
+`_preserve_partial`, which commits the file and pushes it to the forge before any pull request.
+
+WHAT IS HELD HERE, by driving the real runner through the box's own `run` over a real repository
+with a bare origin: after a Kimi plan pass the workspace is asked whether the pass wrote, against
+the tree as setup left it, and a pass that wrote holds the job (`ON_HOLD`) naming each path, with
+nothing committed or pushed and the executor never called. The ways in are the four a porcelain
+read cannot all see: a new file, an edited tracked file, a planner `git commit` (porcelain clean,
+HEAD moved) and an append to a file setup already left untracked (`?? build.log` before and after).
+A workspace that cannot be asked holds the job too, with its own sentence (engineering lesson 2:
+"could not see" is not "nothing was written").
+
+THE REVERSES ARE GREEN ON MAIN BY DESIGN: what setup leaves is not charged to the planner, a planner
+that writes nothing runs on, and a harness whose planner the CLI holds read-only (a double named
+`codex`) is not asked at all (the scope is Kimi only, open question Q2's default). Each turns red
+under a cut in `tools/mutations/788_a_kimi_planner_that_writes_holds_the_job.py`.
+
+The `[container]` rows run through `ContainerSandbox` on the image `resolve_box_image` names, and
+skip at run time, naming the image and the command that builds it, where it is not built (CI's
+runners never build it). Without a daemon they skip, or fail under `TEST_REQUIRE_DOCKER`.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import stat
+import subprocess
+import uuid
+from pathlib import Path
+
+import pytest
+
+from openfactory.adapters.agent.kimi import KimiAdapter
+from openfactory.adapters.sandbox import WorktreeSandbox
+from openfactory.contracts import AcceptanceCriterion, AgentRunResult, JobState, Manifest, Ticket
+from openfactory.observability import InMemoryEventSink
+from openfactory.orchestrator import JobRunner
+from tests.test_walking_skeleton import FakeForge, FakeTracker
+
+#: What the fingerprint of a workspace runs, in the plan's words (task 12): the tree `git add -A`
+#: would commit, written from a copy of the index. The doubles below recognise the fingerprint by
+#: the command it executes, never by a module that does not exist on main, so the rows are red on
+#: main for the behaviour and not for an import.
+FINGERPRINT_RUNS = "write-tree"
+
+#: What the paused planner had spent when the limit hit, distinct from every other price here.
+SPENT = 0.37
+
+#: git's own refusal on a mount it does not trust: a client image without `safe.directory`.
+DUBIOUS = ("fatal: detected dubious ownership in repository at '/workspace'\n"
+           "To add an exception for this directory, call:\n\n"
+           "\tgit config --global --add safe.directory /workspace\n")
+
+
+def _git(args: list[str], cwd: Path) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True,
+                          text=True).stdout
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """A repository with one tracked `README.md`, pushed to a bare origin `publish_branch` pushes
+    to for real (the walking skeleton's shape, copied rather than imported)."""
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True,
+                   capture_output=True)
+    r = tmp_path / "repo"
+    r.mkdir()
+    _git(["init", "-b", "main"], r)
+    _git(["config", "user.email", "t@t.dev"], r)
+    _git(["config", "user.name", "t"], r)
+    _git(["remote", "add", "origin", str(origin)], r)
+    (r / "README.md").write_text("# app\n")
+    _git(["add", "-A"], r)
+    _git(["commit", "-m", "init"], r)
+    _git(["push", "-u", "origin", "main"], r)
+    return r
+
+
+def _branches_on_origin(tmp_path: Path) -> set[str]:
+    out = _git(["ls-remote", "--heads", str(tmp_path / "origin.git")], tmp_path)
+    return {line.split()[1] for line in out.splitlines() if line.strip()}
+
+
+# ── the boxes ─────────────────────────────────────────────────────────────────────────────────────
+
+def _docker_answers() -> bool:
+    if not shutil.which("docker"):
+        return False
+    try:
+        return subprocess.run(["docker", "info"], capture_output=True, timeout=30).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _container_box():
+    """The container box on the image this deployment would run, asked at run time so collection
+    is the same on every machine (`tests/test_the_box_transmits_while_it_runs.py`'s pattern).
+
+    A missing daemon skips, and fails under `TEST_REQUIRE_DOCKER` (CI's integration job), where a
+    lost daemon must not read as a pass. A missing IMAGE skips everywhere, naming it: CI builds
+    `docker/base-python.Dockerfile` only in `release.yml`, so no CI runner has it."""
+    from openfactory.adapters.sandbox.container import ContainerSandbox
+    from openfactory.factory import resolve_box_image
+
+    if not _docker_answers():
+        why = "the container box needs a docker daemon, and none answers `docker info` here"
+        if os.environ.get("TEST_REQUIRE_DOCKER"):
+            pytest.fail(why)
+        pytest.skip(why)
+    image = resolve_box_image(sandbox="container")
+    if subprocess.run(["docker", "image", "inspect", image],
+                      capture_output=True).returncode != 0:
+        pytest.skip(f"the box image {image!r} is not built on this machine — `docker build -f "
+                    f"docker/base-python.Dockerfile -t {image} .` makes it; the container box's "
+                    f"row is unmeasured until it exists")
+    # a name of its own per test: a leftover wearing a sibling's name is removed by `prepare`
+    return ContainerSandbox(image=image, project=f"planprobe-{uuid.uuid4().hex[:8]}")
+
+
+@pytest.fixture(params=["worktree", "container"])
+def box(request, tmp_path: Path):
+    if request.param == "container":
+        return _container_box()
+    return WorktreeSandbox(root=tmp_path / "wt")
+
+
+class _Recording:
+    """A box that records every command it is handed and delegates to the real one. With
+    `refuse_fingerprint`, it answers git's dubious-ownership refusal, exit 128, to the fingerprint
+    and runs everything else."""
+
+    def __init__(self, inner, *, refuse_fingerprint: bool = False) -> None:
+        self._inner = inner
+        self._refuse = refuse_fingerprint
+        self.commands: list[str] = []
+        self.refused: list[str] = []
+
+    def run(self, *, workspace, command: str, timeout: int, **kw):
+        self.commands.append(command)
+        if self._refuse and FINGERPRINT_RUNS in command:
+            self.refused.append(command)
+            return 128, DUBIOUS
+        return self._inner.run(workspace=workspace, command=command, timeout=timeout, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+# ── the agents ────────────────────────────────────────────────────────────────────────────────────
+
+class _Planner:
+    """A planner that writes through the box's own `run`, as a harness CLI does, and an executor
+    that records it was called and writes `feature.py` the same way."""
+
+    def __init__(self, writes: str = "", *, name: str = "kimi", pauses: bool = False,
+                 cost: float | None = None) -> None:
+        self.name = name
+        self.writes = writes
+        self.pauses = pauses
+        self.cost = cost
+        self.executed = False
+
+    def plan(self, *, sandbox, workspace, context) -> AgentRunResult:
+        if self.writes:
+            rc, out = sandbox.run(workspace=workspace, command=self.writes, timeout=60)
+            assert rc == 0, f"the planner double could not write: {out}"
+        if self.pauses:
+            return AgentRunResult(ok=False, pause_reason="rate_limit", retry_at="16:00",
+                                  summary="usage limit reached", cost_usd=self.cost)
+        return AgentRunResult(ok=True, summary="read the tree; add feature.py",
+                              cost_usd=self.cost)
+
+    def execute(self, *, sandbox, workspace, context) -> AgentRunResult:
+        self.executed = True
+        sandbox.run(workspace=workspace, command="echo 'VALUE = 42' > feature.py", timeout=60)
+        return AgentRunResult(ok=True, summary="added feature.py", cost_usd=0.01,
+                              actions=["Edit: feature.py"])
+
+    def repair(self, *, sandbox, workspace, context, failure_log, **kw) -> AgentRunResult:
+        return AgentRunResult(ok=True)
+
+
+def _run(repo: Path, agent, sandbox, *, setup: list[str] | None = None,
+         events: InMemoryEventSink | None = None):
+    ticket = Ticket(id="#1", title="add feature", objective="add a feature", repo="o/app",
+                    acceptance_criteria=[AcceptanceCriterion(text="feature.py exists")])
+    runner = JobRunner(
+        tracker=FakeTracker(ticket), forge=FakeForge(), agent=agent, sandbox=sandbox,
+        manifest=Manifest(validate={"test": "true"}, planner_stage=True, setup=setup or []),
+        repo_path=repo, events=events or InMemoryEventSink(),
+    )
+    return runner, runner.run("#1")
+
+
+def _assert_held_naming(runner, result, agent, events: InMemoryEventSink, tmp_path: Path,
+                        paths: list[str]) -> None:
+    """Criteria 1a and 1b: held, the executor never ran, nothing pushed or opened, and the note
+    and one journal warning name every path the planner wrote."""
+    assert result.state is JobState.ON_HOLD, (
+        f"the planner wrote {paths} and the job went on to {result.state.value}: {result.note}")
+    assert agent.executed is False, "the executor ran on the tree the planner wrote to"
+    assert runner.forge.opened is None, f"a pull request was opened: {runner.forge.opened}"
+    assert _branches_on_origin(tmp_path) == {"refs/heads/main"}, (
+        f"the planner's edit was pushed: {_branches_on_origin(tmp_path)}")
+    for path in paths:
+        assert path in (result.note or ""), f"the hold does not name {path}: {result.note}"
+    naming = [e for e in events.events
+              if e.kind == "warning" and all(p in e.message for p in paths)]
+    assert len(naming) == 1, (
+        f"expected one journal warning naming {paths}, got "
+        f"{[(e.kind, e.message) for e in events.events if e.kind == 'warning']}")
+
+
+# ── 1a and 1b: a planner that writes holds the job and names what it wrote ────────────────────────
+
+def test_a_planner_that_creates_a_file_holds_the_job_and_names_it(repo, tmp_path, box):
+    """1a/1b. On main (620bb577) this reached PR_OPEN with `planted.txt` in the pushed branch's
+    commit, beside the executor's `feature.py`."""
+    agent, events = _Planner("echo x > planted.txt"), InMemoryEventSink()
+    runner, result = _run(repo, agent, box, events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["planted.txt"])
+
+
+def test_a_planner_that_edits_a_tracked_file_holds_the_job(repo, tmp_path, box):
+    """1a/1b. On main the edited `README.md` was committed into the pull request."""
+    agent, events = _Planner("echo y >> README.md"), InMemoryEventSink()
+    runner, result = _run(repo, agent, box, events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["README.md"])
+
+
+def test_a_planner_that_commits_its_edit_holds_the_job(repo, tmp_path):
+    """1a/1b. A planner `git commit` leaves porcelain clean and moves HEAD; on main the pull
+    request opened on top of the planner's commit."""
+    agent, events = _Planner("echo x > committed.txt && git add -A && "
+                             "git -c user.email=p@p -c user.name=p -c commit.gpgSign=false "
+                             "commit -qm planner"), InMemoryEventSink()
+    runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"), events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["committed.txt"])
+
+
+def test_a_planner_that_rewrites_what_setup_left_holds_the_job(repo, tmp_path):
+    """1a/1b. Setup leaves `build.log` untracked and the planner appends to it: `git status
+    --porcelain` reads `?? build.log` before and after (measured on git 2.43.0, 2026-10-20), so a
+    porcelain-only check passes it. On main the job went on to PR_OPEN."""
+    agent, events = _Planner("echo more >> build.log"), InMemoryEventSink()
+    runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"),
+                          setup=["echo built > build.log"], events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["build.log"])
+
+
+# ── 1c: the pause road, the same defect sooner ───────────────────────────────────────────────────
+
+def test_a_planner_that_writes_and_then_pauses_pushes_nothing(repo, tmp_path):
+    """1c. On main the pause won: `_paused` → `_preserve_partial` committed `planted.txt` and pushed
+    it to `origin/openfactory/…` (state PAUSED), and the resume restored it for the executor. The
+    write is measured before the pause is asked, so the hold wins."""
+    agent = _Planner("echo x > planted.txt", pauses=True)
+    runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"))
+
+    assert result.state is JobState.ON_HOLD, (
+        f"the planner wrote and paused, and the job is {result.state.value}: {result.note}")
+    assert _branches_on_origin(tmp_path) == {"refs/heads/main"}, (
+        f"the planner's edit was pushed by the pause: {_branches_on_origin(tmp_path)}")
+    assert "planted.txt" in (result.note or ""), result.note
+
+
+# ── 1d: a workspace that cannot be asked is not clean ────────────────────────────────────────────
+
+def test_a_workspace_that_cannot_be_asked_holds_the_job_rather_than_reading_as_clean(
+        repo, tmp_path):
+    """1d, engineering lesson 2. git refuses the fingerprint with exit 128 (a client image without
+    `safe.directory` for the mount). That is "could not see", never "nothing was written", so the
+    job holds with a sentence of its own that names git's cause. On main nothing asked, and the job
+    went on to PR_OPEN."""
+    sandbox = _Recording(WorktreeSandbox(root=tmp_path / "wt"), refuse_fingerprint=True)
+    agent = _Planner()
+    runner, result = _run(repo, agent, sandbox)
+
+    assert result.state is JobState.ON_HOLD, (
+        f"the workspace could not be asked and the job went on to {result.state.value}")
+    assert sandbox.refused, "the fingerprint was never asked of the box"
+    assert agent.executed is False
+    note = result.note or ""
+    assert "could not" in note and "workspace" in note, note
+    assert "dubious ownership" in note, f"the hold does not name git's cause: {note}"
+    assert "wrote" not in note, f"an unreadable workspace is not a planner that wrote: {note}"
+
+
+# ── 1e: the reverses, green on main by design ────────────────────────────────────────────────────
+
+def test_what_setup_leaves_in_the_tree_is_not_charged_to_the_planner(repo, tmp_path, box):
+    """1e, a reverse. Setup leaves `build.log` untracked and the planner writes nothing: the job
+    runs on. Green on main; red under a cut that takes the "before" ahead of `_run_setup` or
+    compares against an empty porcelain."""
+    agent = _Planner()
+    runner, result = _run(repo, agent, box, setup=["echo built > build.log"])
+
+    assert result.state is JobState.PR_OPEN, result.note
+    assert agent.executed is True
+
+
+def test_a_planner_that_leaves_the_tree_as_it_found_it_runs_on(repo, tmp_path, box):
+    """1e, a reverse. Green on main; red if the check holds every job."""
+    agent = _Planner()
+    runner, result = _run(repo, agent, box)
+
+    assert result.state is JobState.PR_OPEN, result.note
+    assert agent.executed is True
+    assert runner.forge.opened is not None
+
+
+# ── 1f: the real Kimi row ────────────────────────────────────────────────────────────────────────
+
+class _KimiThatRecordsItsExecutor(KimiAdapter):
+    """The real `KimiAdapter`: its `plan`, its `name`, its command and its parsing. Only `execute`
+    is replaced, by a recorder, so the stub's write can only have come from the plan pass."""
+
+    executed = False
+
+    def execute(self, *, sandbox, workspace, context) -> AgentRunResult:
+        self.executed = True
+        sandbox.run(workspace=workspace, command="echo 'VALUE = 42' > feature.py", timeout=60)
+        return AgentRunResult(ok=True, summary="added feature.py", cost_usd=0.01)
+
+
+def test_the_real_kimi_row_that_writes_while_planning_holds_the_job(repo, tmp_path, monkeypatch):
+    """1f. The real `KimiAdapter.plan` on the worktree box starts a `kimi` that disobeys the
+    read-only instruction: a stub on `PATH` where kimi-code 0.31.1 would be, which writes
+    `planted.txt` into its working directory and prints the one `role: assistant` line the adapter
+    reads, under an empty `HOME`. On main the job reached PR_OPEN with `planted.txt` committed."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "kimi"
+    stub.write_text("#!/bin/sh\n"
+                    "echo disobeyed > planted.txt\n"
+                    "echo '{\"role\":\"assistant\",\"content\":\"read the tree; add feature.py\"}'\n",
+                    encoding="utf-8")
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("KIMI_CODE_HOME", raising=False)
+
+    agent, events = _KimiThatRecordsItsExecutor(), InMemoryEventSink()
+    assert agent.name == "kimi"
+    runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"), events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["planted.txt"])
+
+
+# ── 1g: the scope, pinned ────────────────────────────────────────────────────────────────────────
+
+def test_a_harness_whose_planner_cannot_write_is_not_asked(repo, tmp_path):
+    """1g, open question Q2's default: only a harness whose planner is read-only by instruction
+    is measured. A double named `codex` (whose CLI enforces `-s read-only`) that writes anyway is
+    not asked and runs on. Green on main; red if the scope widens or the gate stops reading it."""
+    sandbox = _Recording(WorktreeSandbox(root=tmp_path / "wt"))
+    agent = _Planner("echo x > planted.txt", name="codex")
+    runner, result = _run(repo, agent, sandbox)
+
+    assert [c for c in sandbox.commands if FINGERPRINT_RUNS in c] == [], (
+        "the workspace of a planner its CLI holds read-only was fingerprinted")
+    assert result.state is JobState.PR_OPEN, result.note
+    assert agent.executed is True
+
+
+# ── 1h: the new way out is charged (#262) ────────────────────────────────────────────────────────
+
+def test_a_planner_held_for_writing_is_charged_for_its_pass(repo, tmp_path):
+    """1h. A hold is a way out, and #262 counts every pass before every way out: the planner that
+    wrote and spent `SPENT` is on the result's rows and in its total. Red on main only through 1a,
+    where no hold exists."""
+    agent = _Planner("echo x > planted.txt", cost=SPENT)
+    runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"))
+
+    assert result.state is JobState.ON_HOLD, (
+        f"the planner wrote and the job went on to {result.state.value}: {result.note}")
+    assert [(m.role, m.cost_usd) for m in result.agent_runs] == [("planner", SPENT)]
+    assert result.total_cost_usd == pytest.approx(SPENT)
