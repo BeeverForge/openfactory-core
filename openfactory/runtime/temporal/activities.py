@@ -4081,10 +4081,13 @@ async def product_role_break_down(inp: ProductBreakdownInput) -> list[dict]:
                if activity.in_activity() else await asyncio.to_thread(_break))
     await _tell_the_breakdown(project, inp, results)
     await _keep_what_was_not_filed(project, inp, results)
+    # THE REFUSAL TRAVELS (#908): a field this dict does not name never reaches the panel, and
+    # there a front the module declined on purpose read as a failure — `""` is "nobody decided".
     return [{"ok": bool(getattr(r, "ok", False)), "detail": str(getattr(r, "detail", "") or ""),
              "ref": str(getattr(r, "ref", "") or ""), "url": str(getattr(r, "url", "") or ""),
              "existed": bool(getattr(r, "existed", False)),
-             "nothing_to_build": bool(getattr(r, "nothing_to_build", False))}
+             "nothing_to_build": bool(getattr(r, "nothing_to_build", False)),
+             "refusal": str(getattr(r, "refusal", "") or "")}
             for r in (results or [])]
 
 
@@ -4193,18 +4196,24 @@ _CARD_VERBS = ("refine", "align")
 
 @activity.defn
 async def product_role_card(inp: ProductCardInput) -> dict:
-    """`refine` or `align` one card — on the worker, where the agent runs."""
+    """`refine` or `align` one card — on the worker, where the agent runs.
+
+    The dict carries the module's `refusal` word (#908): the panel rebuilds the result from these
+    keys alone, and without it a card the module declined on purpose ("not yours") answered 500."""
+    from openfactory.product.authoring import NOT_VALID
+
     if inp.verb not in _CARD_VERBS:
         return {"ok": False, "detail": f"unknown card verb {inp.verb!r} — this deployment does: "
                                        f"{', '.join(_CARD_VERBS)}", "ref": "", "url": "",
-                "existed": False}
+                "existed": False, "refusal": NOT_VALID}
     project = ProjectRegistry().get(inp.project)
     result = await asyncio.to_thread(_product_card_write, project, inp)
     return {"ok": bool(getattr(result, "ok", False)),
             "detail": str(getattr(result, "detail", "") or ""),
             "ref": str(getattr(result, "ref", "") or ""),
             "url": str(getattr(result, "url", "") or ""),
-            "existed": bool(getattr(result, "existed", False))}
+            "existed": bool(getattr(result, "existed", False)),
+            "refusal": str(getattr(result, "refusal", "") or "")}
 
 
 def _product_card_write(project, inp: ProductCardInput):
