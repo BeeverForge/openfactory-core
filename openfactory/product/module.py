@@ -90,6 +90,13 @@ from openfactory.ops.impediment import PRODUCT_CORPUS_UNREADABLE as _IMP_CORPUS
 from openfactory.ops.impediment import PRODUCT_MOUNT_EMPTY as _IMP_MOUNT_EMPTY
 from openfactory.ops.impediment import PRODUCT_NO_CODE as _IMP_NO_CODE
 from openfactory.product.authoring import (
+    ALREADY_CLOSED,
+    ALREADY_THERE,
+    NOT_FOUND,
+    NOT_REFUSED,
+    NOT_VALID,
+    NOT_WAITING,
+    NOT_YOURS,
     WriteResult,
     filed_by_the_product_role,
     issue_body,
@@ -842,11 +849,36 @@ def _could_not(sentence: str, *, act: str, cause: object = "", ref: str = "") ->
 
 def _held(sentence: str, *, act: str, why: str) -> WriteResult:
     """A write the module DECIDED not to start — a front held on the one it builds on (#576), a
-    front past the breakdown's budget — reported as `_could_not` reports one that failed, and
-    logged as what it is (review of #586): whoever counts `OPENFACTORY_PRODUCT_WRITE_FAILED` counts
-    writes that were tried and did not happen, never a hold."""
+    front past the breakdown's budget — reported as a refusal (`NOT_WAITING`, #908), never as the
+    failure `_could_not` reports, and logged as what it is (review of #586): whoever counts
+    `OPENFACTORY_PRODUCT_WRITE_FAILED` counts writes that were tried and did not happen, never a
+    hold."""
     log.info("OPENFACTORY_PRODUCT_WRITE_HELD act=%s — %s", act, why)
-    return WriteResult(ok=False, detail=sentence)
+    return WriteResult(ok=False, refusal=NOT_WAITING, detail=sentence)
+
+
+def _the_gate_said(why: str, *, ref: str, detail: str) -> WriteResult:
+    """A merge gate's answer to a person's pass or yes, as a not-ok result that says what it is
+    (#908): `not_yours` is theirs to refuse; a STATE of the gate a person can read and wait out —
+    nobody waits on them, a pass is running, the job cannot hear from here, the passes are spent,
+    nothing was tried, the pull request moved — is `NOT_WAITING`; an engine that could not be asked
+    or an acceptance that could not be written down was tried and did not happen (`NOT_REFUSED`).
+    One table for `send_back` and `accept_change`, so the two doors cannot read one word two ways.
+    A word in none of them raises: `adjust.WHY` is a closed set, and a new member is said here
+    before it ships."""
+    from openfactory.product import accept, adjust
+
+    waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,
+             accept.MOVED}
+    failed = {adjust.UNREACHABLE, accept.UNRECORDED}
+    if why == "not_yours":
+        return WriteResult(ok=False, refusal=NOT_YOURS, ref=ref, detail=detail)
+    if why in waits:
+        return WriteResult(ok=False, refusal=NOT_WAITING, ref=ref, detail=detail)
+    if why in failed:
+        return WriteResult(ok=False, refusal=NOT_REFUSED, ref=ref, detail=detail)
+    raise ValueError(f"the gate said {why!r}, which is neither a state nor a failure here — one "
+                     f"of {sorted(waits | failed | {'not_yours'})}")
 
 
 #: What the client is told when the board cannot be read for an act about ONE card is
@@ -2564,7 +2596,8 @@ class ProductModule:
         if not ctx.available:
             return self._cannot_see_the_product()
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
         if not answer.ok or answer.draft is None:
             # `answer.error` is the ROLE's diagnosis — "the codex harness's draft could not be read
             # (JSONDecodeError)" — and it used to be handed over as the client's sentence.
@@ -2599,7 +2632,7 @@ class ProductModule:
                                  if r.number and not r.existed else None),
                 judge=self._same_as,
                 found=lambda item: WriteResult(
-                    ok=False, existed=True, just_asked=True, ref=item.ref,
+                    ok=False, refusal=ALREADY_THERE, existed=True, just_asked=True, ref=item.ref,
                     number=_req_number(item.ref),
                     detail=just_asked_for_a_requirement(
                         number=_req_number(item.ref), title=item.text, language=lang)))
@@ -2655,11 +2688,13 @@ class ProductModule:
         if not ctx.available:
             return self._cannot_see_the_product()
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
         req = ctx.corpus.by_number(number)
         if req is None:
             return WriteResult(ok=False, detail=requirement_not_found(number=number,
-                                                                      language=lang))
+                                                                      language=lang),
+                               refusal=NOT_FOUND)
         if req.status == "accepted":
             # `nothing_to_build` HERE TOO: a second acceptance is the catalog's retry door — it
             # runs the breakdown again — so a reading of the code has to answer the same the
@@ -2671,7 +2706,7 @@ class ProductModule:
         refused = _not_the_requester(cfg, actor=actor, requester=getattr(req, "asked_by", ""),
                                      language=lang)
         if refused:
-            return WriteResult(ok=False, detail=refused)
+            return WriteResult(ok=False, refusal=NOT_YOURS, detail=refused)
         try:
             # UNDER THE SEMAPHORE FOR ITS WRITE ALONE (ADR-0051 D7): an acceptance has nothing to
             # duplicate — the clone says "already" — but its push to the context repository
@@ -2719,11 +2754,13 @@ class ProductModule:
         if not ctx.available:
             return self._cannot_see_the_product()
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
         req = ctx.corpus.by_number(number)
         if req is None:
             return WriteResult(ok=False, detail=requirement_not_found(number=number,
-                                                                      language=lang))
+                                                                      language=lang),
+                               refusal=NOT_FOUND)
         cfg = getattr(self.project, "product", None)
         try:
             return self._corpus_changed(self._checked_write(
@@ -2766,17 +2803,19 @@ class ProductModule:
         if not ctx.available:
             return self._cannot_see_the_product()
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
         wanted = (slug or "").strip().lower()
         if not is_slug(wanted):
             # A NAME, NEVER A PATH: the slug is typed by a person and names the file written
-            return WriteResult(ok=False, detail=record_said("not_a_capability", language=lang))
+            return WriteResult(ok=False, detail=record_said("not_a_capability", language=lang),
+                               refusal=NOT_VALID)
         docs = Path(ctx.docs_path)
         flows = read_flows(docs / OKF_DIRNAME / FLOWS_DIRNAME)
         flow = flows.by_slug(wanted) if flows is not None else None
         written = (docs / CAPABILITIES_DIR / f"{wanted}.md").is_file()
         if flow is None and not written:
-            return WriteResult(ok=False,
+            return WriteResult(ok=False, refusal=NOT_FOUND,
                                detail=record_said("capability_not_found", language=lang))
         cfg = getattr(self.project, "product", None)
         try:
@@ -2811,14 +2850,17 @@ class ProductModule:
         if not ctx.available:
             return self._cannot_see_the_product()
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
         req = ctx.corpus.by_number(number)
         if req is None:
             return WriteResult(ok=False, detail=requirement_not_found(number=number,
-                                                                      language=lang))
+                                                                      language=lang),
+                               refusal=NOT_FOUND)
         if not req.is_live:
             return WriteResult(ok=False, detail=record_said("decision_on_retired", number=number,
-                                                            language=lang))
+                                                            language=lang),
+                               refusal=NOT_WAITING)
         cfg = getattr(self.project, "product", None)
         try:
             # SAVED AT CONFIRMATION, UNDER THE SEMAPHORE (ADR-0051 D7, D10): two decisions saved at
@@ -2891,12 +2933,12 @@ class ProductModule:
                 # WHAT IS WRITTEN, NEVER WHO SAID IT (#266 slice 4, ADR-0051 D9) — `note_fact`'s
                 # rule, which this sentence missed: it is posted on the card, to its requester,
                 # and whoever told the context this term is not theirs to learn from it
-                return WriteResult(ok=False, existed=True,
+                return WriteResult(ok=False, refusal=ALREADY_THERE, existed=True,
                                    detail=record_said("fact_known", term=term,
                                                       body=existing.body[:160], language=lang))
             return self._checked_write(
                 act="record an answer given on the card", kind="fact", text=term, seen=None,
-                found=lambda item: WriteResult(ok=False, existed=True,
+                found=lambda item: WriteResult(ok=False, refusal=ALREADY_THERE, existed=True,
                                                detail=record_said("answer_just_noted", term=term,
                                                                   language=lang)),
                 write=lambda: record_fact(
@@ -2922,7 +2964,8 @@ class ProductModule:
         if not ctx.available:
             return [self._cannot_see_the_product()]
         if not may_act(self.project, actor, via=self._via):
-            return [WriteResult(ok=False, detail=unauthorized_message(self.project))]
+            return [WriteResult(ok=False, detail=unauthorized_message(self.project),
+                                refusal=NOT_YOURS)]
         from openfactory.product.voice import breakdown_said
 
         lang = getattr(self.project, "language", None)
@@ -3082,7 +3125,8 @@ class ProductModule:
                      "a requested card names an accepted requirement; nothing was filed",
                      getattr(self.project, "name", "?"), number, running, ",".join(cards))
             return WriteResult(ok=False, detail=ticket_held_for_its_requirement(
-                number=number, running=running, cards=cards, language=lang))
+                number=number, running=running, cards=cards, language=lang),
+                               refusal=NOT_WAITING)
         return None
 
     def _breakdown_running(self, number: int) -> bool:
@@ -3396,14 +3440,14 @@ class ProductModule:
             # WHAT IS WRITTEN, NEVER WHO SAID IT (ADR-0051 D9): the fact may have been told in
             # another conversation, and its teller is not this person's to learn from a refusal
             return WriteResult(
-                ok=False, existed=True,
+                ok=False, refusal=ALREADY_THERE, existed=True,
                 detail=record_said("fact_known", term=term, body=existing.body[:160],
                                    language=lang))
         try:
             return self._checked_write(
                 act="record a fact", kind="fact", text=term, seen=seen,
                 found=lambda item: WriteResult(
-                    ok=False, existed=True, just_asked=True,
+                    ok=False, refusal=ALREADY_THERE, existed=True, just_asked=True,
                     detail=just_noted(term=term, language=lang)),
                 write=lambda: record_fact(
                     docs_repo=ctx.link.docs_repo,
@@ -3502,7 +3546,8 @@ class ProductModule:
 
         sandbox, workspace = self._source_workspace()
         if workspace is None:
-            return WriteResult(ok=False, detail=record_said("no_code_copy", language=lang))
+            return WriteResult(ok=False, detail=record_said("no_code_copy", language=lang),
+                               refusal=NOT_REFUSED)
 
         answer = self._role().survey(sandbox=sandbox, workspace=workspace,
                                      areas=areas or [], layout=self._layout_hint(workspace))
@@ -4210,10 +4255,12 @@ class ProductModule:
         requirement = ctx.corpus.by_number(number)
         if requirement is None:
             return [WriteResult(ok=False, detail=requirement_not_found(number=number,
-                                                                       language=lang))]
+                                                                       language=lang),
+                                refusal=NOT_FOUND)]
         if not requirement.is_live:
             return [WriteResult(ok=False, detail=breakdown_said("retired", number=number,
-                                                                language=lang))]
+                                                                language=lang),
+                                refusal=NOT_WAITING)]
         return self.file_issues(requirement, actor=actor, tracker=tracker, board=board,
                                 conversation=conversation, requester=requester)
 
@@ -4231,12 +4278,13 @@ class ProductModule:
         from openfactory.product.voice import acceptance_stamp, breakdown_said
 
         if not may_act(self.project, actor, via=self._via):
-            return [WriteResult(ok=False, detail=unauthorized_message(self.project))]
+            return [WriteResult(ok=False, detail=unauthorized_message(self.project),
+                                refusal=NOT_YOURS)]
         refused = _not_the_requester(getattr(self.project, "product", None), actor=actor,
                                      requester=requester,
                                      language=getattr(self.project, "language", None))
         if refused:
-            return [WriteResult(ok=False, detail=refused)]
+            return [WriteResult(ok=False, refusal=NOT_YOURS, detail=refused)]
         tracker = tracker or self._tracker()
         day = today or datetime.now(UTC).date().isoformat()
         text = acceptance_stamp(number=number, actor=actor, requester=requester, day=day,
@@ -4285,12 +4333,14 @@ class ProductModule:
         requirement = ctx.corpus.by_number(number)
         if requirement is None:
             return [WriteResult(ok=False, detail=requirement_not_found(number=number,
-                                                                       language=lang))]
+                                                                       language=lang),
+                                refusal=NOT_FOUND)]
         if not requirement.is_promise:
             # A proposal or a reading of the code is not something to build. Filing work from one
             # would commit the factory to a decision nobody has made.
             return [WriteResult(ok=False, detail=_not_a_promise(number, requirement,
-                                                                language=lang))]
+                                                                language=lang),
+                                refusal=NOT_VALID)]
         if requirement.came_from_the_code and not asked_for:
             from openfactory.product.voice import nothing_to_build
 
@@ -4299,7 +4349,7 @@ class ProductModule:
             # this worker's answer) treats it as "nothing was filed" and prints the detail, which
             # is this sentence: why, and how to ask. `ok=True` with no ref would have been counted
             # as a card — "Work filed: ?" — about work that does not exist.
-            return [WriteResult(ok=False, nothing_to_build=True,
+            return [WriteResult(ok=False, refusal=NOT_VALID, nothing_to_build=True,
                                 detail=nothing_to_build(
                                     number=number,
                                     language=getattr(self.project, "language", None)))]
@@ -4412,10 +4462,12 @@ class ProductModule:
 
         lang = getattr(self.project, "language", None)
         if not may_act(self.project, actor, via=self._via):
-            return [WriteResult(ok=False, detail=unauthorized_message(self.project))]
+            return [WriteResult(ok=False, detail=unauthorized_message(self.project),
+                                refusal=NOT_YOURS)]
         board = board or self._board()
         if board is None:
-            return [WriteResult(ok=False, detail=board_move_said("unreachable", language=lang))]
+            return [WriteResult(ok=False, detail=board_move_said("unreachable", language=lang),
+                                refusal=NOT_REFUSED)]
 
         from openfactory.lifecycle import CardEvent, transition
         from openfactory.product.voice import _pick
@@ -4458,7 +4510,8 @@ class ProductModule:
                                    facts={"column_name": queue}, tracker=tracker,
                                    board=board, columns=where)
                 if moved.refused:
-                    out.append(WriteResult(ok=False, ref=f"#{number}", detail=moved.refused))
+                    out.append(WriteResult(ok=False, ref=f"#{number}", detail=moved.refused,
+                                           refusal=NOT_WAITING))
                     continue
                 if moved.outcome("place").startswith("placed"):
                     out.append(WriteResult(ok=True, ref=f"#{number}"))
@@ -4569,13 +4622,16 @@ class ProductModule:
         lang = getattr(self.project, "language", None)
         refused = board_move_said("order_refused", language=lang)
         if not may_act(self.project, actor, via=self._via):
-            return [WriteResult(ok=False, detail=unauthorized_message(self.project))]
+            return [WriteResult(ok=False, detail=unauthorized_message(self.project),
+                                refusal=NOT_YOURS)]
         board = board or self._board()
         if board is None:
-            return [WriteResult(ok=False, detail=board_move_said("unreachable", language=lang))]
+            return [WriteResult(ok=False, detail=board_move_said("unreachable", language=lang),
+                                refusal=NOT_REFUSED)]
         from openfactory.adapters.board.base import Rankable
         if not isinstance(board, Rankable):
-            return [WriteResult(ok=False, detail=board_move_said("unrankable", language=lang))]
+            return [WriteResult(ok=False, detail=board_move_said("unrankable", language=lang),
+                                refusal=NOT_VALID)]
         from openfactory.product.board import forget_board
         forget_board(getattr(self.project, "name", ""))
         tracker = self._tracker()
@@ -4707,7 +4763,8 @@ class ProductModule:
         if not ctx.available:
             return self._cannot_see_the_product()
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
 
         tickets, error = self._read_board()
         if error:
@@ -4721,7 +4778,8 @@ class ProductModule:
         ticket = next((t for t in tickets if t.number == number), None)
         if ticket is None:
             return WriteResult(ok=False, detail=card_said("not_found", number=number,
-                                                          language=lang))
+                                                          language=lang),
+                               refusal=NOT_FOUND)
         if has_criteria(ticket):
             return WriteResult(ok=True, ref=f"#{number}", existed=True,
                                detail=card_said("has_criteria", language=lang))
@@ -4733,7 +4791,8 @@ class ProductModule:
             from openfactory.product.voice import refine_would_be_ignored
 
             return WriteResult(ok=False, ref=f"#{number}", detail=refine_would_be_ignored(
-                number=number, language=lang))
+                number=number, language=lang),
+                               refusal=NOT_WAITING)
 
         sandbox, ws = self._workspace()
         answer = self._role().ask_json(
@@ -4747,7 +4806,7 @@ class ProductModule:
                     + self._REFINE_SCHEMA))
         criteria = (answer or {}).get("criteria") or []
         if not isinstance(answer, dict) or not criteria:
-            return WriteResult(ok=False, ref=f"#{number}",
+            return WriteResult(ok=False, refusal=NOT_REFUSED, ref=f"#{number}",
                                detail=card_said("no_criteria", language=lang))
 
         # the role's words, with its paths as the card's repository reads them (journey 0, #640)
@@ -4840,7 +4899,8 @@ class ProductModule:
         number = canonical_ref(number)
         in_favour_of = canonical_ref(in_favour_of) or None
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
         # NOT A DELIVERY, said here where the conversation's close is decided (see `_close_one`)
         return self._close_one(number, actor=actor, in_favour_of=in_favour_of, reason=reason,
                                delivered=False)
@@ -4864,25 +4924,26 @@ class ProductModule:
         card = next((t for t in tickets if t.number == number), None)
         if card is None:
             return WriteResult(ok=False, detail=card_said("not_found", number=number,
-                                                          language=lang))
+                                                          language=lang),
+                               refusal=NOT_FOUND)
         if card.state != "open":
             # A BUSINESS ANSWER, NOT A BREAKAGE. Somebody got there first — say so and stop; the
             # confirmation that authorised this was about a card that no longer needs it.
-            return WriteResult(ok=False, existed=True, ref=f"#{number}",
+            return WriteResult(ok=False, refusal=ALREADY_CLOSED, existed=True, ref=f"#{number}",
                                detail=card_said("already_closed", number=number, language=lang))
 
         survivor = None
         if in_favour_of is not None:
             survivor = next((t for t in tickets if t.number == in_favour_of), None)
             if survivor is None:
-                return WriteResult(ok=False, detail=card_said(
+                return WriteResult(ok=False, refusal=NOT_FOUND, detail=card_said(
                     "survivor_missing", number=number, other=in_favour_of, language=lang))
             if survivor.state != "open":
                 # THE BOARD IS READ WITH `--state all`, so a card closed last month is on this list
                 # and passes the check above. Folding work into it closes both and the work is
                 # tracked nowhere — worse than the dangling pointer refused just above, because
                 # this one reads as correct on the way past. `_orphans` applies the same rule.
-                return WriteResult(ok=False, detail=card_said(
+                return WriteResult(ok=False, refusal=ALREADY_CLOSED, detail=card_said(
                     "survivor_closed", number=number, other=in_favour_of, language=lang))
 
         tracker = self._tracker()
@@ -4903,7 +4964,8 @@ class ProductModule:
                                                        agent_name=self._name())},
                            tracker=tracker)
         if moved.refused:
-            return WriteResult(ok=False, existed=True, ref=f"#{number}", detail=moved.refused)
+            return WriteResult(ok=False, existed=True, ref=f"#{number}", detail=moved.refused,
+                               refusal=NOT_WAITING)
         if moved.outcome("close").startswith("failed") and not moved.recorded:
             return _could_not(card_said("close_failed", number=number, language=lang),
                               act=f"close #{number}", cause=RuntimeError(moved.outcome("close")),
@@ -4965,7 +5027,7 @@ class ProductModule:
                 or (actor and not is_guest(actor) and self._asked_by(number) == actor)):
             # ITS OWN SENTENCE, NOT `unauthorized_message`: that one is about writing a REQUIREMENT
             # down, and this person asked to drop a card — the sentence names who can.
-            return WriteResult(ok=False, detail=card_withdrawn_result(
+            return WriteResult(ok=False, refusal=NOT_YOURS, detail=card_withdrawn_result(
                 ref=number, how="not_yours", language=lang, approvers=approvers_of(self.project)))
 
         # THE CONVERSATION IS TOLD BY THE CARD'S DOOR (ADR-0055), once per transition, for every
@@ -5007,9 +5069,10 @@ class ProductModule:
         card = next((t for t in tickets if t.number == number), None)
         if card is None:
             return WriteResult(ok=False, detail=card_said("not_found", number=number,
-                                                          language=lang))
+                                                          language=lang),
+                               refusal=NOT_FOUND)
         if card.state != "open":
-            return WriteResult(ok=False, existed=True, ref=f"#{number}",
+            return WriteResult(ok=False, refusal=ALREADY_CLOSED, existed=True, ref=f"#{number}",
                                detail=card_said("already_closed", number=number, language=lang))
         # THROUGH THE CARD'S DOOR (ADR-0055): the tracker's own removal, then what a removal means
         # for the promise, the requester, the preview and the snapshot
@@ -5020,7 +5083,8 @@ class ProductModule:
                                                        agent_name=self._name())},
                            tracker=self._tracker())
         if moved.refused:
-            return WriteResult(ok=False, existed=True, ref=f"#{number}", detail=moved.refused)
+            return WriteResult(ok=False, existed=True, ref=f"#{number}", detail=moved.refused,
+                               refusal=NOT_WAITING)
         if moved.outcome("remove").startswith("failed") and not moved.recorded:
             return _could_not(card_said("remove_failed", number=number, language=lang),
                               act=f"remove #{number}", cause=RuntimeError(moved.outcome("remove")),
@@ -5091,7 +5155,8 @@ class ProductModule:
                            and canonical_ref(getattr(gate, "card", "")) == number)
         if not (may_act(self.project, actor, via=self._via)
                 or (at_the_gate and (vouched or self.asked_for(number, actor)))):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
 
         tickets, error = self._read_board()
         if error:
@@ -5100,14 +5165,16 @@ class ProductModule:
         card = next((t for t in tickets if t.number == number), None)
         if card is None:
             return WriteResult(ok=False, detail=correction_refused("not_found", number=number,
-                                                                   language=lang))
+                                                                   language=lang),
+                               refusal=NOT_FOUND)
         if card.state != "open":
-            return WriteResult(ok=False, existed=True, ref=f"#{number}",
+            return WriteResult(ok=False, refusal=ALREADY_CLOSED, existed=True, ref=f"#{number}",
                                detail=correction_refused("closed", number=number, language=lang))
         kind = filed_by_the_product_role(card.body or "")
         if kind not in _WHAT_WAS_ASKED:
             return WriteResult(ok=False, ref=f"#{number}", detail=correction_refused(
-                "requirement" if kind == "requirement" else "board", number=number, language=lang))
+                "requirement" if kind == "requirement" else "board", number=number, language=lang),
+                               refusal=NOT_VALID)
         column = (card.column or "").strip()
         if column:
             # THE SAME SEAM THE BOARD'S OWN GATE USES (#231). This asked `key_for` for the key with
@@ -5123,12 +5190,13 @@ class ProductModule:
             if not key or (has_started(key) and not (at_the_gate and not has_finished(key))):
                 return WriteResult(ok=False, ref=f"#{number}", detail=correction_refused(
                     "started" if key else "unmapped", number=number, column=column,
-                    language=lang))
+                    language=lang),
+                                   refusal=NOT_WAITING)
 
         tracker = self._tracker()
         rename = getattr(tracker, "update_title", None) if title else None
         if title and rename is None:
-            return WriteResult(ok=False, ref=f"#{number}",
+            return WriteResult(ok=False, refusal=NOT_VALID, ref=f"#{number}",
                                detail=correction_refused("rename", number=number, language=lang))
 
         before = card.body or ""
@@ -5222,7 +5290,8 @@ class ProductModule:
             if moved.answer is not None:
                 return moved.answer
             if moved.refused:
-                return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused)
+                return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused,
+                                   refusal=NOT_WAITING)
             residue = str(landed["residue"])
             if moved.outcome("comment").startswith("failed"):
                 log.warning("OPENFACTORY_PRODUCT_CORRECT_UNNOTED card=#%s (%s) — the card was "
@@ -5335,19 +5404,19 @@ class ProductModule:
         lang = getattr(self.project, "language", None)
         said = (instruction or "").strip()
         if not said:
-            return WriteResult(ok=False, ref=f"#{number}",
+            return WriteResult(ok=False, refusal=NOT_VALID, ref=f"#{number}",
                                detail=adjust_said("empty", ref=number, language=lang))
         if len(said) > adjust.INSTRUCTION_LIMIT:
-            return WriteResult(ok=False, ref=f"#{number}", detail=adjust_said(
+            return WriteResult(ok=False, refusal=NOT_VALID, ref=f"#{number}", detail=adjust_said(
                 "too_long", ref=number, length=len(said), limit=adjust.INSTRUCTION_LIMIT,
                 language=lang))
         if not self.may_send_back(number, actor, vouched=vouched):
-            return WriteResult(ok=False, ref=f"#{number}",
+            return WriteResult(ok=False, refusal=NOT_YOURS, ref=f"#{number}",
                                detail=adjust_said("not_yours", ref=number, language=lang,
                                                   approvers=approvers_of(self.project)))
         gate = adjust.pass_gate_of(self.project, number)
         if not gate.open:
-            return WriteResult(ok=False, ref=f"#{number}", detail=adjust_said(
+            return _the_gate_said(gate.why, ref=f"#{number}", detail=adjust_said(
                 gate.why, ref=number, passes=gate.passes, language=lang))
         landed = {"corrected": False, "residue": ""}
 
@@ -5368,7 +5437,7 @@ class ProductModule:
             detail = adjust_said(why, ref=number, passes=gate.passes, language=lang)
             if landed["corrected"]:
                 detail += " " + adjust_said("corrected_anyway", ref=number, language=lang)
-            return WriteResult(ok=False, ref=f"#{number}", detail=detail)
+            return _the_gate_said(why, ref=f"#{number}", detail=detail)
 
         from openfactory.lifecycle import CardEvent, transition
 
@@ -5383,7 +5452,8 @@ class ProductModule:
         if moved.answer is not None:
             return moved.answer
         if moved.refused:
-            return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused)
+            return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused,
+                               refusal=NOT_WAITING)
         # THE FACTS, AND ON SUCCESS `detail` IS ONLY WHAT DID NOT LAND (`confirm._unfinished`): the
         # headline is composed by whoever answers the person, from these (`adjust.headline`)
         return adjust.Sent(ok=True, ref=f"#{number}", detail=str(landed["residue"]),
@@ -5497,9 +5567,9 @@ class ProductModule:
         lang = getattr(self.project, "language", None)
 
         def refused(why: str) -> WriteResult:
-            return WriteResult(ok=False, ref=f"#{number}",
-                               detail=accept_change_said(why, ref=number, language=lang,
-                                                         approvers=approvers_of(self.project)))
+            return _the_gate_said(why, ref=f"#{number}",
+                                  detail=accept_change_said(why, ref=number, language=lang,
+                                                            approvers=approvers_of(self.project)))
 
         if not self.may_send_back(number, actor, vouched=vouched):
             return refused("not_yours")
@@ -5534,7 +5604,8 @@ class ProductModule:
         if moved.answer is not None:
             return moved.answer
         if moved.refused:
-            return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused)
+            return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused,
+                               refusal=NOT_WAITING)
         merging, unmerged = False, ""
         if merges:
             unmerged = accept.merge(self.project, number, by=actor)
@@ -5610,18 +5681,21 @@ class ProductModule:
         if not ctx.available:
             return self._cannot_see_the_product()
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, detail=unauthorized_message(self.project),
+                               refusal=NOT_YOURS)
         req = ctx.corpus.by_number(requirement)
         if req is None:
             return WriteResult(ok=False, detail=requirement_not_found(number=requirement,
-                                                                      language=lang))
+                                                                      language=lang),
+                               refusal=NOT_FOUND)
         if not req.is_promise:
             # Aligning onto a retired text is the very defect this method repairs, performed on
             # purpose — and the printed rule on the card would then order the old promise built.
             # Aligning onto a text nobody has agreed to is the same act one step earlier: the card
             # would carry criteria derived from a proposal, under a rule saying nothing may go
             # beyond it, while the client may still say no. `break_down` refuses both.
-            return WriteResult(ok=False, detail=_not_a_promise(requirement, req, language=lang))
+            return WriteResult(ok=False, detail=_not_a_promise(requirement, req, language=lang),
+                               refusal=NOT_VALID)
 
         tickets, error = self._read_board()
         if error:
@@ -5630,7 +5704,8 @@ class ProductModule:
         card = next((t for t in tickets if t.number == number), None)
         if card is None:
             return WriteResult(ok=False, detail=card_said("not_found", number=number,
-                                                          language=lang))
+                                                          language=lang),
+                               refusal=NOT_FOUND)
 
         sandbox, ws = self._workspace()
         answer = self._role().ask_json(
@@ -5648,7 +5723,7 @@ class ProductModule:
                     + self._REFINE_SCHEMA))
         criteria = (answer or {}).get("criteria") or []
         if not isinstance(answer, dict) or not criteria:
-            return WriteResult(ok=False, ref=f"#{number}",
+            return WriteResult(ok=False, refusal=NOT_REFUSED, ref=f"#{number}",
                                detail=card_said("no_criteria_from", requirement=requirement,
                                                 language=lang))
         # the role's words, with its paths as the card's repository reads them (journey 0, #640)
