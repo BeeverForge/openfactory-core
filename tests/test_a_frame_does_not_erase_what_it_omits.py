@@ -246,6 +246,95 @@ async def test_a_BLIP_does_not_carry_a_stale_poller_read_across_it(monkeypatch, 
         f"frame was served from a memo filled before the engine died")
 
 
+@pytest.mark.asyncio
+async def test_a_BLIP_does_not_carry_a_stale_job_list_across_it(monkeypatch, tmp_path):
+    """The page is never shown a job list from BEFORE an engine failure (#139, kept for #754).
+
+    THE JOB LIST BECAME PROCESS-WIDE (#754): a list read a moment ago is handed to the next reader
+    asking the same question for `tv.LIST_TTL_S`. The stream's tick is shorter than that window, so
+    the pass after a blip asks again INSIDE it, and without the blip dropping the shared answer it
+    is handed the list from before the engine failed: the poller case above, one memo along.
+
+    THREE PASSES OF THE REAL LOOP against a counting engine, the schedule read every pass: a good
+    frame (scan 1), a pass whose schedule read fails before the job list is asked (the blip), and a
+    good frame right after it. The third must be a fresh scan, and its rows say which scan built
+    them, so a stale list is visible in the frame and not only in the count. Red when the stream's
+    `except` does not call `tv.forget_jobs()`: one scan, and the third frame shows scan 1.
+    """
+    from job_list_scans import PROJECT, CountedEngine, forget, scans_of
+
+    from openfactory.floor import reading
+    from openfactory.runtime.temporal import view as tv
+
+    reg = tmp_path / "registry.yaml"
+    reg.write_text("projects: {}\n")
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(reg))
+    monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", "10")
+    monkeypatch.setattr(tv, "_registered_projects", lambda: [PROJECT])
+
+    engine = CountedEngine()
+    passes = [0]
+
+    async def _intake_cached(_client=None):
+        passes[0] += 1
+        if passes[0] == 2:
+            raise RuntimeError("the engine went away")
+        return {"known": True, "on": True, "note": "", "watchers": {}}
+
+    async def _connect(*_a, **_k):
+        return engine
+
+    async def _no_wait(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(reading, "intake_cached", _intake_cached)
+    monkeypatch.setattr(tv, "connect", _connect)
+    monkeypatch.setattr(tv, "temporal_config", lambda: ("localhost:7233", "default"))
+    monkeypatch.setattr(tv, "ui_base", lambda: "")
+    # The schedule read every pass, so the blip lands BEFORE the job list is asked on pass 2: the
+    # list's own window is then the only thing that could carry scan 1 across it.
+    monkeypatch.setattr(api, "_STREAM_SLOW_S", 0)
+    # No wall clock between passes: the three are far inside `LIST_TTL_S`, which is the point.
+    monkeypatch.setattr(api.asyncio, "sleep", _no_wait)
+    forget()
+
+    from starlette.requests import Request
+
+    class _Socket(Request):
+        """Three passes, then hang up."""
+
+        def __init__(self):
+            super().__init__({"type": "http", "method": "GET", "path": "/api/temporal/stream",
+                              "query_string": b"", "headers": []})
+            self.asked = 0
+
+        async def is_disconnected(self):
+            self.asked += 1
+            return self.asked > 3
+
+    frames = []
+    try:
+        response = await api.temporal_stream(_Socket())
+        async for chunk in response.body_iterator:
+            if chunk.startswith("data: "):
+                frames.append(json.loads(chunk[len("data: "):]))
+    finally:
+        forget()
+
+    assert len(frames) == 3, f"the loop did not run three passes: {frames}"
+    assert frames[0]["connected"] is True and scans_of(frames[0]["jobs"]) == {"1"}, (
+        f"the first frame did not read the job list: {frames[0]}")
+    assert frames[1]["connected"] is False and frames[1]["jobs"] is None, (
+        f"the engine failed and the stream did not say so: {frames[1]}")
+    assert engine.scans == 2, (
+        f"the job list was scanned {engine.scans} time(s) across the blip, not 2: the frame after "
+        f"it was handed the list from before the engine failed (`tv.forget_jobs()` in the "
+        f"stream's `except`)")
+    assert scans_of(frames[2]["jobs"]) == {"2"}, (
+        f"the frame after the blip carries rows built by scan(s) {scans_of(frames[2]['jobs'])}, "
+        f"not by the scan after it")
+
+
 def test_the_DISCONNECTED_frame_still_carries_the_build_stamps():
     """A page that cannot reach the engine is MORE likely to be the stale half, not less — that is
     exactly the reading where the operator needs to know which code is answering him (#135)."""

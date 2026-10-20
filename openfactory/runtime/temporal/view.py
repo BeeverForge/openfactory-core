@@ -200,6 +200,30 @@ def _bounded_read(what: str):
     return wrap
 
 
+def _a_write(fn):
+    """Mark one of this module's writes: whatever it did, the job list remembered before it is
+    dropped when it returns (`forget_jobs`, #754).
+
+    THE PANEL RE-READS 600-800 MS AFTER A CLICK, inside the job list's window (`LIST_TTL_S`), so
+    without this an Approve, a Merge or a Resume was followed by the list from before it: a button
+    that looks as if it did nothing. ON EVERY EXIT, NOT ONLY A RETURN: a write that raised after
+    the engine took it (a transport that gave up on the reply) changed the list as surely as one
+    that answered, and dropping a list nothing changed costs one scan. A write made by another
+    process (the worker, the CLI) is not seen here; the window is its cost. One decorator rather
+    than a line in each write, so a write added later is one line to mark, and
+    `tests/test_a_job_list_read_a_moment_ago_is_shared_and_never_across_loops.py` finds the writes
+    by walking this file, not from a list."""
+
+    @functools.wraps(fn)
+    async def wrote(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        finally:
+            forget_jobs()
+
+    return wrote
+
+
 _WF_ID_PREFIX = "openfactory-"
 
 
@@ -443,6 +467,7 @@ async def _true_status(client: Client, wf) -> WorkflowExecutionStatus | None:
         return None
 
 
+@_a_write
 async def gate_key_refusal(client: Client, *, within: float = 20.0) -> str:
     """Whether the worker accepts a seal made with THIS process's gate key: "" when it does,
     otherwise its refusal. Raises when no worker answers within `within` seconds — which is not
@@ -1388,6 +1413,7 @@ async def review_verdicts(client: Client, jobs: list[dict]) -> dict[str, dict | 
     return out
 
 
+@_a_write
 async def start_job(client: Client, params: JobParams) -> str:
     wf_id = job_id(params.project, params.issue)
     await client.start_workflow(JobWorkflow.run, params, id=wf_id, task_queue=TASK_QUEUE)
@@ -1399,6 +1425,7 @@ class PreviewAlreadyStarted(RuntimeError):
     engine refusing a duplicate, and the answer a person gets is that it is starting."""
 
 
+@_a_write
 async def start_preview(client: Client, params) -> str:
     """Start one unit's `PreviewWorkflow` through the same client and queue a job uses, under the
     unit's one id. `PreviewAlreadyStarted` when it is already running."""
@@ -1415,6 +1442,7 @@ async def start_preview(client: Client, params) -> str:
     return wf_id
 
 
+@_a_write
 async def signal_preview(client: Client, project: str, unit: str, signal: str, by: str) -> bool:
     """Deliver `stop` or `rebuild` to a unit's RUNNING preview workflow. False when none is
     running — asked first, because a signal is fire-and-forget and one sent to a finished
@@ -1438,6 +1466,7 @@ async def signal_preview(client: Client, project: str, unit: str, signal: str, b
     return True
 
 
+@_a_write
 async def approve_job(
     client: Client, project: str, issue: str, *, version: str, approver: str, comment: str = ""
 ) -> None:
@@ -1456,6 +1485,7 @@ async def approve_job(
     await handle.signal(JobWorkflow.approve_prod, args=[version, approver, comment, seal])
 
 
+@_a_write
 async def answer_merge_gate(client: Client, project: str, issue: str, *, answer: str,
                             instruction: str = "", by: str = "") -> dict:
     """Deliver a human's answer to a PR waiting on them (#68). Returns the merge-wait dict.
@@ -1526,6 +1556,7 @@ async def release_gate(client: Client, project: str, issue: str) -> dict | None:
     return dict(await handle.query(JobWorkflow.release_wait) or {"hears": False})
 
 
+@_a_write
 async def another_change(client: Client, project: str, issue: str, *, instruction: str,
                          by: str) -> dict:
     """Deliver "not yet" to the job parked at the last gate, sending its card back for another
@@ -1621,6 +1652,7 @@ def gate_cannot_hear(gate: dict) -> str:
     return ""
 
 
+@_a_write
 async def act_job(client: Client, project: str, issue: str, *, action: str,
                   choice: str = "") -> None:
     """Single-line strict (ADR-0010): deliver the operator's (or a bot's) decision on a PARKED
