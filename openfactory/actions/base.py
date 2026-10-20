@@ -27,6 +27,12 @@ import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only the annotation needs it: the action layer is imported by the panel and the CLI, and
+    # neither should load the identity package (its provider registry) just to name a type.
+    from openfactory.identity.base import Subject
 
 # ── the codes a front end maps ───────────────────────────────────────────────────────────────────
 #
@@ -122,7 +128,8 @@ class Actor:
     EVERY ACTION TAKES ONE, including the read-only ones. Not because they all check it today —
     most do not — but because the parameter is the seam C-26 fills, and a parameter added later to
     forty call sites is a migration, while a parameter carried from the start is a rename. It is
-    also already useful: `perform` writes one audit line per action naming this, which is the first
+    also already useful: `perform` makes one audit record of each call naming this (an
+    `observability.audit.AuditRecord`), beside the audit line it already wrote, which is the first
     time this platform can answer *who approved that production release*.
 
     `admin` IS DECIDED BY THE TRANSPORT TODAY, and that is a stated limitation rather than a
@@ -169,6 +176,18 @@ class Actor:
     #: `perform`'s audit line prints it, as `label=`, beside the credential that was really used.
     #: Empty for a named person, whose name is the provider's and not theirs to change.
     label: str = ""
+    #: WHO THE IDENTITY AXIS SAID THIS IS, as the transport resolved it (ADR-0057 D1: "`Actor`
+    #: carries the `Subject`"). The audit record reads its provider off `subject.via` — `local`,
+    #: `oidc`, `anonymous` on the panel, `cli` for a shell login — so there is no second field
+    #: naming the provider here. `None` when no subject was resolved: `SYSTEM`, a test, and every
+    #: transport (the Slack add-on included) that predates this field.
+    subject: Subject | None = None
+    #: THE ID THAT TIES THIS CALL TO THE REQUEST THAT CAUSED IT, and to what it caused. Not *who
+    #: asked*, which is all ADR-0039 §2 says an `Actor` is — it sits here because the `Actor` is the
+    #: one value that already travels into the `perform` calls a row relays (`merge` → `approve`,
+    #: the product rows that act on the floor), so a relayed call keeps its caller's id without
+    #: every row passing a second argument. `""` while the transport carries none.
+    correlation: str = ""
 
     def may_enter(self, scope: str) -> bool:
         """Whether this actor may act in `scope`. Unscoped actors may enter anywhere."""

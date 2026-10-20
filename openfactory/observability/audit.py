@@ -96,8 +96,9 @@ class AuditRecord:
     #: Who asked: `Actor.id`, and the name a human reads (`Actor.display`, else the id).
     actor_id: str
     actor_display: str
-    #: Which identity provider named the caller: `system` for the factory acting on nobody's
-    #: behalf (`actions.SYSTEM`), `""` when the transport resolved no subject.
+    #: Which identity provider named the caller: `Actor.subject.via` (`local`, `oidc`, `anonymous`,
+    #: `cli`), `system` for the factory acting on nobody's behalf (`actions.SYSTEM`), `""` when the
+    #: transport resolved no subject.
     provider: str
     #: Which transport carried the request (`Actor.via`: `panel`, `slack`, `cli`, …).
     via: str
@@ -109,8 +110,8 @@ class AuditRecord:
     #: `Outcome.code` (one of `actions.CODES`), and the refusal's `reason` (`""` when it worked).
     code: str
     reason: str
-    #: The id that ties this call to the request that caused it and to what it caused; `""` while
-    #: no transport carries one on `Actor`.
+    #: The id that ties this call to the request that caused it and to what it caused
+    #: (`Actor.correlation`); `""` when the transport carried none.
     correlation_id: str
     #: Which deployment wrote the record; `""` while no deployment identifier is resolved.
     deployment: str
@@ -126,9 +127,9 @@ class AuditRecord:
         """The record of one `perform(name, by=by, **params)` that returned `outcome`."""
         from openfactory.actions.base import SYSTEM
 
-        # ADR-0057 D1 names the factory's own actor `system`; a transport's subject is not yet
-        # carried on `Actor`, so every other caller's provider is `""` here.
-        provider = "system" if by is SYSTEM else ""
+        # ADR-0057 D1 names the factory's own actor `system`; it acts on nobody's behalf, so it
+        # carries no subject and the name is written here rather than invented on `Actor`.
+        provider = "system" if by is SYSTEM else (by.subject.via if by.subject else "")
         project = str(params.get("project") or "")
         return cls(
             record_id=uuid.uuid4().hex,
@@ -141,7 +142,7 @@ class AuditRecord:
             ok=outcome.ok,
             code=outcome.code,
             reason=str(outcome.data.get("reason", "") or ""),
-            correlation_id="",
+            correlation_id=by.correlation,
             deployment="",
             project=project,
             product=product_of(project),
