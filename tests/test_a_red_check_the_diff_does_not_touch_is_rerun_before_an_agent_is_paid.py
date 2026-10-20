@@ -52,7 +52,7 @@ from temporalio.worker import Worker
 from openfactory.adapters.forge import base
 from openfactory.contracts import JobState, RunResult
 from openfactory.contracts.checks import Check, decide
-from openfactory.runtime.repairable import changed_paths, log_names_the_change
+from openfactory.runtime import repairable
 from openfactory.runtime.temporal import activities as acts
 from openfactory.runtime.temporal import workflow as wf
 from openfactory.runtime.temporal.io import CiRepairInput, JobParams
@@ -289,7 +289,7 @@ def test_a_changed_file_named_in_colour_is_read_as_named(changed, log):
     Colour codes, as ESC bytes or as gh's printed `^[`, are not part of the log's words.
 
     Added in review round 1, measured on jest's run 39405383814: False on all three before."""
-    assert log_names_the_change(log, [changed]) is True
+    assert repairable.log_names_the_change(log, [changed]) is True
 
 
 def test_a_diff_that_could_not_be_read_is_not_read_as_unrelated(on_the_worker):
@@ -578,7 +578,7 @@ def test_changed_paths_reads_what_git_itself_writes(tmp_path):
     (tmp_path / 'q"uote.py').write_text("t2\n")
     _git(tmp_path, "add", "-A")
     diff = _git(tmp_path, "diff", "--cached", "-M")
-    assert sorted(changed_paths(diff) or []) == sorted([
+    assert sorted(repairable.changed_paths(diff) or []) == sorted([
         "café.py", "dir/b x.py", "dir/b x b.py", "old.py", "new name.py", 'q"uote.py',
         "src/a b/x y.py", "sub b/x.py", "sub b/y.py"]), diff
 
@@ -597,4 +597,4 @@ def test_a_header_whose_rename_lines_never_came_is_not_lost_behind_the_next_one(
             "similarity index 90%\n"
             "rename from two b/p.py\n"
             "rename to two b/q.py\n")
-    assert changed_paths(diff) is None
+    assert repairable.changed_paths(diff) is None
