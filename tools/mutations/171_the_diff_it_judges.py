@@ -29,9 +29,10 @@ MUTATIONS = [
      "    def _pr_diff_removed(self, *, pr: str) -> str | None:"),
 
     # ── the bound, and its marker ───────────────────────────────────────────────────────────────
+    # row re-pinned 2026-10-19: the marker's opening words are the exported DIFF_CUT_MARKER (#756)
     ("a large diff is cut with nothing saying so — the change reads as ending there", BASE,
      '    return (text[:max_chars]\n'
-     '            + f"\\n\\n[... this diff was cut here: {len(text)} characters in total, "\n'
+     '            + f"\\n\\n{DIFF_CUT_MARKER} {len(text)} characters in total, "\n'
      '              f"{max_chars} shown. It is NOT the whole change.]\\n")',
      "    return text[:max_chars]"),
 

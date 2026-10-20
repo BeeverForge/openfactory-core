@@ -20,6 +20,12 @@ log = logging.getLogger("openfactory.forge")
 ReviewEvent = Literal["approve", "comment", "request-changes"]
 
 
+#: The words `truncated` opens its marker with. Exported so a reader of a diff asks for the VALUE
+#: this module writes rather than matching its prose: `repairable.changed_paths` reads a diff that
+#: carries it as "could not see all of it", never as the whole change.
+DIFF_CUT_MARKER = "[... this diff was cut here:"
+
+
 def truncated(text: str, max_chars: int) -> str:
     """The tail of a diff that fits, and a MARKER when it did not.
 
@@ -31,7 +37,7 @@ def truncated(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return (text[:max_chars]
-            + f"\n\n[... this diff was cut here: {len(text)} characters in total, "
+            + f"\n\n{DIFF_CUT_MARKER} {len(text)} characters in total, "
               f"{max_chars} shown. It is NOT the whole change.]\n")
 
 
