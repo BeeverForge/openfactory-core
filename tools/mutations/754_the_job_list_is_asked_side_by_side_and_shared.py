@@ -14,7 +14,8 @@ Claims, each held by the row named under it:
   - a reader within `LIST_TTL_S` of a scan that answered is handed its rows, a copy of its own,
     never across loops or clients, never a failure, and never past the window;
   - an engine remembered as silent refuses the list even when a list is remembered;
-  - a write through this process, and the stream's blip, drop the remembered list; the panel's
+  - a write through this process, and the stream's blip, drop the remembered list; a write drops
+    it on every exit, a raise as well as a return; the panel's
     Stop and Scan TO-DO now, which write through `actions/catalog.py`, drop it there.
 
 THE DEFAULT TARGET IS ONE TEST, NOT THE FILE, and every row names its own test, so each cut is
@@ -257,6 +258,13 @@ MUTATIONS = [
      "        finally:\n            forget_jobs()",
      "        finally:\n            pass",
      AFTER + "test_a_write_through_this_process_is_seen_by_the_next_list"),
+
+    ("a write forgets only when it returns, so one that raised after the engine took it leaves "
+     "the list from before it", VIEW,
+     "        try:\n            return await fn(*args, **kwargs)\n        finally:\n"
+     "            forget_jobs()\n",
+     "        answer = await fn(*args, **kwargs)\n        forget_jobs()\n        return answer\n",
+     AFTER + "test_a_write_that_raised_after_the_engine_took_it_still_drops_the_list"),
 
     ("one write is not marked, and the list after it is the one from before it", VIEW,
      "@_a_write\nasync def gate_key_refusal(",

@@ -314,6 +314,38 @@ async def test_a_write_through_this_process_is_seen_by_the_next_list(write, monk
     assert scans_of(after) == {"2"}
 
 
+async def test_a_write_that_raised_after_the_engine_took_it_still_drops_the_list():
+    """Criterion 5, `_a_write`'s "on every exit, not only a return": a Resume whose signal the
+    engine took but whose reply the transport lost raises, and the list after it is still a fresh
+    scan, since the job did change. Every case above succeeds, so a `_a_write` that forgot only
+    after a return (`answer = await fn(...); forget_jobs(); return answer`) kept them green: the
+    review of 9e282ff measured 70 passed under that cut, and this test red (`assert 1 == 2`)."""
+    engine = CountedEngine()
+    real = engine.get_workflow_handle
+
+    def handle(wf_id, run_id=None):
+        h = real(wf_id, run_id)
+        signal = h.signal
+
+        async def lost(*a, **k):
+            await signal(*a, **k)
+            raise RuntimeError("the transport gave up on the reply")
+
+        h.signal = lost
+        return h
+
+    await tv.list_jobs(engine, "default")
+    engine.get_workflow_handle = handle
+    with pytest.raises(RuntimeError, match="gave up on the reply"):
+        await tv.act_job(engine, PROJECT, WRITTEN, action="resume")
+    assert engine.writes, "the resume raised before it wrote, so this case proves nothing"
+    engine.get_workflow_handle = real
+    after = await tv.list_jobs(engine, "default")
+
+    assert engine.scans == 2, "the list after a write that raised was the one from before it"
+    assert scans_of(after) == {"2"}
+
+
 # ── the panel's own writes, outside `view.py` ──────────────────────────────────────────────────
 #
 # The walk above reads `view.py` alone. Two buttons write `JobWorkflow`s from the panel's process
