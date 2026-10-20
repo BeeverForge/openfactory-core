@@ -317,6 +317,15 @@ while it stays open: a credential that stops opening its path ends the stream.
 | `/api/temporal/stream` | Server-sent events | a JSON frame of the jobs' state — the jobs, whether the poller runs, the build — on connect and whenever it changes; `"jobs": null` when the engine cannot be read | a named event, `ended`, with why: `signed_out`, `not_allowed` or `unavailable` |
 | `/api/jobs/{project}/{issue}/stream` | Server-sent events | the run's log events as they are written; a reconnect resumes from its `Last-Event-ID` (`v2-<n>`) | the same `ended` event |
 
+**One typed event for every frame (#679).** [`events.schema.json`](events.schema.json), committed
+beside `openapi.json`, describes each frame above as one envelope — `kind`, `id`, `at`, `project`,
+`product` when one applies, and `data` — and a data model per kind: the sockets' `kind`s, `jobs`
+for the temporal stream's frame, `log` for a run's log line, and `ended`. `product` is required
+for the kinds a product conversation emits (`subscribed`, `history`, `earlier`, `said`, `reply`,
+`staged`, `presence`, `resync`) and absent for every other. It is generated, never edited by hand:
+`tests/test_one_typed_event_stream.py` fails when it is not what the models generate, and
+`python -m openfactory.api.events` writes it again.
+
 ## 5. What is not here yet
 
 This is slice 1 of #561. The default front end still ships with the API, in the same process and
