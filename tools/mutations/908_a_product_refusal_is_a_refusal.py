@@ -35,7 +35,8 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
      answering, or the running one having filed nothing) and the first pass; and a running
      breakdown whose every front was refused answers that refusal;
  11. a failed write is logged once under `OPENFACTORY_PRODUCT_WRITE_FAILED`; the line its
-     reference names is `OPENFACTORY_PRODUCT_FAILURE_ANSWERED`.
+     reference names is `OPENFACTORY_PRODUCT_FAILURE_ANSWERED`;
+ 12. no row answers both meanings of `data.refusal` (the role's word, pickup's verdict).
 """
 
 TEST = "tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py"
@@ -407,6 +408,16 @@ MUTATIONS = [
      '    log.error("OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=%s did=%s project=%s ref=%s — %s",\n',
      '    log.error("OPENFACTORY_PRODUCT_WRITE_FAILED reference=%s did=%s project=%s ref=%s — %s",\n',
      FAILURE + "::test_a_failed_write_is_counted_once_and_its_reference_is_in_a_line_of_its_own"),
+
+    # 13. (review of PR #970, hermesfelipe, not blocking) `data.refusal`'s two meanings are told
+    #     apart by `ok` only while no row answers both
+    ("R3.7: the card check renders a product write too", CATALOG,
+     "    verdict = spec_verdict(draft)\n"
+     "    count = len(draft.acceptance_criteria)\n",
+     "    verdict = spec_verdict(draft)\n"
+     "    _also = _not_done\n"
+     "    count = len(draft.acceptance_criteria)\n",
+     TEST + "::test_no_row_answers_both_meanings_of_data_refusal"),
 
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,

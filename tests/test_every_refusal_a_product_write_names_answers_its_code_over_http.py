@@ -228,3 +228,20 @@ def test_each_refusal_reason_answers_its_code_and_the_modules_sentence_on_every_
     assert (r.status_code, said["code"]) == (_STATUS[expected], expected), (row, reason, said)
     assert said["message"] == said["detail"] == said_as, said
     assert said["data"]["refusal"] == reason, said["data"]
+
+
+def test_no_row_answers_both_meanings_of_data_refusal():
+    """`data.refusal` is the product role's word on a not-ok product write (#908), and pickup's
+    verdict on an ok answer of `card_create`, `card_edit` and `card_check` (#150) — which the API
+    reference documents as two meanings told apart by `ok` (review of PR #970, hermesfelipe).
+    That reading holds only while no row reaches both: measured on the rebased branch, the walk
+    finds the three card rows on one side, twenty product rows on the other, and none on both."""
+    functions = _catalog_functions()
+    verdict = {name for name, spec in catalog.CATALOG.items()
+               if {"_as_pickup_would", "_card_check"} & _reachable_from(spec.run.__name__,
+                                                                       functions)}
+    word = {name for name, spec in catalog.CATALOG.items()
+            if "_not_done" in _reachable_from(spec.run.__name__, functions)}
+
+    assert verdict and word, (verdict, word)
+    assert verdict & word == set(), f"rows answering both meanings of data.refusal: {verdict & word}"

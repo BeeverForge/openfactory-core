@@ -63,6 +63,13 @@ purpose, a `product_*` row (and `card_close`, `card_remove`) answers with the ro
 | `not_waiting`, `already_closed`, `already_there` | 409 | `conflict` |
 | `not_valid` | 400 | `invalid` |
 
+**`data.refusal` has two meanings, and `ok` says which.** On an answer with `ok: false` from the
+rows above it is the product role's word, one of the table's. On an answer with `ok: true` from
+`card_create`, `card_edit` and `card_check` it is what pickup's spec gate would say about the card:
+`""` when pickup would take it, the gate's sentence when it would not. No row answers both — the
+three card rows never render a product write, and a product write's answer carries the word only
+when it is not ok — so a program reads the word when `ok` is false and the verdict when it is true.
+
 `data.reason` stays the code, so the list of reasons above is unchanged. Only a write the product
 role tried and that did not happen — the board unreadable when the role reads it, the forge down —
 answers 500 `failed`; the row's own card check, which runs first, still answers a board it cannot
