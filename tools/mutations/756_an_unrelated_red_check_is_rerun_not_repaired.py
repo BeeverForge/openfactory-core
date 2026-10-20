@@ -27,10 +27,11 @@ SIX CLAIMS:
   5. **The seam is a row capability that cannot be faked** (D): a test double's answer is not a
      list of names, and a refusal is a value carrying the forge's words, never `[]`.
   6. **The GitHub row re-runs exactly the runs the log was read from**: blocking `code` rows of
-     the pull request's own repository, the first two, never a third whose log was not read; one run refused of two, and checks it could not read,
-     are refusals, never a success or `[]`; and generic code never reaches a forge CLI. Both
-     moves are reached from the registered `repair_ci` activity, and a forge that cannot be
-     built after a pass returns the pass.
+     the pull request's own repository, the first two, never a third whose log was not read,
+     nor one whose log read failed or came back empty (that run is named in a refusal); one run
+     refused of two, and checks it could not read, are refusals, never a success or `[]`; and
+     generic code never reaches a forge CLI. Both moves are reached from the registered
+     `repair_ci` activity, and a forge that cannot be built after a pass returns the pass.
 
 The guards are `tests/test_a_red_check_the_diff_does_not_touch_is_rerun_before_an_agent_is_paid.py`
 (A, C, E, F), `tests/test_a_repair_pass_that_changed_nothing_reruns_the_failed_jobs_once.py` (B)
@@ -282,8 +283,21 @@ MUTATIONS = [
 
     ("GitHub: a partial refusal is answered as a success, and the refused run is never said",
      GITHUB,
+     "        if refusals or unread:\n            done",
+     "        if (refusals or unread) and not rerun:\n            done",
+     CAPABILITY),
+
+    # Human round, 2026-10-20 (H.1b): a selected run whose `--log-failed` read failed or came back
+    # empty was re-run, though `failed_ci_logs` had skipped it and the decision never read it.
+    ("GitHub: a run whose failing log did not read is re-run all the same", GITHUB,
+     "            if why_not:\n                unread.append",
+     "            if False:\n                unread.append",
+     CAPABILITY),
+
+    ("GitHub: a run left out for its unread log is not said, the rest answered as a success",
+     GITHUB,
+     "        if refusals or unread:\n            done",
      "        if refusals:\n            done",
-     "        if refusals and not rerun:\n            done",
      CAPABILITY),
 
     ("GitHub: checks it could not read answer `[]`, \"nothing to re-run\", not a refusal", GITHUB,

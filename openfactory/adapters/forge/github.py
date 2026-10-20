@@ -1092,7 +1092,8 @@ class GitHubForge(ForgeAdapter):
 
         THE RUNS OF THE PULL REQUEST'S OWN REPOSITORY (C-18): `gh run` does not resolve a URL, and
         a link to another repository's run is not this pull request's check. The first two such
-        runs are read; `rerun_failed` re-runs the same runs, chosen by the same `_failing_runs`."""
+        runs are read; `rerun_failed` re-runs the same runs, chosen by the same `_failing_runs`,
+        and of those only the ones whose log `_failing_log` reads here too."""
         repo = self._repo_of_pr(pr)
         try:
             rows = self.pr_checks(pr=pr)
@@ -1104,10 +1105,23 @@ class GitHubForge(ForgeAdapter):
             return ""
         chunks: list[str] = []
         for rid in self._failing_runs(repo, rows):
-            lp = self._gh(["run", "view", rid, "--repo", repo, "--log-failed"], timeout=180)
-            if lp.returncode == 0 and lp.stdout:
-                chunks.append(lp.stdout)
+            text, _why_not = self._failing_log(repo, rid)
+            if text:
+                chunks.append(text)
         return _redact("\n".join(chunks))[-max_chars:]
+
+    def _failing_log(self, repo: str, rid: str) -> tuple[str, str]:
+        """`(the failing log of run rid, "")` when it reads, else `("", why not)`: one definition
+        of "the log of this run was read", for `failed_ci_logs` and `rerun_failed` (#756).
+
+        "COULD NOT BE READ" AND "WAS EMPTY" ARE TOLD APART (lesson §2): `gh run view --log-failed`
+        exits non-zero for a log it could not fetch (expired, not yet archived, a 404), and zero
+        with nothing for a run with no failing step's log."""
+        got = self._gh(["run", "view", rid, "--repo", repo, "--log-failed"], timeout=180)
+        if got.returncode != 0:
+            said = _redact(got.stderr or "").strip().removeprefix("gh: ")[-160:]
+            return "", f"could not be read ({said})" if said else "could not be read"
+        return (got.stdout, "") if got.stdout else ("", "was empty")
 
     @staticmethod
     def _failing_runs(repo: str, rows: list[dict]) -> dict[str, list[str]]:
@@ -1133,14 +1147,26 @@ class GitHubForge(ForgeAdapter):
         return dict(list(runs.items())[:_RUNS_READ])
 
     def rerun_failed(self, *, pr: str) -> list[str]:
-        """Re-run the failed jobs of the runs `failed_ci_logs` chooses (#756): `gh run rerun
-        <id> --failed --repo <the pull request's repository>`, once per run. Answers the names of
-        the checks whose run was re-run; `[]` when no red required check is a run of this repository
-        (a status, another app's check, a GitHub Enterprise run URL `_ACTIONS_RUN` does not match).
+        """Re-run the failed jobs of the runs `failed_ci_logs` read a log from (#756): `gh run
+        rerun <id> --failed --repo <the pull request's repository>`, once per run. Answers the
+        names of the checks whose run was re-run; `[]` when no red required check is a run of this
+        repository (a status, another app's check, a GitHub Enterprise run URL `_ACTIONS_RUN` does
+        not match).
 
-        RAISES `RerunRefused` when the checks could not be read, or when `gh` refused a run: an
-        App without `Actions: write` (HTTP 403), a run still in progress. Every run is asked even
-        after one refused, so the refusal names each run `gh` refused, in its own words."""
+        A RUN WHOSE FAILING LOG DOES NOT READ IS NOT RE-RUN. `failed_ci_logs` skips a run whose
+        `gh run view --log-failed` fails or comes back empty, so the decision to re-run instead of
+        repairing never saw that run's failure; until the human round of 2026-10-20 it was re-run
+        all the same (measured on 28e9226: run 2's read exits 1, and `gh run rerun 2 --failed` was
+        asked). So each selected run's log is read again here, by `_failing_log`, before it is
+        re-run: one more `gh run view --log-failed` per selected run (at most `_RUNS_READ`, so
+        two), on the re-run paths only; `failed_ci_logs` makes no extra call. Read here rather
+        than remembered from `failed_ci_logs`, because the two are called from different
+        activities and nothing carries the adapter's state between them.
+
+        RAISES `RerunRefused` when the checks could not be read, when a run's log did not read
+        (naming the run and why), or when `gh` refused a run: an App without `Actions: write`
+        (HTTP 403), a run still in progress. Every run is asked even after one refused, so the
+        refusal names each run left out, and the checks that did re-run."""
         from openfactory.adapters.forge.base import RerunRefused
 
         repo = self._repo_of_pr(pr)
@@ -1151,16 +1177,23 @@ class GitHubForge(ForgeAdapter):
                                f"({str(exc)[:160]})") from exc
         rerun: list[str] = []
         refusals: list[str] = []
+        unread: list[str] = []
         for rid, names in self._failing_runs(repo, rows).items():
+            _text, why_not = self._failing_log(repo, rid)
+            if why_not:
+                unread.append(f"run {rid}, whose failing log {why_not}")
+                continue
             p = self._gh(["run", "rerun", rid, "--failed", "--repo", repo])
             if p.returncode == 0:
                 rerun.extend(names)
             else:
                 refusals.append(f"run {rid}: "
                                 f"{_redact(p.stderr or '').strip().removeprefix('gh: ')[-200:]}")
-        if refusals:
+        if refusals or unread:
             done = f"; re-ran {', '.join(rerun)}" if rerun else ""
-            raise RerunRefused(f"gh run rerun refused {'; '.join(refusals)}{done}")
+            said = ([f"did not re-run {'; '.join(unread)}"] if unread else []) + (
+                [f"gh run rerun refused {'; '.join(refusals)}"] if refusals else [])
+            raise RerunRefused(f"{'; '.join(said)}{done}")
         return rerun
 
     def merge_commit_sha(self, *, pr: str) -> str | None:

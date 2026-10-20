@@ -225,6 +225,10 @@ def _github(monkeypatch, all_checks, required, *, rerun_exit=0, rerun_stderr="")
                 out.stdout = json.dumps(all_checks)
         elif args[:2] == ["run", "rerun"]:
             out.returncode, out.stderr = rerun_exit, rerun_stderr
+        elif args[:2] == ["run", "view"]:
+            # Every run's failing log reads, as on a real red run; the rows below that need an
+            # unreadable or empty log override this one call.
+            out.stdout = f"FAIL in run {args[2]}\n"
         return out
 
     monkeypatch.setattr(f, "_gh", gh)
@@ -345,6 +349,59 @@ def test_github_reruns_only_the_runs_whose_logs_the_decision_read(monkeypatch):
     assert [c[2] for c in _reruns(f)] == read == ["1", "2"], (
         f"logs read of runs {read}, re-ran runs {[c[2] for c in _reruns(f)]}")
     assert got == ["c1", "c2"]
+
+
+#: The two ways `gh run view <id> --log-failed` gives the repair no log of a run: it exits
+#: non-zero (the run's logs expired or are not yet archived, a 404, a rate limit), or exits zero
+#: with nothing on stdout. `failed_ci_logs` skips the run either way.
+_NO_LOG = [pytest.param(1, "HTTP 404: Not Found", id="the read fails"),
+           pytest.param(0, "", id="the read comes back empty")]
+
+
+def _second_log_unread(monkeypatch, exit_code, stderr):
+    """Two red required runs, run 1's failing log read and run 2's not."""
+    runs = "https://github.com/acme/x/actions/runs"
+    f = _github(monkeypatch, [_row("pytest", "fail", link=f"{runs}/1/job/7"),
+                              _row("e2e", "fail", link=f"{runs}/2/job/1")], ["pytest", "e2e"])
+    real = f._gh  # noqa: SLF001
+
+    def gh(args, timeout=120):
+        out = real(args, timeout)
+        if args[:3] == ["run", "view", "2"]:
+            out.returncode, out.stdout, out.stderr = exit_code, "", stderr
+        return out
+
+    monkeypatch.setattr(f, "_gh", gh)
+    return f
+
+
+@pytest.mark.parametrize(("exit_code", "stderr"), _NO_LOG)
+def test_github_never_reruns_a_run_whose_failing_log_was_not_read(monkeypatch, exit_code, stderr):
+    """The repair decides from the failing log `failed_ci_logs` reads, and that read skips a run
+    whose `gh run view --log-failed` fails or comes back empty. Such a run was never judged
+    unrelated, so it is not re-run: it stays red for the agent.
+
+    Added in the human round, 2026-10-20: on 28e9226 run 2's log was not read (gh exit 1, or exit
+    0 with nothing) and `rerun_failed` still asked `gh run rerun 2 --failed`."""
+    f = _second_log_unread(monkeypatch, exit_code, stderr)
+    assert "FAIL in run 1" in f.failed_ci_logs(pr=PR) and "run 2" not in f.failed_ci_logs(pr=PR)
+    base.rerun_failed_of(f, PR)
+    assert [c[2] for c in _reruns(f)] == ["1"], (
+        f"re-ran runs {[c[2] for c in _reruns(f)]}; the log was read of run 1 only")
+
+
+@pytest.mark.parametrize(("exit_code", "stderr"), _NO_LOG)
+def test_github_a_run_left_unread_is_a_refusal_naming_it(monkeypatch, exit_code, stderr):
+    """Not every failed job was re-run, so the answer is a refusal (PO answer Q3: said on the
+    pull request, and the agent runs), naming the run left out and why, and the check that did
+    re-run (lesson §9), never a success that hides run 2 or `[]`.
+
+    Added in the human round, 2026-10-20: on 28e9226 the answer was `['pytest', 'e2e']`."""
+    f = _second_log_unread(monkeypatch, exit_code, stderr)
+    got = base.rerun_failed_of(f, PR)
+    assert isinstance(got, base.RerunRefused), f"a run whose log was not read answered {got!r}"
+    why = "could not be read (HTTP 404: Not Found)" if exit_code else "was empty"
+    assert "run 2" in str(got) and why in str(got) and "re-ran pytest" in str(got), str(got)
 
 
 def test_only_rows_that_can_rerun_declare_it():
