@@ -45,6 +45,7 @@ from openfactory.actions.base import (
     Actor,
     Outcome,
     done,
+    failure_reference,
     refused,
 )
 
@@ -2108,12 +2109,39 @@ def _product_module(name: str, *, by: Actor | None = None):
     return ProductModule(project, via=getattr(by, "via", "") or "api"), project, None
 
 
+#: THE CODE EACH REFUSAL OF THE PRODUCT MODULE ANSWERS (#908). The keys are the module's closed
+#: vocabulary (`openfactory.product.authoring.REFUSALS`), written here as words so this module does
+#: not import the product role on every front end's import path; the family test
+#: (`tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py`) holds the two
+#: equal. None is FAILED or UNAVAILABLE: a refusal is somebody's decision, never a breakage.
+_REFUSAL_CODE: Mapping[str, str] = {
+    "not_yours": DENIED,
+    "not_found": NOT_FOUND,
+    "not_waiting": CONFLICT,
+    "already_closed": CONFLICT,
+    "already_there": CONFLICT,
+    "not_valid": INVALID,
+}
+
+
 def _write_outcome(result, *, did: str, **data) -> Outcome:
     """One `WriteResult` rendered as an Outcome, keeping ITS sentence rather than inventing one.
 
     `product/voice.py` exists because these sentences are read by a client who was never meant to
     edit a configuration file. A transport that replaced them with "operation failed" would throw
-    away the one thing this module spent a thousand lines getting right."""
+    away the one thing this module spent a thousand lines getting right.
+
+    A REFUSAL IS NOT A FAILURE (#908). A not-ok result whose `refusal` names a word of the module's
+    vocabulary was declined on purpose — "not yours", "already closed" — and answers that word's
+    code (`_REFUSAL_CODE`: 403, 404, 409 or 400), with the module's word in `data["refusal"]`;
+    `data["reason"]` stays the code, so the public reasons list is unchanged. Until then every
+    not-ok result answered FAILED: measured on 620bb577, a stranger's `product_withdraw_card`
+    answered HTTP 500 with the module's own "only the person who asked for #1 … can close it".
+
+    Only a result nobody decided — `refusal` empty, absent (a worker older than the field), or a
+    word this panel does not know (a worker newer than it) — is a FAILURE: it is logged as
+    `OPENFACTORY_PRODUCT_WRITE_FAILED reference=…`, and the same reference travels in
+    `data["reference"]`. The sentence is the module's, unchanged; the reference is not in it."""
     ok = bool(getattr(result, "ok", False))
     detail = str(getattr(result, "detail", "") or "")
     url = str(getattr(result, "url", "") or "")
@@ -2123,8 +2151,30 @@ def _write_outcome(result, *, did: str, **data) -> Outcome:
                    merged=bool(getattr(result, "merged", False)),
                    existed=bool(getattr(result, "existed", False)))
     if not ok:
-        return refused(FAILED, detail or f"could not {did}, and the module said nothing about why "
-                                         f"— which is itself a defect worth reporting.", **payload)
+        said = detail or (f"could not {did}, and the module said nothing about why — which is "
+                          f"itself a defect worth reporting.")
+        why = str(getattr(result, "refusal", "") or "")
+        code = _REFUSAL_CODE.get(why)
+        # ONE `refused` PER CODE, each naming its constant: the action layer's reason guard
+        # (`tests/test_the_action_layer.py`) reads every row's codes off this source, and a code
+        # looked up at run time is one it cannot see.
+        if code == DENIED:
+            return refused(DENIED, said, **payload, refusal=why)
+        if code == NOT_FOUND:
+            return refused(NOT_FOUND, said, **payload, refusal=why)
+        if code == CONFLICT:
+            return refused(CONFLICT, said, **payload, refusal=why)
+        if code == INVALID:
+            return refused(INVALID, said, **payload, refusal=why)
+        if why:
+            # A WORD THIS PANEL DOES NOT KNOW — a worker newer than it, mid-upgrade. Read as
+            # nobody's decision rather than guessed at, and said, so the drift is seen.
+            log.error("OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN did=%s refusal=%r — answered as a "
+                      "failure; this panel knows %s", did, why, ", ".join(sorted(_REFUSAL_CODE)))
+        reference = failure_reference()
+        log.error("OPENFACTORY_PRODUCT_WRITE_FAILED reference=%s did=%s project=%s ref=%s — %s",
+                  reference, did, data.get("project") or "-", ref or "-", said)
+        return refused(FAILED, said, **payload, reference=reference)
     # THE CLIENT READS `detail`; THE REF AND THE URL ARE FOR AN OPERATOR. `detail` is the sentence
     # `product/voice.py` composed for somebody who was never meant to open a pull request — and it
     # was arriving prefixed with a branch slug and a forge URL: "accepted requirement 12 —
