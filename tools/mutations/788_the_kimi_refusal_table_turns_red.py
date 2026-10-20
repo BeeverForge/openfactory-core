@@ -17,7 +17,7 @@ softened entry makes exactly its own cut survive:
   - P3. `--agent` and `--agent-file` together on every shape: the agent+agent-file row.
     P1-P3 are held by `test_no_pair_the_pinned_cli_refuses_together`.
   - V1. `--output-format text` instead of `stream-json`, the only format the row parses.
-  - V2. The `-m` line dropped: the configured model never reaches the CLI.
+  - V2. The model line dropped: the configured model never reaches the CLI.
   - V3. A blank prompt (`-p ''`), which 0.31.1 refuses.
     V1-V3 are held by `test_every_value_is_one_the_pinned_cli_accepts`.
 
@@ -42,7 +42,9 @@ KIMI = "openfactory/adapters/agent/kimi.py"
 
 _HEAD = '        cmd = [*head, "--output-format", "stream-json"]\n'
 _SESSION = '            cmd += ["-S", shlex.quote(resume_session)]\n'
-_MODEL = '            cmd += ["-m", shlex.quote(model)]\n'
+# RE-PINNED 2026-10-21 (#741): the model reaches the CLI as one `--model=<value>` token, so a
+# value that begins with '-' cannot be read as a flag; V2 still drops that line.
+_MODEL = '            cmd += [shlex.quote(f"--model={model}")]  # flag and value as one token\n'
 _PROMPT = 'else shlex.quote(prompt)]\n'
 _DOORS = "    # ---- command construction (exact, from kimi-code 0.31.1's option table) "
 
@@ -83,7 +85,7 @@ MUTATIONS = [
      _HEAD, '        cmd = [*head, "--output-format", "text"]\n',
      VALUES),
 
-    ("V2 the configured model never reaches the CLI (the -m line dropped)", KIMI,
+    ("V2 the configured model never reaches the CLI (the model line dropped)", KIMI,
      _MODEL, "            pass\n",
      VALUES),
 

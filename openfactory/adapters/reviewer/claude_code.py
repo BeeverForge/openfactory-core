@@ -191,5 +191,5 @@ class ClaudeCodeReviewer(ReviewerAdapter):
                # Claude role still started with every server the account running the CLI reaches.
                *(shlex.quote(a) for a in NO_MCP_SERVERS)]
         if self.model:
-            cmd += ["--model", shlex.quote(self.model)]
+            cmd += [shlex.quote(f"--model={self.model}")]  # flag and value as one token
         return " ".join(cmd)

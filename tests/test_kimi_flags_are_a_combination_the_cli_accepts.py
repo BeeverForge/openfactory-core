@@ -108,19 +108,24 @@ def _argv(command: str) -> list[str]:
 
 
 def _options(argv: list[str]) -> list[str]:
-    """The flags alone: each option's value (the prompt's text among them) is skipped."""
+    """The flags alone: each option's value (the prompt's text among them) is skipped. A
+    `--flag=value` token (the one-token form the model now uses, #741) is one flag and skips
+    nothing."""
     takes_a_value = {"-p", "--prompt", "-m", "--model", "-S", "--session", "-r", "--resume",
                      "--output-format", "--add-dir", "--agent", "--agent-file"}
     flags, values = [], iter(argv)
     for token in values:
-        flags.append(token)
-        if token in takes_a_value:
+        flag = token.split("=", 1)[0] if token.startswith("--") and "=" in token else token
+        flags.append(flag)
+        if flag == token and token in takes_a_value:
             next(values, None)
     return flags
 
 
 def _value(argv: list[str], *names: str) -> str | None:
     for i, token in enumerate(argv):
+        if token.startswith("--") and "=" in token and token.split("=", 1)[0] in names:
+            return token.split("=", 1)[1]
         if token in names:
             return argv[i + 1] if i + 1 < len(argv) else ""
     return None

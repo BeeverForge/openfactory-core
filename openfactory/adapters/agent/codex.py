@@ -256,7 +256,7 @@ class CodexAdapter:
         else:
             cmd += ["-s", sandbox_mode]
         if model:
-            cmd += ["-m", shlex.quote(model)]
+            cmd += [shlex.quote(f"--model={model}")]  # flag and value as one token
         if not prompt_path:
             cmd += ["--", shlex.quote(prompt)]  # `--` so a prompt starting with '-' is not a flag
         return " ".join(cmd)

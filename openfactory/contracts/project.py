@@ -199,6 +199,17 @@ def preview_name_refused(name: str) -> str:
     return ""
 
 
+def model_refused(model: object) -> str:
+    """Why `model` may not be saved as a project's model, or "" when it may — one string, or the
+    per-role shape (a role → string map), each value asked the same. A model is otherwise saved
+    verbatim (`ProjectRegistry.set_model`): only a value that begins with '-' is refused."""
+    values = model.values() if isinstance(model, dict) else [model]
+    for value in values:
+        if isinstance(value, str) and value.lstrip().startswith("-"):
+            return f"a model name does not begin with '-' — {value!r} was not saved"
+    return ""
+
+
 def _names_by_service(v) -> dict[str, dict[str, str]]:
     """`{svc: [NAME]}` or `{svc: {CONTAINER_NAME: WORKER_NAME}}` → `{svc: {container: worker}}`,
     minus every name a preview may never receive (dropped and said, never fatal: one bad line in a

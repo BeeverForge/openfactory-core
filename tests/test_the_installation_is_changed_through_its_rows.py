@@ -727,15 +727,45 @@ def test_each_project_verb_runs_its_row_and_writes_nothing_itself(argv, row, one
 
 @pytest.mark.parametrize("model", [
     "arn:aws:bedrock:us-east-1:123:inference-profile/ACM.Fictitious.Model-" + "X" * 80,
-    " padded ", "--looks-like-a-flag"])
+    " padded ", "a-model-with-dashes-inside"])
 def test_the_model_is_saved_verbatim(model, one_project):
     """The harness names its models its own way, so the row passes the string on as it came: no
-    case folded, nothing stripped, nothing cut."""
+    case folded, nothing stripped, nothing cut. The one shape refused is a leading '-' (below)."""
     from openfactory.registry import ProjectRegistry
 
     out = asyncio.run(actions.perform("project_set_model", by=ADMIN, project="acme", model=model))
 
     assert out.ok and ProjectRegistry().get("acme").model == model, out
+
+
+@pytest.mark.parametrize("model", ["--looks-like-a-flag", "  -x"])
+def test_a_model_that_begins_like_a_flag_is_refused_and_nothing_is_written(model, one_project):
+    """A model value is handed to the harness as one `--model=<value>` token; a value that begins
+    with '-' is refused, with a sentence, and the registry is byte for byte as it was."""
+    from openfactory.registry import ProjectRegistry
+
+    before = one_project.read_bytes()
+    out = asyncio.run(actions.perform("project_set_model", by=ADMIN, project="acme", model=model))
+
+    assert out.code == actions.INVALID and "begin with '-'" in out.message, out
+    assert one_project.read_bytes() == before
+    assert ProjectRegistry().get("acme").model is None, "a refused model was written"
+
+
+def test_the_refusal_holds_the_per_role_shape_and_the_add_door(one_project):
+    """Every writer passes through the one check (`model_refused`): the per-role form of
+    `set_model`, and `project add`'s own model."""
+    import pytest as _pytest
+
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.registry import ProjectRegistry
+
+    with _pytest.raises(ValueError, match="begin with '-'"):
+        ProjectRegistry().set_model("acme", "--flag", role="executor")
+    with _pytest.raises(ValueError, match="begin with '-'"):
+        ProjectRegistry().add(Project(name="beta", repo_path=str(one_project.parent / "beta"),
+                                      tracker=ProviderRef(kind="local", repo="beta", options={}),
+                                      model="--flag"))
 
 
 def test_a_model_set_through_a_front_end_says_it_was_not_checked(one_project):

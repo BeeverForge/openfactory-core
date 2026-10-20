@@ -17,7 +17,9 @@ The claims, each a group of rows:
   6. a preview's policy says what it refused, and a front end's words that are not a number of
      hours or a yes or no are refused;
   7. a preview is never handed a name a harness route requires, and the list of them is every
-     name the routes declare.
+     name the routes declare;
+  8. a model value that begins with '-' is refused where every writer passes, and every harness
+     carries the model as one token.
 """
 
 TEST = "tests/test_the_installation_is_changed_through_its_rows.py"
@@ -25,11 +27,14 @@ LAYER = "tests/test_the_action_layer.py"
 MODEL = "tests/test_the_model_is_set_from_the_cli.py"
 RECOGNISED = "tests/test_a_model_nobody_can_run_is_not_a_setting.py"
 PREVIEW_TEST = "tests/test_a_preview_is_declared_by_the_project_and_decided_by_the_operator.py"
+ONE_TOKEN = "tests/test_a_model_reaches_the_harness_as_one_token.py"
 
 CATALOG = "openfactory/actions/catalog.py"
 CLI = "openfactory/cli.py"
 CONTRACT = "docs/reference/the-front-end-api.md"
 PROJECT = "openfactory/contracts/project.py"
+REGISTRY = "openfactory/registry.py"
+KIMI = "openfactory/adapters/agent/kimi.py"
 
 MUTATIONS = [
     # ── 1. a project nobody registered ─────────────────────────────────────────────────────────
@@ -134,4 +139,12 @@ MUTATIONS = [
     ("the list of a harness route's names loses one the routes still require", PROJECT,
      "\"CLOUD_ML_REGION\", \"OPENAI_API_KEY\",",
      "\"CLOUD_ML_REGION\",", PREVIEW_TEST),
+
+    # ── 8. a model value: refused if it begins with '-', and passed as one token ───────────────
+    ("the writer stops refusing a model that begins with '-'", REGISTRY,
+     "        why = model_refused(model)\n        if why:\n            raise ValueError(why)\n",
+     "        why = model_refused(model)\n        if why:\n            pass\n"),
+    ("a harness hands the model as a separate token after `-m` again", KIMI,
+     'cmd += [shlex.quote(f"--model={model}")]  # flag and value as one token',
+     'cmd += ["-m", shlex.quote(model)]', ONE_TOKEN),
 ]

@@ -316,7 +316,7 @@ def recognises_model(model: str, *, harness: str = "claude") -> tuple[str, str]:
             # — measured on the pilot's worker, where the probe exited 1 before reading the model
             # name while every job's own invocation was fine. A probe that behaves differently
             # from the thing it is probing answers a different question.
-            [harness, "--model", model, "--permission-mode", "acceptEdits", *NO_MCP_SERVERS,
+            [harness, f"--model={model}", "--permission-mode", "acceptEdits", *NO_MCP_SERVERS,
              "--output-format", "stream-json", "--verbose", "-p", "ok"],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, errors="replace",
@@ -818,7 +818,7 @@ class ClaudeCodeAdapter(CodingAgentAdapter):
             # exactly the OpenFactory intent: the coder runs its own gates.
             cmd += ["--allowedTools", shlex.quote(",".join(tools))]
         if model:
-            cmd += ["--model", shlex.quote(model)]
+            cmd += [shlex.quote(f"--model={model}")]  # flag and value as one token
         return " ".join(cmd)
 
     def smoke_command(self, *, harness: str, prompt: str) -> str:
