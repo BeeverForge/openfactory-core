@@ -77,6 +77,7 @@ from openfactory.actions.base import (
     not_moved_yet,
     refused,
 )
+from openfactory.observability.audit import SECRET, redact
 
 log = logging.getLogger("openfactory.actions")
 
@@ -383,10 +384,9 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
     return outcome
 
 
-#: Parameters whose VALUE must never reach a log line. `approve_prod` and `promote` take the
-#: approver's password, and this module writes an audit line on every call including the refusals —
-#: which is precisely the path a wrong password takes.
-_SECRET = frozenset({"password", "token", "secret", "key"})
+#: Parameters whose VALUE must never reach a log line: one set, `audit.SECRET`, so the line and the
+#: audit record mask the same names (#694).
+_SECRET = SECRET
 
 
 def _why(exc: Exception) -> str:
@@ -412,8 +412,8 @@ def _why(exc: Exception) -> str:
     return first_message(exc)
 
 
-def _loggable(params: dict[str, object]) -> dict[str, object]:
-    return {k: ("***" if k in _SECRET else v) for k, v in params.items()}
+#: The line's redaction is the record's: one function, `audit.redact`.
+_loggable = redact
 
 
 def _check_params(found: ActionSpec, params: dict[str, object]) -> str:
