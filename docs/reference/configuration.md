@@ -215,9 +215,9 @@ search cannot be made, the action is refused as for an unreadable board. A proje
 
 Three acts are **not** held to the slice yet, and reach any card of the Jira project by its key:
 starting a job on a card (the floor's `start` and `openfactory run <project> <card>`), which an
-operator does by naming the card; reopening a closed card, which no board read returns; and
-commenting on a card, which is written in the person's own name. Name only cards of this
-project's slice to them.
+operator does by naming the card; reopening a closed card, which the reopen reaches by key
+without asking the slice; and commenting on a card, which is written in the person's own name.
+Name only cards of this project's slice to them.
 
 A condition Jira cannot parse — an unclosed quote, an `ORDER BY` inside it — is answered `400`
 (measured on Jira Cloud 2026-10-19): the board and the ticket list read as unreadable, never as

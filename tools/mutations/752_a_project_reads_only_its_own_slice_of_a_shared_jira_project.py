@@ -201,6 +201,12 @@ MUTATIONS = [
      "        key = canonical_ref(ref)\n",
      f"{SLICE}::test_an_unscoped_order_asks_the_slice_nothing"),
 
+    ("the order's refusal of a card outside the slice is said in English whatever the project "
+     "speaks", PRODUCT,
+     "                    ref=number, project=project, language=lang)))\n",
+     "                    ref=number, project=project, language=None)))\n",
+     f"{SLICE}::test_the_orders_refusal_of_a_card_outside_the_slice_speaks_the_projects_language"),
+
     ("the gate's refusal of a card outside the slice is said in English whatever the project "
      "speaks, and the product view's close shows a pt-BR project English", CATALOG,
      "                ref=issue, project=proj.name, within=named() if callable(named) else \"\",\n"

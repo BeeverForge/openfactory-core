@@ -832,6 +832,20 @@ def test_a_slice_that_cannot_be_asked_about_a_card_refuses_to_rank_it(tmp_path, 
     assert site.ranked == []
 
 
+def test_the_orders_refusal_of_a_card_outside_the_slice_speaks_the_projects_language(
+        tmp_path, monkeypatch):
+    """A pt-BR project's order refuses web's card in Portuguese, as its queueing does."""
+    from openfactory.product.voice import board_move_said
+
+    site = _RankSite()
+    module = _api_product_module(tmp_path, monkeypatch, site.urlopen, language="pt-BR")
+
+    [theirs] = module.reorder(["DAR-2"], actor="ana")
+
+    assert theirs.detail == board_move_said("outside_the_slice", ref="DAR-2", project="api",
+                                            language="pt-BR"), theirs.detail
+
+
 def _withdrawn(project, board, ref: str, monkeypatch) -> dict[str, str]:
     """What the product view's close and remove answer for `ref` (`_withdraw_refusal`, the gate
     `product_withdraw_card` asks), with the engine saying no job is on any card."""
