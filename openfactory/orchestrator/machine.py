@@ -584,7 +584,13 @@ def _without_credentials(text: str) -> str:
 
 def _quoted(text: str) -> list[str]:
     """Agent text as quote rows: `> ` + each neutralised line, and `>` for an empty one, so the
-    quote does not end inside the agent's text."""
+    quote does not end inside the agent's text.
+
+    CREDENTIALS ARE WITHHELD FIRST, on the raw text, whole (#885). After `_neutralised` a token's
+    `_` is escaped — `ghp\\_…` matches no prefix, and GitHub renders it `ghp_…` whole — and a
+    markdown link's destination is kept raw, its userinfo with it; line by line, a key of this
+    process that spans lines (a PEM) is never found whole."""
+    text = _without_credentials(text)
     return [f"> {_neutralised(line)}" if line.strip() else ">" for line in text.splitlines()]
 
 
