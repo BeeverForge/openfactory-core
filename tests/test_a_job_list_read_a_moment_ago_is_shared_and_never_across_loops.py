@@ -23,10 +23,15 @@ cost, each a claim below:
   for the rest of the window, a button that looks as if it did nothing. The writes are found by
   walking `view.py`, not listed here, so a write added later is held without anybody remembering.
 
+- ANOTHER QUESTION, A COPY OF ITS OWN, AND THE BREAKER FIRST: the key is the question too, an
+  asker inside the window may edit its rows without editing the next asker's, and an engine
+  remembered as silent refuses the list even while one is remembered (the PO's Q5).
+
 The first test is red on `main` (two scans where one is required). The others pass there — there
 is no shared answer to serve wrongly — and are what the mutation plan's "the key forgets the loop /
-the client", "the window never ends", "a failure is stored" and "a write forgets nothing" cuts
-turn red (`tools/mutations/754_the_job_list_is_asked_side_by_side_and_shared.py`).
+the client / the question", "the window never ends", "the remembered rows themselves", "a failure
+is stored", "a scan that lost the slot is stored", "the breaker is not asked" and "a write forgets
+nothing" cuts turn red (`tools/mutations/754_the_job_list_is_asked_side_by_side_and_shared.py`).
 
 THE CLOCK IS STATED, NOT WAITED FOR: `view.py`'s `time.monotonic` (a loop clock, as the breaker's
 `_SILENT_UNTIL` is, never the wall clock) is replaced by one the test moves.
@@ -44,7 +49,8 @@ from types import SimpleNamespace
 import pytest
 
 from openfactory.runtime.temporal import view as tv
-from tests.job_list_scans import PROJECT, WRITTEN, CountedEngine, forget, scans_of
+from openfactory.runtime.temporal.vocabulary import EngineUnreachable
+from tests.job_list_scans import PROJECT, RECENT, WRITTEN, CountedEngine, forget, scans_of
 
 #: Q1's default, used only where `main` has no window to read: the expiry test must pass there.
 _Q1_WINDOW = 2.0
@@ -91,6 +97,28 @@ async def test_an_asker_right_after_a_scan_is_handed_its_answer(clock):
     assert second == first
     assert scans_of(second) == {"1"}
     assert 1.0 < tv.LIST_TTL_S <= 6.0, f"a window of {tv.LIST_TTL_S}s is not a few seconds"
+
+
+async def test_every_asker_right_after_is_handed_a_list_of_its_own(clock):
+    """Criterion 5 with #165's copy: the callers annotate rows before rendering, so a remembered
+    list handed out by reference is one the first asker inside the window rewrites for every asker
+    after it. Two askers inside the window; the first edits a row and drops one; the second reads
+    the list as the engine gave it. Passes on HEAD; red under the cut that hands out the
+    remembered rows themselves (the shared scan's own copy does not reach this path)."""
+    engine = CountedEngine()
+
+    await tv.list_jobs(engine, "default")
+    clock.now += 0.5
+    mine = await tv.list_jobs(engine, "default")
+    as_given = mine[0]["state"]
+    mine[0]["state"] = "edited by one caller"
+    mine.pop()
+    clock.now += 0.5
+    theirs = await tv.list_jobs(engine, "default")
+
+    assert engine.scans == 1
+    assert theirs[0]["state"] == as_given == "running"
+    assert len(theirs) == 8
 
 
 async def test_the_shared_answer_expires_after_its_window(clock):
@@ -146,6 +174,63 @@ async def test_a_scan_that_failed_is_not_handed_to_the_next_asker():
 
     assert engine.scans == 2
     assert len(rows) == 8
+
+
+async def test_an_asker_with_another_question_right_after_is_scanned_for_it(clock, monkeypatch):
+    """Criterion 5's key is the question as well (engineering-lessons §11: what a cache is keyed on
+    has to be what the work it skips would have read). Inside the window, a smaller `limit`, a
+    start-time `query` and another namespace each get a scan of their own and the answer to their
+    own question. Passes on HEAD; red under the cut that drops the question from the remembered
+    list's key: every asker after the first is handed the first's eight rows, one scan in all. A
+    UI address, so each row's link names the namespace it was read in."""
+    monkeypatch.setattr(tv, "ui_base", lambda: "http://engine-ui.example")
+    engine = CountedEngine()
+
+    await tv.list_jobs(engine, "default")
+    five = await tv.list_jobs(engine, "default", limit=5)
+    recent = await tv.list_jobs(engine, "default", query=RECENT)
+    elsewhere = await tv.list_jobs(engine, "elsewhere")
+
+    assert engine.scans == 4, f"four questions in one window were answered by {engine.scans} scans"
+    assert (len(five), len(recent)) == (5, 2)
+    assert all("/namespaces/elsewhere/" in r["temporal_url"] for r in elsewhere)
+
+
+async def test_a_scan_in_flight_across_a_write_is_not_handed_to_the_next_asker(clock):
+    """Criterion 5 with the PO's Q2 default, the race the parametrized write test cannot see. A
+    list is under way when a write goes through this process; that list's own asker keeps its
+    answer, and the next asker inside the window is scanned afresh, because the rows were read
+    before the write. Passes on HEAD; red under the cuts that store a scan whose slot a forget took
+    (`holds` not asked) and that leave the scan in flight in the slot when the list is forgotten:
+    either way the pre-write list fills the window, one scan in all."""
+    engine = CountedEngine()
+
+    before = asyncio.create_task(tv.list_jobs(engine, "default"))
+    while engine.scans == 0:
+        await asyncio.sleep(0)
+    await tv.act_job(engine, PROJECT, WRITTEN, action="resume")
+    assert engine.writes, "the write was not made, so this case proves nothing"
+    assert scans_of(await before) == {"1"}
+    after = await tv.list_jobs(engine, "default")
+
+    assert engine.scans == 2, "the list read before the write was handed out after it"
+    assert scans_of(after) == {"2"}
+
+
+async def test_an_engine_remembered_as_silent_refuses_a_list_remembered_before_it(clock):
+    """The breaker is asked before the remembered list, as `@_bounded_read` asked it before the
+    read (the PO's Q5, default): an engine that just ran out of time refuses every reader for
+    `OPENFACTORY_ENGINE_UNREACHABLE_FOR`, in `_within`'s own sentence, and a list read before the
+    silence is not handed out as if the engine had answered. Passes on HEAD; red under the cut that
+    drops the breaker check from `list_jobs` (the list inside the window is returned)."""
+    engine = CountedEngine()
+
+    await tv.list_jobs(engine, "default")
+    tv._did_not_answer()
+
+    with pytest.raises(EngineUnreachable, match="did not answer the job list a moment ago"):
+        await tv.list_jobs(engine, "default")
+    assert engine.scans == 1
 
 
 #: The engine calls that change what a job list would read. A handle's `cancel` and `terminate`

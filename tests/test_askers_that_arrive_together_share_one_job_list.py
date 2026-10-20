@@ -17,12 +17,13 @@ holds for the schedule read, restated for this read:
 - ONE ASKER GOING AWAY (a browser closed) DOES NOT CANCEL THE SCAN under the others.
 - A DIFFERENT QUESTION NEVER JOINS: the scan is shared only by askers who would have read the same
   thing (engineering-lessons §11, "what a cache is keyed on has to be what the work it skips would
-  have read") — the namespace, the limit and the query.
+  have read") — the namespace, the limit and the query — and NEVER ACROSS ENGINES: two clients
+  asking the same question are two scans.
 - EACH ASKER IS HANDED A LIST OF ITS OWN (#165): a caller that edits its rows edits nobody else's.
 
-The first three are red on `main` (6, 6 and 2 scans). The last two pass there — nothing is shared,
-so nothing can be shared wrongly — and are what the mutation plan's "the key forgets the namespace /
-the limit / the query" and "hand out the stored object" cuts turn red
+The first three are red on `main` (6, 6 and 2 scans). The last three pass there — nothing is
+shared, so nothing can be shared wrongly — and are what the mutation plan's "the key forgets the
+question / the client" and "hand out one object between them" cuts turn red
 (`tools/mutations/754_the_job_list_is_asked_side_by_side_and_shared.py`).
 """
 
@@ -118,6 +119,21 @@ async def test_askers_with_a_different_question_do_not_share_a_scan():
     assert all("/namespaces/b/" in r["temporal_url"] for r in in_b)
     assert (len(in_a), len(in_b), len(five), len(recent)) == (8, 8, 5, 2)
     assert len(scans_of(in_a + in_b + five + recent)) == 4
+
+
+async def test_askers_on_two_engines_together_are_each_scanned():
+    """Criterion 4, the key's client: two engines are two floors. Askers on two clients at one
+    instant, asking the same question on one loop: each engine is scanned once and each asker reads
+    its own engine's rows. Passes on HEAD; red under the cut that leaves the client out of what a
+    joining asker must match (the second engine is never asked, and its asker reads eight rows of
+    the first's)."""
+    one, other = CountedEngine(), CountedEngine(issues=3)
+
+    from_one, from_other = await asyncio.gather(tv.list_jobs(one, "default"),
+                                                tv.list_jobs(other, "default"))
+
+    assert (one.scans, other.scans) == (1, 1)
+    assert (len(from_one), len(from_other)) == (8, 3)
 
 
 async def test_every_asker_is_handed_a_list_of_its_own():
