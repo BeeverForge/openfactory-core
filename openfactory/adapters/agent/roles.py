@@ -14,8 +14,18 @@ makes read-only real:
 
     claude   `--tools Read,Grep,Glob` + an explicit deny of the mutating set
     codex    `-s read-only` (a sandbox POLICY: it cannot edit, it is not merely told not to)
+    opencode a profile that removes `edit`, `write`, `bash` and `task` from the model's tool list
     kimi     instruction only (no mode reachable beside `-p`, #362 — weakest; `--agent-file` with
              a `tools:` list is reachable per run and not used yet, #785; see the Kimi adapter)
+
+Where `ask()` runs is the same for every harness, and it is not the job's box: every caller builds
+its room with `sandbox/registry.py::judging_worktree`, which always returns a `WorktreeSandbox`,
+so the question runs on the host even for a project whose jobs run in a container (measured by
+`tests/test_where_a_kimi_judging_role_runs_is_what_its_documents_say.py`, 2026-10-20). The room
+is one nothing commits from (a temporary directory, the repo cache's master clone, a module's
+cached view, a target checkout), so an edit does not reach a pull request, but nothing but the
+row above confines a write to that room. On claude, codex and opencode the CLI enforces it; on
+kimi nothing does, and a question that disobeys its instruction writes on the host.
 
 Everything else — the sizer, the tech-lead's diagnosis, the coordinator's advice, the Slack answer,
 the independent review — is then one shared implementation over `ask()`, identical for every
