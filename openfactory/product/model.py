@@ -293,11 +293,17 @@ _SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE|CREDENTIAL|KEY_C
 WITHHELD_CREDENTIAL = "[credential withheld]"
 
 
-def scrub_credentials(text: str) -> str:
+def scrub_credentials(text: str, *, userinfo: str = "") -> str:
     """`text` with every credential this process holds, and every credential-shaped string,
     withheld. A facts file is read by a model and written to a workspace; a token in one is a token
-    handed to whatever reads that directory."""
-    text = _USERINFO.sub(r"\1", text)
+    handed to whatever reads that directory.
+
+    A URL's userinfo is replaced by `userinfo`: nothing by default, so a facts file keeps a usable
+    URL; a reader who must be told something was withheld passes the marker."""
+    # A function, not a template: a template reads every backslash of `userinfo` as an escape or a
+    # group (`re.sub("(a)", r"\1x\d", "a")` raises `bad escape \d`, Python 3.12), so the text
+    # would depend on what the caller's marker happens to contain.
+    text = _USERINFO.sub(lambda m: m.group(1) + userinfo, text)
     text = _AUTHORIZATION.sub(lambda m: (m.group(1) or m.group(2)) + WITHHELD_CREDENTIAL, text)
     text = _CREDENTIAL_SHAPES.sub(WITHHELD_CREDENTIAL, text)
     for secret in _secrets_of_this_process():
