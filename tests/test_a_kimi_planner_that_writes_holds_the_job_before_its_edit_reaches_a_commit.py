@@ -15,7 +15,9 @@ nothing committed or pushed and the executor never called. The ways in are the f
 read cannot all see: a new file, an edited tracked file, a planner `git commit` (porcelain clean,
 HEAD moved) and an append to a file setup already left untracked (`?? build.log` before and after).
 A workspace that cannot be asked holds the job too, with its own sentence (engineering lesson 2:
-"could not see" is not "nothing was written").
+"could not see" is not "nothing was written"). Each hold declares its cause (`unknown` for a
+planner that wrote, `environment` for a workspace that cannot be asked), because the workflow reads
+a hold that declares none by its prose, and a path such as `src/rate_limit.py` reads as throttling.
 
 THE REVERSES ARE GREEN ON MAIN BY DESIGN: what setup leaves is not charged to the planner, a planner
 that writes nothing runs on, and a harness whose planner the CLI holds read-only (a double named
@@ -495,3 +497,37 @@ def test_a_planner_held_for_writing_is_charged_for_its_pass(repo, tmp_path):
         f"the planner wrote and the job went on to {result.state.value}: {result.note}")
     assert [(m.role, m.cost_usd) for m in result.agent_runs] == [("planner", SPENT)]
     assert result.total_cost_usd == pytest.approx(SPENT)
+
+
+# ── 1i: the hold says what it is, so the workflow does not read its paths as a cause ─────────────
+
+def test_a_planner_hold_is_not_read_as_throttling_whatever_the_path(repo, tmp_path):
+    """1i. The hold names the planner's paths, and the workflow classifies a hold's prose when the
+    hold declares no cause (`workflow.py`, `classify(note, cause=hold_cause)`). On e2b57dd1
+    (2026-10-20, the branch review) a planner that wrote `src/rate_limit.py` was read as
+    `('transient', 'throttled')` by `classify`'s rate-limit rule, so the workflow would re-run the
+    paid planner at 900 s, 2700 s and 5400 s and tell the person it passes on its own: the
+    2026-09-19 failure `classify`'s docstring records, which `hold_cause` exists to prevent."""
+    from openfactory.techlead.classify import classify
+    agent = _Planner("mkdir -p src && echo x > src/rate_limit.py")
+    runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"))
+    assert result.state is JobState.ON_HOLD
+    verdict = classify(result.note or "", state=result.state.value, cause=result.hold_cause)
+    assert verdict.cause != "transient", (verdict.cause, verdict.detail)
+
+
+@pytest.mark.parametrize("refuse_from", [1, 2], ids=["before-the-pass", "after-the-pass"])
+def test_a_workspace_that_cannot_be_asked_is_held_as_the_environment(repo, tmp_path,
+                                                                     refuse_from):
+    """1i, the two holds a workspace git refuses makes. Its remedy is to make git usable in the
+    box, which no attempt does, so the hold declares `environment` rather than leaving its prose,
+    git's words and all, to `classify`. On e2b57dd1 it declared nothing."""
+    from openfactory.techlead.classify import ENVIRONMENT, classify
+    sandbox = _Recording(WorktreeSandbox(root=tmp_path / "wt"), refuse_fingerprint=True,
+                         refuse_from=refuse_from)
+    runner, result = _run(repo, _Planner(), sandbox)
+    assert result.state is JobState.ON_HOLD, result.note
+    assert "could not be asked" in (result.note or ""), result.note
+    verdict = classify(result.note or "", state=result.state.value, cause=result.hold_cause)
+    assert (result.hold_cause, verdict.cause) == (ENVIRONMENT, ENVIRONMENT), (
+        result.hold_cause, verdict.cause, verdict.detail)

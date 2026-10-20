@@ -81,7 +81,7 @@ from openfactory.policy.census import inventory_command, inventory_of
 from openfactory.policy.census import vanished as census_vanished
 from openfactory.policy.protected import violations as protected_violations
 from openfactory.techlead import voice as tl_voice
-from openfactory.techlead.classify import TREE
+from openfactory.techlead.classify import ENVIRONMENT, TREE, UNKNOWN
 
 _SETUP_TIMEOUT = 1800
 #: The census ENUMERATES; it does not build. `_SETUP_TIMEOUT` is sized for `dotnet restore`
@@ -1482,7 +1482,8 @@ class JobRunner:
                 if isinstance(before, Unreadable):
                     # decided before the pass is paid for: a pass nobody can check is not run
                     return self._hold(ticket, owner, self._unaskable(before, "before the planner "
-                                      "ran"), JobState.ON_HOLD, branch=branch)
+                                      "ran"), JobState.ON_HOLD, branch=branch,
+                                      hold_cause=ENVIRONMENT)
                 plan_result = self.agent.plan(sandbox=self.sandbox, workspace=ws, context=ctx)
                 for action in plan_result.actions:
                     self._emit(ticket, "agent_action", action, role="planner")
@@ -1502,12 +1503,18 @@ class JobRunner:
                     after = fingerprint(self.sandbox, ws)
                     if isinstance(after, Unreadable):
                         return self._hold(ticket, owner, self._unaskable(after, "after the planner "
-                                          "ran"), JobState.ON_HOLD, branch=branch)
+                                          "ran"), JobState.ON_HOLD, branch=branch,
+                                          hold_cause=ENVIRONMENT)
                     wrote = written(self.sandbox, ws, before, after)
                     if wrote:
                         paths = ", ".join(wrote)
                         self._emit(ticket, "warning", f"the planner wrote to the workspace it must "
                                    f"only read: {paths}", role="planner")
+                        # THE CAUSE IS DECLARED, NOT LEFT TO THE PROSE: the note carries the
+                        # planner's paths, and on e2b57dd1 (2026-10-20) `src/rate_limit.py` read as
+                        # ('transient', 'throttled'), so the workflow would re-run the paid planner
+                        # three times. `unknown` escalates to a person; a cause of its own is a
+                        # follow-up. The two `_unaskable` holds above declare `environment`.
                         return self._hold(
                             ticket, owner,
                             f"the planner wrote to the workspace it must only read ({paths}). The "
@@ -1515,7 +1522,7 @@ class JobRunner:
                             f"instruction only; the job stopped before pushing anything, and "
                             f"the workspace is discarded. Give the planner another harness, "
                             f"or turn `planner_stage` off for this project.",
-                            JobState.ON_HOLD, branch=branch)
+                            JobState.ON_HOLD, branch=branch, hold_cause=UNKNOWN)
                 if plan_result.pause_reason:
                     self._emit(ticket, "note", f"planner paused: {plan_result.summary[:200]}",
                                cost_usd=plan_result.cost_usd, role="planner")
@@ -2818,7 +2825,9 @@ class JobRunner:
         read-only by instruction only. A sentence of its own, never the "planner wrote" one: could
         not see is not "nothing was written", and not "something was" either (engineering lesson
         2). It carries git's own words, which name the cause (a client image without
-        `safe.directory` for its mount answers "detected dubious ownership", exit 128)."""
+        `safe.directory` for its mount answers "detected dubious ownership", exit 128). Both
+        callers hold with `hold_cause=ENVIRONMENT`: no attempt makes git usable in the box, and
+        the prose, git's words included, is not left for `classify` to guess from."""
         said = " ".join(answer.output.split()) or "no output"
         return (f"the job's workspace could not be asked {when} whether the planner changed it "
                 f"(exit {answer.rc}: {said}), so the job stopped before pushing anything. Make "

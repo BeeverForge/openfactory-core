@@ -26,6 +26,10 @@ property, each aimed at the row that holds it:
      returned, so the job goes on. H3 and H4 the paths dropped from the hold's sentence, or from
      the journal warning. H5 `_preserve_for_hold` called before the hold, so the edit is pushed.
      H6 the before-mark taken above `_run_setup`, so what setup left is charged to the planner.
+  5. **Each hold says what it is** (review round 1 on e2b57dd1). The workflow classifies a hold
+     that declares no cause by its prose, and the planner-wrote hold's prose carries the paths:
+     `src/rate_limit.py` read as ('transient', 'throttled'). C1 drops `hold_cause=UNKNOWN` from
+     that hold; C2 and C3 drop `hold_cause=ENVIRONMENT` from the hold before and after the pass.
 
 HOW THE CUTS DIFFER FROM THE PLAN'S SKETCH (task 17), because the code differs from it:
   - `fingerprint` returns `Mark | Unreadable`, not `Mark | None`. U1 removes `rc == 0` from the
@@ -61,6 +65,8 @@ GIT_REFUSES = TEST + ("::test_a_workspace_git_refuses_holds_the_job_with_gits_ex
                       "_once")
 SETUP_NOT_CHARGED = TEST + "::test_what_setup_leaves_in_the_tree_is_not_charged_to_the_planner"
 SCOPE = TEST + "::test_a_harness_whose_planner_cannot_write_is_not_asked"
+THROTTLING = TEST + "::test_a_planner_hold_is_not_read_as_throttling_whatever_the_path"
+AS_ENVIRONMENT = TEST + "::test_a_workspace_that_cannot_be_asked_is_held_as_the_environment[{}]"
 
 BASE = "openfactory/adapters/agent/base.py"
 PASS = "openfactory/orchestrator/read_only_pass.py"
@@ -75,13 +81,15 @@ _HOLD_BEFORE = (
     'nobody can check is not run\n'
     '                    return self._hold(ticket, owner, self._unaskable(before, "before the '
     'planner "\n'
-    '                                      "ran"), JobState.ON_HOLD, branch=branch)\n'
+    '                                      "ran"), JobState.ON_HOLD, branch=branch,\n'
+    '                                      hold_cause=ENVIRONMENT)\n'
 )
 _HOLD_AFTER = (
     '                    if isinstance(after, Unreadable):\n'
     '                        return self._hold(ticket, owner, self._unaskable(after, "after the '
     'planner "\n'
-    '                                          "ran"), JobState.ON_HOLD, branch=branch)\n'
+    '                                          "ran"), JobState.ON_HOLD, branch=branch,\n'
+    '                                          hold_cause=ENVIRONMENT)\n'
 )
 _CHECK = '                if before is not None:\n                    after = fingerprint('
 _WROTE_HOLD = (
@@ -221,4 +229,22 @@ MUTATIONS = [
      "                _early = fingerprint(self.sandbox, ws)\n"
      + _SETUP_TO_BEFORE.replace(_BEFORE, "                before = _early if measured else None\n"),
      SETUP_NOT_CHARGED),
+
+    # ── 5. each hold declares its cause, so its prose is never classified (review round 1) ───────
+    ("C1 the planner-wrote hold declares no cause: `src/rate_limit.py` reads as throttling",
+     MACHINE,
+     '                            JobState.ON_HOLD, branch=branch, hold_cause=UNKNOWN)\n',
+     '                            JobState.ON_HOLD, branch=branch)\n',
+     THROTTLING),
+    ("C2 the hold before the pass declares no cause: git's refusal is left to `classify`",
+     MACHINE,
+     _HOLD_BEFORE,
+     _HOLD_BEFORE.replace(',\n                                      hold_cause=ENVIRONMENT)', ')'),
+     AS_ENVIRONMENT.format("before-the-pass")),
+    ("C3 the hold after the pass declares no cause: git's refusal is left to `classify`",
+     MACHINE,
+     _HOLD_AFTER,
+     _HOLD_AFTER.replace(',\n                                          hold_cause=ENVIRONMENT)',
+                         ')'),
+     AS_ENVIRONMENT.format("after-the-pass")),
 ]
