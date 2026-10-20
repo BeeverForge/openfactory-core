@@ -667,3 +667,18 @@ def test_a_holder_whose_directory_became_a_file_is_reported_gone(held):
     with pytest.raises(BranchHeldElsewhere) as caught:
         _keep(box, repo)
     assert "is not there" in str(caught.value), str(caught.value)
+
+
+@pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
+def test_a_holder_whose_path_is_a_symlink_loop_still_holds_the_job(held, locked):
+    """A symlink loop at the tree's path (ELOOP) is neither "no such entry" nor "a parent is a
+    file": could not tell, so the job holds with the ordinary sentence and no traceback."""
+    from openfactory.adapters.sandbox.base import BranchHeldElsewhere
+    repo, review, box = held
+    if locked:
+        _git(repo, "worktree", "lock", str(review))
+    shutil.rmtree(review)
+    os.symlink(review, review)
+    with pytest.raises(BranchHeldElsewhere) as caught:
+        _keep(box, repo)
+    assert "is not there" not in str(caught.value), str(caught.value)
