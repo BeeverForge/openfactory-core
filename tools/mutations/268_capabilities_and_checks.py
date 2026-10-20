@@ -232,9 +232,11 @@ MUTATIONS = [
      "    unconfirmed = [f for f in (flows.flows if flows else []) if f.slug not in taken]",
      "    unconfirmed = list(flows.flows if flows else [])"),
 
+    # re-pinned 2026-10-20 (#908): the refusal names why it is not ok — `refusal=NOT_YOURS`
     ("anybody may confirm a capability — the gate before the write is gone", MODULE,
      "        if not may_act(self.project, actor, via=self._via):\n"
-     "            return WriteResult(ok=False, detail=unauthorized_message(self.project))\n"
+     "            return WriteResult(ok=False, detail=unauthorized_message(self.project),\n"
+     "                               refusal=NOT_YOURS)\n"
      "        wanted = (slug or \"\").strip().lower()\n",
      "        wanted = (slug or \"\").strip().lower()\n"),
 
@@ -247,8 +249,10 @@ MUTATIONS = [
     # re-pinned 2026-10-05: the refusal is the voice's `not_a_capability` now (#538)
     ("a slug that climbs out of `capabilities/` reaches the write", CAPS,
      "    if not is_slug(slug):\n"
+     # re-pinned 2026-10-20 (#908): the refusal names why it is not ok — `refusal=NOT_VALID`
      "        return WriteResult(ok=False, detail=record_said(\"not_a_capability\", "
-     "language=language))\n"
+     "language=language),\n"
+     "                           refusal=NOT_VALID)\n"
      "    day = today",
      "    day = today"),
 

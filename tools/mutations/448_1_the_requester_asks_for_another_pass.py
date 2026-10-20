@@ -103,10 +103,11 @@ MUTATIONS = [
      "        if False:\n"
      '            return adjust.Prepared(said=adjust_said("not_yours", ref=number, language=lang,\n'),
     ("the card's control sends a pass the gate says cannot be sent", MODULE,
+     # re-pinned 2026-10-20 (#908): the refusal names why it is not ok — `_the_gate_said(gate.why, …)`
      "        if not gate.open:\n"
-     '            return WriteResult(ok=False, ref=f"#{number}", detail=adjust_said(\n',
+     '            return _the_gate_said(gate.why, ref=f"#{number}", detail=adjust_said(\n',
      "        if False:\n"
-     '            return WriteResult(ok=False, ref=f"#{number}", detail=adjust_said(\n'),
+     '            return _the_gate_said(gate.why, ref=f"#{number}", detail=adjust_said(\n'),
     ("an instruction longer than the pass takes is sent, to be cut", MODULE,
      "        if len(said) > adjust.INSTRUCTION_LIMIT:\n",
      "        if False:\n"),

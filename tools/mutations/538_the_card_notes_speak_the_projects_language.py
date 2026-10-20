@@ -125,9 +125,10 @@ MUTATIONS = [
      '                                   detail=record_said("capability_retired", language=None))'),
 
     ("the name that is no capability is the Portuguese literal again", CAPS,
+     # re-pinned 2026-10-20 (#908): the refusal names why it is not ok — `refusal=NOT_VALID, on the next line`
      '        return WriteResult(ok=False, detail=record_said("not_a_capability", '
-     'language=language))',
-     '        return WriteResult(ok=False, detail="esse nome não é o de uma capacidade")'),
+     'language=language),',
+     '        return WriteResult(ok=False, detail="esse nome não é o de uma capacidade",'),
 
     # ── only the guard sees these ──────────────────────────────────────────────────────────────
     ("the refine's note is composed in the module, in Portuguese", MOD,

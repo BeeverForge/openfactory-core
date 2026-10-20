@@ -141,8 +141,9 @@ MUTATIONS = [
      "        if requirement.came_from_the_code:"),
 
     ("the refusal comes back `ok`, which an older panel counts as a card: 'Work filed: ?'",
-     MODULE, "            return [WriteResult(ok=False, nothing_to_build=True,",
-     "            return [WriteResult(ok=True, nothing_to_build=True,"),
+     # re-pinned 2026-10-20 (#908): the refusal names why it is not ok — `refusal=NOT_VALID`
+     MODULE, "            return [WriteResult(ok=False, refusal=NOT_VALID, nothing_to_build=True,",
+     "            return [WriteResult(ok=True, refusal=NOT_VALID, nothing_to_build=True,"),
 
     # ── the explicit door ───────────────────────────────────────────────────────────────────────
     # RE-PINNED 2026-09-24: moved to engine.py

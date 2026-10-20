@@ -58,15 +58,18 @@ MUTATIONS = [
      # re-pinned 2026-10-01 (#448): the requester and a vouched operator are admitted for the
      # bar at the merge gate; the line that refuses everybody else is the same line
      # re-pinned 2026-10-05: the unreadable board is the voice's sentence now (#513)
+     # re-pinned 2026-10-20 (#908): the refusal names why it is not ok — `refusal=NOT_YOURS`
      "        if not (may_act(self.project, actor, via=self._via)\n"
      "                or (at_the_gate and (vouched or self.asked_for(number, actor)))):\n"
-     "            return WriteResult(ok=False, detail=unauthorized_message(self.project))\n\n"
+     "            return WriteResult(ok=False, detail=unauthorized_message(self.project),\n"
+     "                               refusal=NOT_YOURS)\n\n"
      "        tickets, error = self._read_board()\n"
      "        if error:\n"
      '            return _could_not(card_said("board_unreadable", language=lang),\n'
      '                              act=f"correct #{number}", cause=error)',
      "        if False:\n"
-     "            return WriteResult(ok=False, detail=unauthorized_message(self.project))\n\n"
+     "            return WriteResult(ok=False, detail=unauthorized_message(self.project),\n"
+     "                               refusal=NOT_YOURS)\n\n"
      "        tickets, error = self._read_board()\n"
      "        if error:\n"
      '            return _could_not(card_said("board_unreadable", language=lang),\n'

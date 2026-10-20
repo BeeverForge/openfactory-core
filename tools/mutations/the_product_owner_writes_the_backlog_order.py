@@ -62,10 +62,11 @@ MUTATIONS = [
     # re-pinned 2026-10-04: the refusal is the voice's now, in the conversation's language (#497)
     ("a board that cannot rank is not refused with a sentence — it raises inside the listener",
      "openfactory/product/module.py",
+     # re-pinned 2026-10-20 (#908): the refusal names why it is not ok — `refusal=NOT_VALID, on the next line`
      "        if not isinstance(board, Rankable):\n"
-     "            return [WriteResult(ok=False, detail=board_move_said(\"unrankable\", language=lang))]",
+     "            return [WriteResult(ok=False, detail=board_move_said(\"unrankable\", language=lang),",
      "        if False:\n"
-     "            return [WriteResult(ok=False, detail=board_move_said(\"unrankable\", language=lang))]"),
+     "            return [WriteResult(ok=False, detail=board_move_said(\"unrankable\", language=lang),"),
 
     ("the row rewrites the order without a yes",
      "openfactory/actions/catalog.py",
