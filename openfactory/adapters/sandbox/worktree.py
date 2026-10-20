@@ -222,10 +222,15 @@ def _branch_exists(repo_path, branch: str) -> bool:
 
 def _same_dir(a, b) -> bool:
     """Whether two paths name the same directory: resolved on both sides, because git lists the
-    real path and the box's root may be relative or reached through a symlink."""
+    real path and the box's root may be relative or reached through a symlink.
+
+    A path that cannot be resolved is compared as written. On a symlink loop, `resolve()` raises
+    `RuntimeError` on 3.12 (3.12.3, and 3.12.15 in the worker image), while 3.13.16 and 3.14.8
+    return the path unchanged (non-strict; measured 2026-10-20). Either way a loop is not the box's
+    own tree, and the caller goes on to ask about it rather than stopping the job."""
     try:
         return Path(a).resolve() == Path(b).resolve()
-    except OSError:
+    except (OSError, RuntimeError):  # 3.12's resolve() raises RuntimeError on a symlink loop
         return str(a) == str(b)
 
 
