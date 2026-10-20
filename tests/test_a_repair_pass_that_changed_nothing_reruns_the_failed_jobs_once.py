@@ -124,6 +124,24 @@ def test_a_refused_rerun_after_a_pass_is_said_and_the_pass_stands(on_the_worker,
     assert len(forge.agents) == 1, "a refused re-run launched another pass"
 
 
+def test_a_rerun_refused_for_one_run_of_two_after_a_pass_does_not_say_none_was_rerun(
+        on_the_worker):
+    """Lesson §9, after the pass: when one run re-ran and another was refused, neither the pull
+    request nor the note says "the failed jobs were not re-run"; both say not every failed job
+    could be re-run, and carry the forge's words naming what did re-run.
+
+    Added in review round 1: both opened "The failed jobs were not re-run", false for `pytest`."""
+    forge = _Forge(reran=base.RerunRefused(pre.PARTIAL))
+    forge.agents = on_the_worker(forge, changed=False)
+    got = acts._run_ci_repair(SECOND, "run-r2")  # noqa: SLF001
+    assert len(forge.comments) == 1, forge.comments
+    said = forge.comments[0]
+    assert said.startswith("Not every failed job could be re-run "), said
+    assert "were not re-run" not in said and pre.PARTIAL in said, said
+    note = got.note or ""
+    assert "were not re-run" not in note and "not every failed job could be re-run" in note, note
+
+
 def test_nothing_to_rerun_after_a_pass_is_said_in_the_note(on_the_worker):
     """The forge was asked and found no failed job of this pull request to re-run (`[]`: the check
     finished green since, or its run lives where the forge cannot reach it). Nothing was refused

@@ -109,16 +109,16 @@ MUTATIONS = [
     ("the comment is posted BEFORE the re-run, naming the red checks it predicts", ACTIVITIES,
      "    reran = rerun_failed_of(forge, inp.pr_url)\n"
      "    if isinstance(reran, RerunRefused):\n"
-     '        activity.logger.warning("the failed jobs of %s were not re-run, so an agent repairs'
-     ' it: "\n',
+     '        activity.logger.warning("not every failed job of %s could be re-run, so an agent'
+     ' repairs "\n',
      '    _say_on_the_pull_request(forge, inp.pr_url, "Re-ran the failed jobs of " + ", ".join(\n'
      "        f\"`{c['name']}`\" for c in forge.pr_checks(pr=inp.pr_url)) + \": no file this pull"
      ' request "\n'
      '        "changes appears in their failing log.")\n'
      "    reran = rerun_failed_of(forge, inp.pr_url)\n"
      "    if isinstance(reran, RerunRefused):\n"
-     '        activity.logger.warning("the failed jobs of %s were not re-run, so an agent repairs'
-     ' it: "\n'),
+     '        activity.logger.warning("not every failed job of %s could be re-run, so an agent'
+     ' repairs "\n'),
 
     # ── claim 2: "could not see" is never "unrelated" ─────────────────────────────────────────
     ("a diff that could not be read answers `[]`, a change of nothing, so the log reads unrelated",
@@ -174,6 +174,13 @@ MUTATIONS = [
      "    if False:\n        activity.logger.warning(\"the forge found no failed job of %s to"
      " re-run, so an agent \"\n"),
 
+    # Review round 1: a refusal can be partial, and "were not re-run" was false for what re-ran.
+    ("a partial refusal before launch is told as if no failed job was re-run", ACTIVITIES,
+     '            f"Not every failed job could be re-run: {str(reran)[:300]}. No file this pull'
+     ' request "\n',
+     '            f"The failed jobs were not re-run: {str(reran)[:300]}. No file this pull'
+     ' request "\n'),
+
     ("the agent is handed a second read of the log, not the one the decision was made from",
      ACTIVITIES,
      "            ci_log = evidence\n",
@@ -210,6 +217,12 @@ MUTATIONS = [
      "        forge = forge_of()\n    except Exception as exc:  # noqa: BLE001 — the pass is done",
      "        forge = forge_of()\n    except ZeroDivisionError as exc:  # noqa: BLE001 — the pass"
      " is done",
+     AFTER_A_PASS),
+
+    ("a partial refusal after a pass is told as if no failed job was re-run", ACTIVITIES,
+     '            f"Not every failed job could be re-run after a repair pass that changed'
+     ' nothing: "\n',
+     '            f"The failed jobs were not re-run after a repair pass that changed nothing: "\n',
      AFTER_A_PASS),
 
     ("the pull request is never told the jobs were re-run after a pass that changed nothing",

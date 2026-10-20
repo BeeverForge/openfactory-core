@@ -347,6 +347,29 @@ def test_nothing_rerunnable_before_the_agent_launches_the_agent_and_says_nothing
     assert agents == [UNRELATED] and forge.comments == []
 
 
+#: What `GitHubForge.rerun_failed` raises when run 1 re-ran and run 2 was refused, in gh 2.102.0's
+#: measured words for a workflow still in progress (review round 1, driven through the row).
+PARTIAL = ("gh run rerun refused run 2: run 2 cannot be rerun; This workflow is already running; "
+           "re-ran pytest")
+
+
+def test_a_rerun_refused_for_one_run_of_two_does_not_say_none_was_rerun(on_the_worker):
+    """Lesson §9: a refusal can be partial (one workflow's job failed while its other jobs still
+    run), and `pytest` WAS re-run. The pull request is told that not every failed job could be
+    re-run, in the forge's words, never that "the failed jobs were not re-run".
+
+    Added in review round 1: the comment opened "The failed jobs were not re-run: ... re-ran
+    pytest", false for `pytest`."""
+    forge = _Forge(reran=base.RerunRefused(PARTIAL))
+    agents = on_the_worker(forge)
+    acts._run_ci_repair(FIRST, "run-r1")  # noqa: SLF001
+    assert agents == [UNRELATED], "a refused re-run did not fall through to the agent"
+    assert len(forge.comments) == 1, forge.comments
+    said = forge.comments[0]
+    assert said.startswith("Not every failed job could be re-run: "), said
+    assert "were not re-run" not in said and PARTIAL in said, said
+
+
 def test_a_second_attempt_on_the_same_head_launches_the_agent(on_the_worker):
     """PO answer Q1(b): the re-run stands in for the agent once per head, on the first attempt.
     A wrong "unrelated" (the commonest real regression: changed `invoice_totals.ts`, failing

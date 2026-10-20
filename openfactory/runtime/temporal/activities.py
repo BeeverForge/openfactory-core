@@ -2744,11 +2744,14 @@ def _rerun_what_the_change_does_not_touch(project, inp: CiRepairInput, repo: str
         return None
     reran = rerun_failed_of(forge, inp.pr_url)
     if isinstance(reran, RerunRefused):
-        activity.logger.warning("the failed jobs of %s were not re-run, so an agent repairs it: "
-                                "%s", inp.pr_url, str(reran)[:300])
-        # SAID AFTER THE FORGE ANSWERED, in its words (lesson §9), and before the agent runs.
+        activity.logger.warning("not every failed job of %s could be re-run, so an agent repairs "
+                                "it: %s", inp.pr_url, str(reran)[:300])
+        # SAID AFTER THE FORGE ANSWERED, in its words (lesson §9), and before the agent runs. "NOT
+        # EVERY", because a refusal can be partial: GitHub re-runs run 1 and refuses run 2 ("This
+        # workflow is already running", gh 2.102.0), and "the failed jobs were not re-run" was
+        # false for run 1's checks (review round 1, 2026-10-20).
         _say_on_the_pull_request(forge, inp.pr_url, (
-            f"The failed jobs were not re-run: {str(reran)[:300]}. No file this pull request "
+            f"Not every failed job could be re-run: {str(reran)[:300]}. No file this pull request "
             "changes appears in their failing log, so an agent was launched to repair it "
             "instead."))
         return None
@@ -2811,11 +2814,13 @@ def _rerun_after_a_pass_that_changed_nothing(forge_of, inp: CiRepairInput, resul
         return result
     if isinstance(reran, RerunRefused):
         why = str(reran)[:300]
-        activity.logger.warning("the failed jobs of %s were not re-run after a repair pass that "
-                                "changed nothing: %s", inp.pr_url, why)
+        activity.logger.warning("not every failed job of %s could be re-run after a repair pass "
+                                "that changed nothing: %s", inp.pr_url, why)
+        # "NOT EVERY": the refusal may be partial, and `why` names what did re-run (see above).
         _say_on_the_pull_request(forge, inp.pr_url, (
-            f"The failed jobs were not re-run after a repair pass that changed nothing: {why}."))
-        added = f"the failed jobs were not re-run: {why}"
+            f"Not every failed job could be re-run after a repair pass that changed nothing: "
+            f"{why}."))
+        added = f"not every failed job could be re-run: {why}"
     elif not reran:
         activity.logger.warning("the forge found no failed job of %s to re-run after a repair pass "
                                 "that changed nothing", inp.pr_url)
