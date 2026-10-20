@@ -1525,7 +1525,7 @@ class JobRunner:
                             f"instruction only; the job stopped before pushing anything, and "
                             f"the workspace is discarded. The planner runs on the executor's "
                             f"harness: run this project's executor on another harness (the "
-                            f"`executor` entry of its `harness:` setting in the deployment's "
+                            f"`executor` entry of its `harness` setting in the deployment's "
                             f"project registry), or turn `planner_stage` off in its "
                             f"`.openfactory/project.yaml`.",
                             JobState.ON_HOLD, branch=branch, hold_cause=UNKNOWN)

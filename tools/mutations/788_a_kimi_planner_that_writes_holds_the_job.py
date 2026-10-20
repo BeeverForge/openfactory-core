@@ -116,7 +116,7 @@ _I = " " * 28  # the indent of the hold's sentence in `machine.py`
 _REMEDY = (
     _I + 'f"the workspace is discarded. The planner runs on the executor\'s "\n'
     + _I + 'f"harness: run this project\'s executor on another harness (the "\n'
-    + _I + 'f"`executor` entry of its `harness:` setting in the deployment\'s "\n'
+    + _I + 'f"`executor` entry of its `harness` setting in the deployment\'s "\n'
     + _I + 'f"project registry), or turn `planner_stage` off in its "\n'
     + _I + 'f"`.openfactory/project.yaml`.",\n'
 )
