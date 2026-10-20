@@ -180,3 +180,29 @@ def test_a_breakdown_whose_every_front_was_refused_answers_that_refusal(
     assert (r.status_code, said["code"]) == (409, "conflict"), (r.status_code, said)
     assert detail.rstrip(".") in said["message"], said
     assert said["data"]["refusal"] == "not_waiting", said
+
+
+def test_a_refusal_in_a_portuguese_project_answers_403_with_the_modules_portuguese_sentence_unchanged(  # noqa: E501
+        client, deployment, tracker, board, told):  # noqa: F811 — the imported fixtures
+    """Criterion 1, in the project's own language: the code is chosen from the module's word, never
+    from its sentence, so a pt-BR project's refusal is the same 403 `denied`, and its sentence
+    ("só quem pediu o #1 … pode fechá-lo ou removê-lo") travels byte for byte. On 620bb577 this
+    answered 500 / `failed` with that sentence, as the English one did."""
+    from openfactory.contracts.refs import canonical_ref
+    from openfactory.product import voice
+    from openfactory.registry import ProjectRegistry
+
+    ProjectRegistry().set_language("acme", "pt-BR")
+    ref = _opened_by_product(tracker, board)
+    sentence = voice.card_withdrawn_result(ref=canonical_ref(ref), how="not_yours",
+                                           language="pt-BR", approvers=[ADMIN])
+    assert sentence != voice.card_withdrawn_result(ref=canonical_ref(ref), how="not_yours",
+                                                   language="en", approvers=[ADMIN])
+
+    r = _post(client, "product_withdraw_card", who=STRANGER, number=ref, reason="não é meu")
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (403, "denied"), (r.status_code, said)
+    assert said["message"] == said["detail"] == sentence, said
+    assert said["data"]["refusal"] == "not_yours", said
+    assert tracker.get_ticket(ref).state == "open", "the card was closed"
