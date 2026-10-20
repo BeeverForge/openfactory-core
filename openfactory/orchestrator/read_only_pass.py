@@ -16,8 +16,12 @@ between them named `u`.
 THE REAL INDEX IS NEVER TOUCHED. `git add -A` writes into a COPY of the index, in the git dir (not
 the working tree, which `_commit` would sweep, and not `/tmp`, so a client's image needs nothing
 beyond `git`, `cp` and `rm`, ADR-0037 D1), removed in the same shell. Copying keeps the stat data,
-so the add re-hashes only what changed: 0.01 s on this repository's own tree, warm, git 2.43.0
-(2026-10-20). A box that kills the shell at its timeout kills it before the `rm`; the copy then
+so the add re-hashes only what changed. Measured 2026-10-20 on this repository's own tree (2196
+tracked files), in a linked worktree, warm: 13-14 ms on git 2.43.0 (host), and in a clone inside
+each image 14-16 ms on 2.47.3 (box image), 14 ms on 2.34.1, 30-34 ms on 2.28.0. With every file's
+mtime bumped (stale stat data, a full re-hash) it took 228 ms on the host and 1059-1142 ms on the
+box image's overlay filesystem, and every later run pays that again, because the real index is
+never refreshed. A box that kills the shell at its timeout kills it before the `rm`; the copy then
 sits in the admin dir of a workspace `cleanup` discards.
 
 Every value is read from a hash or an exit code, never from git's prose, so a `pt_BR` locale changes
