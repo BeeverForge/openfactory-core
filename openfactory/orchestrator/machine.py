@@ -1515,13 +1515,19 @@ class JobRunner:
                         # ('transient', 'throttled'), so the workflow would re-run the paid planner
                         # three times. `unknown` escalates to a person; a cause of its own is a
                         # follow-up. The two `_unaskable` holds above declare `environment`.
+                        # THE REMEDY NAMES THE EXECUTOR: the planner is `self.agent.plan`, the
+                        # executor's harness, and there is no planner row to set
+                        # (`harness_kind(None, "planner")` raises ValueError: unknown role).
                         return self._hold(
                             ticket, owner,
                             f"the planner wrote to the workspace it must only read ({paths}). The "
                             f"`{self.agent.name}` harness keeps its planner read-only by "
                             f"instruction only; the job stopped before pushing anything, and "
-                            f"the workspace is discarded. Give the planner another harness, "
-                            f"or turn `planner_stage` off for this project.",
+                            f"the workspace is discarded. The planner runs on the executor's "
+                            f"harness: run this project's executor on another harness (the "
+                            f"`executor` entry of its `harness:` setting in the deployment's "
+                            f"project registry), or turn `planner_stage` off in its "
+                            f"`.openfactory/project.yaml`.",
                             JobState.ON_HOLD, branch=branch, hold_cause=UNKNOWN)
                 if plan_result.pause_reason:
                     self._emit(ticket, "note", f"planner paused: {plan_result.summary[:200]}",

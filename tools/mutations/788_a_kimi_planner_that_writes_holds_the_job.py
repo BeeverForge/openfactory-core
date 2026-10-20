@@ -30,6 +30,9 @@ property, each aimed at the row that holds it:
      that declares no cause by its prose, and the planner-wrote hold's prose carries the paths:
      `src/rate_limit.py` read as ('transient', 'throttled'). C1 drops `hold_cause=UNKNOWN` from
      that hold; C2 and C3 drop `hold_cause=ENVIRONMENT` from the hold before and after the pass.
+  6. **The remedy names a role that exists** (review round 1 on e2b57dd1, point 3). The planner
+     runs on the executor's harness and `harness_kind(None, "planner")` raises, so R1 puts back
+     "Give the planner another harness", the sentence 6db1677c held with.
 
 HOW THE CUTS DIFFER FROM THE PLAN'S SKETCH (task 17), because the code differs from it:
   - `fingerprint` returns `Mark | Unreadable`, not `Mark | None`. U1 removes `rc == 0` from the
@@ -97,6 +100,14 @@ _WROTE_HOLD = (
     '                            ticket, owner,\n'
     '                            f"the planner wrote to the workspace it must only read ({paths}). '
     'The "\n'
+)
+_I = " " * 28  # the indent of the hold's sentence in `machine.py`
+_REMEDY = (
+    _I + 'f"the workspace is discarded. The planner runs on the executor\'s "\n'
+    + _I + 'f"harness: run this project\'s executor on another harness (the "\n'
+    + _I + 'f"`executor` entry of its `harness:` setting in the deployment\'s "\n'
+    + _I + 'f"project registry), or turn `planner_stage` off in its "\n'
+    + _I + 'f"`.openfactory/project.yaml`.",\n'
 )
 _WARNING = '                                   f"only read: {paths}", role="planner")\n'
 
@@ -247,4 +258,12 @@ MUTATIONS = [
      _HOLD_AFTER.replace(',\n                                          hold_cause=ENVIRONMENT)',
                          ')'),
      AS_ENVIRONMENT.format("after-the-pass")),
+
+    # ── 6. the remedy names the executor, whose harness the planner runs on (review round 1) ────
+    ("R1 the remedy says \"Give the planner another harness\", a role that does not exist",
+     MACHINE,
+     _REMEDY,
+     _I + 'f"the workspace is discarded. Give the planner another harness, "\n'
+     + _I + 'f"or turn `planner_stage` off for this project.",\n',
+     CREATE),
 ]

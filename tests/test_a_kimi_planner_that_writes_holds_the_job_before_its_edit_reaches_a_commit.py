@@ -231,7 +231,13 @@ def _assert_held_naming(runner, result, agent, events: InMemoryEventSink, tmp_pa
         f"the planner's edit was pushed: {_branches_on_origin(tmp_path)}")
     for path in paths:
         assert path in (result.note or ""), f"the hold does not name {path}: {result.note}"
-    naming = [e for e in events.events
+    # THE REMEDY NAMES A ROLE THAT EXISTS: the planner runs on the executor's harness, and on
+    # 6db1677c (2026-10-20) the note said "Give the planner another harness", a role
+    # `harness_kind(None, "planner")` refuses (ValueError: unknown role 'planner').
+    note = result.note or ""
+    assert "executor" in note and "planner another harness" not in note, (
+        f"the hold's remedy does not name the executor, whose harness the planner runs on: {note}")
+    naming =[e for e in events.events
               if e.kind == "warning" and all(p in e.message for p in paths)]
     assert len(naming) == 1, (
         f"expected one journal warning naming {paths}, got "
