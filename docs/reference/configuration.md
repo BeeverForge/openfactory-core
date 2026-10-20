@@ -428,8 +428,12 @@ held: the PEM for `OPENFACTORY_GH_APP_KEY_CONTENT`, a path for `OPENFACTORY_GH_A
   bits are not asked; what guards the file is its mode **on the host**, where it is created: make
   it `chmod 600` there (`640` or `644` work as well — the read bits are the container's
   business). On a writable mount the rule stands: `chmod go-w` the file, or mount it read-only.
+  What is asked is the mount the file is read through: a volume mounted writable at another
+  path is writable there, whatever this path says, so mount a secrets volume read-only
+  everywhere it is mounted.
 - Its content, with the surrounding whitespace and a byte-order mark removed, is the secret; an
-  empty file holds nothing.
+  empty file holds nothing, and the variable of the same name answers then, as where there is
+  no file — to revoke a secret, remove the file and unset the variable.
 - The worktree box withholds the directory's path from the workload, but the files are on the
   worker's filesystem, readable by the worker's user — [SECURITY.md](../../SECURITY.md).
 

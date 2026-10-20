@@ -269,12 +269,44 @@ def test_a_link_inside_the_directory_is_followed_as_a_cluster_mounts_its_secrets
     """A cluster's secret volume links each name to a dated copy (`..data/<name>`)."""
     dated = secrets.directory / "..2026_10_18_00_00_00.1"
     dated.mkdir()
+    dated.chmod(0o755)  # not the umask's: 0002 (Ubuntu's, for users) makes it group-writable
     (dated / "acme-token").write_text(SECRET)
     (dated / "acme-token").chmod(0o444)
     (secrets.directory / "..data").symlink_to(dated.name)
     (secrets.directory / "acme-token").symlink_to("..data/acme-token")
 
     assert FileStore().resolve("acme-token") == SECRET
+
+
+def test_a_file_read_through_a_shared_subdirectory_on_a_read_only_mount_is_this_users(
+        secrets, monkeypatch):
+    """On a mount that refuses writes a shared directory is read, and then every file read through
+    it must be root's or this user's — a shared SUBDIRECTORY on the name's way too, not only the
+    credential directory (review of 256c5b0, W7): `_located` answers "shared" for any directory
+    asked on the way, and a file of another user's behind one is refused."""
+    from openfactory.adapters.credential_store import file as store_file
+    from openfactory.adapters.credential_store.base import CredentialRefused
+
+    data = secrets.directory / "data"
+    data.mkdir()
+    data.chmod(0o777)
+    (data / "acme-token").write_text(SECRET)
+    (data / "acme-token").chmod(0o600)
+    (secrets.directory / "acme-token").symlink_to("data/acme-token")
+    monkeypatch.setattr(store_file, "_mount_refuses_writes", lambda fd=None, path="": True)
+    real = os.fstat
+
+    def another_users_file(fd):
+        found = real(fd)
+        if stat.S_ISREG(found.st_mode):
+            fields = list(found)
+            fields[stat.ST_UID] = os.geteuid() + 1
+            return os.stat_result(fields)
+        return found
+
+    monkeypatch.setattr(os, "fstat", another_users_file)
+    with pytest.raises(CredentialRefused, match="another user"):
+        FileStore().resolve("acme-token")
 
 
 def test_a_shared_directory_is_read_only_on_a_mount_that_refuses_writes(secrets, monkeypatch):
@@ -670,6 +702,32 @@ def test_the_doctor_reports_where_credentials_come_from_and_each_reference_a_pro
     monkeypatch.setenv(STORE_VAR, "file")
     ok, said, _ = credential_store_line(Project(name="b", repo_path="/tmp/b"))
     assert ok and "the `file` store, then from the environment" in said
+
+
+def test_the_doctor_says_when_the_pull_credential_is_the_forges_own_token(secrets, monkeypatch):
+    """A pull needs read scope only, and the forge's token writes (review of 256c5b0): the line
+    says so beside the pull, bare or as `env:`, and the project still passes — the pull works."""
+    from openfactory.doctor import credential_store_line
+
+    secrets("acme-forge", SECRET)
+    secrets("acme-registry", SECRET)
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "fictitious-bot-822e")
+    own = Project(name="acme", repo_path="/tmp/acme",
+                  forge=ProviderRef(kind="github", repo="acme/web",
+                                    options={"token_env": "file:acme-forge"}),
+                  box=BoxConfig(pull_credential="file:acme-forge", pull_username="ci-bot"))
+    bot = Project(name="b", repo_path="/tmp/b",
+                  box=BoxConfig(pull_credential="env:OPENFACTORY_BOT_TOKEN", pull_username="ci-bot"))
+    its_own = Project(name="c", repo_path="/tmp/c",
+                      box=BoxConfig(pull_credential="file:acme-registry", pull_username="ci-bot"))
+
+    for project in (own, bot):
+        ok, said, _ = credential_store_line(project)
+        assert ok, said
+        assert "the forge's own token" in said and "credential of its own" in said, said
+        assert SECRET not in said and "fictitious-bot-822e" not in said
+    ok, said, _ = credential_store_line(its_own)
+    assert ok and "the forge's own token" not in said, said
 
 
 #: Each way a project's credential configuration cannot work, and what the line names.

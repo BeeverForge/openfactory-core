@@ -44,6 +44,14 @@ def credential_of(adapter) -> str | None:
     provider = getattr(adapter, "_token_provider", None)
     found = provider() if provider else getattr(adapter, "_static_token", None)
     refused = getattr(adapter, "refused", "")
+    if not found and not refused and provider is not None:
+        # THE KEY A MINT READS CAN BE REFUSED AFTER THE ADAPTER WAS BUILT (review of 256c5b0): the
+        # refusal handed at construction was the store's answer then. A provider that answers
+        # nothing now is asked the key's refusal now, so a later refusal is as final as an
+        # earlier one — and with nothing refused, this is the development path it always was.
+        from openfactory.credentials import app_key_refusal
+
+        refused = app_key_refusal()
     if not found and refused:
         raise LoginRefused(f"the GitHub credential {refused} — `gh` is not run on this machine's "
                            f"own login in its place")

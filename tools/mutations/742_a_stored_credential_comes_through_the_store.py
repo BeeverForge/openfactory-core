@@ -577,4 +577,35 @@ MUTATIONS = [
     ("only the link under the name is asked who made it", FILE,
      "            if found.st_uid not in (0, owner):",
      "            if links == 1 and found.st_uid not in (0, owner):", FAMILY),
+
+    # ── the reviews of 256c5b0: the facts withhold what the store holds, a file of another user's
+    #    behind a shared subdirectory, the board's own token, a key refused later, the pull's token
+    ("the product role's facts withhold what the environment holds, not what the store does",
+     "openfactory/product/model.py",
+     "    found |= {value for value in store.held_values() if len(value) >= 8}\n",
+     "", "tests/test_the_read_model.py"),
+    ("only the declared store's entries are withheld, not every store's that lists", REGISTRY,
+     "        if kind == ENV or unusable(kind):\n            continue\n",
+     "        if kind == ENV or unusable(kind) or kind != declared:\n            continue\n",
+     "tests/test_the_read_model.py"),
+    ("a file read through a shared subdirectory on a read-only mount is held by nothing", FILE,
+     "        return path, any(asked.values())",
+     "        return path, asked[root]"),
+    ("the board's link types its owner on whatever login the machine has",
+     "openfactory/adapters/tracker/github_project.py",
+     '        out = subprocess.run(["gh", "api", f"users/{owner}", "--jq", ".type"],\n'
+     '                             capture_output=True, text=True, timeout=15, check=False,\n'
+     '                             env=_env(token))',
+     '        out = subprocess.run(["gh", "api", f"users/{owner}", "--jq", ".type"],\n'
+     '                             capture_output=True, text=True, timeout=15, check=False)',
+     "tests/test_the_board_says_where_it_lives.py"),
+    ("a key refused after the adapter was built is not asked again",
+     "openfactory/adapters/github_cli.py",
+     "    if not found and not refused and provider is not None:",
+     "    if False:",
+     "tests/test_an_app_key_refused_after_the_adapter_was_built_is_final_too.py"),
+    ("the doctor does not say that the pull credential is the forge's own token",
+     "openfactory/doctor.py",
+     "        return (bool(name) and name == other_name",
+     "        return (False and name == other_name"),
 ]
