@@ -341,9 +341,9 @@ def test_a_shared_credential_is_no_operator_on_a_card_of_the_product_view(
         r = client.post(f"/api/act/{CARD_CONTROL}", headers=_headers(label),
                         json={"params": {"project": "acme", "number": ref,
                                          "reason": "not needed", "remove": remove}})
-        # THE ROW'S OWN REFUSAL, whatever status it maps to: a module's "not yours" travels as a
-        # refused `WriteResult`, which `_write_outcome` renders as FAILED today
-        assert not r.json()["ok"], (var, label, remove, r.text)
+        # THE ROW'S OWN REFUSAL: the module's "not yours" is a refusal, 403 `denied` — it answered
+        # 500 `failed` until #908 (measured on 620bb577)
+        assert (r.status_code, r.json()["code"]) == (403, "denied"), (var, label, remove, r.text)
         assert "only the person who asked for" in r.json()["message"], r.json()["message"]
 
     assert tracker.get_ticket(ref).state == "open", "the card was closed"
