@@ -455,8 +455,9 @@ def _review_lines(r: ReviewResult) -> list[str]:
 # platform's. And every plain row after a quote follows a blank row: CommonMark's lazy continuation
 # would otherwise pull the next platform row — the `Cost:` line included — into the quote.
 
-_CLAIM = ("This is the implementing agent's own account, as it wrote it. No gate checked it, and "
-          "the reviewer was not shown it.")
+#: Withholding credentials made "as it wrote it." false on its own (#885): it says what was changed.
+_CLAIM = ("This is the implementing agent's own account, as it wrote it, with any credential in it "
+          f"shown as {WITHHELD_CREDENTIAL}. No gate checked it, and the reviewer was not shown it.")
 _WROTE_NOTHING = "The agent ended its pass without a final message."
 _NOT_RECORDED = ("The account of the pass that opened this pull request was not recorded: it was "
                  "opened before this section existed.")
