@@ -80,8 +80,9 @@ MUTATIONS = [
      '"pass_ready": ("{sig}Pass {pass_number} of #{ref}{title} is ready'),
 
     ("the card's door refuses a card it cannot read as `#DAR-9`", PORTS,
-     '            return Seen(cannot_tell=(f"{ref_label(card)} could not be read',
-     '            return Seen(cannot_tell=(f"#{card} could not be read'),
+     # re-pinned 2026-10-20 (#908): the `Seen` now also says it is `unread`
+     '                f"{ref_label(card)} could not be read ({str(exc)[:120]})',
+     '                f"#{card} could not be read ({str(exc)[:120]})'),
 
     ("…a card on a board it cannot read", PORTS,
      '                f"{ref_label(card)} is. Nothing was changed — try again."))',

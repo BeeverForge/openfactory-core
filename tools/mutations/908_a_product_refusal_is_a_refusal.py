@@ -15,7 +15,8 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
      and its detector finds a site inside a `lambda`;
   3. the word crosses the worker: both activities' dicts carry `refusal`;
   4. a failure is logged with a reference, in `_write_outcome`'s line and in `perform`'s RAISED
-     arm, and a result that names no word (an older worker) is a failure;
+     arm, and a result that names no word (an older worker) is a failure; and a card or board the
+     card's door could not READ is a failure too, never the card's state refusing (`unread`);
   5. the rows that render a list — promote, reorder, breakdown — answer the refusal every result
      names, not FAILED;
   6. the family drives every row that renders a write;
@@ -37,6 +38,8 @@ ACTIONS = "openfactory/actions/__init__.py"
 MODULE = "openfactory/product/module.py"
 ACTIVITIES = "openfactory/runtime/temporal/activities.py"
 CONFIRM = "openfactory/product/confirm.py"
+PORTS = "openfactory/lifecycle/ports.py"
+CARD = "openfactory/lifecycle/card.py"
 
 MUTATIONS = [
     # 1. a refusal answers its code — the issue's own sabotage, then each word's code
@@ -120,6 +123,25 @@ MUTATIONS = [
      '    return str(getattr(result, "refusal", "") or "")\n',
      '    return str(getattr(result, "refusal", "") or "not_found")\n',
      FAILURE),
+
+    # 4b. the door's "could not see" is a failure (review round 1, point 2)
+    ("UNREAD: the door's helper reads an unread card as a refusal of its state", MODULE,
+     '    if getattr(moved, "unread", False):\n',
+     "    if False:\n",
+     FAILURE + "::test_a_card_its_door_could_not_read_is_a_failure_with_a_reference_not_a_conflict"),
+    ("UNREAD: a card the tracker could not give the door is not marked unread", PORTS,
+     "            return Seen(unread=True, cannot_tell=(\n",
+     "            return Seen(cannot_tell=(\n",
+     FAILURE + "::test_a_card_its_door_could_not_read_is_a_failure_with_a_reference_not_a_conflict"),
+    ("UNREAD: a board the door could not read is not marked unread", PORTS,
+     "            return Seen(title=title, unread=True, cannot_tell=(\n",
+     "            return Seen(title=title, cannot_tell=(\n",
+     FAILURE + "::test_a_board_its_door_could_not_read_is_a_failure_with_a_reference_not_a_conflict"),
+    ("UNREAD: the door's transition drops what it could not see", CARD,
+     "            return Transition(card=card, event=event, refused=seen.cannot_tell,\n"
+     "                              unread=seen.unread)\n",
+     "            return Transition(card=card, event=event, refused=seen.cannot_tell)\n",
+     FAILURE + "::test_a_card_its_door_could_not_read_is_a_failure_with_a_reference_not_a_conflict"),
 
     # 5. the rows that render a list
     ("a promotion nobody may make answers FAILED again", CATALOG,

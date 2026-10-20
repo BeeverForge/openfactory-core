@@ -76,6 +76,73 @@ def test_a_board_that_cannot_be_read_answers_500_and_its_reference_is_in_the_log
     assert tracker.get_ticket(ref).state == "open"
 
 
+@pytest.fixture
+def the_door_cannot_read_the_card(monkeypatch):
+    """The card's door (`Ports.seen`) asks a tracker that answers 503 — the forge down for the one
+    read the door makes, after every gate before it read the card. Only the door's read fails, so
+    what is measured is what the door's "could not see" becomes, not a gate's."""
+    from openfactory.lifecycle.ports import Ports
+
+    class Down:
+        def get_ticket(self, *_a, **_k):
+            raise RuntimeError("HTTP 503 from the forge")
+
+    seen = Ports.seen
+
+    def through_a_tracker_that_is_down(self, card):
+        self._tracker = Down()
+        return seen(self, card)
+    monkeypatch.setattr(Ports, "seen", through_a_tracker_that_is_down)
+
+
+@pytest.mark.parametrize("row, params", [
+    ("product_promote", {"yes": True}),
+    ("product_withdraw_card", {"reason": "filed twice"}),
+])
+def test_a_card_its_door_could_not_read_is_a_failure_with_a_reference_not_a_conflict(
+        row, params, client, deployment, tracker, board, told,  # noqa: F811 — the fixtures
+        the_door_cannot_read_the_card, caplog):
+    """Criterion 2, the door's own read (review of 3a996b0a, point 2): a tracker that cannot be
+    read when the card's door looks is the forge unreachable — FAILED, logged with a reference —
+    never "the state does not admit it now". Measured on 3a996b0a (2026-10-20), as the product
+    admin: both rows answered 409 `conflict`, `refusal=not_waiting`, `reference=None`, where
+    620bb577 answered 500 `failed`."""
+    ref = _opened_by_product(tracker, board)
+    number = {"numbers": ref} if row == "product_promote" else {"number": ref}
+
+    with caplog.at_level(logging.INFO):
+        r = _post(client, row, who=ADMIN, **number, **params)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (500, "failed"), (r.status_code, said)
+    assert said["data"].get("refusal") is None, said
+    reference = said["data"].get("reference")
+    assert reference, f"the failure carries no reference to its log line: {said['data']}"
+    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_WRITE_FAILED reference={reference}"), (
+        f"no log line names reference {reference}")
+    assert tracker.get_ticket(ref).state == "open"
+
+
+def test_a_board_its_door_could_not_read_is_a_failure_with_a_reference_not_a_conflict(
+        client, deployment, tracker, board, monkeypatch, caplog):  # noqa: F811 — the fixtures
+    """Criterion 2, the door's other read: a board that answers no columns (`None`, unread) when
+    the door places a promoted card is a failure with a reference, not 409 — the second unread
+    `Seen` (`lifecycle/ports.py`, "the board could not be read"), which on 3a996b0a answered 409
+    `conflict` through the same `moved.refused` → `NOT_WAITING`."""
+    ref = _opened_by_product(tracker, board)
+    monkeypatch.setattr(type(board), "columns", lambda self: None)
+
+    with caplog.at_level(logging.INFO):
+        r = _post(client, "product_promote", who=ADMIN, numbers=ref, yes=True)
+
+    said = r.json()
+    assert (r.status_code, said["code"]) == (500, "failed"), (r.status_code, said)
+    assert said["message"].startswith("acme's board could not be read"), said
+    reference = said["data"].get("reference")
+    assert reference, f"the failure carries no reference to its log line: {said['data']}"
+    assert _lines(caplog, carrying=f"OPENFACTORY_PRODUCT_WRITE_FAILED reference={reference}")
+
+
 def test_a_module_that_raises_answers_500_and_its_reference_is_in_the_log_and_the_answer(
         client, deployment, tracker, board, told, monkeypatch, caplog):  # noqa: F811 — fixtures
     """Criterion 2: the module raising is still FAILED (`raised`), logged with a reference. The

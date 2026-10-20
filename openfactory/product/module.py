@@ -863,6 +863,21 @@ def _held(sentence: str, *, act: str, why: str) -> WriteResult:
     return WriteResult(ok=False, refusal=NOT_WAITING, detail=sentence)
 
 
+def _the_door_said(moved, *, ref: str, existed: bool = False) -> WriteResult:
+    """The card's door refused a move (`Transition.refused`), as a not-ok result that says what it
+    is (#908): a door that could not READ the card or its board (`unread`) is a write that was tried
+    and did not happen — `NOT_REFUSED`, answered 500 with a reference — and anything else the door
+    says (the card's state does not admit the event, its column is one nobody maps, it belongs to
+    another repository) is `NOT_WAITING`. Measured on 3a996b0a (2026-10-20): every door refusal was
+    `NOT_WAITING`, and a tracker answering 503 reached the product admin as 409 `conflict` with no
+    reference. Two literal branches, so the structural guard reads both words."""
+    if getattr(moved, "unread", False):
+        return WriteResult(ok=False, refusal=NOT_REFUSED, existed=existed, ref=ref,
+                           detail=moved.refused)
+    return WriteResult(ok=False, refusal=NOT_WAITING, existed=existed, ref=ref,
+                       detail=moved.refused)
+
+
 def _the_gate_said(why: str, *, ref: str, detail: str) -> WriteResult:
     """A merge gate's answer to a person's pass or yes, as a not-ok result that says what it is
     (#908): `not_yours` is theirs to refuse; a STATE of the gate a person can read and wait out —
@@ -4528,8 +4543,7 @@ class ProductModule:
                                    facts={"column_name": queue}, tracker=tracker,
                                    board=board, columns=where)
                 if moved.refused:
-                    out.append(WriteResult(ok=False, ref=f"#{number}", detail=moved.refused,
-                                           refusal=NOT_WAITING))
+                    out.append(_the_door_said(moved, ref=f"#{number}"))
                     continue
                 if moved.outcome("place").startswith("placed"):
                     out.append(WriteResult(ok=True, ref=f"#{number}"))
@@ -4989,8 +5003,7 @@ class ProductModule:
                                                        agent_name=self._name())},
                            tracker=tracker)
         if moved.refused:
-            return WriteResult(ok=False, existed=True, ref=f"#{number}", detail=moved.refused,
-                               refusal=NOT_WAITING)
+            return _the_door_said(moved, ref=f"#{number}", existed=True)
         if moved.outcome("close").startswith("failed") and not moved.recorded:
             return _could_not(card_said("close_failed", number=number, language=lang),
                               act=f"close #{number}", cause=RuntimeError(moved.outcome("close")),
@@ -5108,8 +5121,7 @@ class ProductModule:
                                                        agent_name=self._name())},
                            tracker=self._tracker())
         if moved.refused:
-            return WriteResult(ok=False, existed=True, ref=f"#{number}", detail=moved.refused,
-                               refusal=NOT_WAITING)
+            return _the_door_said(moved, ref=f"#{number}", existed=True)
         if moved.outcome("remove").startswith("failed") and not moved.recorded:
             return _could_not(card_said("remove_failed", number=number, language=lang),
                               act=f"remove #{number}", cause=RuntimeError(moved.outcome("remove")),
@@ -5315,8 +5327,7 @@ class ProductModule:
             if moved.answer is not None:
                 return moved.answer
             if moved.refused:
-                return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused,
-                                   refusal=NOT_WAITING)
+                return _the_door_said(moved, ref=f"#{number}")
             residue = str(landed["residue"])
             if moved.outcome("comment").startswith("failed"):
                 log.warning("OPENFACTORY_PRODUCT_CORRECT_UNNOTED card=#%s (%s) — the card was "
@@ -5477,8 +5488,7 @@ class ProductModule:
         if moved.answer is not None:
             return moved.answer
         if moved.refused:
-            return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused,
-                               refusal=NOT_WAITING)
+            return _the_door_said(moved, ref=f"#{number}")
         # THE FACTS, AND ON SUCCESS `detail` IS ONLY WHAT DID NOT LAND (`confirm._unfinished`): the
         # headline is composed by whoever answers the person, from these (`adjust.headline`)
         return adjust.Sent(ok=True, ref=f"#{number}", detail=str(landed["residue"]),
@@ -5629,8 +5639,7 @@ class ProductModule:
         if moved.answer is not None:
             return moved.answer
         if moved.refused:
-            return WriteResult(ok=False, ref=f"#{number}", detail=moved.refused,
-                               refusal=NOT_WAITING)
+            return _the_door_said(moved, ref=f"#{number}")
         merging, unmerged = False, ""
         if merges:
             unmerged = accept.merge(self.project, number, by=actor)
