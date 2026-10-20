@@ -18,7 +18,7 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
      arm, and a result that names no word (an older worker) is a failure; and a card or board the
      card's door could not READ is a failure too, never the card's state refusing (`unread`);
   5. the rows that render a list — promote, reorder, breakdown — answer the refusal every result
-     names, not FAILED;
+     names, not FAILED; words that disagree are a failure, and an unknown word is logged;
   6. the family drives every row that renders a write;
   7. a refusal word this panel does not know (a worker newer than it) is read as nobody's
      decision when a breakdown's rows are said, never raised on — so the fronts that landed are
@@ -217,6 +217,18 @@ MUTATIONS = [
      '                            ok=False, ref=f"#{number}",\n'
      '                            detail=board_move_said("outside_the_slice", ref=number,\n',
      STRUCTURAL),
+
+    # 5c. a list's words (review round 1, the non-blocking point): disagreeing words are a
+    #     failure, and a word this panel does not know is said in the log
+    ("LIST: the first word answers a list whose words disagree", CATALOG,
+     '    why = next(iter(words)) if len(words) == 1 else ""\n',
+     '    why = next(iter(words), "")\n',
+     FAILURE + "::test_a_list_whose_refusals_disagree_is_a_failure_with_a_reference"),
+    ("LIST: a word this panel does not know is answered unsaid", CATALOG,
+     '        log.error("OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN did=%s refusal=%r — answered as a "\n'
+     '                  "failure; this panel knows %s", did, why, ", ".join(sorted(_REFUSAL_CODE)))\n',
+     "        pass\n",
+     FAILURE + "::test_a_word_this_panel_does_not_know_is_a_failure_and_is_logged"),
 
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,

@@ -2214,16 +2214,15 @@ def _none_done(results, said: str, *, did: str, **payload) -> Outcome:
     whenever nothing was done — measured on 620bb577, a stranger's promote and reorder, and a
     breakdown whose every front the role declined, each answered HTTP 500. When every not-ok
     result names the same word, that word is the answer. Mixed words, an untagged result, or no
-    result at all is nobody's single decision: a failure, with a reference."""
-    words = {_refusal_word(r) for r in results if not _was_made(r)}
+    result at all is nobody's single decision: a failure, with a reference.
+
+    Every result is read: each caller answers `done` first when any result was made (`if not
+    started`, `if not placed`, `if made: return`), so none reaches here. A filter for made results
+    was here and was dead code (review of 3a996b0a: its removal survived 1578 tests); a caller that
+    passes a made result gets a failure, never a refusal it did not mean."""
+    words = {_refusal_word(r) for r in results}
     why = next(iter(words)) if len(words) == 1 else ""
     return _not_done(said, why, did=did, **payload)
-
-
-def _was_made(result) -> bool:
-    if isinstance(result, Mapping):
-        return bool(result.get("ok"))
-    return bool(getattr(result, "ok", False))
 
 
 async def _product_status(*, project: str, by: Actor) -> Outcome:

@@ -212,3 +212,31 @@ def test_a_reference_is_minted_only_for_a_failure(word):
                                  did="closed #1", project="acme")
 
     assert bool(out.data.get("reference")) is (word == ""), out.data
+
+
+def test_a_list_whose_refusals_disagree_is_a_failure_with_a_reference():
+    """A list row (`product_promote`, `product_reorder`, `product_break_down`) whose results name
+    different refusals is nobody's single decision: a failure, with a reference. The cut where the
+    first word answers (`why = next(iter(words), "")`) survived 1578 tests in the review of
+    3a996b0a (2026-10-20)."""
+    from openfactory.actions import catalog
+    from openfactory.product.authoring import NOT_FOUND, NOT_YOURS, WriteResult
+
+    mixed = [WriteResult(ok=False, refusal=NOT_YOURS, detail="a"),
+             WriteResult(ok=False, refusal=NOT_FOUND, detail="b")]
+    said = catalog._none_done(mixed, "s", did="reorder the backlog", project="p")
+    assert (said.code, said.data.get("refusal")) == ("failed", None), said
+    assert said.data["reference"]
+
+
+def test_a_word_this_panel_does_not_know_is_a_failure_and_is_logged(caplog):
+    """A refusal word from a worker newer than this panel is answered as a failure and SAID in the
+    log, so the drift is seen. Removing `_not_done`'s `OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN` line
+    survived 956 tests in the review of 3a996b0a (2026-10-20); only `confirm.py`'s copy was held."""
+    from openfactory.actions import catalog
+
+    with caplog.at_level(logging.ERROR):
+        said = catalog._none_done([{"ok": False, "refusal": "from_the_future"}], "s",
+                                  did="break the requirement down", project="p")
+    assert said.code == "failed", said
+    assert "OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN" in caplog.text and "from_the_future" in caplog.text
