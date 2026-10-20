@@ -32,7 +32,11 @@ import re
 from pathlib import Path
 
 import pytest
+import test_the_pull_request_says_what_the_card_says as card_says
 import test_walking_skeleton as spine
+from test_a_later_pass_adds_its_line_to_what_the_agent_says_it_did import PR, _pass_rows
+from test_a_later_pass_adds_its_line_to_what_the_agent_says_it_did import _runner as _repairing
+from test_a_later_pass_adds_its_line_to_what_the_agent_says_it_did import _Says as _Repairs
 from test_what_the_agent_says_it_did_reaches_the_pull_request import (
     _names_read,
     _opened,
@@ -41,6 +45,7 @@ from test_what_the_agent_says_it_did_reaches_the_pull_request import (
     _section,
 )
 
+from openfactory.contracts.run import AGENT_PASS_WORDS_MAX
 from openfactory.product import model
 from openfactory.product.model import WITHHELD_CREDENTIAL
 
@@ -59,6 +64,9 @@ BARE_BEARER = "q7SECRET" * 4
 DB_PASSWORD = "q7" + "hunter" * 3
 OPAQUE = "q7" + "OPAQUE" * 5
 LINK_PASSWORD = "q7" + "linkpw" * 3
+#: A key of this process, PEM-shaped: three lines, its body a line no shape would catch alone.
+KEY_BODY = "MIIEv" + "q7KEYBODY" * 6
+PEM = "-----BEGIN " + "PRIVATE KEY-----\n" + KEY_BODY + "\n-----END " + "PRIVATE KEY-----"
 
 
 @pytest.fixture(autouse=True)
@@ -146,3 +154,71 @@ def test_the_claim_above_the_quote_says_credentials_in_it_are_withheld(repo: Pat
     claim = _section(body)[1]
     assert CLAIM_WORDS in claim, f"the row after the heading is not the claim: {claim!r}"
     assert WITHHELD_CREDENTIAL in claim, f"the claim names no withholding: {claim!r}"
+
+
+# ── criterion 1, for later passes: each pass line ───────────────────────────────────────────────
+
+def _pass_line_after_a_ci_repair(repo: Path, tmp_path: Path, said: str) -> tuple[str, str]:
+    """Drive a CI repair that pushed, as the later-pass tests do, and return the body the forge
+    holds and the render of its one pass line."""
+    card_says._pr_branch(repo)
+    runner, forge = _repairing(repo, tmp_path, _Repairs(said))
+    runner.repair_ci("#9", "CI failed: test_x", pr_url=PR)
+    body = forge.opened["body"]
+    rows = _pass_rows(body)
+    assert len(rows) == 1, f"the CI repair added no pass line — wrong case: {rows}"
+    return body, _rendered(rows[0])
+
+
+@pytest.mark.parametrize("said, secret", [
+    (f"{SENTINEL}: pushed with GH_TOKEN={GITHUB_TOKEN} and CI is green", GITHUB_TOKEN),
+    (f"{SENTINEL}: called it with Authorization: Bearer {JWT} and it answered", JWT),
+    (f"{SENTINEL}: the job reads postgres://app:{DB_PASSWORD}@db:5432/app now", DB_PASSWORD),
+], ids=["github-token", "bearer-jwt", "postgres"])
+def test_a_credential_in_a_later_passs_words_is_withheld_and_the_body_says_so(
+        repo: Path, tmp_path: Path, said: str, secret: str):
+    """At 620bb577 `_pass_words` folded the pass's final message, cut it at
+    `AGENT_PASS_WORDS_MAX` and neutralised it, and nothing withheld a credential: the pass line
+    carried it."""
+    body, row = _pass_line_after_a_ci_repair(repo, tmp_path, said)
+    assert secret not in body, f"the credential is in the pass line as written: {_pass_rows(body)}"
+    assert secret not in html_lib.unescape(_rendered(body)), (
+        f"the credential is in the pass line as rendered: {row}")
+    assert WITHHELD_CREDENTIAL in _shown(row), f"the pass line does not say so: {row}"
+    assert SENTINEL in _shown(row), f"the pass's own words did not reach its line: {row}"
+
+
+def test_a_credential_cut_by_the_pass_lines_200_characters_is_withheld_whole(
+        repo: Path, tmp_path: Path):
+    """A token that starts 10 characters before the cut: cut first, its head is too short for any
+    shape to match, and the line published `ghp_q7SECR` — measured at 620bb577, where nothing
+    withheld it at all. Withholding before the cut leaves none of it."""
+    start = AGENT_PASS_WORDS_MAX - 10
+    lead = SENTINEL + " " + "a" * (start - len(SENTINEL) - 2)
+    said = f"{lead} {GITHUB_TOKEN} was the token used"
+    assert said.index(GITHUB_TOKEN) == start, "the token does not straddle the cut — wrong case"
+    head = GITHUB_TOKEN[:10]  # what a cut before the withholding keeps: `ghp_q7SECR`
+    body, row = _pass_line_after_a_ci_repair(repo, tmp_path, said)
+    assert head not in _shown(row), f"the head of a token the cut split is in the pass line: {row}"
+    assert head not in html_lib.unescape(_rendered(body)), "the token's head is in the body"
+
+
+def test_a_secret_of_this_process_that_spans_lines_is_withheld_from_the_quote_and_the_pass_line(
+        repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A key the process holds (`_SECRET_NAME` names `…KEY_CONTENT`, as the GitHub App key is
+    passed) is a value with newlines: matched line by line, or after the pass line's whitespace
+    fold, it is never found whole. At 620bb577 its three lines were quoted, and folded onto the
+    pass line."""
+    monkeypatch.setenv("SOME_APP_KEY_CONTENT", PEM)
+    said = f"{SENTINEL}: signed with\n{PEM}\nand it verified"
+
+    (tmp_path / "opened").mkdir()
+    opened = _opened(repo, tmp_path / "opened", _Says(said))
+    quote = _rendered("\n".join(_quoted_block(opened)))
+    assert KEY_BODY not in opened and KEY_BODY not in html_lib.unescape(_rendered(opened)), (
+        f"the key is quoted: {_quoted_block(opened)}")
+    assert WITHHELD_CREDENTIAL in _shown(quote), f"the quote does not say so: {quote}"
+
+    body, row = _pass_line_after_a_ci_repair(repo, tmp_path / "repaired", said)
+    assert KEY_BODY not in body and KEY_BODY not in _shown(row), f"the key is on the pass line: {row}"
+    assert WITHHELD_CREDENTIAL in _shown(row), f"the pass line does not say so: {row}"
