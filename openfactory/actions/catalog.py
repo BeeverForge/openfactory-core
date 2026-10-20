@@ -7595,8 +7595,10 @@ async def _project_set_preview(*, project: str, by: Actor, required: object = No
     limits. MERGED into what the registry holds — a parameter not given keeps its value.
 
     THE ONE DOOR THAT VALIDATES WHAT IT WRITES. A name a preview may never receive — the
-    factory's own credentials, any project's `token_env` — is dropped by the registry's writer and
-    said here, in `dropped`; it is never written to a file a person trusts."""
+    factory's own credentials, any project's `token_env`, every name a harness route requires — is
+    dropped by the registry's writer and said here, in `dropped`; it is never written to a file a
+    person trusts. That list bounds a preview however it is set, because this row reaches every
+    unscoped panel credential and a preview runs code nobody merged (ADR-0050 D8, amended)."""
     from pydantic import ValidationError
 
     from openfactory.contracts.project import PreviewPolicy

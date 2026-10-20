@@ -4,8 +4,10 @@
   single-container preview to a preview of the whole product; built on 2026-09-24 in slices 0–7 of
   #265 (#270, #277, #278, #287, #288, #293, #292, #296), and merged together on 2026-09-25 with the
   host closed off (#291). D6 moved on 2026-09-29 from on demand to a start of its own when the
-  pull request waits for a person (#405). The decisions below say what was built, and each one
-  that moved from the design on #265 says where and why — see *History* at the end.
+  pull request waits for a person (#405). D8's door became the `project_set_preview` action on
+  2026-10-20, and a harness route's names joined its denylist (#741). The decisions below say
+  what was built, and each one that moved from the design on #265 says where and why — see
+  *History* at the end.
 - **Date:** 2026-09-22
 - **Relates to:** ADR-0001 D-6 (components: what a diff touched), ADR-0005 (post-merge deploy watch,
   and the read-only contract it gave the `environment` adapter), ADR-0025 (delivery closes with the
@@ -482,10 +484,11 @@ holding only non-production values a person clicking through may safely trigger:
   and it lands in the image's history.
 - **The factory's own credentials are refused** in either list, on either side of a mapping, at the
   write and at the read: `OPENFACTORY_*`, `TEMPORAL_*`, `ANTHROPIC_*`, `CLAUDE_*`, the known vendor
-  tokens and every project's `token_env`. Dropped and said, never fatal, because the registry is
-  baked into the worker.
-- **The operator's door** is `openfactory project set-preview`, read back with `openfactory project
-  show`; nobody edits a file on a volume.
+  tokens, every project's `token_env`, and every name a harness route requires (amended below,
+  #741). Dropped and said, never fatal, because the registry is baked into the worker.
+- **The operator's door** is the `project_set_preview` action, which `openfactory project
+  set-preview` maps onto, read back with `openfactory project show`; nobody edits a file on a
+  volume (amended below, #741: it was the command alone).
 - **Nothing else reaches a preview's process.** Admission rewrites every `${X}` the file reads that
   the registry does not name, the project's own `.env` is never used for interpolation, and the
   compose process's environment is the reduced one of D4. An `env_file` the base commits is read as
@@ -512,6 +515,24 @@ default network `up` made, taking the unit down at once if it has a gateway. A p
 be closed off does not start, and its card says why. The engine accepts the option on internal
 networks only, so the one-machine reach (D8), whose published edge cannot be internal, keeps saying
 what it reaches.
+
+**Amended (2026-10-20, #741): the door is a row, and a harness route's names are refused too.** The
+policy is set through the `project_set_preview` action, and `openfactory project set-preview` maps
+onto it, so a front end of one's own sets what the shell sets. That row is the installation's
+administrator's: it is declared `installation`, so the shell and any unscoped panel credential
+reach it — the panel's token and its per-person rows, a person invited to neither area, and on an
+identity provider everyone whose groups map to no area — and a board- or product-scoped
+credential never does. Before, choosing which worker variables a preview receives took a shell on
+the worker's host; now it takes a panel login, and a preview runs code from a pull request nobody
+merged. So what bounds a preview's environment is the same wherever it is set from: the
+factory's own names above, their prefixes, every project's `token_env`, and every name a harness
+route requires in `adapters/agent/routes.py` (`AuthRoute.requires`: `OPENAI_API_KEY`,
+`AZURE_API_KEY`, `AZURE_RESOURCE_NAME`, the route switches and regions), refused at the write and
+dropped at the read. The last was open before the door moved: the opencode route requires
+`OPENAI_API_KEY` in `box.env`, and no prefix covered it, so the command line could map it into a
+preview too. The list is `contracts/project.py::PREVIEW_ENV_DENIED_HARNESS`, and
+`tests/test_a_preview_is_declared_by_the_project_and_decided_by_the_operator.py` holds it equal to
+what the routes declare.
 
 **Amended (2026-09-24, #277, #292):** the tier moved from `box:` to its own registry block, and
 gained the container→worker mapping, the separate build list and the denylist. The product owner
@@ -824,3 +845,8 @@ in, the client's own compose file — becomes what assembles it, instead of a se
   failed start is said as one. Found on the way (#403): the offer recorded the tracker's name for
   the card's container as the pull request's repository, so a project whose registry name differs
   from its forge repository previewed nothing.
+- **2026-10-20 — the door is a row, and a harness route's names are refused** (#741). Setting the
+  policy became the `project_set_preview` action, reached by the shell and by every unscoped panel
+  credential, so a panel login could now choose which worker variables a preview of unmerged code
+  receives. D8 is amended in place: the door is the row, and its denylist gains every name a
+  harness route requires, at the write and at the read, held equal to `routes.py` by a test.

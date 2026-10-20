@@ -1174,8 +1174,8 @@ docker compose --env-file .env.compose exec worker openfactory project show myap
   names a *build* may read: an unmerged Dockerfile could print it, and it stays in the image.
 - **`--network`**: a preview reaches nothing outside itself unless the operator names a network for
   it — [setup/previews.md](setup/previews.md) §1.
-- `--cpus` and `--memory` per service. The factory's own credentials are refused as names, whatever
-  the command is given.
+- `--cpus` and `--memory` per service. The factory's own credentials, and every name a harness
+  route requires, are refused as names, whatever the command is given.
 
 ### The preview itself
 

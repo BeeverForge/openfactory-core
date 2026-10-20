@@ -15,17 +15,21 @@ The claims, each a group of rows:
   5. the model is saved verbatim, before the shell asks the harness, and a front end is told the
      row did not ask;
   6. a preview's policy says what it refused, and a front end's words that are not a number of
-     hours or a yes or no are refused.
+     hours or a yes or no are refused;
+  7. a preview is never handed a name a harness route requires, and the list of them is every
+     name the routes declare.
 """
 
 TEST = "tests/test_the_installation_is_changed_through_its_rows.py"
 LAYER = "tests/test_the_action_layer.py"
 MODEL = "tests/test_the_model_is_set_from_the_cli.py"
 RECOGNISED = "tests/test_a_model_nobody_can_run_is_not_a_setting.py"
+PREVIEW_TEST = "tests/test_a_preview_is_declared_by_the_project_and_decided_by_the_operator.py"
 
 CATALOG = "openfactory/actions/catalog.py"
 CLI = "openfactory/cli.py"
 CONTRACT = "docs/reference/the-front-end-api.md"
+PROJECT = "openfactory/contracts/project.py"
 
 MUTATIONS = [
     # ── 1. a project nobody registered ─────────────────────────────────────────────────────────
@@ -122,4 +126,12 @@ MUTATIONS = [
      CATALOG,
      "    if network not in (None, \"\") and saved.network != str(network).strip():",
      "    if False:"),
+
+    # ── 7. a harness route's names ─────────────────────────────────────────────────────────────
+    ("a name a harness route requires reaches a preview again", PROJECT,
+     "    if name in PREVIEW_ENV_DENIED_HARNESS:\n",
+     "    if False:\n", PREVIEW_TEST),
+    ("the list of a harness route's names loses one the routes still require", PROJECT,
+     "\"CLOUD_ML_REGION\", \"OPENAI_API_KEY\",",
+     "\"CLOUD_ML_REGION\",", PREVIEW_TEST),
 ]

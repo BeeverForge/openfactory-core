@@ -386,7 +386,8 @@ def project_set_preview(
 
     Never edited through a file on a volume: the registry is baked into the worker, and this is
     the one door that validates what it writes (a name a preview may never receive — the
-    factory's own credentials, any project's `token_env` — is refused and said)."""
+    factory's own credentials, any project's `token_env`, a name a harness route requires — is
+    refused and said)."""
     # A MAPPING ONTO THE `project_set_preview` ROW (#741): the row merges, validates and writes;
     # what stays here is how a terminal shows the policy it saved.
     outcome = _perform("project_set_preview", project=name, required=required, hours=hours,
