@@ -14,7 +14,8 @@ Claims:
     quote included; a header value only from 8 characters; a bare `Bearer` value only when it is
     16 token68 characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN` stays
     prose;
-  - the userinfo pattern needs its `@`, so a URL with no userinfo keeps its host;
+  - the userinfo pattern needs its `@`, so a URL with no userinfo keeps its host, and a userinfo of
+    exactly `git` (an SSH remote's user) is no credential;
   - the platform's `_redact` regex (https userinfo only) is no substitute;
   - the claim above the quote names the withholding.
 """
@@ -88,6 +89,9 @@ MUTATIONS = [
     ("Authorization= is not read", MODEL,
      '\\s*[:=]\\s*',
      '\\s*:\\s*'),
+    ("an ssh remote's git user is shown as a withheld credential", MODEL,
+     '    text = _USERINFO.sub(lambda m: m.group(0) if userinfo and m.group(0)[len(m.group(1)):] == "git@"\n                         else m.group(1) + userinfo, text)\n',
+     '    text = _USERINFO.sub(lambda m: m.group(1) + userinfo, text)\n', PROSE),
     ("a URL with no userinfo loses its host", MODEL,
      '_USERINFO = re.compile(r"(\\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\\s/@]+@")\n',
      '_USERINFO = re.compile(r"(\\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\\s/@]+")\n', PROSE),

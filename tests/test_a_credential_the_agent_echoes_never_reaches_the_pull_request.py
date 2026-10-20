@@ -251,6 +251,7 @@ NEAR_MISSES = [
     "https://github.com/@octocat",
     "a@b.com",
     "git@github.com:o/r.git",
+    "ssh://git@github.com/o/r.git",                         # `git` is never a credential
     "postgres://db:5432/app",
     "see #12, @ann and foo_bar in x.py",
 ]

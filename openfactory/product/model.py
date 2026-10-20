@@ -305,11 +305,14 @@ def scrub_credentials(text: str, *, userinfo: str = "") -> str:
 
     A URL's userinfo is replaced by `userinfo`: nothing by default, so a facts file keeps a usable
     URL, silently; the pull request body passes the marker, because its reader must be told
-    something was withheld, and "absent" and "withheld" are different facts."""
+    something was withheld, and "absent" and "withheld" are different facts. Given a marker, a
+    userinfo of exactly `git` (`ssh://git@github.com/…`, the user every forge's SSH remote names)
+    is left as written: it is never a credential, and the marker would claim one was there."""
     # A function, not a template: a template reads every backslash of `userinfo` as an escape or a
     # group (`re.sub("(a)", r"\1x\d", "a")` raises `bad escape \d`, Python 3.12), so the text
     # would depend on what the caller's marker happens to contain.
-    text = _USERINFO.sub(lambda m: m.group(1) + userinfo, text)
+    text = _USERINFO.sub(lambda m: m.group(0) if userinfo and m.group(0)[len(m.group(1)):] == "git@"
+                         else m.group(1) + userinfo, text)
     text = _AUTHORIZATION.sub(lambda m: (m.group(1) or m.group(2)) + WITHHELD_CREDENTIAL, text)
     text = _CREDENTIAL_SHAPES.sub(WITHHELD_CREDENTIAL, text)
     for secret in _secrets_of_this_process():

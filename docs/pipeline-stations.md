@@ -121,7 +121,7 @@ is not a link; a reference definition, `[1]: https://…`, shows as text with it
 An indented code block shows the escapes. Each `@name` it shows is put in a code span so nobody
 is notified, and each `#N` it shows reads `card N`. A credential in its words — a forge or vendor
 token by its prefix, the value of an `Authorization` header, a URL's userinfo (a username too,
-since a token can ride there), or a secret the process holding the job has — is shown as
+since a token can ride there, but not the `git` of an SSH remote), or a secret the process holding the job has — is shown as
 `[credential withheld]`, in the quote and in each pass line, and the claim above the quote says
 so. Each later pass that
 pushes (a recovery, a gate, suppression or review repair, an adjust, a CI repair) adds one line
