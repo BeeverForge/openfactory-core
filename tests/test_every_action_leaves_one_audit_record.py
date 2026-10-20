@@ -11,7 +11,8 @@ auditor could read back.
 
 WHAT HOLDS NOW, in this file: the record is a type with every field the issue names (read off the
 type, not its source), it cannot be changed once made, and it names the product a project belongs
-to when there is one.
+to when there is one, and the identity provider that named the caller is the one the transport
+resolved — the panel's provider, or the shell login on the command line.
 """
 
 from __future__ import annotations
@@ -91,3 +92,75 @@ def test_a_project_with_a_product_names_it_and_one_without_leaves_it_empty(regis
     assert _record({"project": "alone"}).product == ""
     nobody = _record({"project": "nosuch"}, actions.refused(actions.NOT_FOUND, "no such project"))
     assert (nobody.project, nobody.product) == ("nosuch", "")
+
+
+# ── which identity provider named the caller ─────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def recorded(monkeypatch):
+    """The records the calls made in this test leave, in order.
+
+    Wraps the real `actions.perform` — which every transport reaches through the module attribute
+    (`api/app.py::act`, `cli.py::act_cmd`) — and makes the record from exactly what it was given
+    and what it returned, as `perform` itself does (`AuditRecord.of(name, by, params, outcome)`).
+    What this holds is what the TRANSPORT put on `by`; that `perform` writes the record on every
+    path is the parametrised test's claim, not this one's."""
+    from openfactory.observability.audit import AuditRecord
+
+    real = actions.perform
+    out: list = []
+
+    async def spy(name, *, by, **params):
+        outcome = await real(name, by=by, **params)
+        out.append(AuditRecord.of(name, by, params, outcome))
+        return outcome
+
+    monkeypatch.setattr(actions, "perform", spy)
+    return out
+
+
+def test_the_panel_records_which_identity_provider_named_the_caller(registry, recorded,
+                                                                     monkeypatch):
+    """Criterion 1, "identity provider and transport": through the real FastAPI app, a person's own
+    token is recorded as the `local` provider's, and the shared token as `anonymous` — never the
+    same word for both. Before #694 the panel resolved the `Subject` and dropped it in `_actor_of`
+    (`Actor` had no field for it), so the record could only say `provider=""` for every caller."""
+    from fastapi.testclient import TestClient
+
+    from openfactory.api.app import app
+
+    for name in ("OPENFACTORY_PANEL_TOKEN", "OPENFACTORY_PANEL_TOKENS", "OPENFACTORY_IDENTITY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENFACTORY_PANEL_TOKENS", "mine:alice:Alice Ferreira")
+    monkeypatch.setenv("OPENFACTORY_PANEL_TOKEN", "shared")
+    client = TestClient(app)
+
+    for token in ("mine", "shared"):
+        client.post("/api/act/product_status", json={"params": {"project": "nosuch"}},
+                    headers={"Authorization": f"Bearer {token}"})
+
+    assert [(r.action, r.via) for r in recorded] == [("product_status", "panel")] * 2, recorded
+    alice, shared = recorded
+    assert (alice.provider, alice.actor_id) == ("local", "alice"), alice
+    assert (shared.provider, shared.actor_id) == ("anonymous", ""), shared
+
+
+def test_the_command_line_records_the_shell_login_as_its_own_provider(registry, recorded,
+                                                                      monkeypatch):
+    """Criterion 1, for the CLI: `openfactory act` is recorded under the provider `cli` and the
+    shell login, as ADR-0057 D1 spells the CLI's subject (`Subject(id=<shell login>, via="cli")`).
+    Before #694 the CLI built a bare `Actor(via="cli")` with no subject, so the record said
+    `provider=""` — indistinguishable from a transport that resolved nobody."""
+    import getpass
+
+    from typer.testing import CliRunner
+
+    from openfactory.cli import app
+
+    monkeypatch.setattr(getpass, "getuser", lambda: "carol")
+    result = CliRunner().invoke(app, ["act", "product_status", "-p", "nosuch"])
+
+    assert result.exit_code == 1, result.output  # the project is unknown: a refusal, recorded
+    [record] = recorded
+    assert (record.via, record.provider, record.actor_id) == ("cli", "cli", "carol"), record
