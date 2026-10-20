@@ -667,10 +667,14 @@ def _account_of(result: RunResult) -> _Account:
 
 
 def _pass_words(res: AgentRunResult) -> str:
-    """A later pass's own words on one line: its whole final message with whitespace runs folded,
-    cut at `AGENT_PASS_WORDS_MAX` like the `agent finished:` note, THEN neutralised — cutting
-    after the wrapping could leave a name outside a cut-open code span."""
-    words = " ".join(final_text(res).split())
+    """A later pass's own words on one line: its whole final message with credentials withheld,
+    whitespace runs folded, cut at `AGENT_PASS_WORDS_MAX` like the `agent finished:` note, THEN
+    neutralised — cutting after the wrapping could leave a name outside a cut-open code span.
+
+    Withheld FIRST (#885): after the fold, a key of this process that spans lines is never found
+    whole; after the cut, a token the cut split leaves a head too short for any shape (a token at
+    character 190 published `ghp_q7SECR`); after neutralising, `_` is escaped (see `_quoted`)."""
+    words = " ".join(_without_credentials(final_text(res)).split())
     if not words:
         return "the pass ended without a final message"
     cut = words[:AGENT_PASS_WORDS_MAX]
