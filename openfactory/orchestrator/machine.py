@@ -454,6 +454,14 @@ def _review_lines(r: ReviewResult) -> list[str]:
 # by line prefix, so an agent row that started `## Review — ` or `Cost: $` would be read as the
 # platform's. And every plain row after a quote follows a blank row: CommonMark's lazy continuation
 # would otherwise pull the next platform row — the `Cost:` line included — into the quote.
+#
+# A CREDENTIAL IN THE AGENT'S WORDS IS WITHHELD BEFORE ANYTHING ELSE TOUCHES THEM (#885). Until
+# then a token the agent pasted, an `Authorization` value from a `curl` it ran, or a clone URL's
+# password went to the forge as written. `_without_credentials` shows each as
+# `[credential withheld]`, a URL's userinfo included, on the RAW text: in `_quoted` before the
+# lines are split and neutralised, in `_pass_words` before the fold and the cut — neutralising
+# escapes `_` (no prefix matches `ghp\_`), keeps a link's destination raw, and the fold and the
+# cut break a secret that spans lines or straddles character 200. The claim says so.
 
 #: Withholding credentials made "as it wrote it." false on its own (#885): it says what was changed.
 _CLAIM = ("This is the implementing agent's own account, as it wrote it, with any credential in it "

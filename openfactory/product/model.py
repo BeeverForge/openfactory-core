@@ -273,7 +273,8 @@ def scrub_spend(text: str) -> str:
 
 
 #: A credential by its shape — the forges', the chat vendors', the clouds' and the model vendors'
-#: own prefixes — and a URL carrying userinfo, which is how a clone URL holds a token.
+#: own prefixes — and a URL carrying userinfo, which is how a clone URL holds a token. Read by a
+#: facts file, a briefing, a refused source, and the pull request body's quote of the agent (#885).
 _CREDENTIAL_SHAPES = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}"
     r"|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,})")
@@ -294,12 +295,14 @@ WITHHELD_CREDENTIAL = "[credential withheld]"
 
 
 def scrub_credentials(text: str, *, userinfo: str = "") -> str:
-    """`text` with every credential this process holds, and every credential-shaped string,
-    withheld. A facts file is read by a model and written to a workspace; a token in one is a token
-    handed to whatever reads that directory.
+    """`text` with every credential this process holds, and every credential-shaped string —
+    a token by its prefix, the value of an `Authorization` header — withheld. A facts file is read
+    by a model and written to a workspace; a token in one is a token handed to whatever reads that
+    directory. The pull request body quotes the agent through it too (#885).
 
     A URL's userinfo is replaced by `userinfo`: nothing by default, so a facts file keeps a usable
-    URL; a reader who must be told something was withheld passes the marker."""
+    URL, silently; the pull request body passes the marker, because its reader must be told
+    something was withheld, and "absent" and "withheld" are different facts."""
     # A function, not a template: a template reads every backslash of `userinfo` as an escape or a
     # group (`re.sub("(a)", r"\1x\d", "a")` raises `bad escape \d`, Python 3.12), so the text
     # would depend on what the caller's marker happens to contain.

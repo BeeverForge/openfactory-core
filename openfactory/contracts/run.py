@@ -324,7 +324,8 @@ class RunResult(BaseModel):
     #: `AGENT_ACCOUNT_HEADING` for the person deciding, and nothing else: `merge_policy` never
     #: reads them, no gate does, and the reviewer is never handed them (ADR-0001 D-5, D-11).
     #: Empty on a result from before them, which the body says as "wrote nothing" — nothing was
-    #: carried.
+    #: carried. RAW HERE, credentials and all: a credential in them is withheld when they are
+    #: quoted into the body (`_quoted`, `_pass_words`, #885), not on this payload.
     agent_account: str = ""
     agent_account_chars: int = 0
     agent_passes: list[PassAccount] = Field(default_factory=list)
