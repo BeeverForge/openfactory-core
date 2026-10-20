@@ -40,6 +40,13 @@ property, each aimed at the row that holds it:
      when git names no path, so a changed tree reads as nothing written. P4 drops the `SHOWN`
      bound, so 25 paths are named with no "and 5 more". P5 drops `--no-renames`, so a `git mv`
      names only the path it came to.
+  8. **What is measured is what is pushed** (review round 2 on dc0efac4, point 2: `publish_branch`
+     pushes the job's branch by name, and a planner that moved it alone was not held). B1 reads no
+     ref HEAD is on, so a planner that checks out `elsewhere` is not held. B2 reads no job branch,
+     so the reviewer's double (HEAD detached where it stood, the branch moved to a commit carrying
+     `planted.txt`) is held by the ref alone and names no path. B3 tells the fingerprint no branch
+     name, with the same effect. B4 and B5 drop the moved ref's entry, and the moved branch's, from
+     what `written` names.
 
 HOW THE CUTS DIFFER FROM THE PLAN'S SKETCH (task 17), because the code differs from it:
   - `fingerprint` returns `Mark | Unreadable`, not `Mark | None`. U1 removes `rc == 0` from the
@@ -51,7 +58,9 @@ HOW THE CUTS DIFFER FROM THE PLAN'S SKETCH (task 17), because the code differs f
     for the commit. `written` refuses `''` with `ValueError`. And the existing commit row is
     caught by the tree alone, because the committed file is in the tree `git add -A` would commit.
     F2 keeps the mark well-formed, with the tree in place of HEAD, and is aimed at a row where only
-    HEAD moved: a planner that commits a file and then deletes it.
+    HEAD moved: a planner that commits a file and then deletes it. Since round 2 the job's branch
+    moves with HEAD there and still holds the job under F2; the row goes red because the hold no
+    longer says "a commit made during the pass" (a branch that moves with HEAD is said by HEAD).
   - F3 hashes the porcelain rather than printing it raw, so the mark stays two hashes. Raw
     porcelain would make every mark `Unreadable`, not unseen.
   - U2, U3, U4 and U5 are not in the sketch. U2 and U3/U4 hold the two `Unreadable` branches the
@@ -80,6 +89,9 @@ REAL_INDEX = TEST + "::test_the_fingerprint_leaves_the_real_index_and_no_copy_be
 NO_NAMES = TEST + "::test_a_tree_that_changed_holds_even_when_git_names_no_path"
 MANY = TEST + "::test_a_planner_that_writes_many_files_is_named_up_to_the_bound"
 RENAME = TEST + "::test_a_planner_that_renames_a_file_holds_the_job_naming_both_paths"
+MOVES_BRANCH = TEST + "::test_a_planner_that_moves_the_job_branch_holds_the_job_naming_it[{}]"
+OTHER_BRANCH = TEST + ("::test_a_planner_that_puts_head_on_another_branch_holds_the_job_naming_it"
+                       "[{}]")
 AS_ENVIRONMENT = TEST + "::test_a_workspace_that_cannot_be_asked_is_held_as_the_environment[{}]"
 
 BASE = "openfactory/adapters/agent/base.py"
@@ -170,6 +182,10 @@ _SETUP_TO_BEFORE = (
     'tree\n'
     '                # hashes differed, and a planner `git commit` left porcelain clean with HEAD '
     'moved.\n'
+    "                # It also reads the ref HEAD is on and the job's branch, which "
+    '`publish_branch`\n'
+    '                # pushes by name: on dc0efac4 a planner that moved that branch alone was not '
+    'held.\n'
     + _GATE + _BEFORE
 )
 
@@ -189,8 +205,8 @@ MUTATIONS = [
      """'GIT_INDEX_FILE="$t" git add -u && """,
      CREATE),
     ("F2 HEAD is not read: the mark carries the tree in its place", PASS,
-     "            return Mark(tree=tree, head=head)\n",
-     "            return Mark(tree=tree, head=tree)\n",
+     "        mark = Mark(tree=lines[-4], head=lines[-3], head_ref=lines[-2], branch=lines[-1])\n",
+     "        mark = Mark(tree=lines[-4], head=lines[-4], head_ref=lines[-2], branch=lines[-1])\n",
      COMMIT_AND_DELETE),
     ("F3 the mark is the porcelain, hashed, not the tree `git add -A` would commit", PASS,
      """'GIT_INDEX_FILE="$t" git add -A && GIT_INDEX_FILE="$t" git write-tree; rc=$?; '""",
@@ -199,8 +215,8 @@ MUTATIONS = [
 
     # ── 3. could not see is never clean ──────────────────────────────────────────────────────────
     ("U1 the exit code is ignored: a walled answer ending in two hashes reads as a mark", PASS,
-     "    if rc == 0 and len(lines) >= 2:\n",
-     "    if len(lines) >= 2:\n",
+     "    if rc == 0 and len(lines) >= 4:\n",
+     "    if len(lines) >= 4:\n",
      WALLED),
     ("U2 an unreadable workspace before the pass no longer stops it being run", MACHINE,
      _HOLD_BEFORE, "",
@@ -284,8 +300,8 @@ MUTATIONS = [
      """'git add -A && git write-tree; rc=$?; '""",
      REAL_INDEX),
     ("P2 the index copy is left in the git dir: `rm -f \"$t\"` dropped", PASS,
-     """'rm -f "$t"; git rev-parse HEAD || rc=1; exit $rc'""",
-     """'git rev-parse HEAD || rc=1; exit $rc'""",
+     """'rm -f "$t"; git rev-parse HEAD || rc=1; '""",
+     """'git rev-parse HEAD || rc=1; '""",
      REAL_INDEX),
     ("P3 a changed tree git names no path for reads as nothing written", PASS,
      '        return [f"{what}, and git named no path ({said})"]\n',
@@ -299,4 +315,30 @@ MUTATIONS = [
      '(f"git -c core.quotePath=false diff --no-renames --name-only "',
      '(f"git -c core.quotePath=false diff --name-only "',
      RENAME),
+
+    # ── 8. what is measured is what is pushed (review round 2 on dc0efac4, point 2) ─────────────
+    ("B1 the ref HEAD is on is not read: every mark says detached", PASS,
+     "head_ref=lines[-2], branch=lines[-1])\n",
+     "head_ref=DETACHED, branch=lines[-1])\n",
+     OTHER_BRANCH.format("worktree")),
+    ("B2 the job branch's commit is not read: every mark says absent", PASS,
+     "head_ref=lines[-2], branch=lines[-1])\n",
+     "head_ref=lines[-2], branch=ABSENT)\n",
+     MOVES_BRANCH.format("worktree")),
+    ("B3 the fingerprint is not told the job's branch: `$b` is empty", PASS,
+     '    command = f"b={shlex.quote(ws.branch)}; {FINGERPRINT}"\n',
+     "    command = FINGERPRINT\n",
+     MOVES_BRANCH.format("worktree")),
+    ("B4 the ref HEAD moved to is not named in the hold", PASS,
+     "    if before.head_ref != after.head_ref:\n"
+     '        names.append(f"HEAD moved during the pass from {_on(before.head_ref)} to "\n'
+     '                     f"{_on(after.head_ref)}")\n',
+     "    if before.head_ref != after.head_ref:\n"
+     "        pass\n",
+     OTHER_BRANCH.format("worktree")),
+    ("B5 the moved job branch is not named in the hold, only the paths its commit carries", PASS,
+     '        names.append(f"the job\'s branch {ws.branch} (the one pushed) moved during the pass "\n'
+     '                     f"from {before.branch[:12]} to {after.branch[:12]}")\n',
+     "",
+     MOVES_BRANCH.format("worktree")),
 ]

@@ -110,7 +110,8 @@ request, and a planner that wrote and then hit a rate limit had its
 edit pushed to the job's branch by the pause. With `--sandbox worktree` that workspace is itself on
 the host. So the orchestrator now measures that workspace around a Kimi plan pass
 (`orchestrator/read_only_pass.py`: the tree `git add -A` would commit, written from a copy of the
-index, and HEAD, before the pass and after it) and holds the job when the pass wrote, naming the
+index, HEAD, the ref HEAD is on and the commit of the job's branch, the one that is pushed, before
+the pass and after it) and holds the job when the pass wrote, naming the
 paths, before the pause, the commit or the push; the job stops before pushing anything, and the
 workspace is discarded with the sandbox. A workspace git cannot answer holds the job too, with
 git's exit code and its words, and before the pass is run when the first reading fails. The hold

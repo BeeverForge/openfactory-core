@@ -597,3 +597,44 @@ def test_a_planner_that_renames_a_file_holds_the_job_naming_both_paths(repo, tmp
     agent, events = _Planner("git mv README.md DOCS.md"), InMemoryEventSink()
     runner, result = _run(repo, agent, WorktreeSandbox(root=tmp_path / "wt"), events=events)
     _assert_held_naming(runner, result, agent, events, tmp_path, ["README.md", "DOCS.md"])
+
+
+# ── 1k: what is measured is what is pushed (review round 2 on dc0efac4, point 2) ─────────────────
+# `publish_branch` pushes the job's branch BY NAME (`worktree.py`, `container.py`: `git push
+# --force <remote> <workspace.branch>`), and the mark read HEAD's commit and the tree only. On
+# dc0efac4 (2026-10-20) the reviewer's double left both as they were and moved the job's branch:
+# the job was not held, and the pushed branch was the planner's commit, not the executor's.
+
+#: The reviewer's double: a commit carrying `planted.txt` is written without touching the index or
+#: the working tree, HEAD is detached where it stood, and the job's branch is moved to the commit.
+#: HEAD's commit and the tree `git add -A` would commit read the same before and after.
+MOVES_THE_JOB_BRANCH = (
+    'b="$(git symbolic-ref HEAD)" && '
+    'blob="$(echo planted | git hash-object -w --stdin)" && '
+    'tree="$( (git ls-tree HEAD; printf "100644 blob %s\\tplanted.txt\\n" "$blob") | git mktree)" && '
+    'c="$(git -c user.name=p -c user.email=p@p commit-tree "$tree" -p HEAD -m planner)" && '
+    'git checkout -q --detach && git update-ref "$b" "$c"'
+)
+
+
+def test_a_planner_that_moves_the_job_branch_holds_the_job_naming_it(repo, tmp_path, box):
+    """1k, the job's branch. The planner leaves HEAD's commit and the tree as they were and moves
+    the job's branch to a commit of its own carrying `planted.txt`. On 808b3825 the job was not
+    held: the executor committed on the detached HEAD, and `publish_branch` pushed the job's branch,
+    the planner's commit, to the forge. Held now, naming the branch and the path its commit
+    carries, with nothing pushed."""
+    agent, events = _Planner(MOVES_THE_JOB_BRANCH), InMemoryEventSink()
+    runner, result = _run(repo, agent, box, events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["planted.txt"])
+    assert "the job's branch" in (result.note or ""), (
+        f"the hold does not say the job's branch moved: {result.note}")
+
+
+def test_a_planner_that_puts_head_on_another_branch_holds_the_job_naming_it(repo, tmp_path, box):
+    """1k, the branch HEAD is on. The planner checks out a branch of its own where HEAD stood:
+    HEAD's commit, the tree and the job's branch are all as they were, and the executor's commit
+    would land on `elsewhere` while `publish_branch` pushes the job's branch without it. On
+    808b3825 nothing saw it. Held now, naming the branch HEAD was moved to."""
+    agent, events = _Planner("git checkout -q -b elsewhere"), InMemoryEventSink()
+    runner, result = _run(repo, agent, box, events=events)
+    _assert_held_naming(runner, result, agent, events, tmp_path, ["refs/heads/elsewhere"])

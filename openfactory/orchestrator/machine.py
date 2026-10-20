@@ -1477,6 +1477,8 @@ class JobRunner:
                 # would commit plus HEAD, not porcelain: measured on git 2.43.0 the same day,
                 # `?? u` read the same before and after a planner appended to it while the tree
                 # hashes differed, and a planner `git commit` left porcelain clean with HEAD moved.
+                # It also reads the ref HEAD is on and the job's branch, which `publish_branch`
+                # pushes by name: on dc0efac4 a planner that moved that branch alone was not held.
                 measured = getattr(self.agent, "name", "") in PLANNERS_READ_ONLY_BY_INSTRUCTION
                 before = fingerprint(self.sandbox, ws) if measured else None
                 if isinstance(before, Unreadable):
