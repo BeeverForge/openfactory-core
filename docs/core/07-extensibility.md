@@ -453,7 +453,7 @@ vendor_modules:
   - openfactory/adapters/tracker/github_board_setup.py  # stays — the `board_setup.github` row
   - openfactory/adapters/tracker/jira.py            # stays
   - openfactory/adapters/azure_devops.py            # stays — shared ADO plumbing for the three ADO adapters
-  - openfactory/adapters/github_app.py              # stays — GitHub App token minting, the `credential.github` row's mint
+  - openfactory/adapters/github_app.py              # stays — GitHub App token minting, the `credential.github` row's mint and its `installed_on` read
   - openfactory/observability/dynamo.py             # leaves — the DynamoDB face of the metrics axis; the `metrics.dynamodb` entry point
 vendor_packages:
   - openfactory/runtime/slack/                      # leaves — the chat channel's runtime (ADR-0038)

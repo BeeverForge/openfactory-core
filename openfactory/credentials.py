@@ -74,13 +74,63 @@ def app_id() -> str | None:
 def app_installation_id() -> str | None:
     """Which installation of the App this process acts as, or None.
 
-    ONE PROCESS, ONE INSTALLATION — and that is a real, undocumented limit rather than a design
-    (#64). The CHANNEL credential is per-project (`factory.notifier_for_project` reads the env var
-    the registry names), so one deployment hosts N projects across N Slack workspaces; the FORGE
+    ONE PROCESS, ONE INSTALLATION — a real limit, found under #64 and documented under #743. The
+    CHANNEL credential is per-project (`factory.notifier_for_project` reads the env var the
+    registry names), so one deployment hosts N projects across N Slack workspaces; the FORGE
     credential is process-wide, so the same deployment authenticates against exactly one GitHub
-    App installation. Two orgs need two processes today, and nothing states that anywhere a person
-    onboarding a project would look."""
+    App installation. Two orgs need two processes. Until #743 nothing stated that anywhere a person
+    onboarding a project would look; `docs/configuration.md` now states the rule and its reason,
+    and `openfactory doctor`'s `installation_scope` line checks it, comparing the account this
+    installation is on (`app_installation_account`) with the organisations the registry names."""
     return os.environ.get("OPENFACTORY_GH_APP_INSTALLATION_ID") or None
+
+
+def app_installation_account() -> tuple[str | None, str] | None:
+    """The account this deployment's App installation is on, as the reference vendor's credential
+    row reads it (`CredentialRow.installed_on`): `None` when no App is configured (or the row
+    declares no such read), `(login, "")` when read, `(None, reason)` when it could not be.
+
+    ASKED OF THE ROW, and reading no variable here: `app_id`, `app_private_key` and
+    `app_installation_id` above stay the only readers of the trio, and the row calls them."""
+    row = _row(_REFERENCE_KIND)
+    installed_on = getattr(row, "installed_on", None) if row is not None else None
+    return installed_on() if installed_on is not None else None
+
+
+def app_settings_set() -> int:
+    """How many of the App's three settings this process holds (`app_id`, `app_private_key`,
+    `app_installation_id`): 3 is an App, 0 is none, and 1 or 2 is an App that is not fully
+    configured — no App to mint on or to ask (`github_app.token_from_env`'s rule). The doctor's
+    `installation_scope` line says 1 or 2 as an App not fully configured, not as no App, and asks
+    whether a token is used instead of the App only of a full one (#743)."""
+    return sum(1 for value in (app_id(), app_private_key(), app_installation_id()) if value)
+
+
+def sources_instead_of_the_app(projects) -> list[str]:
+    """The credentials (`forge_credential_source` / `tracker_credential_source` identities) the
+    reference vendor's axes of `projects` use, when NONE of them is this deployment's own
+    (`deployment:<kind>`, the App) — `[]` when one of them is, or when none resolves at all.
+
+    WHY (#743, decided 2026-10-19). A static token wins over the App (`_axis_credential`: the
+    project's variable, then the vendor's, then the generic pair; the App only when none is set).
+    Measured on d744ba8 with the App trio and `OPENFACTORY_BOT_TOKEN` both set: every forge read
+    went through the token, and the doctor still asked the App which organisation it was on and
+    failed a working deployment with a mismatch the forge never meets."""
+    own = f"deployment:{_REFERENCE_KIND}"
+    found: list[str] = []
+    for project in projects:
+        axes = []
+        if forge_vendor(project) == _REFERENCE_KIND:
+            axes.append(forge_credential_source(project))
+        if (getattr(project, "tracker", None) is not None
+                and _kind_of(project.tracker) == _REFERENCE_KIND):
+            axes.append(tracker_credential_source(project))
+        for source in axes:
+            if source == own:
+                return []
+            if source and source not in found:
+                found.append(source)
+    return found
 
 
 def bot_identity() -> BotIdentity:
@@ -448,8 +498,14 @@ def forge_credential_source(project) -> str:
 
 
 def describe_source(source: str) -> str:
-    """A credential's identity (`forge_credential_source`) as the doctor says it."""
+    """A credential's identity (`forge_credential_source` or `tracker_credential_source`) as the
+    doctor says it. `generic:tracker` is the tracker's deployment-wide pair, named as such: the
+    `installation_scope` line feeds tracker identities here too, and said as the forge's pair it
+    named two variables that were not set (review round 2 of #743, measured on b1a7d2c)."""
     kind, _, name = source.partition(":")
+    if source == "generic:tracker":
+        return ("this deployment's own tracker token (`OPENFACTORY_TRACKER_TOKEN` / "
+                "`OPENFACTORY_BOT_TOKEN`)")
     return {
         "env": f"a stored secret (`{name}`)",
         "generic": "this deployment's own token (`OPENFACTORY_FORGE_TOKEN` / "

@@ -353,9 +353,12 @@ LEDGER: dict[tuple[str, str], str] = {
         "from its row (`plugins.environment`, `plugins.how_to`); the shipped ones are still here",
     ("openfactory/onboarding/deployment.py", "render"):
         "the same generator's blocks for the other two shipped vendors",
-    ("openfactory/registry.py", "_spanning_message"):
+    ("openfactory/registry.py", "spanning_message"):
         "one process holds one App installation, which belongs to one organisation: a limit of "
         "one vendor's credential, checked here by `github_owners`",
+    ("openfactory/registry.py", "installation_scope_line"):
+        "the same limit, said by the doctor: the App installation's account against the "
+        "organisations `github_owners` reads, and the vendor's variables that name the App",
     ("openfactory/registry.py", "_warn_foreign_pointers"):
         "the same limit, as a warning",
     ("openfactory/techlead/classify.py", "_RULES"):

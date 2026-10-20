@@ -33,15 +33,22 @@ def token_from_env() -> str | None:
     return mint_installation_token(app_id=aid, private_key=key, installation_id=inst)[0]
 
 
+def _app_jwt(app_id: str, private_key: str) -> str:
+    """The App's own JWT (RS256), the credential every App-level endpoint takes.
+
+    `iat` sixty seconds back absorbs a clock that runs a little fast; `exp` nine minutes ahead
+    stays inside GitHub's ten-minute ceiling for an App JWT."""
+    now = int(time.time())
+    return jwt.encode({"iat": now - 60, "exp": now + 540, "iss": app_id}, private_key,
+                      algorithm="RS256")
+
+
 def mint_installation_token(
     *, app_id: str, private_key: str, installation_id: str
 ) -> tuple[str, float]:
     """Sign an App JWT (RS256), exchange it for an installation token. Returns
     (token, expires_at_epoch)."""
-    now = int(time.time())
-    app_jwt = jwt.encode(
-        {"iat": now - 60, "exp": now + 540, "iss": app_id}, private_key, algorithm="RS256"
-    )
+    app_jwt = _app_jwt(app_id, private_key)
     r = httpx.post(
         f"https://api.github.com/app/installations/{installation_id}/access_tokens",
         headers={"Authorization": f"Bearer {app_jwt}", "Accept": "application/vnd.github+json"},
@@ -68,10 +75,7 @@ def installation_permissions(
     NEVER RAISES. A key that does not sign, a refused JWT, an unreachable API and an answer
     without `permissions` are all "could not read", which a certificate says as `unknown`."""
     try:
-        now = int(time.time())
-        app_jwt = jwt.encode(
-            {"iat": now - 60, "exp": now + 540, "iss": app_id}, private_key, algorithm="RS256"
-        )
+        app_jwt = _app_jwt(app_id, private_key)
         r = httpx.get(
             f"https://api.github.com/app/installations/{installation_id}",
             headers={"Authorization": f"Bearer {app_jwt}",
@@ -86,6 +90,56 @@ def installation_permissions(
     if not isinstance(granted, dict):
         return None
     return {str(k): str(v) for k, v in granted.items()}
+
+
+def installation_account(
+    *, app_id: str, private_key: str, installation_id: str, timeout: float = 10.0
+) -> tuple[str | None, str]:
+    """`(login, "")` of the account the installation is on, or `(None, why it could not be read)`.
+
+    `GET /app/installations/{id}`, signed with the App's JWT, as `installation_permissions` reads
+    it: the installation's own record, so nothing is minted to ask (a diagnostic that mints
+    spends). `openfactory doctor`'s `installation_scope` line compares the login with the
+    organisations the registry names (#743).
+
+    THE REASON IS CARRIED, unlike `installation_permissions`'s `None`. Measured 2026-10-19 against
+    api.github.com: no `Authorization` answers `401 Requires authentication`, a validly signed JWT
+    for an App GitHub does not know answers `404 Integration not found`, and an unroutable host
+    raises `httpx.ConnectTimeout`. A bare 404 does not say whether the App or the installation is
+    wrong; GitHub's `message` does, so the reason is `"<status> <message>"`.
+
+    TEN SECONDS, not the mint's thirty: the doctor waits on this read, once per run, and ten is the
+    bound it already gives `docker info`. A firewalled box gets a sentence within it.
+
+    NEVER RAISES. "Could not be read" and "read, and on another account" are different answers,
+    and the doctor says each in its own words."""
+    try:
+        app_jwt = _app_jwt(app_id, private_key)
+    except Exception as exc:  # noqa: BLE001 — a key that does not sign is a reason, not a crash
+        log.info("the App's JWT could not be signed", exc_info=True)
+        return None, f"the App's private key does not sign a JWT ({type(exc).__name__})"
+    url = f"https://api.github.com/app/installations/{installation_id}"
+    try:
+        r = httpx.get(url, headers={"Authorization": f"Bearer {app_jwt}",
+                                    "Accept": "application/vnd.github+json"},
+                      timeout=timeout)
+    except httpx.TimeoutException:
+        return None, f"{url} did not answer within {timeout:g} s (timed out)"
+    except Exception as exc:  # noqa: BLE001 — every transport failure is a reason the doctor says
+        log.info("the App installation could not be read", exc_info=True)
+        return None, f"{url} could not be reached ({type(exc).__name__}: {str(exc)[:120]})"
+    try:
+        data = r.json()
+    except ValueError:
+        data = None
+    if r.status_code == 200:
+        account = data.get("account") if isinstance(data, dict) else None
+        login = account.get("login") if isinstance(account, dict) else None
+        if isinstance(login, str) and login:
+            return login, ""
+        return None, "200, but the answer names no account login"
+    message = data.get("message") if isinstance(data, dict) else None
+    return None, f"{r.status_code} {message or r.reason_phrase}".strip()
 
 
 class GitHubAppTokenProvider:

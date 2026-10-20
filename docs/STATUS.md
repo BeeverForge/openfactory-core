@@ -81,9 +81,12 @@ recurring-failure detection and the open-loop ledger work with no DynamoDB. Unti
 the write half was wired: `SqliteMetricsSink.scan()` existed, was tested, and was called by
 nothing, so every reader answered "nothing recorded" over a file that was filling up.
 
-**`openfactory doctor`.** Nine checks always, plus the agent credential, the declared CI checks, the
-box proof and the API budget where those apply — each with its own remedy line. It is the first thing to run and the
-fastest way to find out which of the below applies to you.
+**`openfactory doctor`.** One line per check, each with its own remedy: Docker, the harness, the
+manifest, forge access, the deployment's installation scope, the board's columns, the merge gates
+and the rest always, plus the agent credential, the declared CI checks, the box proof and the API
+budget where those apply ([the CLI reference](reference/cli.md#openfactory-doctor-project) lists
+them). It is the first thing to run and the fastest way to find out which of the below applies to
+you.
 
 ---
 
@@ -173,7 +176,11 @@ The channel credential is per-project; the forge credential is process-global, b
 *installation* belongs to one org. One deployment serves one organisation, and that is now **enforced
 rather than assumed**: `openfactory project add` refuses a project in a second organisation, naming both
 orgs and the projects in each, and a hand-edited registry that spans two logs
-`OPENFACTORY_REGISTRY_SPANS_INSTALLATIONS` on every load.
+`OPENFACTORY_REGISTRY_SPANS_INSTALLATIONS` on every load. `openfactory doctor` fails its
+`installation_scope` line for a registry that spans two organisations, in the sentence the load
+logs, and for an App installation on another organisation than the one the registry names (#743); the rule
+and how to run one deployment per organisation are in
+[configuration.md](configuration.md#one-deployment-one-github-organisation).
 
 The load path WARNS rather than refusing, deliberately: that file is gitignored and baked into the
 worker image, so raising there would turn one stale line in an unreviewable file into a total outage

@@ -26,6 +26,10 @@ each optional:
               read at each use — the stored secret, a person's CLI login, or the workload's own
               identity (#373). Everything that asks "does this deployment hold a credential" asks
               it, so the doctor and the adapter answer from ONE function
+    installed_on  the ONE account this deployment's own credential is confined to, read from
+              the vendor (a GitHub App installation's organisation), for the doctor's
+              `installation_scope` line to compare with the registry (#743). Read for the
+              reference (GitHub) row ONLY: an add-on row that declares it is never asked
 
 and what to SAY when the credential is the problem — `when_missing`, `when_refused` — because a
 remedy is the vendor's own words (its variable, its login, its console, its recipe) and the
@@ -145,6 +149,24 @@ class CredentialRow:
     when_missing: str = ""
     when_refused: str = ""
 
+    #: The ONE account this deployment's own credential for the vendor is confined to, read from
+    #: the vendor: `None` when this deployment holds no such credential, `(login, "")` when it was
+    #: read, `(None, reason)` when it could not be. A row that declares nothing (`installed_on`
+    #: itself `None`) has no such confinement.
+    #:
+    #: ON THE ROW, NOT IN THE DOCTOR (#743), for the reason `when_missing` is: the doctor's
+    #: `installation_scope` line compares this account with the organisations the registry names,
+    #: and which credential is confined to one account, and how to ask it, is the vendor's to say.
+    #: A GitHub App installation belongs to one organisation or personal account, and the process
+    #: holds one installation id; that is why one deployment serves one organisation.
+    #:
+    #: READ FOR THE REFERENCE (GITHUB) ROW ONLY, so it is not an extension point:
+    #: `credentials.app_installation_account` asks `_row(_REFERENCE_KIND)` and no other row, and
+    #: the line compares with `registry.github_owners`, which reads only `github` axes. An add-on
+    #: row that declares `installed_on` is never asked (review round 1, 2026-10-19), which is why
+    #: `docs/writing-an-addon.md`'s table of row fields does not list it.
+    installed_on: Callable[[], tuple[str | None, str] | None] | None = None
+
 
 def _github() -> CredentialRow:
     """`env=""` on purpose: GitHub's default IS the generic pair (`OPENFACTORY_FORGE_TOKEN` /
@@ -166,8 +188,21 @@ def _github() -> CredentialRow:
 
         return discover_token()
 
+    def installed_on() -> tuple[str | None, str] | None:
+        # "AN APP IS CONFIGURED" HAS ONE RULE: all three of the trio, the one
+        # `github_app.token_from_env` mints on. An incomplete trio is no App here, as it is
+        # there (the #743 decision, 2026-10-19); `forge_access` already names a missing credential.
+        from openfactory.credentials import app_id, app_installation_id, app_private_key
+
+        aid, key, inst = app_id(), app_private_key(), app_installation_id()
+        if not (aid and key and inst):
+            return None
+        from openfactory.adapters.github_app import installation_account
+
+        return installation_account(app_id=aid, private_key=key, installation_id=inst)
+
     return CredentialRow(
-        env="", mint=mint, provider=provider, discover=discover,
+        env="", mint=mint, provider=provider, discover=discover, installed_on=installed_on,
         when_missing=("set OPENFACTORY_BOT_TOKEN (a PAT, to try things out) or the GitHub App "
                       "trio (OPENFACTORY_GH_APP_ID / _KEY or _KEY_CONTENT / _INSTALLATION_ID) "
                       "in the environment the worker reads — docs/setup/github.md is the "

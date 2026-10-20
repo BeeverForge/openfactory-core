@@ -75,12 +75,14 @@ SEED_REGISTRY_PATH = Path("/etc/openfactory/registry.seed.yaml")
 # `contracts/project.py` documents that as deliberate. The FORGE credential is not — the App's
 # installation id is a process-wide environment variable (`credentials.app_installation_id`), and
 # a GitHub App installation belongs to exactly ONE org. So one running process can only ever reach
-# one org's repositories, `Project` has no field that could say otherwise, and nothing said so
-# anywhere a person onboarding a project would look. The failure it produces is a 404 on a repo
-# the operator can see in their browser.
+# one org's repositories, and `Project` has no field that could say otherwise. Until #743 nothing
+# said so anywhere a person onboarding a project would look; `docs/configuration.md` §5 ("One
+# deployment, one GitHub organisation") now does. The failure it produces is a 404 on a repo the
+# operator can see in their browser.
 #
 # One deployment per organisation is the shape the platform is built for, so the limit is
-# defensible — it just has to be TRUE and SAID rather than discovered. This makes it both.
+# defensible — it just has to be TRUE and SAID rather than discovered. `add` refuses a second
+# organisation, `list` logs one, and `openfactory doctor`'s `installation_scope` line fails it.
 
 
 def github_owners(project: Project) -> set[str]:
@@ -112,19 +114,27 @@ def github_owners(project: Project) -> set[str]:
     return owners
 
 
+def owners_by_project(projects: list[Project]) -> dict[str, list[str]]:
+    """`{owner: [project names]}` over every project's `github_owners` — `{}` when no project
+    names a GitHub organisation. The one grouping: `spanning_installations` filters it, and
+    `openfactory doctor`'s `installation_scope` line compares it with the App's account (#743)."""
+    by_owner: dict[str, list[str]] = {}
+    for project in projects:
+        for owner in github_owners(project):
+            by_owner.setdefault(owner, []).append(project.name)
+    return by_owner
+
+
 def spanning_installations(projects: list[Project]) -> dict[str, list[str]]:
     """`{owner: [project names]}` when the set spans more than one org — otherwise empty.
 
     Empty is the answer for the healthy case AND for a registry with no GitHub projects at all,
     so a caller reads "falsy means fine" without a special case."""
-    by_owner: dict[str, list[str]] = {}
-    for project in projects:
-        for owner in github_owners(project):
-            by_owner.setdefault(owner, []).append(project.name)
+    by_owner = owners_by_project(projects)
     return by_owner if len(by_owner) > 1 else {}
 
 
-def _spanning_message(by_owner: dict[str, list[str]]) -> str:
+def spanning_message(by_owner: dict[str, list[str]]) -> str:
     """The sentence somebody can act on: both orgs, and which projects sit in each."""
     parts = [f"{owner} ({', '.join(sorted(names))})" for owner, names in sorted(by_owner.items())]
     return (
@@ -133,6 +143,72 @@ def _spanning_message(by_owner: dict[str, list[str]]) -> str:
         "belongs to one org, so the projects outside it would 404 on every forge read. Run one "
         "deployment per organisation, or remove the projects that do not belong to this one."
     )
+
+
+def installation_scope_line(by_owner: dict[str, list[str]],
+                            installed: tuple[str | None, str] | None, *,
+                            used_instead: tuple[str, ...] = (),
+                            app_incomplete: bool = False) -> tuple[bool, str, str]:
+    """`(ok, message, remedy)` for `openfactory doctor`'s `installation_scope` line (#743). Pure.
+
+    `by_owner` is `owners_by_project` over the WHOLE registry, because the installation is the
+    deployment's and not one project's. `installed` is `credentials.app_installation_account()`:
+    `None` when no App is configured, `(login, "")` when its installation was read, `(None,
+    reason)` when it could not be. `used_instead` is what the registry's GitHub projects use in
+    the App's place (`credentials.describe_source` of each), when no GitHub axis uses the App.
+    `app_incomplete` is an App with some, not all, of its three settings: not asked either.
+
+    In order: a registry that spans says `spanning_message`, the sentence the load path logs,
+    without asking the App; an App no GitHub project uses (a static token wins over it, decided
+    2026-10-19) is not applicable, naming what they use; an App not fully configured is not
+    applicable and says which settings it needs; no App is not applicable, and says so
+    first rather than passing as a verified scope (decided 2026-10-19: `openfactory.doctor/1`
+    keeps two results, so the wording carries it); an App that could not be read is a red line
+    with GitHub's own reason, never a pass (lesson §2); then the account is compared with the one
+    organisation the registry names.
+
+    THE COMPARISON IGNORES CASE, as GitHub's logins do: `Acme/api` in the registry and an
+    installation on `acme` are one account, and a case-sensitive test would fail a correct
+    deployment. `spanning_installations` still groups by the spelling (a separate defect)."""
+    from openfactory.doctor import NOT_APPLICABLE
+
+    if len(by_owner) > 1:
+        return (False, spanning_message(by_owner),
+                "run one deployment per organisation — each with its own App installation id, "
+                "registry and environment file — or remove the projects of the other "
+                "organisations from this one (`openfactory project remove <name>`)")
+    if installed is None and used_instead:
+        return (True, NOT_APPLICABLE + f"this deployment's GitHub projects use "
+                f"{' and '.join(used_instead)}, not the GitHub App, so its installation is not "
+                "what reaches them and was not asked which organisation it is on", "")
+    if installed is None and app_incomplete:
+        return (True, NOT_APPLICABLE + "the GitHub App is not fully configured "
+                "(OPENFACTORY_GH_APP_ID, the App's private key and "
+                "OPENFACTORY_GH_APP_INSTALLATION_ID are all needed), so no installation was asked "
+                "which organisation it is on", "")
+    if installed is None:
+        return (True, NOT_APPLICABLE + "no GitHub App installation is configured for this "
+                "deployment, so no installation was asked which organisation it is on", "")
+    login, reason = installed
+    if login is None:
+        return (False, f"the GitHub App installation could not be read: {reason}",
+                "check that OPENFACTORY_GH_APP_ID, the App's private key and "
+                "OPENFACTORY_GH_APP_INSTALLATION_ID name one App and one of its installations, "
+                "and that this machine reaches api.github.com — docs/setup/github.md")
+    if not by_owner:
+        return (True, f"the GitHub App installation is on {login}; no project in this registry "
+                "names a GitHub organisation, so there was nothing to compare", "")
+    owner, names = next(iter(by_owner.items()))
+    projects = ", ".join(sorted(names))
+    if owner.casefold() == login.casefold():
+        return (True, f"the GitHub App installation is on {login}, the organisation the "
+                f"registry's GitHub projects name ({projects})", "")
+    return (False, f"the GitHub App installation this deployment authenticates as is on {login}, "
+            f"and the registry names {owner} ({projects}): an installation reaches only its own "
+            "organisation's repositories, so every forge read of those projects would 404",
+            f"run one deployment per organisation — each with its own App installation id, "
+            f"registry and environment file — or remove {projects} from this registry "
+            f"(`openfactory project remove <name>`)")
 
 
 class ProjectRegistry:
@@ -331,13 +407,15 @@ class ProjectRegistry:
         The same argument is already written down one method up for `extra="ignore"`. This obeys
         it rather than contradicting it.
 
-        The positive, network-side twin is `doctor`'s `installation_scope` check, which asks the
-        App which org it is ACTUALLY installed on and compares — the one place that can tell a
-        spanning registry from a correct one without guessing.
+        The doctor says it as a failure: `openfactory doctor`'s `installation_scope` check fails a
+        spanning registry with this same sentence (`installation_scope_line`), and otherwise asks
+        the App which org it is ACTUALLY installed on and compares — the one place that can tell
+        an installation on another org from a correct one without guessing (#743). This load path
+        still only logs.
         """
         by_owner = spanning_installations(projects)
         if by_owner:
-            log.error("OPENFACTORY_REGISTRY_SPANS_INSTALLATIONS: %s", _spanning_message(by_owner))
+            log.error("OPENFACTORY_REGISTRY_SPANS_INSTALLATIONS: %s", spanning_message(by_owner))
 
     def get(self, name: str) -> Project:
         raw = self._load_raw()
@@ -385,7 +463,7 @@ class ProjectRegistry:
             would_be = [Project(**other) for other in raw.values()] + [project]
             spanning = spanning_installations(would_be)
             if spanning:
-                raise ValueError(_spanning_message(spanning))
+                raise ValueError(spanning_message(spanning))
             # ONE SLUG, ONE PROJECT (ADR-0050 D7). A preview's compose project, host names and
             # cookie are built from the project's slug; two projects whose names slug alike
             # (`Acme` and `acme`) would alias each other's previews on one daemon. Refused here,
