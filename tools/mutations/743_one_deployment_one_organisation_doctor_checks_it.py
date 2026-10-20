@@ -7,7 +7,8 @@ The claims, each held by one named test and broken here by one cut:
   not fully configured is said as such, not as no App; an App that could not be read is never a
   pass;
 - an App beside a static token that every GitHub axis uses instead is not applicable and is not
-  asked; one GitHub axis still on the App is enough for it to be asked (Q5, round 1);
+  asked; one GitHub axis still on the App, the forge or the tracker, is enough for it to be asked
+  (Q5, review rounds 1 and 2);
 - a registry that spans organisations fails the line in exactly the sentence the load path logs
   (`registry.spanning_message`), with or without an App;
 - the read is `GET /app/installations/{id}` signed with the App's own JWT — nothing is minted —
@@ -82,6 +83,12 @@ MUTATIONS = [
      "            if source == own:\n                return []",
      "            if source == own:\n                continue",
      f"{LINE}::test_a_github_axis_that_still_uses_the_app_asks_the_app"),
+
+    ("the forge axis no longer counts — a token on the tracker alone hides the App the forge uses",
+     CREDENTIALS,
+     "        if forge_vendor(project) == _REFERENCE_KIND:\n            axes.append(forge_credential_source(project))",
+     "        if False:\n            axes.append(forge_credential_source(project))",
+     f"{LINE}::test_a_token_on_the_tracker_alone_leaves_the_forge_on_the_app_and_the_app_is_asked"),
 
     # ── the spanning registry (S2) ──────────────────────────────────────────────────────────────
     ("the spanning branch is gone — a registry over two organisations reads not applicable",

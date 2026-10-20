@@ -190,6 +190,22 @@ def test_a_github_axis_that_still_uses_the_app_asks_the_app(monkeypatch):
     assert finding.ok is False and "othercorp" in finding.message, finding.message
 
 
+def test_a_token_on_the_tracker_alone_leaves_the_forge_on_the_app_and_the_app_is_asked(
+        monkeypatch):
+    """The mirror of the forge-only twin: `OPENFACTORY_TRACKER_TOKEN` answers the GitHub tracker,
+    and the forge, with no token of its own, mints on the App — so the installation IS what every
+    forge read goes through, and it is asked and compared."""
+    from openfactory.contracts.project import Project, ProviderRef
+
+    project = Project(name="demo", repo_path="/tmp/demo",
+                      tracker=ProviderRef(kind="github", repo="acme/demo"))
+    finding, asked = _line_from_the_live_probe(
+        monkeypatch, project, {**_APP_TRIO, "OPENFACTORY_TRACKER_TOKEN": "ghp_tracker_only"})
+
+    assert asked == ["7"]
+    assert finding.ok is False and "othercorp" in finding.message, finding.message
+
+
 def test_a_scope_probe_that_raises_is_a_red_line_not_a_crash():
     """The line's probe reads the whole registry, and a malformed sibling project makes `list()`
     raise `ValueError`. Measured in review round 1 on d744ba8: `doctor demo --json` then fails the
