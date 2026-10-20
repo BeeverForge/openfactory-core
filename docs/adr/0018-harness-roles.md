@@ -82,6 +82,24 @@ reachable per run and not used yet (#785): measured in the review of #783, it ta
 model's tool list, but its body replaces Kimi's whole system prompt and 0.31.1 refuses it beside
 `-S`, so adopting it is a design choice of its own.
 
+**Amended (2026-10-20, #788):** the two sentences under the table, on where a Kimi judging role
+could edit, are not what the code does. The
+judging roles never run in the box: every `ask()` caller builds its room with
+`sandbox/registry.py::judging_worktree`, which always returns a host `WorktreeSandbox`, so a
+question runs on the host even for a project whose jobs run in a container (measured on 620bb577
+by `tests/test_where_a_kimi_judging_role_runs_is_what_its_documents_say.py`, where a `kimi` that
+disobeys its instruction leaves its file in the host room). The rooms are a fresh temporary clone
+for the tech-lead's conversation and the diagnosis, a fresh temporary directory for the
+coordinator's advice, the cards and the documents extractor, the battery's workdir for the
+evaluation judge, the repo cache's master clone for the sizer and the product baseline, the
+module's cached view for the product role, a source clone for onboarding, and the target checkout
+for `env context --ask`. Each is a room nothing commits from, so a judging role's edit does not
+reach a pull request, but nothing but the harness confines a write to its room, and on Kimi
+nothing does. The planner is the other way round: it does run in the box, but on the job's own
+workspace, which the executor then works in and `_commit` sweeps with `git add -A`, so a Kimi
+planner's edit reaches the pull request. With `--sandbox worktree` that workspace is itself on the
+host.
+
 Everything above that primitive — the sizer, the diagnosis, the coordinator's advice, the Slack
 answer, the independent review — is **one shared implementation**. Parity by construction rather
 than by four more copies per harness.
