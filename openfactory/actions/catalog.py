@@ -401,25 +401,32 @@ async def _scan(*, project: str, by: Actor) -> Outcome:
     # counts BOTH fresh starts AND AlreadyStarted skips against the floor.
     started, skipped = [], []
     claimed = 0
-    for issue in todo:
-        if claimed >= slots:
-            skipped.append(issue)  # deferred — floor full, a later scan/tick picks it up
-            continue
-        try:
-            await client.start_workflow(
-                "JobWorkflow",
-                JobParams(project=proj.name, issue=issue, sandbox=scan_sandbox, image=scan_image,
-                          adjust_passes=proj.adjust_passes),
-                id=f"openfactory-{proj.name}-{issue}", task_queue=TASK_QUEUE,
-            )
-            started.append(issue)
-            claimed += 1
-        except Exception as exc:
-            if "AlreadyStarted" in type(exc).__name__:
-                skipped.append(issue)
-                claimed += 1  # this ticket already holds a slot — don't hand it to another
-            else:
-                raise
+    try:
+        for issue in todo:
+            if claimed >= slots:
+                skipped.append(issue)  # deferred — floor full, a later scan/tick picks it up
+                continue
+            try:
+                await client.start_workflow(
+                    "JobWorkflow",
+                    JobParams(project=proj.name, issue=issue, sandbox=scan_sandbox,
+                              image=scan_image, adjust_passes=proj.adjust_passes),
+                    id=f"openfactory-{proj.name}-{issue}", task_queue=TASK_QUEUE,
+                )
+                started.append(issue)
+                claimed += 1
+            except Exception as exc:
+                if "AlreadyStarted" in type(exc).__name__:
+                    skipped.append(issue)
+                    claimed += 1  # this ticket already holds a slot — don't hand it to another
+                else:
+                    raise
+    finally:
+        # THE PANEL RE-READS THE LIST 600 ms AFTER THIS BUTTON, inside the window the stream tick
+        # just filled: without this the jobs started here were missing from it (`view._a_write`
+        # holds the writes `view.py` makes; these are made here). On every exit: a start that
+        # raised may still have been taken, and the ones before it were.
+        tv.forget_jobs()
     if started:
         msg = f"Started {len(started)} job(s): " + ", ".join("#" + s for s in started)
         if skipped:
@@ -1315,6 +1322,12 @@ async def _stop(*, project: str, issue: str, by: Actor, reason: str = "") -> Out
                 FAILED,
                 f"could not stop #{issue}: {first_message(exc, limit=160)} — nothing was changed, "
                 f"and the floor is still held.")
+        finally:
+            # THE PANEL RE-READS THE LIST RIGHT AFTER THIS, inside the window the stream tick just
+            # filled: without this the stopped job stayed listed as running, Stop button and all
+            # (`view._a_write` holds the writes `view.py` makes; this one is made here). On every
+            # exit, as `_a_write` does: a terminate that raised may still have been taken.
+            tv.forget_jobs()
         return None
 
     moved = await _through_the_door(found, issue, CardEvent.STOPPED, by=by, why=why,

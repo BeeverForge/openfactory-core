@@ -40,9 +40,11 @@ MUTATIONS = [
      "                          adjust_passes=project.adjust_passes),\n",
      "                          language=str(getattr(project, \"language\", \"\") or \"\"), box=traits),\n"),
     ("the panel's scan starts a job without the project's budget", CATALOG,
-     "                JobParams(project=proj.name, issue=issue, sandbox=scan_sandbox, image=scan_image,\n"
-     "                          adjust_passes=proj.adjust_passes),\n",
-     "                JobParams(project=proj.name, issue=issue, sandbox=scan_sandbox, image=scan_image),\n"),
+     # re-pinned 2026-10-20: the start loop sits inside a try/finally that drops the job list (#754)
+     "                    JobParams(project=proj.name, issue=issue, sandbox=scan_sandbox,\n"
+     "                              image=scan_image, adjust_passes=proj.adjust_passes),\n",
+     "                    JobParams(project=proj.name, issue=issue, sandbox=scan_sandbox,\n"
+     "                              image=scan_image),\n"),
 
     # ── the seam every answer crosses ────────────────────────────────────────────────────────
     ("the seam delivers a pass the job would refuse", VIEW,

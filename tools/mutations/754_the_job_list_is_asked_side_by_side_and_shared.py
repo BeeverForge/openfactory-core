@@ -13,7 +13,8 @@ Claims, each held by the row named under it:
   - a reader within `LIST_TTL_S` of a scan that answered is handed its rows, a copy of its own,
     never across loops or clients, never a failure, and never past the window;
   - an engine remembered as silent refuses the list even when a list is remembered;
-  - a write through this process, and the stream's blip, drop the remembered list.
+  - a write through this process, and the stream's blip, drop the remembered list; the panel's
+    Stop and Scan TO-DO now, which write through `actions/catalog.py`, drop it there.
 
 THE DEFAULT TARGET IS ONE TEST, NOT THE FILE, and every row names its own test, so each cut is
 seen by the guard written for it. The reference's own row cuts the document the guard reads
@@ -32,6 +33,7 @@ TEST = ("tests/test_the_job_list_asks_about_its_jobs_eight_at_a_time.py::"
 VIEW = "openfactory/runtime/temporal/view.py"
 SINGLE_FLIGHT = "openfactory/util/single_flight.py"
 APP = "openfactory/api/app.py"
+CATALOG = "openfactory/actions/catalog.py"
 REFERENCE = "docs/reference/configuration.md"
 
 EIGHT = "tests/test_the_job_list_asks_about_its_jobs_eight_at_a_time.py::"
@@ -259,4 +261,18 @@ MUTATIONS = [
      "                _floor_reading.forget_intake()\n                tv.forget_jobs()\n",
      "                _floor_reading.forget_intake()\n",
      FRAME + "test_a_BLIP_does_not_carry_a_stale_job_list_across_it"),
+
+    ("the panel's Stop forgets nothing, so the stopped job is still listed as running", CATALOG,
+     "            # exit, as `_a_write` does: a terminate that raised may still have been taken.\n"
+     "            tv.forget_jobs()\n",
+     "            # exit, as `_a_write` does: a terminate that raised may still have been taken.\n"
+     "            pass\n",
+     AFTER + "test_the_panels_stop_is_seen_by_the_next_list"),
+
+    ("the panel's Scan forgets nothing, so the jobs it started are missing from the list", CATALOG,
+     "        # raised may still have been taken, and the ones before it were.\n"
+     "        tv.forget_jobs()\n",
+     "        # raised may still have been taken, and the ones before it were.\n"
+     "        pass\n",
+     AFTER + "test_the_panels_scan_is_seen_by_the_next_list"),
 ]

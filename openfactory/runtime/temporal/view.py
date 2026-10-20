@@ -246,7 +246,9 @@ def _a_write(fn):
     that looks as if it did nothing. ON EVERY EXIT, NOT ONLY A RETURN: a write that raised after
     the engine took it (a transport that gave up on the reply) changed the list as surely as one
     that answered, and dropping a list nothing changed costs one scan. A write made by another
-    process (the worker, the CLI) is not seen here; the window is its cost. One decorator rather
+    process (the worker, the CLI) is not seen here; the window is its cost. The panel's Stop and
+    Scan TO-DO now write from this process outside this module (`actions.catalog._stop`, `_scan`)
+    and call `forget_jobs` there, on every exit too. One decorator rather
     than a line in each write, so a write added later is one line to mark, and
     `tests/test_a_job_list_read_a_moment_ago_is_shared_and_never_across_loops.py` finds the writes
     by walking this file, not from a list."""
@@ -1284,8 +1286,8 @@ async def list_jobs(
         the breaker, the same sentence), its deadline cancels every question still asked before
         anyone is told, and a reader waits no longer than the scan it joined (#147's standing
         loop must not be left with queries running until the SDK gives up).
-      - `forget_jobs()` drops the answer: the stream's blip (#139) and every write this module
-        makes.
+      - `forget_jobs()` drops the answer: the stream's blip (#139), every write this module
+        makes, and the panel's Stop and Scan in `actions.catalog`.
       - A RATE LIMIT ON A NETWORK READ, NOT A DERIVED VALUE, so ADR-0023 ("the map is derived,
         not learned") does not reach it, as it does not reach `floor.reading.intake_cached`
         (engineering-lessons §11): what is held is how often the engine is asked, for a stated

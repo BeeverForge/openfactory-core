@@ -21,7 +21,8 @@ cost, each a claim below:
 - A WRITE THROUGH THIS PROCESS IS SEEN BY THE NEXT LIST (the PO's Q2, default): Approve, Merge or
   Resume followed by the panel's re-read would otherwise show the job as it was before the click
   for the rest of the window, a button that looks as if it did nothing. The writes are found by
-  walking `view.py`, not listed here, so a write added later is held without anybody remembering.
+  walking `view.py`, not listed here, so a write added later is held without anybody remembering;
+  the panel's Stop and Scan, which write through `actions.catalog` instead, are held by name.
 
 - ANOTHER QUESTION, A COPY OF ITS OWN, AND THE BREAKER FIRST: the key is the question too, an
   asker inside the window may edit its rows without editing the next asker's, and an engine
@@ -311,3 +312,111 @@ async def test_a_write_through_this_process_is_seen_by_the_next_list(write, monk
 
     assert engine.scans == 2, f"the list after `{write}` was the one from before it"
     assert scans_of(after) == {"2"}
+
+
+# ── the panel's own writes, outside `view.py` ──────────────────────────────────────────────────
+#
+# The walk above reads `view.py` alone. Two buttons write `JobWorkflow`s from the panel's process
+# through the action catalogue instead: Stop (`catalog._stop`, a handle's `terminate`) and Scan
+# TO-DO now (`catalog._scan`, `client.start_workflow`), which the panel follows with a re-read of
+# `/api/temporal/jobs` 600 ms later (`panel.html`). Measured at review on 9e282ff: the list after
+# Stop was the one from before it (`assert 1 == 2` scans). They are held here by name.
+
+class _Tracker:
+    """The ticket `_stop` settles, at a state the door accepts; every write a no-op."""
+
+    def get_ticket(self, ref):
+        return SimpleNamespace(state="open", title="t", raw="")
+
+    def set_state(self, ref, state, reason=None, **_kw):
+        pass
+
+    def comment(self, ref, body):
+        pass
+
+
+class _Board:
+    """One card in TO-DO, so `_scan` has exactly one job to start."""
+
+    def pickup_column(self) -> str:
+        return "TO-DO"
+
+    def items_in_status(self, status: str) -> list[str]:
+        return [WRITTEN]
+
+
+def _a_panel_admin():
+    from openfactory.actions.base import Actor
+
+    return Actor(id="rob", display="Rob", via="panel", admin=True)
+
+
+def _engine_through_the_catalogue(monkeypatch, engine: CountedEngine) -> None:
+    from openfactory.actions import catalog
+
+    async def connected():
+        return engine, None
+
+    monkeypatch.setattr(catalog, "_connected", connected)
+
+
+async def test_the_panels_stop_is_seen_by_the_next_list(monkeypatch):
+    """Criterion 5 with the PO's Q2 default, for the panel's Stop. A list, a Stop the engine
+    takes, and a list inside the window: the second list is a fresh scan. Red on 9e282ff (the
+    list after the Stop was the one from before it, 1 scan where 2 are required)."""
+    from openfactory.actions import catalog
+
+    engine, terminated = CountedEngine(), []
+    real = engine.get_workflow_handle
+
+    def handle(wf_id, run_id=None):
+        h = real(wf_id, run_id)
+
+        async def terminate(reason=""):
+            terminated.append(wf_id)
+
+        h.terminate = terminate
+        return h
+
+    engine.get_workflow_handle = handle
+    _engine_through_the_catalogue(monkeypatch, engine)
+    monkeypatch.setattr(catalog, "_board_pair",
+                        lambda name: (SimpleNamespace(name=PROJECT), _Tracker(), None, None))
+
+    await tv.list_jobs(engine, "default")
+    out = await catalog._stop(by=_a_panel_admin(), project=PROJECT, issue="3")
+    assert terminated, f"the Stop never reached the engine, so this proves nothing: {out.message}"
+    after = await tv.list_jobs(engine, "default")
+
+    assert engine.scans == 2, "the list after the panel's Stop was the one from before it"
+    assert scans_of(after) == {"2"}
+
+
+async def test_the_panels_scan_is_seen_by_the_next_list(monkeypatch):
+    """Criterion 5 with the PO's Q2 default, for the panel's Scan TO-DO now. A list, a scan that
+    starts the one TO-DO card, and a list inside the window: the second list is a fresh scan. The
+    button's own floor count is a listing too (scan 2), so the list after it must be scan 3. Red
+    on 9e282ff (the list after the Scan was scan 1's)."""
+    from openfactory.actions import catalog
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.registry import ProjectRegistry
+
+    project = Project(name=PROJECT, repo_path="/tmp/books",
+                      tracker=ProviderRef(kind="github", repo="o/books",
+                                          options={"board_owner": "o", "board_number": "1"}))
+    monkeypatch.setattr(ProjectRegistry, "get", lambda self, name: project)
+    monkeypatch.setattr("openfactory.credentials.tracker_token", lambda: "tok")
+    monkeypatch.setattr("openfactory.factory.resolve_box_image", lambda *_a, **_kw: "an-image")
+    monkeypatch.setattr("openfactory.adapters.board.build_board", lambda *_a, **_kw: _Board())
+    monkeypatch.setattr("openfactory.runtime.temporal.max_concurrent_jobs", lambda: 100)
+    engine = CountedEngine()
+    _engine_through_the_catalogue(monkeypatch, engine)
+
+    await tv.list_jobs(engine, "default")
+    out = await catalog._scan(by=_a_panel_admin(), project=PROJECT)
+    assert engine.writes == [("start", tv.job_id(PROJECT, WRITTEN))], (
+        f"the Scan started nothing, so this proves nothing: {out.message}")
+    after = await tv.list_jobs(engine, "default")
+
+    assert engine.scans == 3, "the list after the panel's Scan was the one from before it"
+    assert scans_of(after) == {"3"}
