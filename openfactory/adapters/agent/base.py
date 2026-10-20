@@ -419,7 +419,10 @@ def json_envelope(out: str) -> dict | None:
 
     `None` when there is genuinely no object to find, so the caller can still tell "said nothing
     parseable" from "said a verdict". Trailing prose is tolerated too (`raw_decode` stops at the
-    end of the value), because the same reasoning applies to whatever a CLI appends."""
+    end of the value), because the same reasoning applies to whatever a CLI appends.
+
+    The Claude reviewer now streams and reads `result_event` first; this is its fallback for a CLI
+    that answers with one envelope (an older CLI, every test double)."""
     decoder = json.JSONDecoder()
     for start in _object_starts(out or ""):
         try:
@@ -501,6 +504,34 @@ def json_objects(out: str):
             continue
         if isinstance(value, dict):
             yield value
+
+
+def result_event(out: str) -> dict | None:
+    """The stream's terminal `type == "result"` event: the LAST one, `None` when there is none.
+
+    `claude -p --output-format stream-json --verbose` prints an init event first, then assistant
+    and user messages (tool output included), then the result event — the same object, with the
+    same keys (`is_error`, `num_turns`, `total_cost_usd`, `usage`, `result`), that
+    `--output-format json` prints alone (measured on the pinned 2.1.219 and on 2.1.303,
+    2026-10-19). Without `--verbose` the CLI refuses `stream-json` under `-p`
+    (`Error: When using --print, --output-format=stream-json requires --verbose`, exit 1).
+    `json_envelope` returns the first object, which in a stream is the init event; so a reader of
+    a stream asks for this one, and the LAST match wins because the result closes the run and a
+    later event (a `rate_limit_event`, a `system` line) is not a result.
+
+    `None` means "no terminal event in this output", which a caller falls back from (a CLI that
+    answered with one envelope without a `type`), never `{}`: "could not see" and "there is
+    nothing" do not share a value. Built on `json_objects`, so banners and a truncated last line
+    are tolerated as they are there.
+
+    Not used by `ClaudeCodeAdapter._parse_stream` or `final_text`: the first also gathers actions
+    and the session id from the same pass (and is being changed by #750), the second skips a
+    result whose text is empty by design."""
+    found = None
+    for obj in json_objects(out):
+        if obj.get("type") == "result":
+            found = obj
+    return found
 
 
 def prose_only(out: str) -> str:
