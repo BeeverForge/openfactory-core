@@ -537,6 +537,13 @@ Both are **harness-neutral role prompts** in `openfactory/org_defaults/roles/pla
 `kimi -p`). That's what keeps the pipeline portable: the roles are the source of truth, the
 adapter is the projection. **Which harness** renders them is §11.
 
+On Kimi Code the planner is read-only by instruction only, so the orchestrator fingerprints the
+job's workspace before and after a Kimi planner pass, and a pass that wrote to it holds the job,
+naming the files it wrote: the job stops before pushing anything, and the executor never builds on
+the edit. A workspace git cannot answer holds the job too, in git's own words, and before the
+planner is run when it cannot be asked first. The planner runs only where `planner_stage` is on
+(ADR-0014; it is off by default).
+
 - **Customize a role:** edit the neutral prompt (`openfactory/org_defaults/roles/*.md`). It reaches
   the workers on the next image build/deploy; locally it takes effect immediately.
 - **A model per role** (plan cheap/fast, execute strong) — env vars the adapter reads:
@@ -652,8 +659,8 @@ harness would otherwise cost a rebuild and a roll). Don't configure a deployment
 - **Codex** has completed real tickets, but its plumbing is not yet at parity: no credential pool,
   no durable cross-container resume, no transcript writing. The *roles* are at parity.
 - **Kimi is wired but unproven** — no observed stream output yet. Its read-only roles are also
-  weaker: instruction only, with no mode and no policy. The planner runs on the job's workspace,
-  so a file it writes reaches the pull request; the questions run on the host, in a directory
+  weaker: instruction only, with no mode and no policy. A planner pass that writes to the job's
+  workspace holds the job, naming the files (§10); the questions run on the host, in a directory
   nothing commits from. Don't put a client on it until a real run.
 - **Cost from a harness that reports no price reads UNKNOWN, never `$0.00`.** A zero would make it
   look free and win every comparison.
