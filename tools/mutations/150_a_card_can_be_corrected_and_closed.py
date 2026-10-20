@@ -98,13 +98,14 @@ MUTATIONS = [
     # a weak guard, found by the review of #153.
     # RE-PINNED 2026-09-28 (#384): `card_remove` requires the same three, so the anchor carries
     # the row it means. RE-PINNED 2026-10-18 (#678, part 3): the row declares its refusals
-    # between the two.
+    # between the two. RE-PINNED 2026-10-20 (#908): the row declares DENIED, which the
+    # module's "not yours" now answers.
     ("a close needs no reason, so the next reader of the card has nothing", CATALOG,
      '            run=_card_close,\n'
-     '            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),\n'
+     '            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),\n'
      '            required=("project", "issue", "reason"),',
      '            run=_card_close,\n'
-     '            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),\n'
+     '            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),\n'
      '            required=("project", "issue"),'),
 
     ("reopening leaves the closing reason on the card, so an open card still says why it was "
