@@ -73,10 +73,27 @@ log = logging.getLogger("openfactory.panel.temporal")
 #: and that sum is what overran this bound on a busy floor (#754). The listed jobs are now asked
 #: about in batches of `list_concurrency()` (8 unset), so a list costs about one slowest row per
 #: batch of the listing instead of every running row's round trips added up. Readers asking
-#: together, or within `LIST_TTL_S`, share one scan (`list_jobs`). The bound also catches a second
-#: real case: a workflow whose worker is gone cannot answer a query at all, and `list_jobs` did not
-#: return in 120 s against eight such jobs. It now degrades in three. The deadline sits on the
-#: shared scan (`_scan`), so running out of time cancels every question the scan still has out.
+#: together, or within `LIST_TTL_S`, share one scan (`list_jobs`). Measured 2026-10-19 on
+#: `temporal server start-dev` 1.9.1 (Server 1.32.0), temporalio 1.34.0, a stand-in registered as
+#: `JobWorkflow` answering its real queries: 98 listed, the 50 read being 48 running (8 at a merge
+#: gate) and 2 closed, 10 scans each:
+#:
+#:     one after another (f37aeaa)        558 ms median, 583 ms max   185 describes and queries
+#:     8 at a time (unset)                357 ms median, 364 ms max   188 (the last batch's extra)
+#:     OPENFACTORY_LIST_CONCURRENCY=1     564 ms median, 594 ms max
+#:     six readers at once                6 scans in ~2.0-2.2 s on f37aeaa; 1 scan in ~350 ms
+#:
+#: The compose stack's `temporalio/auto-setup:1.25.2` on Postgres 16 gave the same: 557 against
+#: 345 ms, 6 scans against 1. On loopback a scan is bound by THIS process's CPU (a 354 ms scan
+#: at eight spent 327 ms of it; one at a time, 307 ms of 576), which is why eight at once buys a
+#: third here and not eightfold: what it overlaps is the round trips, and those are what a
+#: namespace across a network pays.
+#:
+#: The bound also catches a second real case: a workflow whose worker is gone cannot answer a
+#: query at all, and `list_jobs` did not return in 120 s against eight such jobs. It now degrades
+#: in three (measured again 2026-10-19 on the dev server above, f37aeaa and now alike: 3.00 s,
+#: the same sentence, and no task still running 1 s later). The deadline sits on the shared scan
+#: (`_scan`), so running out of time cancels every question the scan still has out.
 #:
 #: A NUMBER A DEPLOYMENT CAN CHANGE, because "slow" is a property of somebody's network: a Temporal
 #: Cloud namespace across a region answers in tenths of a second, and this must not call that
@@ -99,7 +116,14 @@ def unreachable_window() -> float:
 #: round trips each, ~1.9 s in sequence; on f37aeaa that test's list was refused at its 1 s
 #: deadline with one RPC in flight, and the breaker opened for every reader). Eight is up to eight
 #: query replays at once on the worker for one scan, the same default the product's sources are
-#: brought up with (`OPENFACTORY_SOURCES_PARALLEL`). THE OPERATOR'S, NOT A CONSTANT,
+#: brought up with (`OPENFACTORY_SOURCES_PARALLEL`). On a real dev server (2026-10-19, the
+#: measurement beside `read_deadline`) 48 running rows took 564 ms one at a time, 362 ms four at a
+#: time, 357 ms at eight and 384 ms at sixteen: past eight this process's own CPU is the bound on
+#: loopback. WHAT IT COSTS THE LOOP: a 10 ms heartbeat on the same loop as a scan saw its longest
+#: gap grow with the batch, from 14 ms one at a time to 27 ms at four, 40 ms at eight and 74 ms at
+#: sixteen (medians of 10 scans; about 5 ms a row asked at once). The merge-gate rows' registry
+#: read (`_lists_review_comments`, 3.6 ms each) is not that gap: stubbed out, it measured 44 ms at
+#: eight. THE OPERATOR'S, NOT A CONSTANT,
 #: as `OPENFACTORY_SOURCES_PARALLEL` is (#369): a Temporal Cloud namespace across a region answers
 #: in tenths of a second and only the deployment knows what its workers take —
 #: `OPENFACTORY_LIST_CONCURRENCY`, read by `list_concurrency()`.
