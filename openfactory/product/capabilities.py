@@ -388,7 +388,7 @@ def confirm_in_repository(*, docs_repo: str, clone_url: str, slug: str, flow: Fl
                            refusal=NOT_REFUSED)
 
     try:
-        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, "--", clone_url,
                         str(tmp)])
         if rc != 0:
             return failed("could not clone", out)
@@ -425,7 +425,7 @@ def confirm_in_repository(*, docs_repo: str, clone_url: str, slug: str, flow: Fl
                        cwd=tmp)
         if rc != 0:
             return failed("could not commit", out)
-        rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)
+        rc, out = _git(["push", "--", clone_url, f"HEAD:{base}"], cwd=tmp)
         if rc != 0:
             return failed("the push was refused (no direct write to the branch?)", out)
         return WriteResult(ok=True, ref=rel)

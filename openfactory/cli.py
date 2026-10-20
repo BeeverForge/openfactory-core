@@ -4937,7 +4937,8 @@ def product_init(
         root = _Path(tmp) / "docs"
         if docs_repo:
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--no-local", "--depth", "1", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", "--depth", "1", "--", url,
+                                 str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
@@ -4961,7 +4962,7 @@ def product_init(
             docs_repo, made = _create_context_repo(project, name)
             typer.echo(f"{'✓ created' if made else '· found'} {docs_repo}")
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--no-local", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", "--", url, str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
@@ -5026,7 +5027,7 @@ def product_init(
                      # after a partial failure (pushed, then `gh pr create` had no token) must
                      # overwrite rather than dead-lock on a non-fast-forward. Same rule, and the
                      # same reason, as `publish_branch`.
-                     ["push", "--force", "-u", "origin", branch]):
+                     ["push", "--force", "-u", "--", "origin", branch]):
             done = subprocess.run(["git", "-C", str(root), *ident, *args],
                                   capture_output=True, text=True, timeout=180)
             if done.returncode != 0:

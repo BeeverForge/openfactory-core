@@ -181,9 +181,9 @@ def clone_for_proposal(*, clone_url: str, base: str = "",
     reporting a quiet repository."""
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-manifest-"))
     shallow = ["clone", "--no-local", "--depth", "1", *(["--branch", base] if base else []),
-               clone_url, str(tmp)]
+               "--", clone_url, str(tmp)]
     rc, out = (_git(["clone", "--no-local", "--filter=blob:none",
-                     *(["--branch", base] if base else []), clone_url, str(tmp)])
+                     *(["--branch", base] if base else []), "--", clone_url, str(tmp)])
                if history else _git(shallow))
     if history and rc != 0:
         # `git clone` refuses a target directory that is not empty, and a failed clone leaves one
@@ -206,7 +206,7 @@ def clone_for_proposal(*, clone_url: str, base: str = "",
     # origin: every push passes the URL explicitly. So the credential leaves the tree the
     # moment the clone lands — the same rule repo_cache and the tech-lead's diagnosis clone
     # already enforce (adversarial review, 2026-08-13).
-    _git(["-C", str(tmp), "remote", "set-url", "origin",
+    _git(["-C", str(tmp), "remote", "set-url", "--", "origin",
           re.sub(r"(https://)[^@/\s]+@", r"\1", clone_url)])
     return tmp, ""
 
@@ -382,7 +382,7 @@ def propose(*, checkout: Path, manifest_path: str, repo: str, clone_url: str, ba
     # is then rejected as non-fast-forward — which would wedge the verb permanently on exactly
     # the repositories where it had already worked once. Same rule, same reason, as
     # `product init`'s onboarding branch.
-    rc, out = _git(["push", "--force", "-u", clone_url, branch], cwd=checkout)
+    rc, out = _git(["push", "--force", "-u", "--", clone_url, branch], cwd=checkout)
     if rc != 0:
         return Proposal(ok=False, ref=branch,
                         detail=f"could not push {branch}: {scrub(out)[-200:]}")

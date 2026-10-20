@@ -168,7 +168,7 @@ MUTATIONS = [
      "and the whole path is decoration",
      "openfactory/onboarding/propose_manifest.py",
      ('    rc, out = (_git(["clone", "--no-local", "--filter=blob:none",\n'
-      '                     *(["--branch", base] if base else []), clone_url, str(tmp)])\n'
+      '                     *(["--branch", base] if base else []), "--", clone_url, str(tmp)])\n'
       "               if history else _git(shallow))"),
      "    rc, out = _git(shallow)"),
 

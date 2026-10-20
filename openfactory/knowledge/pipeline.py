@@ -87,7 +87,7 @@ def _scrub_remote(repo: Path) -> None:
     """Remove the tokened URL from a throwaway clone's `.git/config`. These checkouts are
     short-lived, but a token on disk is a token on disk — same hygiene as the tech-lead's
     diagnosis clone."""
-    _git("remote", "set-url", "origin", "https://invalid.local/scrubbed.git", cwd=repo)
+    _git("remote", "set-url", "--", "origin", "https://invalid.local/scrubbed.git", cwd=repo)
 
 
 def _has_bundle(d: Path) -> bool:
@@ -218,7 +218,7 @@ def fetch_bundle(remote_url: str, *, subpath: Path) -> Fetched:
         return Fetched(None)
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-knowledge-"))
     pub = tmp / "pub"
-    rc, out = _git("clone", "--no-local", "--depth", "1", remote_url, str(pub))
+    rc, out = _git("clone", "--no-local", "--depth", "1", "--", remote_url, str(pub))
     if rc != 0:
         _log.info("knowledge: could not clone the context repository (%s)", out.strip()[:200])
         shutil.rmtree(tmp, ignore_errors=True)
@@ -275,7 +275,7 @@ def _stage_bundle(pub: Path, bundle_dir: Path, subpath: Path, remote_url: str) -
                    subpath)
         return False, ""
     shutil.rmtree(pub, ignore_errors=True)
-    if _git("clone", "--no-local", "--depth", "1", remote_url, str(pub))[0] != 0:
+    if _git("clone", "--no-local", "--depth", "1", "--", remote_url, str(pub))[0] != 0:
         return False, ""
     branch = current_branch(pub)
     if not branch:
@@ -413,7 +413,7 @@ def _publish_dir(src_dir: Path, remote_url: str, *, subpath: Path, message: str,
             if rc != 0:
                 _log.warning("knowledge: commit failed (%s)", out.strip()[:200])
                 return FAILED
-            rc, out = _git("push", "origin", f"HEAD:refs/heads/{branch}", cwd=pub)
+            rc, out = _git("push", "--", "origin", f"HEAD:refs/heads/{branch}", cwd=pub)
             if rc == 0:
                 _log.info("knowledge: published %s to %s", what, subpath)
                 return PUBLISHED

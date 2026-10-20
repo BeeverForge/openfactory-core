@@ -54,7 +54,7 @@ MUTATIONS = [
 
     ("the write takes the review-request road even when the base accepts it",
      "openfactory/product/authoring.py",
-     '        rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)\n        if rc == 0:\n',
-     '        rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)\n        if False:\n',
+     '        rc, out = _git(["push", "--", clone_url, f"HEAD:{base}"], cwd=tmp)\n        if rc == 0:\n',
+     '        rc, out = _git(["push", "--", clone_url, f"HEAD:{base}"], cwd=tmp)\n        if False:\n',
      AUTHORING),
 ]

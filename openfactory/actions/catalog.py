@@ -7431,6 +7431,14 @@ async def _product_declare(*, project: str, docs_repo: str, by: Actor) -> Outcom
     if not repo:
         return refused(INVALID, f"name the repository: `openfactory product declare {project} "
                                 f"<owner/repo>`", project=project)
+    if repo.startswith("-"):
+        # A VALUE THAT LOOKS LIKE AN OPTION IS REFUSED HERE, before it reaches git: the repository
+        # name is read back with `git ls-remote <url>`, and a value beginning with `-` would be
+        # read by git as a flag, not a repository. The `--` the ls-remote carries is the other
+        # half of this; a name is also just never spelled this way.
+        return refused(INVALID, f"a repository is named `owner/repo`, not {docs_repo!r} — a value "
+                                f"that begins with '-' is not {project}'s context repository",
+                       project=project)
     ProjectRegistry().set_docs_repo(project, repo)
     found, bad = _project(project)  # RE-READ: the object above predates the record
     if bad:

@@ -231,7 +231,7 @@ def _materialize_workspace(*, repo_path: Path, host_clone: Path, base_branch: st
 
     # A clone has its own refs, so a branch a person has out in a working tree of `repo_path` does
     # not stop it: unlike the worktree box, this one never raises `BranchHeldElsewhere` (#623).
-    _must(["git", "clone", "--no-local", str(repo_path), str(host_clone)],
+    _must(["git", "clone", "--no-local", "--", str(repo_path), str(host_clone)],
           f"cloning {repo_path} into the box's workspace")
     if checkout_existing:
         # FETCH THE PR BRANCH FROM THE FORGE, NOT FROM THE CACHE. This clone's `origin` is the
@@ -252,7 +252,7 @@ def _materialize_workspace(*, repo_path: Path, host_clone: Path, base_branch: st
         source = remote_url or "origin"
         # A failed fetch here would leave the clone on the BASE branch, so a CI repair would run
         # against code that does not contain the change it is repairing — hence `_must`.
-        _must(["git", "-C", str(host_clone), "fetch", source,
+        _must(["git", "-C", str(host_clone), "fetch", "--", source,
                f"+{branch}:refs/remotes/origin/{branch}"],
               f"fetching the existing branch {branch!r}")
         _must(["git", "-C", str(host_clone), "checkout", "-B", branch, f"origin/{branch}"],
@@ -319,7 +319,7 @@ def _read_the_forges_base(host_clone: Path, base_branch: str, remote_url: str) -
     costs nothing the job could have kept, and it refuses before an agent has spent anything."""
     from openfactory.adapters.sandbox.worktree import _remote_has_no_such_branch, no_such_base
 
-    rc, out = _host(["git", "-C", str(host_clone), "fetch", remote_url,
+    rc, out = _host(["git", "-C", str(host_clone), "fetch", "--", remote_url,
                      f"refs/heads/{base_branch}"])
     if rc != 0:
         if _remote_has_no_such_branch(out):
@@ -865,7 +865,7 @@ class ContainerSandbox(SandboxAdapter):
         # --force: the bot's dedicated openfactory/<id> branch, unique per job, serial execution
         # — a retry after a partial failure must overwrite, not dead-lock on non-ff.
         rc, out = _host(
-            ["git", "-C", str(self._host_clone), "push", "--force", target, workspace.branch]
+            ["git", "-C", str(self._host_clone), "push", "--force", "--", target, workspace.branch]
         )
         if rc != 0:
             raise RuntimeError(f"push failed: {_redact(out)}")
@@ -883,7 +883,7 @@ class ContainerSandbox(SandboxAdapter):
             if rc != 0:
                 raise RuntimeError(f"could not resolve origin remote: {url}")
             target = url.strip()
-        rc, out = _host(["git", "-C", hc, "fetch", target, base])
+        rc, out = _host(["git", "-C", hc, "fetch", "--", target, base])
         if rc != 0:
             raise RuntimeError(f"fetch failed: {_redact(out)}")
         rc, _ = _host(["git", "-C", hc, "merge-base", "--is-ancestor", "FETCH_HEAD", "HEAD"])
