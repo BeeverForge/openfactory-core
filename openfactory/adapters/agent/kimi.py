@@ -41,11 +41,16 @@ TWO DIFFERENCES FROM CODEX THAT SHAPE THIS ADAPTER
    read-only by INSTRUCTION ONLY, not by mode and not by enforcement — the weakest guarantee of
    the shipped rows, stated rather than papered over. `--agent-file` with a `tools:` list is
    reachable per run and not used yet (#785): measured, it removes `Write` from the model's tools,
-   but its body replaces Kimi's whole system prompt and it cannot be used with `-S`. The isolation
-   that does hold is the sandbox the platform already puts around it: an ephemeral,
-   credential-less Fargate box (ADR-0001 D-4).
-   It cannot escape the box; it could edit inside it during a plan, and no such edit outlives the
-   run, whose output is text.
+   but its body replaces Kimi's whole system prompt and it cannot be used with `-S`. Nothing
+   confines what a disobedient run writes; where it lands depends on the role (#788, located on
+   620bb577, 2026-10-20). The planner runs in the job's box on the job's own workspace, the one
+   the executor continues from and `_commit` sweeps with `git add -A`, so an edit it leaves
+   reaches the pull request; with `--sandbox worktree` that workspace is a directory on the host.
+   Every `ask()` runs on the host whatever the project's box, because each caller builds
+   `sandbox/registry.py::judging_worktree`, a `WorktreeSandbox` whose `run` is a host
+   subprocess; it runs in a room nothing commits from (a temporary directory, the repo cache's
+   master clone, a module's cached view, a target checkout), so its edit reaches no pull request
+   but stays where it was written.
 
    There is also no `--cd`: the working directory is the process's, which is exactly what the
    platform's sandbox already sets (`sandbox.run(workspace=…)` runs in the workspace). Nothing to
@@ -120,7 +125,11 @@ BEFORE_THE_HARNESS = NOT_WHILE_DECLARED
 
 
 class KimiAdapter:
-    """Kimi Code, driven non-interactively through the sandbox (never on the host)."""
+    """Kimi Code, driven non-interactively through whatever box the caller hands it.
+
+    That is the job's box for `plan`, `execute` and `repair`, a directory on the host under
+    `--sandbox worktree`; for `ask()` it is `judging_worktree`, on the host whatever the
+    project's box, in a room nothing commits from (see the module docstring, difference 2)."""
 
     name = "kimi"
 
@@ -153,9 +162,11 @@ class KimiAdapter:
 
         WEAKER than the other harnesses: Kimi exposes no sandbox-policy flag, and 0.31.1 refuses
         `--plan` beside `-p`, so this is instruction only — no mode, no enforcement (#362);
-        `--agent-file` with a `tools:` list is reachable per run and not used yet (#785). It
-        cannot escape the platform's own ephemeral box, but it could edit inside it while
-        judging."""
+        `--agent-file` with a `tools:` list is reachable per run and not used yet (#785), so
+        there is no enforcement until a per-run agent file is wired. Every caller hands it
+        `judging_worktree`, which runs it on the host whatever the project's box, in a room
+        nothing commits from: an edit made while judging reaches no pull request, but nothing
+        confines it to that room either."""
         return self._run(sandbox, workspace,
                          "Answer READ-ONLY. Do not modify any file.\n\n" + prompt,
                          model=self.planner_model, phase=phase)
