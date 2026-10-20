@@ -45,7 +45,9 @@ from test_what_the_agent_says_it_did_reaches_the_pull_request import (
     _section,
 )
 
+from openfactory.contracts import AgentRunResult
 from openfactory.contracts.run import AGENT_PASS_WORDS_MAX
+from openfactory.orchestrator import machine
 from openfactory.product import model
 from openfactory.product.model import WITHHELD_CREDENTIAL
 
@@ -222,3 +224,38 @@ def test_a_secret_of_this_process_that_spans_lines_is_withheld_from_the_quote_an
     body, row = _pass_line_after_a_ci_repair(repo, tmp_path / "repaired", said)
     assert KEY_BODY not in body and KEY_BODY not in _shown(row), f"the key is on the pass line: {row}"
     assert WITHHELD_CREDENTIAL in _shown(row), f"the pass line does not say so: {row}"
+
+
+# ── "Plain prose is quoted unchanged" ───────────────────────────────────────────────────────────
+
+#: Each a near miss of a shape the withholding reads: the scheme word with no value, a variable
+#: reference where a value would stand, a prefix named but not used, an address with no userinfo.
+NEAR_MISSES = [
+    "a Bearer header",
+    "the Bearer credential every route accepts",
+    "Bearer authentication",
+    'curl -H "Authorization: Bearer $GH_TOKEN"',
+    "ghp_ is the prefix of a personal token",
+    "sk-learn",
+    "https://octocat.github.io/x",
+    "https://github.com/@octocat",
+    "a@b.com",
+    "git@github.com:o/r.git",
+    "postgres://db:5432/app",
+    "see #12, @ann and foo_bar in x.py",
+]
+
+
+@pytest.mark.parametrize("prose", NEAR_MISSES)
+def test_plain_prose_is_quoted_exactly_as_before(repo: Path, tmp_path: Path, prose: str):
+    """Green at 620bb577 by design: a preservation property cannot be red before the change. It
+    holds the withholding to credentials — the mutation plan's cuts that loosen the bare-`Bearer`
+    condition, admit `$` to a value, or drop the userinfo's `@` turn it red. The quote is the
+    neutralised message, row for row, and the pass line its neutralised fold."""
+    said = f"{prose}\n\nand {prose} again"
+    expected = [f"> {machine._neutralised(line)}" if line.strip() else ">"
+                for line in said.splitlines()]
+    assert _quoted_block(_opened(repo, tmp_path, _Says(said))) == expected
+
+    words = machine._pass_words(AgentRunResult(ok=True, summary=said))
+    assert words == machine._neutralised(" ".join(said.split())), words
