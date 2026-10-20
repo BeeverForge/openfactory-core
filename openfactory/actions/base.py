@@ -75,7 +75,7 @@ OUT_OF_SCOPE = "out_of_scope"
 NOT_ADMIN = "not_admin"
 #: the durable engine did not answer in time
 ENGINE_UNREACHABLE = "engine_unreachable"
-#: the row's implementation raised
+#: the row's implementation raised — the answer's `data["reference"]` names its log line (#908)
 RAISED = "raised"
 #: the row's implementation returned something that is not an Outcome
 REPORTED_NOTHING = "reported_nothing"

@@ -72,6 +72,7 @@ from openfactory.actions.base import (
     Actor,
     Outcome,
     done,
+    failure_reference,
     not_moved_yet,
     refused,
 )
@@ -312,8 +313,13 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
         log.warning("action %s by %s: the engine did not answer (%s)", key, by, exc)
         return refused(UNAVAILABLE, f"could not {key}: {exc}", reason=ENGINE_UNREACHABLE)
     except Exception as exc:  # noqa: BLE001 — an action must never take its caller down
-        log.exception("action %s raised for %s", key, by)
-        return refused(FAILED, f"could not {key}: {_why(exc)}", reason=RAISED)
+        # THE REFERENCE IS IN THE LINE AND IN THE ANSWER (#908), so the person who reads "could
+        # not …" can hand an operator the one traceback that is theirs; before, the answer named
+        # nothing the log could be searched for.
+        reference = failure_reference()
+        log.exception("action %s raised for %s reference=%s", key, by, reference)
+        return refused(FAILED, f"could not {key}: {_why(exc)}", reason=RAISED,
+                       reference=reference)
     if not isinstance(outcome, Outcome):  # an action that returns None is a silent success (F5)
         log.error("action %s returned %r, not an Outcome", key, type(outcome).__name__)
         return refused(
