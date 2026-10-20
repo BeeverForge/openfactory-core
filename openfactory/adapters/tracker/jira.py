@@ -195,6 +195,33 @@ def _jql_since(stamp: str) -> str:
     return f"-{int(elapsed // 60) + 1}m"
 
 
+def within_scope(where: str, scope: str) -> str:
+    """`where` narrowed to the project's `scope_jql` — `where AND (<scope>)` — or `where` unchanged
+    when no scope is declared.
+
+    THE PARENTHESES ARE WHAT "ANDED" MEANS. A scope such as `labels = "of-api" OR labels =
+    "of-web"` appended bare would read `project = "DAR" AND labels = "of-api" OR labels = "of-web"`,
+    and JQL binds AND tighter than OR: every `of-web` issue on the whole site. Azure Boards wraps
+    its team area clause the same way (`AzureBoardsBoard._team_area_clause`).
+
+    ONE HELPER FOR THE BOARD AND THE TRACKER, so the reads the poller makes and the reads the panel
+    makes cannot drift into two different slices of the same project (#752).
+
+    `scope` is `JiraTracker.scope_jql`, already stripped where the tracker takes the option: one
+    normalisation, so a mutation of it cannot hide behind a second one (measured: with both, the
+    tracker's `.strip()` could be removed and every test stayed green)."""
+    return f"{where} AND ({scope})" if scope else where
+
+
+def scope_named(scope: str) -> str:
+    """` within scope_jql '<scope>'` for a "could not search" warning, `""` without a scope.
+
+    A condition Jira cannot parse answers 400, which reads as an unreadable board; without the
+    scope in the sentence the person sees "could not search DAR" and looks at the credential.
+    `scope` is the stripped `JiraTracker.scope_jql`, as for `within_scope`."""
+    return f" within scope_jql {scope!r}" if scope else ""
+
+
 class JiraTracker:
     """Jira Cloud REST v3. Satisfies `TrackerAdapter`."""
 
@@ -217,7 +244,8 @@ class JiraTracker:
     def __init__(self, *, site: str, project_key: str, email: str, token: str | None = None,
                  status_map: dict[str, str] | None = None, issue_type: str = "Task",
                  not_delivered_resolution: str = "", not_delivered_status: str = "",
-                 intake_status: str = "", language: str | None = None) -> None:
+                 intake_status: str = "", language: str | None = None,
+                 scope_jql: str = "") -> None:
         self.site = site.rstrip("/")
         self.project_key = project_key
         self.email = email
@@ -239,6 +267,12 @@ class JiraTracker:
         #: workflow's initial status, which Jira publishes only to an administrator of the workflow
         #: (#543). `""` = not declared, and the board reads it off the workflow where it can.
         self.intake_status = str(intake_status or "").strip()
+        #: THIS PROJECT's SLICE OF A SHARED JIRA PROJECT, a JQL condition (`labels = "of-api"`)
+        #: ANDed onto every search of its issues (#752). About nineteen repositories registered
+        #: against one Jira project each read the whole of it as their queue, and one ticket was
+        #: picked up by three of them in one night (v0.6.0-rc.2). `""` = the whole project, the
+        #: JQL unchanged; whitespace alone is `""`, so a blank YAML value cannot emit `AND ()`.
+        self.scope_jql = str(scope_jql or "").strip()
         #: The PROJECT's language, for the one sentence this row writes to a person in its own
         #: name — the note on a card it could not record as not delivered. Everything else it
         #: posts was composed by its caller, already in that language.
@@ -700,10 +734,19 @@ class JiraTracker:
 
     def find_ticket(self, *, title: str) -> str | None:
         """An OPEN issue with exactly this summary. JQL escaping matters here: a title with a
-        quote in it would otherwise break the query — or, worse, match the wrong issue."""
+        quote in it would otherwise break the query — or, worse, match the wrong issue.
+
+        WITHIN `scope_jql`, because this is the idempotency check of every impediment, every
+        product filing and every split child: unscoped, an open issue with the same summary
+        anywhere in a Jira project shared by several registry projects was read as this project's
+        earlier filing, and its work was attached to another project's ticket (#752). Within the
+        slice it finds only this project's — which is why the factory's new tickets must land
+        inside the scope (docs/reference/configuration.md)."""
         escaped = title.replace("\\", "\\\\").replace('"', '\\"')
-        jql = (f'project = "{self.project_key}" AND statusCategory != Done '
-               f'AND summary ~ "\\"{escaped}\\""')
+        # within the project's slice: unscoped, an open issue outside it with the same title was
+        # read as this project's earlier filing and reused (#752)
+        jql = (within_scope(f'project = "{self.project_key}"', self.scope_jql)
+               + f' AND statusCategory != Done AND summary ~ "\\"{escaped}\\""')
         # `~` is PHRASE search, not equality — Jira has no exact-match operator for summary — so
         # the page is wide and the equality check happens here. At 5 results the exact match
         # could sit on page two whenever one title prefixes others (the split parent prefixing
@@ -737,9 +780,14 @@ class JiraTracker:
         OPEN VERSUS CLOSED IS `statusCategory`, NEVER A STATUS NAME — the same rule `get_ticket`
         follows, and the reason this deployment's Jira board can have a done column spelled
         "Donee" (it does) without the platform reading live work as delivered.
+
+        WITHIN `scope_jql`: the panel, the product role and `forget` read this project's slice of
+        a Jira project it may share with other registry projects, not the whole of it (#752).
+        The emptiness check after the walk stays unscoped — see `_project_exists`.
         """
         wanted = list_state(state)
-        clauses = [f'project = "{self.project_key}"']
+        # the project's slice of a shared Jira project, not all of it (#752)
+        clauses = [within_scope(f'project = "{self.project_key}"', self.scope_jql)]
         if wanted == "open":
             clauses.append("statusCategory != Done")
         elif wanted == "closed":
@@ -767,8 +815,10 @@ class JiraTracker:
                                 "there is more — the caller is about to judge a partial board",
                                 self.project_key, _MAX_PAGES, len(rows))
         except Exception as exc:  # noqa: BLE001 — an unread board is None, never []
-            log.warning("could not list the tickets of %s (%s) — the caller is being told "
-                        "UNREADABLE, not empty", self.project_key, str(exc)[:200])
+            # the scope is named: a condition Jira cannot parse answers 400 and lands here (#752)
+            log.warning("could not list the tickets of %s%s (%s) — the caller is being told "
+                        "UNREADABLE, not empty", self.project_key, scope_named(self.scope_jql),
+                        str(exc)[:200])
             return None
 
         if not rows and not self._project_exists():
@@ -805,6 +855,10 @@ class JiraTracker:
         mismatched pair's bounded `search/jql` is 200 and empty and `project/<KEY>` is 404): the
         log line names the pair, the board still reads as None, and the empty board costs 3
         requests instead of 2.
+
+        UNSCOPED BY `scope_jql`, deliberately: a slice with nothing in it is an empty board of a
+        project that exists, not a missing project. Asking "does the slice exist" would read every
+        empty slice as unreadable (the review of #258 named this; #752 keeps it).
         """
         try:
             self._call("GET", f"project/{self.project_key}")
@@ -1003,6 +1057,11 @@ class JiraTracker:
                      child_ref, parent_ref, exc)
 
     def children_of(self, parent_ref: str) -> list[str]:
+        """The keys of `parent_ref`'s children, by `parent = "<KEY>"`.
+
+        Unscoped by `scope_jql`: it reads by the parent's key, not the board, and a child outside
+        the slice is still the parent's child — scoped, the splitter would miss it and fall back
+        to matching by title (#752)."""
         try:
             found = self._call("POST", "search/jql",
                                {"jql": f'parent = "{parent_ref}"', "maxResults": 50,
