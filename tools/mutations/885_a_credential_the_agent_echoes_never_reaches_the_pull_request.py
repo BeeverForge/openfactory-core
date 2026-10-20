@@ -10,9 +10,10 @@ Claims:
     before the 200-character cut (a token the cut splits leaves a head no shape matches);
   - a URL's userinfo is REPLACED by the marker in the body, never silently dropped;
   - `scrub_credentials` withholds an `Authorization` value after a NAMED scheme (any word there is
-    prose: "Authorization: handled centrally …"), and a bare `Bearer`
-    value only when it is 16 token68 characters with a digit; a header value only from 8
-    characters; `$` is never part of a value, so `Bearer $GH_TOKEN` stays prose;
+    prose: "Authorization: handled centrally …"), in any case, after `:` or `=`, a JSON key's
+    quote included; a header value only from 8 characters; a bare `Bearer` value only when it is
+    16 token68 characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN` stays
+    prose;
   - the userinfo pattern needs its `@`, so a URL with no userinfo keeps its host;
   - the platform's `_redact` regex (https userinfo only) is no substitute;
   - the claim above the quote names the withholding.
@@ -77,6 +78,16 @@ MUTATIONS = [
      '(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM"\n'
      '    r"|AWS4-HMAC-SHA256)',
      "[A-Za-z][\\w-]*", PROSE),
+    # review on 28e5da94: the forms the shape's comment claims, each its own cut
+    ("a lowercase header name is not read", MODEL,
+     '    r"|(\\bBearer[ \\t]+)(?=[\\w.~+/-]*\\d)[\\w.~+/-]{16,}=*", re.IGNORECASE)\n',
+     '    r"|(\\bBearer[ \\t]+)(?=[\\w.~+/-]*\\d)[\\w.~+/-]{16,}=*", 0)\n'),
+    ("a JSON key's closing quote ends the shape", MODEL,
+     '(\\bAuthorization[\\"\']?\\s*',
+     '(\\bAuthorization\\s*'),
+    ("Authorization= is not read", MODEL,
+     '\\s*[:=]\\s*',
+     '\\s*:\\s*'),
     ("a URL with no userinfo loses its host", MODEL,
      '_USERINFO = re.compile(r"(\\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\\s/@]+@")\n',
      '_USERINFO = re.compile(r"(\\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\\s/@]+")\n', PROSE),

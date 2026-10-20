@@ -63,6 +63,7 @@ GITHUB_PAT = "github_pat_" + "11AB" + "q7SECRET" * 4
 JWT = ("eyJ" + "hbGciOiJIUzI1NiJ9") + "." + ("eyJ" + "zdWIiOiIxMjM0In0") + "." + ("q7" + "SECRETsig" * 3)
 HEX_TOKEN = "5e" + "c4e7" * 9 + "a1"
 BARE_BEARER = "q7SECRET" * 4
+BASIC = "dXNl" + "cjpxN1NFQ1JFVA=="
 DB_PASSWORD = "q7" + "hunter" * 3
 OPAQUE = "q7" + "OPAQUE" * 5
 LINK_PASSWORD = "q7" + "linkpw" * 3
@@ -122,7 +123,13 @@ def test_a_github_token_in_the_agents_message_is_withheld_and_the_body_says_so(
     (f'{SENTINEL}: ran curl -H "Authorization: token {HEX_TOKEN}" https://api.example.test/x',
      HEX_TOKEN),
     (f"{SENTINEL}: the route accepts Bearer {BARE_BEARER} for now", BARE_BEARER),
-], ids=["bearer-jwt", "curl-token-hex", "bare-bearer"])
+    # review on 28e5da94: a lowercase header name (HTTP/2 and most tooling print it so), a JSON
+    # key, and `=` — the forms the shape's comment claims, which no case held
+    (f'{SENTINEL}: ran curl -H "authorization: token {HEX_TOKEN}" https://api.example.test/x',
+     HEX_TOKEN),
+    (f'{SENTINEL}: the client sends {{"Authorization": "token {HEX_TOKEN}"}}', HEX_TOKEN),
+    (f"{SENTINEL}: set Authorization=Basic {BASIC} in the env file", BASIC),
+], ids=["bearer-jwt", "curl-token-hex", "bare-bearer", "lowercase-header", "json-key", "equals"])
 def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_and_the_body_says_so(
         repo: Path, tmp_path: Path, said: str, secret: str):
     """At 620bb577 none of these values carries a vendor prefix, and `scrub_credentials` returned
