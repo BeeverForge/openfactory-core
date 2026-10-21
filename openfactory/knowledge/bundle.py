@@ -35,6 +35,7 @@ from openfactory.knowledge.generator import (
     canonical_source_files,
     survey_extensions,
 )
+from openfactory.util import yaml_io
 
 _log = logging.getLogger("openfactory.knowledge.bundle")
 
@@ -94,7 +95,7 @@ def build_bundle(repo_path: Path, *, commit: str = "", generated_at: str = "") -
 
 def _dump(data: object) -> str:
     """Deterministic YAML: keys sorted, block style, no aliases, unicode preserved."""
-    return yaml.safe_dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True)
+    return yaml_io.dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True)
 
 
 def derived_key(bundle: KnowledgeBundle) -> str:
@@ -211,8 +212,8 @@ def read_bundle_dir(bundle_dir: Path) -> KnowledgeBundle | None:
     if not (mod_file.is_file() and man_file.is_file()):
         return None
     try:
-        module_map = ModuleMap(**(yaml.safe_load(mod_file.read_text(encoding="utf-8")) or {}))
-        manifest = BundleManifest(**(yaml.safe_load(man_file.read_text(encoding="utf-8")) or {}))
+        module_map = ModuleMap(**(yaml_io.load(mod_file.read_text(encoding="utf-8")) or {}))
+        manifest = BundleManifest(**(yaml_io.load(man_file.read_text(encoding="utf-8")) or {}))
     except (yaml.YAMLError, ValueError, TypeError) as exc:
         _log.warning("knowledge: bundle at %s is unreadable (%s) — ignoring", bundle_dir, exc)
         return None

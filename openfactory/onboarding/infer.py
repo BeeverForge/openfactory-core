@@ -111,6 +111,7 @@ from openfactory.contracts import Manifest
 # reports a stack found inside a vendored dependency.
 from openfactory.knowledge.generator import _walk_files
 from openfactory.policy.presets import available_stacks
+from openfactory.util import yaml_io
 
 # --- tiers -------------------------------------------------------------------------------
 
@@ -282,11 +283,13 @@ class _LocatedStr(str):
     block: bool = False
 
 
-class _LineLoader(yaml.SafeLoader):
-    pass
+class _LineLoader(yaml_io.CountingLoader):
+    """A line on every string. Counting: a CI pipeline's format has anchors (GitLab's
+    `.defaults: &defaults` with `<<: *defaults`), so an alias is read at the size of what it
+    repeats (#1005)."""
 
 
-def _construct_located(loader: yaml.SafeLoader, node: yaml.Node) -> _LocatedStr:
+def _construct_located(loader: yaml_io.Loader, node: yaml.Node) -> _LocatedStr:
     located = _LocatedStr(loader.construct_scalar(node))  # type: ignore[arg-type]
     located.line = node.start_mark.line + 1
     located.block = node.style in ("|", ">")
@@ -307,7 +310,7 @@ def _load_yaml(path: Path) -> Any:
     if text is None:
         return None
     try:
-        return yaml.load(text, Loader=_LineLoader)  # noqa: S506 - SafeLoader subclass
+        return yaml_io.load(text, loader=_LineLoader)
     except yaml.YAMLError:
         return None
 

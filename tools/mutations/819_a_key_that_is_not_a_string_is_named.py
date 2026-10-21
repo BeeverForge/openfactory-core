@@ -99,10 +99,14 @@ MUTATIONS = [
     # what `yaml.safe_load` did by its name
     ("THE FILE IS READ BY A LOADER THAT BUILDS PYTHON OBJECTS: `product: !!python/object/apply:"
      "os.getcwd []` runs `os.getcwd` on the worker that reads the file",
-     _LOADER, "    loader = yaml.SafeLoader(text)\n", "    loader = yaml.UnsafeLoader(text)\n"),
+     # re-pinned 2026-10-21: the loader is `yaml_io.Loader`, a SafeLoader that also refuses an
+     # anchor and reads within bounds (#1005)
+     _LOADER, "    loader = yaml_io.Loader(text)\n", "    loader = yaml.UnsafeLoader(text)\n"),
 
+    # re-pinned 2026-10-21: the tokens come from `yaml_io.tokens`, which scans with `yaml_io.Loader`
     ("the key is scanned for its name by another loader than the safe one",
-     _LOADER, "yaml.scan(text, Loader=yaml.SafeLoader)", "yaml.scan(text, Loader=yaml.UnsafeLoader)"),
+     _LOADER, "    for token in yaml_io.tokens(text):\n",
+     "    for token in yaml.scan(text, Loader=yaml.UnsafeLoader):\n"),
 
     ("AN EMPTY DOCUMENT IS CONSTRUCTED ANYWAY: an empty or comment-only file raises "
      "AttributeError, which is no YAMLError and escapes every caller",

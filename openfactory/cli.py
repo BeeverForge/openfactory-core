@@ -1217,8 +1217,11 @@ def _builds_from_this_checkout(project_dir: Path) -> bool:
     refused on it."""
     import yaml
 
+    from openfactory.util import yaml_io
+
     try:
-        compose = yaml.safe_load((project_dir / "docker-compose.yml").read_text(encoding="utf-8"))
+        compose = yaml_io.load((project_dir / "docker-compose.yml").read_text(encoding="utf-8"),
+                               loader=yaml_io.CountingLoader)  # a compose file has anchors
         build = compose["services"]["worker"]["build"]
     except (OSError, UnicodeDecodeError, yaml.YAMLError, KeyError, TypeError):
         return False

@@ -109,8 +109,9 @@ MUTATIONS = [
      "                store = None"),
 
     # ── the manifest keeps its comments; a person's files are theirs ──
+    # re-pinned 2026-10-21: the appended text is read back through `yaml_io.load` (#1005)
     ("the manifest is re-dumped even when an append means the same file", PROPOSE,
-     "        if yaml.safe_load(appended) == wanted:",
+     "        if yaml_io.load(appended) == wanted:",
      "        if False:"),
     ("a block the manifest already declares is overwritten", PROPOSE,
      "    if key in current:",

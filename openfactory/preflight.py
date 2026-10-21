@@ -667,9 +667,10 @@ def _probe_sandbox_image() -> str | None:
     if not compose.is_file():
         return None
     try:
-        import yaml
+        from openfactory.util import yaml_io
 
-        services = (yaml.safe_load(compose.read_text()) or {}).get("services") or {}
+        services = (yaml_io.load(compose.read_text(), loader=yaml_io.CountingLoader)
+                    or {}).get("services") or {}
         declared = ((services.get("worker") or {}).get("environment")
                     or {}).get("OPENFACTORY_SANDBOX_IMAGE")
     except Exception as exc:  # noqa: BLE001 — an unreadable compose file is "cannot tell"

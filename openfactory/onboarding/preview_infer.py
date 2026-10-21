@@ -74,6 +74,7 @@ from openfactory.onboarding.infer import (
 # copied: the draft asks exactly what a live card would later say, and a second copy would be the
 # first thing to drift when either learns a new shape of address.
 from openfactory.preview.assemble import _LOCAL_HOSTS, _REF, _URL_HOST, url_var
+from openfactory.util import yaml_io
 
 #: The compose spec's own file names, in the order it looks them up.
 COMPOSE_NAMES = ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml")
@@ -626,7 +627,7 @@ class _ComposeLoader(_LineLoader):
     value they carry; every other tag is refused by the safe loader underneath."""
 
 
-def _as_is(loader: yaml.SafeLoader, node: yaml.Node):
+def _as_is(loader: yaml_io.Loader, node: yaml.Node):
     if isinstance(node, yaml.MappingNode):
         return loader.construct_mapping(node, deep=True)
     if isinstance(node, yaml.SequenceNode):
@@ -726,7 +727,7 @@ def _from_compose(root: Path, tree: _Tree, found: list[str], out: PreviewProposa
     rel = found[0]
     text = _read_in(root, rel) or ""
     try:
-        doc = yaml.load(text, Loader=_ComposeLoader)  # noqa: S506 - a SafeLoader subclass
+        doc = yaml_io.load(text, loader=_ComposeLoader)
     except yaml.YAMLError as exc:
         problem = getattr(exc, "problem", None) or str(exc).splitlines()[0]
         out.compose = Proposal(field="preview.compose", value=None, confidence=UNKNOWN,
@@ -1304,7 +1305,7 @@ def _manifest_setup(root: Path) -> tuple[list[str], list[Evidence]] | None:
     if text is None:
         return None
     try:
-        doc = yaml.safe_load(text)
+        doc = yaml_io.load(text)
     except yaml.YAMLError:
         return None
     setup = doc.get("setup") if isinstance(doc, dict) else None
@@ -1440,7 +1441,7 @@ def _declared(root: Path) -> tuple[dict | None, int | None]:
     if text is None:
         return None, None
     try:
-        doc = yaml.safe_load(text)
+        doc = yaml_io.load(text)
     except yaml.YAMLError:
         return None, None
     block = doc.get("preview") if isinstance(doc, dict) else None

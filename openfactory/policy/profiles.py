@@ -33,6 +33,7 @@ from pydantic import ValidationError
 
 from openfactory.contracts.profile import MAX_EXTENDS_DEPTH, Profile, RiskPolicy
 from openfactory.contracts.state import RiskLevel
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.policy.profiles")
 
@@ -191,7 +192,7 @@ class ResolvedProfile:
 
 def _read(path: Path) -> dict:
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw = yaml_io.load(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, yaml.YAMLError) as exc:
         raise ProfileError(f"the profile at {path} could not be read ({exc})") from exc
     if raw is None:

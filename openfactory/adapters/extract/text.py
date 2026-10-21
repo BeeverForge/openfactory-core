@@ -16,7 +16,8 @@ HTML IS REDUCED TO ITS WORDS by the standard library's parser — tags dropped, 
 `<script>` and `<style>` dropped whole. Nothing in the markup is loaded, run or followed.
 
 FRONT MATTER IS DATA, READ SAFELY. A markdown file's leading `---` block is parsed with
-`yaml.safe_load` — no tag of it can construct an object — and gives the title, the date, the
+`yaml_io.load` — no tag of it can construct an object, and an anchor, an alias or a
+block past a bound is refused (#1005) — and gives the title, the date, the
 authors and the AUDIENCE the document declares about itself (`contracts/document.py`).
 """
 
@@ -30,6 +31,7 @@ from html.parser import HTMLParser
 import yaml
 
 from openfactory.adapters.extract.base import Extraction, Source, unreadable
+from openfactory.util import yaml_io
 
 #: How much of the start is looked at for NUL bytes — enough to catch any binary format's header.
 _SNIFF = 8192
@@ -118,7 +120,7 @@ def front_matter(text: str) -> tuple[dict, str, str]:
     if not match:
         return {}, text, ""
     try:
-        fields = yaml.safe_load(match.group(1))
+        fields = yaml_io.load(match.group(1))
     except yaml.YAMLError as exc:
         return {}, text, f"its front matter is not valid YAML ({str(exc).splitlines()[0][:120]})"
     if not isinstance(fields, dict):

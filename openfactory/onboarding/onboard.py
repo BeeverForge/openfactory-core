@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from openfactory import namespace
+from openfactory.util import yaml_io
 
 if TYPE_CHECKING:
     from openfactory.onboarding.spend import Spend
@@ -105,8 +106,6 @@ def _say(stream: StageFn | None, kind: str, text: str) -> None:
 def onboard_source_repo(project, repo: str, *, sandbox: str = "container",
                         stream: StageFn | None = None) -> RepoOutcome:
     """One repository: clone → infer → prove → map → pull request."""
-    import yaml as yaml_mod
-
     from openfactory.adapters.forge.registry import build_forge, clone_url_for
     from openfactory.contracts.manifest import Manifest
     from openfactory.credentials import deployment_forge_token, forge_token_for
@@ -206,8 +205,8 @@ def onboard_source_repo(project, repo: str, *, sandbox: str = "container",
             out.questions = list(dict.fromkeys(out.questions))
             manifest_file.parent.mkdir(parents=True, exist_ok=True)
             manifest_file.write_text(
-                yaml_mod.safe_dump(document, sort_keys=False, allow_unicode=True,
-                                   default_flow_style=False), encoding="utf-8")
+                yaml_io.dump(document, sort_keys=False, allow_unicode=True,
+                             default_flow_style=False), encoding="utf-8")
 
         _say(stream, "start", f"{repo}: proving the box on its own manifest")
         out.proof, out.proof_failures, out.proof_advisories = _prove_in_box(

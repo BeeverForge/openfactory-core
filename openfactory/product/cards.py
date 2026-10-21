@@ -51,8 +51,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-import yaml
-
+from openfactory.util import yaml_io
 from openfactory.util.bounded import BoundedDict
 
 log = logging.getLogger(__name__)
@@ -343,7 +342,7 @@ class Rubric:
     @classmethod
     def parse(cls, text: str, *, source: str = "") -> Rubric:
         """The rubric in `text`, or ValueError naming what is wrong with it."""
-        raw = yaml.safe_load(text)
+        raw = yaml_io.load(text)
         if not isinstance(raw, dict):
             raise ValueError("the rubric is not a mapping")
         scale = raw.get("scale") or {}

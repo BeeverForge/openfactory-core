@@ -3679,6 +3679,8 @@ class JobRunner:
 
         import yaml
 
+        from openfactory.util import yaml_io
+
         hits = tuple(getattr(self, "_protected", ()) or ())
         manifest_rel = namespace.MANIFEST
         if not any(h in self._SHAPE_NAMES or h.startswith(".openfactory/") for h in hits):
@@ -3686,7 +3688,7 @@ class JobRunner:
         root = Path(getattr(ws, "host_path", None) or ws.path)
         try:
             text = (root / manifest_rel).read_text(encoding="utf-8")
-            block = (yaml.safe_load(text) or {}).get("preview") or {}
+            block = (yaml_io.load(text) or {}).get("preview") or {}
         except (OSError, yaml.YAMLError, AttributeError):
             block = {}
         compose = block.get("compose") if isinstance(block, dict) else None

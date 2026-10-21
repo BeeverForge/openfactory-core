@@ -94,6 +94,7 @@ def read_system(docs_root: Path | None):
     from openfactory.knowledge.system.contracts import SystemMap
     from openfactory.knowledge.system.render import SYSTEM_DIRNAME, SYSTEM_FILE
     from openfactory.knowledge.system.tree import read_text
+    from openfactory.util import yaml_io
 
     if docs_root is None:
         return None
@@ -101,7 +102,7 @@ def read_system(docs_root: Path | None):
     if got.text is None:
         return None
     try:
-        data = yaml.safe_load(got.text)
+        data = yaml_io.load(got.text)
         return SystemMap(**data) if isinstance(data, dict) else None
     except (yaml.YAMLError, ValueError, TypeError, RecursionError):
         log.warning("the system map at %s could not be read — it is treated as absent", docs_root)

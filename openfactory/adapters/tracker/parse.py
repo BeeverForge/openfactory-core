@@ -36,6 +36,7 @@ import unicodedata
 import yaml
 
 from openfactory.contracts import AcceptanceCriterion, Ticket
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.tracker.parse")
 
@@ -106,7 +107,7 @@ def _split_front_matter(body: str) -> tuple[dict, str]:
         parts = body.split("---", 2)
         if len(parts) == 3:
             try:
-                fm = yaml.safe_load(parts[1]) or {}
+                fm = yaml_io.load(parts[1]) or {}
             except yaml.YAMLError as exc:
                 first = next((ln for ln in parts[1].splitlines() if ln.strip()), "")
                 log.warning("the front matter of a ticket does not parse as YAML (first line "

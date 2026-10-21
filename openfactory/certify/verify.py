@@ -178,8 +178,10 @@ def load_thresholds(path: Path | None = None) -> list[Threshold]:
     where = Path(path) if path is not None else THRESHOLDS_FILE
     import yaml
 
+    from openfactory.util import yaml_io
+
     try:
-        data = yaml.safe_load(where.read_text(encoding="utf-8"))
+        data = yaml_io.load(where.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ThresholdsError(f"{where} could not be read ({exc.strerror or exc})") from None
     except yaml.YAMLError as exc:

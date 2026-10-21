@@ -276,7 +276,9 @@ OWNED = {
     # a token. A CLI that reacquired it would be a second place deciding when an agent runs.
     "propose_context": "env_context",        # proposing what a legacy codebase IS
     "readiness": "env_check",                # composing doctor/conformance/floor/box into one verdict
-    "safe_dump": "env_apply",                # writing the client's manifest
+    # re-pinned 2026-10-21: every YAML the core writes goes through `yaml_io.dump` (#1005), so
+    # serialising the client's manifest is that call — `yaml.safe_dump` is used nowhere now
+    "dump": "env_apply",                     # writing the client's manifest
     # How a preview of a repository would run (#265 slice 4). The marker is the drafter itself: a
     # front end that reached it would be a second place deciding what a repository says about how
     # it runs — `preview draft` is a mapping onto this row, and `preview propose` onto the writer.

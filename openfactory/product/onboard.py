@@ -36,6 +36,7 @@ from pathlib import Path
 import yaml
 
 from openfactory import namespace
+from openfactory.util import yaml_io
 
 #: What `authoring` writes: `requirements/0007-editar-conciliado.md`. A file that does not match
 #: is somebody else's document, whatever else it is.
@@ -70,7 +71,7 @@ def _existing(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml_io.load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError:
         return {}
     return data if isinstance(data, dict) else {}
@@ -165,7 +166,7 @@ def _render(data: dict) -> str:
 
     A generated file in somebody else's repository owes them an explanation — otherwise the next
     person to open it has to guess whether it is safe to edit."""
-    body = yaml.safe_dump(data, sort_keys=True, allow_unicode=True)
+    body = yaml_io.dump(data, sort_keys=True, allow_unicode=True)
     return (
         f"# {namespace.PRODUCT_MANIFEST} — how OpenFactory finds this product's requirements.\n"
         "# Written by `openfactory product init`; safe to edit by hand.\n"

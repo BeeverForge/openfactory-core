@@ -24,6 +24,7 @@ from openfactory.contracts.product import ProductDocs
 from openfactory.product.config import ProductLink, resolve_product_link
 from openfactory.product.corpus import Corpus, load_corpus
 from openfactory.product.domain import Domain, load_domain
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.product")
 
@@ -159,7 +160,7 @@ def _safe_load(text: str) -> tuple[object, str]:
     built. A file with no document in it reads as None. A file of several documents is refused
     (`get_single_node`), never read in part: reading only the first dropped the rest of the file
     without a word (measured on review, 2026-10-19)."""
-    loader = yaml.SafeLoader(text)
+    loader = yaml_io.Loader(text)
     try:
         root = loader.get_single_node()
         if isinstance(root, yaml.MappingNode):
@@ -200,7 +201,7 @@ def _as_written(text: str, node: yaml.Node) -> str:
     between two tokens is space, line breaks and comments, and the comments are dropped from it."""
     start, end = node.start_mark.index, node.end_mark.index
     spelled, at = "", start
-    for token in yaml.scan(text, Loader=yaml.SafeLoader):
+    for token in yaml_io.tokens(text):
         if token.start_mark.index > end:
             break
         if token.start_mark.index >= start and token.end_mark.index <= end:

@@ -14,13 +14,15 @@ stopped short of what it promised.
 TEST = "tests/test_the_tracker_reads_what_a_person_wrote.py"
 
 MUTATIONS = [
+    # re-pinned 2026-10-21: the fence is read through `yaml_io.load`, the core's one YAML reader
+    # (#1005); the claim is the same, the guard around the load
     ("the guard is removed, so one hand-typed fence is a ScannerError out of every get_ticket",
      "openfactory/adapters/tracker/parse.py",
      "            try:\n"
-     "                fm = yaml.safe_load(parts[1]) or {}\n"
+     "                fm = yaml_io.load(parts[1]) or {}\n"
      "            except yaml.YAMLError as exc:\n",
      "            if True:\n"
-     "                fm = yaml.safe_load(parts[1]) or {}\n"
+     "                fm = yaml_io.load(parts[1]) or {}\n"
      "            if False:\n"),
 
     ("the Jira author falls back to nothing when the reporter is unset",
