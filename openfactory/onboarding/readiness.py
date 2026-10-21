@@ -340,6 +340,18 @@ class Probes:
     #: `product.admins` — who may make the product role WRITE. Empty means nobody, and nothing
     #: else in this report or in `doctor` reads it.
     product_admins: Callable[[], list[str]]
+    #: `(name, sentence)` when the project's product started before its code (#992) — `("", "")`
+    #: for every other project. `doctor.Probes.before_its_code`'s twin, a callable like every
+    #: probe here: the checks below that read the code or its proof have nothing to read, so
+    #: `assess` says the state once, as a hold.
+    before_its_code: Callable[[], tuple[str, str]] = field(default=lambda: ("", ""))
+
+
+#: The checks `assess` does not ask of a project whose product started before its code (#992):
+#: each reads its box proof or its manifest, and neither exists before the code. `doctor` drops
+#: its own (`doctor.NEEDS_THE_CODE`) for the same reason; everything else is asked as for any
+#: project — the registry, the roles and routes the product role runs on, the product role itself.
+NEEDS_THE_CODE = frozenset({"box_gate", "box_proof", "quality_floor"})
 
 
 def _guarded(check: str, on: str, fn: Callable[[], tuple[Finding, str]]) -> tuple[Finding, str]:
@@ -408,6 +420,13 @@ def assess(p: Probes) -> Report:
         # would let it outrank a fact that does.
         ("product_role", lambda: _product_role(p, on)),
     ]
+    name, said = p.before_its_code()
+    if said:
+        # ONE HOLD FOR THE STATE, RIGHT AFTER `enabled` — the order `scan_projects` asks them in
+        # (#992): no ticket is picked up for a project with no code repository, and the checks
+        # that read its proof or its manifest would each say that absence in their own words
+        checks = [c for c in checks if c[0] not in NEEDS_THE_CODE]
+        checks.insert(1, ("code", lambda: _no_code_yet(name, said, on)))
     mine: list[Finding] = []
     for name, fn in checks:
         finding, hold = _guarded(name, on, fn)
@@ -424,6 +443,13 @@ def assess(p: Probes) -> Report:
                     findings=findings, holds=holds)
     _self_check(report)
     return report
+
+
+def _no_code_yet(name: str, said: str, on: str) -> tuple[Finding, str]:
+    """The project's product started before its code (#992): a HOLD, because the poller leaves it
+    off its list until its first source, in the sentence every door says (`no_code_yet`)."""
+    return _fail("code", said, f"openfactory product first-source {name} <repository>",
+                 on=on), said
 
 
 def _self_check(report: Report) -> None:
@@ -993,6 +1019,7 @@ def probes_for(project) -> Probes:
     from openfactory.adapters.agent.roles import role_prompt
     from openfactory.adapters.agent.routes import declared_route, resolve_route
     from openfactory.adapters.sandbox.registry import box_traits
+    from openfactory.contracts.project import before_its_code, no_code_yet
     from openfactory.registry import LIVE_REGISTRY_PATH, ProjectRegistry
     from openfactory.runtime.temporal.io import default_sandbox
 
@@ -1060,6 +1087,8 @@ def probes_for(project) -> Probes:
             and getattr(cfg, "enabled", True)),
         product_admins=lambda: list(
             getattr(getattr(project, "product", None), "admins", None) or []),
+        before_its_code=lambda: ((name, no_code_yet(name, "running a ticket"))
+                                 if before_its_code(project) else ("", "")),
     )
 
 

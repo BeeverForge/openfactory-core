@@ -245,7 +245,9 @@ def resolve_product_link(
     # no code repository to be a member: steps 1 and 4 have nothing to read, and saying "the source
     # repo does not declare" or "membership could not be checked" about a repository that does not
     # exist yet would be a warning about a state, not a fault. Steps 2 and 3 stand as they are —
-    # the context must be readable and must name THIS product, since nothing is listed to admit it.
+    # the context must be readable and must name THIS product, since nothing is listed to admit it
+    # — and step 4 becomes the rule below: such a project links only to a product that lists
+    # nothing.
     from openfactory.contracts.project import before_its_code
 
     code_less = before_its_code(project)
@@ -332,10 +334,29 @@ def resolve_product_link(
     ) if unreadable else ""
     if dropped:
         warnings.append(dropped)
+    if code_less and docs.sources:
+        # A PROJECT WITH NO CODE CAN VOUCH FOR NOTHING `sources:` LISTS (review of 9f18a788). Let
+        # in on `product:` alone, it read every listed repository as its product's — another
+        # client's included — and its first source was then written into that list by the act
+        # that also registers it: membership and authorisation made in one act, where ADR-0019
+        # makes them two declarations that check each other. A context that lists anything is a
+        # product that has started, and a repository joins it by being listed there AND
+        # registered with its code — which the first source finds (`before_code.first_source`).
+        listed = ", ".join(repr(s) for s in docs.sources[:3]) + (
+            ", …" if len(docs.sources) > 3 else "")
+        return _off(
+            "conflict",
+            f"{authorized} already lists {listed} in `sources:`, and {project.name!r} has no code "
+            f"repository yet, so it can vouch for none of them. Refusing: a project let in on "
+            f"`product:` alone would read those repositories as its product's, and its first "
+            f"source would be listed beside them by the same act that registers it. If one of "
+            f"them is this product's code, give it as the first source (`openfactory product "
+            f"first-source {project.name} <repository>`), which finds it listed; otherwise start "
+            f"{project.name!r} on a context of its own.",
+        )
     if code_less:
-        # NOTHING TO BE A MEMBER OF YET: the registry names no code repository, so whatever
-        # `sources:` lists — nothing, or the entries a scaffold put there first — is read by the
-        # product role as the product's, and no repository of this project's is missing from it
+        # NOTHING TO BE A MEMBER OF YET, AND NOTHING LISTED: `sources: []` is a product that has
+        # not started, and no repository of this project's is missing from it
         return ProductLink(active=True, docs_repo=authorized, kind="ok",
                            reason="registry and documentation repo agree; the product has no "
                                   "code repository yet",

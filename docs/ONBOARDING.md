@@ -862,8 +862,13 @@ again, it finds the product it started rather than refusing it.
   declaration (with `sources: []`) as a pull request on it.
 - **Brought in.** Requirements imported or written by another tool or client land in a context
   repository that tool fills; started on, it is read like any other. `sources: []` is a product
-  that has not started, not an error; a scaffold that already listed the first source is read
-  too.
+  that has not started, not an error.
+
+**A context that already lists sources is a product that has started.** A project with no code
+can vouch for nothing in it, so the product role stays off for it, saying why, until its first
+source is one of the listed repositories. A GitHub context counts as the project's organisation
+while it has no code: on a deployment of one organisation, `product start` refuses a context in
+another, as `project add` refuses code there.
 
 **What works, and what waits.** The product owner's conversation, writing and accepting
 requirements, the documents, decisions and facts — everything that lives in the context — work at
@@ -872,7 +877,8 @@ and says, in the project's language, that its tasks wait for the code. Everythin
 code refuses the project by name with the one way through — every action row that needs it
 (reason `no_code_yet`), pickup (the poller leaves it off its list), `box prove`, `run`, `poll`
 and `project init` — and `openfactory doctor myapp` says it once, as its `code` line, instead of a
-red line per reader of the code.
+red line per reader of the code. The readiness check (`openfactory env check myapp`, the
+`env_check` row) answers too: NOT ready, held on that same line.
 
 **The first source.** When the code repository exists — made by hand, or by any scaffold — one
 act gives it to the product, on the forge its context is on:
@@ -881,9 +887,13 @@ act gives it to the product, on the forge its context is on:
 openfactory product first-source myapp https://github.com/<owner>/myapp.git
 ```
 
-It adds the repository to `sources:` in the context (a scaffold that already listed it is found,
-not written twice), then records it in the registry — in that order, so an interrupted run is
-finished by running it again. Breaking a requirement into cards then needs no other step, and every
+It asks the registry first (a code repository is given once, and one deployment is one GitHub
+organisation), then adds the repository to `sources:` in the context, then records it in the
+registry — in that order, so a refusal comes before anything is pushed and an interrupted run is
+finished by running it again. A scaffold that already listed it is found, not written twice. A
+context that lists **other** repositories and not this one is refused, with nothing written: a
+repository joins a product that has sources by its context listing it, so list it there first
+(or start the product on a context of its own). Breaking a requirement into cards then needs no other step, and every
 acceptance files its own. The answer names the requirements accepted while the product waited;
 each is one `openfactory product break-down myapp <number> --yes` away, asked by its product
 owner. A board is attached as for any project (`openfactory project init myapp`).

@@ -133,10 +133,12 @@ with its context repository and NO code repository (GitHub `owner/repo`, the Azu
 URL, or on one machine a short name, created when it does not exist), and reads the context back.
 Its product owner's conversation, its requirements and its context work at once; everything that
 needs code refuses it by name — the action rows that do (`no_code_yet`), pickup, `box prove`,
-`run`, `poll`, `project init` — and the doctor says the state in one `code` line. `product
-first-source <name> <path-or-url>` gives it its code repository, on the forge its context is on:
-the first entry of `sources:` in the context, then the registry — and the breakdown needs no
-other step. Both are action rows (`product_start`, `product_first_source`), the same on
+`run`, `poll`, `project init` — and the doctor says the state in one `code` line, which `env
+check` holds on. A context that already lists sources leaves its product role off until its first
+source is one of them. `product first-source <name> <path-or-url>` gives it its code repository,
+on the forge its context is on: the registry's checks first, then the first entry of `sources:` in
+the context, then the registry — and the breakdown needs no other step. A context that lists other
+repositories and not this one is refused, with nothing written. Both are action rows (`product_start`, `product_first_source`), the same on
 `POST /api/act/{name}`. Walked in [ONBOARDING §9b](../ONBOARDING.md).
 
 **The box proof** — `box prove <name>` runs the project's own `setup:` and `validate:` inside

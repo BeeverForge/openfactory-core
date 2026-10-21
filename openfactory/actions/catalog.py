@@ -3692,12 +3692,16 @@ async def _product_start(*, project: str, docs_repo: str, by: Actor, provider: o
     elif not got.reachable:
         said += (f" The context could not be read: {got.why}. The registration stands — fix the "
                  "access and nothing needs registering again.")
+    elif got.link == "conflict":
+        # NOT "WRITE THE DECLARATION": a context that names another product or already lists
+        # sources belongs to a product this one is not, and writing into it is the breach
+        said += f" The product role is off: {got.reason.rstrip('.')}."
     else:
         said += (f" The product role is not on yet: {got.reason.rstrip('.')}. `openfactory "
                  f"product init {got.project} --write` proposes the declaration it reads.")
     return done(said, project=got.project, docs_repo=got.docs_repo, kind=got.kind,
                 registered=got.registered, created=got.created, reachable=got.reachable,
-                why=got.why, active=got.active, reason=got.reason)
+                why=got.why, active=got.active, reason=got.reason, link=got.link)
 
 
 async def _product_first_source(*, project: str, repo_path: str, by: Actor,
@@ -7865,6 +7869,10 @@ CATALOG: dict[str, ActionSpec] = {
             refuses=(NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project",),
             needs_admin=False,
+            # A QUESTION, ANSWERED FOR A PROJECT BEFORE ITS CODE TOO (#992): "not ready, it has no
+            # code yet" is this row's answer, held on one `code` line with the doctor's report
+            # beside it — refused here, the panel never saw that report (review of 9f18a788)
+            needs_code=False,
         ),
         ActionSpec(
             name="env_apply",

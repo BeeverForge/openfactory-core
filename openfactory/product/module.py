@@ -3007,8 +3007,12 @@ class ProductModule:
         if before_its_code(self.project):
             from openfactory.product.voice import breakdown_waits_for_code
 
-            return [WriteResult(ok=False, waits_for_code=True, detail=breakdown_waits_for_code(
-                number=getattr(requirement, "number", 0), language=lang))]
+            # NOT WAITING (#908's word, 409): the requirement is there, and the product's state —
+            # no code repository yet — does not admit a breakdown now; `perform` answers the
+            # rows that need the code with the same CONFLICT
+            return [WriteResult(ok=False, refusal=NOT_WAITING, waits_for_code=True,
+                                detail=breakdown_waits_for_code(
+                                    number=getattr(requirement, "number", 0), language=lang))]
 
         # THE BOARD, READ ONCE AND USED TWICE. `_role()` puts it in the decomposition's prompt and
         # this set verifies every `already_on_board` the decomposition answers with. Priming

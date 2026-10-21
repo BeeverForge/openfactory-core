@@ -22,11 +22,20 @@ TWO ACTS, BOTH CATALOGUE ROWS, so the command line and `POST /api/act/{name}` re
     first_source        give it its code repository: the first entry of `sources:`, then the
                         registry's `repo_path` and axes — and the breakdown needs no other step
 
-THE CONTEXT FIRST, THEN THE REGISTRY, and the order is what makes a half-done first source safe to
-run again. Written the other way, a registry that names the code while `sources:` does not list it
-is a product the module refuses as a membership conflict — the role goes off. Written this way, a
-context that lists the source while the registry does not yet is a product whose role reads one
-more repository and whose breakdown still waits, which the next run finishes.
+THE REGISTRY ASKED, THE CONTEXT WRITTEN, THE REGISTRY WRITTEN — in that order, and the order is
+what makes a half-done first source safe to run again. Every refusal the registry would make (a
+code repository given twice, a deployment spanning two GitHub organisations) is asked before
+anything is pushed (`ProjectRegistry.check_code`). Then the context: written the other way, a
+registry that names the code while `sources:` does not list it is a product the module refuses as
+a membership conflict — the role goes off. Written this way, a context that lists the source while
+the registry does not yet is a product whose role stays off until the next run records it. Only a
+registry somebody else changed during the push can still refuse after it, and its sentence names
+what changed.
+
+ONE DECLARATION PER ACT. A context whose `sources:` already lists repositories is a product that
+has started: the first source is found there when its context lists it, and refused when the
+context lists others and not it, because listing it would make the membership and the
+authorisation in one act (ADR-0019 keeps them two declarations that check each other).
 
 NOT A PLACEHOLDER. Nothing here creates a code repository: the factory would then maintain one
 nobody asked for. On the runtime whose forge is this machine the CONTEXT repository is created
@@ -81,6 +90,9 @@ class Started:
     #: whether the product module is on for it now, and the module's own reason when it is not
     active: bool = False
     reason: str = ""
+    #: the link's own kind (`product.config.ProductLink.kind`) — `conflict` is a context that
+    #: belongs to another product, which no declaration written into it would fix
+    link: str = ""
 
 
 @dataclass(frozen=True)
@@ -242,9 +254,10 @@ def start_before_code(name: str, docs_repo: str, *, provider: str = "", token_en
             log.warning("could not create the context repository %s for %s (%s)", coordinate,
                         name, str(exc)[:200])
     reachable, why = _reachable(project, coordinate)
-    active, reason = _link(project)
+    active, link, reason = _link(project)
     return Started(project=name, docs_repo=coordinate, kind=kind, registered=registered,
-                   created=created, reachable=reachable, why=why, active=active, reason=reason)
+                   created=created, reachable=reachable, why=why, active=active, reason=reason,
+                   link=link)
 
 
 def _reachable(project, docs_repo: str) -> tuple[bool, str]:
@@ -259,8 +272,9 @@ def _reachable(project, docs_repo: str) -> tuple[bool, str]:
         return False, f"it could not be asked ({type(exc).__name__})"
 
 
-def _link(project) -> tuple[bool, str]:
-    """Whether the product module is on for `project` now, and its own reason when it is not."""
+def _link(project) -> tuple[bool, str, str]:
+    """`(active, kind, reason)`: whether the product module is on for `project` now, the link's
+    kind, and its own reason when it is not."""
     from openfactory.product.loader import load_product_context
 
     try:
@@ -268,8 +282,9 @@ def _link(project) -> tuple[bool, str]:
     except Exception as exc:  # noqa: BLE001 — a link nobody could read is off, and said
         log.warning("could not read the product link of %s (%s)", getattr(project, "name", "?"),
                     str(exc)[:200])
-        return False, f"its context could not be read ({type(exc).__name__})"
-    return bool(link.active), "" if link.active else str(link.reason or "")
+        return False, "", f"its context could not be read ({type(exc).__name__})"
+    return (bool(link.active), str(getattr(link, "kind", "") or ""),
+            "" if link.active else str(link.reason or ""))
 
 
 # ── the first source ───────────────────────────────────────────────────────────────────────────
@@ -332,6 +347,12 @@ def first_source(name: str, repo_path: str, *, token_env: str = "", board_owner:
         raise Refused(INVALID, f"{ref!r} names no repository this deployment's {kind} forge can "
                                f"address — on a hosted forge, give the code repository's clone "
                                f"URL")
+    # THE REGISTRY'S ANSWER BEFORE THE PUSH (review of 9f18a788): a refusal it made only after
+    # the context was written left a source listed there that every later run was refused over
+    try:
+        registry.check_code(name, would_be)
+    except ValueError as exc:
+        raise Refused(CONFLICT, f"{exc} — nothing was written") from None
     listed_now = _list_in_context(project, would_be, entry)
     try:
         registry.set_code(name, would_be)
@@ -360,7 +381,8 @@ def _same_organisation(project, axes: dict, docs_repo: str) -> str:
 
 def _list_in_context(project, would_be, entry: str) -> bool:
     """Add `entry` to `sources:` in the context's `.openfactory/product.yaml`, under the product's
-    semaphore. True when it was written now, False when the context already listed it.
+    semaphore. True when it was written now, False when the context already listed it; RAISES
+    `Refused` when the context lists other repositories and not this one.
 
     THE FILE IS WRITTEN BY `onboard.plan`, the function `product init` writes it with: everything
     the client had in it survives, `sources:` gains the entry, and a context that does not name
@@ -404,6 +426,19 @@ def _list_in_context(project, would_be, entry: str) -> bool:
             if docs is not None and any(repo_match(entry, s) == MATCH_EXACT
                                         for s in docs.sources):
                 return False
+            if docs is not None and docs.sources:
+                # A PRODUCT THAT HAS MEMBERS ADMITS ANOTHER BY ITS CONTEXT LISTING IT — written
+                # there by whoever writes the context, as a scaffold does — never by the act that
+                # also registers it (review of 9f18a788)
+                listed = ", ".join(repr(s) for s in docs.sources[:3]) + (
+                    ", …" if len(docs.sources) > 3 else "")
+                raise Refused(CONFLICT, f"{cfg.docs_repo} already lists {listed} in `sources:`, "
+                                        f"and not {entry} — a product that has sources admits "
+                                        f"another repository when its context lists it, not when "
+                                        f"the act that registers the repository writes it there. "
+                                        f"List {entry} in `sources:` and run this again, or start "
+                                        f"{project.name} on a context of its own. Nothing was "
+                                        f"written")
             result = plan(would_be, root, sources=[entry])
             if result.refusal:
                 raise Refused(CONFLICT, result.refusal)

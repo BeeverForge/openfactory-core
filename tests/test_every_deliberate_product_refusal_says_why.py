@@ -172,6 +172,8 @@ SENTENCES = {
     "breakdown_said('held')": "NOT_WAITING",
     "breakdown_said('carried_meanwhile')": "NOT_WAITING",
     "breakdown_said('out_of_time')": "NOT_WAITING",
+    # a product that started before its code: the breakdown waits for its first source (#992)
+    "breakdown_waits_for_code()": "NOT_WAITING",
     # already closed (409)
     "card_said('already_closed')": "ALREADY_CLOSED",
     "card_said('survivor_closed')": "ALREADY_CLOSED",

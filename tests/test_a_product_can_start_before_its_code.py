@@ -176,8 +176,7 @@ def test_sources_empty_is_a_product_that_has_not_started_not_an_error():
 
 def test_the_declarations_that_must_agree_still_agree_when_there_is_no_source():
     """The isolation stands with nothing listed: the context must name THIS product, since no code
-    repository can admit it; the registry still authorizes, so no claim can redirect it; and a
-    context a scaffold already wrote a source into is read as the product's."""
+    repository can admit it, and the registry still authorizes, so no claim can redirect it."""
     from openfactory.contracts.product import ProductDocs
     from openfactory.product.config import resolve_product_link
 
@@ -187,7 +186,8 @@ def test_the_declarations_that_must_agree_still_agree_when_there_is_no_source():
     assert "no code repository yet" in other.reason
 
     # A LOCAL ROW NAMES ITS OWN NAME AS ITS `repo` — code or none — so a listing of that name must
-    # not stand in for the product's: there is no code repository to be listed
+    # not stand in for the product's: there is no code repository to be listed, and the first
+    # fault said is the product it names
     from openfactory.contracts.project import ProviderRef
 
     local = _codeless(tracker=ProviderRef(kind="local", repo="myapp"),
@@ -195,17 +195,56 @@ def test_the_declarations_that_must_agree_still_agree_when_there_is_no_source():
     listed = resolve_product_link(project=local,
                                   docs=ProductDocs(product="another", sources=["myapp"]))
     assert (listed.active, listed.kind) == (False, "conflict")
+    assert "requirements for product 'another'" in listed.reason, listed.reason
 
     claimed = resolve_product_link(project=_codeless(), manifest_docs_repo="evil/elsewhere",
                                    docs=ProductDocs(product="myapp", sources=[]))
     assert claimed.active and claimed.docs_repo == "acme/myapp-context"
 
-    scaffolded = resolve_product_link(project=_codeless(),
-                                      docs=ProductDocs(product="myapp", sources=["acme/web"]))
-    assert scaffolded.active and scaffolded.warnings == []
-
     unreadable = resolve_product_link(project=_codeless(), docs=None, docs_error="gone")
     assert (unreadable.active, unreadable.kind) == (False, "config")
+
+
+#: a project before its code as `product start` registers it, ONE PER BRANCH OF `context_axes`
+#: (the function that writes its axes): the runtime whose forge is this machine, an Azure DevOps
+#: context named by its clone URL, and a hosted `owner/name`
+SHAPES = {"local": "myapp-context",
+          "azure_devops": "https://dev.azure.com/acme/Books/_git/myapp-context",
+          "github": "acme/myapp-context"}
+
+#: what a context's `sources:` can hold beside nothing: another client's repository, the one its
+#: own first source would be (a local row's name, a bare Azure name), and an entry nobody can read
+LISTINGS = [["clienta/portal-web"], ["myapp"], ["not/a/repository/at/all"]]
+
+
+def _shaped(kind: str):
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project
+    from openfactory.product.before_code import context_axes
+
+    docs, axes = context_axes("myapp", SHAPES[kind], kind)
+    return Project(name="myapp", repo_path="", product=ProductConfig(docs_repo=docs), **axes)
+
+
+@pytest.mark.parametrize("kind", list(SHAPES))
+@pytest.mark.parametrize("sources", LISTINGS, ids=lambda s: s[0])
+def test_a_project_with_no_code_links_only_to_a_product_that_lists_nothing(kind, sources):
+    """It can vouch for nothing `sources:` lists (review of 9f18a788): let in on `product:` alone,
+    the product role read another client's repositories as its own, and its first source was
+    written into their list by the act that registers it."""
+    from openfactory.contracts.product import ProductDocs
+    from openfactory.product.config import resolve_product_link
+
+    project = _shaped(kind)
+    started_ = resolve_product_link(project=project,
+                                    docs=ProductDocs(product="myapp", sources=[]))
+    listed = resolve_product_link(project=project,
+                                  docs=ProductDocs(product="myapp", sources=sources))
+
+    assert started_.active, started_.reason
+    assert (listed.active, listed.kind) == (False, "conflict")
+    assert "can vouch for none of them" in listed.reason, listed.reason
+    assert "openfactory product first-source myapp" in listed.reason, listed.reason
 
 
 def test_the_code_of_a_project_before_it_is_never_the_current_directory():
@@ -312,6 +351,29 @@ def test_starting_it_again_finds_it_and_starting_one_with_code_is_refused(starte
     assert om.cli("project", "add", "theirs", str(om.a_repository(started / "c")))[0] == 0
     coded = _act("product_start", project="theirs", docs_repo="theirs-context")
     assert coded.code == base.CONFLICT and "already registered with its code" in coded.message
+
+
+def _list_in_the_context(root: Path, entries: list[str]) -> str:
+    """`sources:` of the context set to `entries` by whoever writes the context; its new tip."""
+    work = root / f"lister-{len(list(root.glob('lister-*')))}"
+    _git("clone", "-q", _context_path(), str(work))
+    manifest = work / ".openfactory" / "product.yaml"
+    declared = yaml.safe_load(manifest.read_text())
+    manifest.write_text(yaml.safe_dump({**declared, "sources": entries}))
+    _git("commit", "-qam", "the context's owner lists its sources", cwd=work)
+    _git("push", "-q", "origin", "HEAD:main", cwd=work)
+    return _git("--git-dir", _context_path(), "rev-parse", "main").stdout
+
+
+def test_starting_on_a_context_that_lists_sources_says_the_role_is_off_and_why(started):
+    """Its own words, not "write the declaration": a context that already lists repositories is a
+    product that has started, and a declaration written into it would be the breach."""
+    _list_in_the_context(started, ["clienta-web"])
+    again = _act("product_start", project="myapp", docs_repo=CONTEXT)
+
+    assert again.ok and not again.data["active"] and again.data["link"] == "conflict", again.data
+    assert "can vouch for none of them" in again.message, again.message
+    assert "product init" not in again.message, again.message
 
 
 @pytest.mark.parametrize("ref,why", [
@@ -477,6 +539,23 @@ def test_the_doctor_says_the_state_once_instead_of_a_line_per_reader_of_the_code
     assert any("product_link" in line and "ok" in line for line in lines), said
 
 
+def test_the_readiness_check_answers_for_it_and_holds_on_the_state_once(started):
+    """The doctor's `code` line reaches the panel (review of 9f18a788): `env_check` — the row that
+    composes the doctor — answers for a project before its code, NOT ready, held on one `code`
+    line, with no line from a check that reads the code or its proof."""
+    from openfactory import doctor
+    from openfactory.contracts.project import no_code_yet
+    from openfactory.onboarding import readiness
+
+    out = _act("env_check", project="myapp")
+    checks = [f["check"] for f in out.data.get("findings", [])]
+
+    assert out.ok and out.data["ready"] is False, out.message
+    assert out.data["holds"][0] == no_code_yet("myapp", "running a ticket"), out.data["holds"]
+    assert checks.count("code") == 1, checks
+    assert not set(checks) & (doctor.NEEDS_THE_CODE | readiness.NEEDS_THE_CODE), checks
+
+
 # ── 4. the first source ─────────────────────────────────────────────────────────────────────────
 
 def test_the_first_source_is_listed_and_recorded_and_the_breakdown_needs_no_other_step(
@@ -532,6 +611,13 @@ def test_the_registry_gives_a_project_its_code_once(deployment):
         registry.set_code("myapp", _codeless(repo_path="https://github.com/acme/api.git"))
     with pytest.raises(KeyError):
         registry.set_code("nobody", _codeless(repo_path="/x"))
+    # ASKED WITHOUT WRITING, by the same function: what `set_code` refuses, `check_code` refuses
+    written = (deployment / "registry.yaml").read_text()
+    with pytest.raises(ValueError, match="given once"):
+        registry.check_code("myapp", _codeless(repo_path="https://github.com/acme/api.git"))
+    with pytest.raises(KeyError):
+        registry.check_code("nobody", _codeless(repo_path="/x"))
+    assert (deployment / "registry.yaml").read_text() == written
 
 
 def test_a_context_that_cannot_be_written_leaves_the_registry_as_it_was(started):
@@ -564,6 +650,98 @@ def test_a_context_that_already_lists_it_is_not_written_again(started):
     assert out.ok and not out.data["listed_now"], out.message
     assert _git("--git-dir", _context_path(), "rev-parse", "main").stdout == tip
     assert _registry(started)["myapp"]["repo_path"]
+
+
+@pytest.mark.parametrize("others,found", [(["clienta-web"], False),
+                                          (["clienta-web", "MyApp"], True)],
+                         ids=["lists-others", "lists-others-and-it"])
+def test_a_context_that_lists_other_sources_admits_the_first_source_only_when_it_lists_it(
+        started, others, found):
+    """One declaration per act (review of 9f18a788): a product that has sources admits another
+    repository when its context lists it — written there by whoever writes the context — and is
+    never given one by the act that also registers it. Until then the role stays off, since a
+    project with no code can vouch for none of what is listed."""
+    from openfactory.product.loader import load_product_context
+    from openfactory.registry import ProjectRegistry
+
+    tip = _list_in_the_context(started, others)
+    before = load_product_context(ProjectRegistry().get("myapp")).link
+    assert (before.active, before.kind) == (False, "conflict"), before.reason
+
+    out = _act("product_first_source", project="myapp",
+               repo_path=str(om.a_repository(started / "code")))
+
+    assert _git("--git-dir", _context_path(), "rev-parse", "main").stdout == tip
+    if found:
+        assert out.ok and not out.data["listed_now"], out.message
+        assert load_product_context(ProjectRegistry().get("myapp")).link.active
+    else:
+        assert out.code == base.CONFLICT and "already lists 'clienta-web'" in out.message, (
+            out.message)
+        assert "Nothing was written" in out.message
+        assert _registry(started)["myapp"]["repo_path"] == ""
+
+
+def _theirs():
+    """A project of the deployment's own GitHub organisation, `acme`, with its code."""
+    from openfactory.contracts.project import Project, ProviderRef
+
+    return Project(name="theirs", repo_path="https://github.com/acme/theirs.git",
+                   tracker=ProviderRef(kind="github", repo="acme/theirs"))
+
+
+def test_a_first_source_the_registry_would_refuse_writes_nothing_to_the_context(
+        deployment, monkeypatch):
+    """The registry asked before the push (review of 9f18a788): a code repository in another
+    organisation was refused by `set_code` only after `sources:` was pushed, leaving a source in
+    the context that every later run was refused over again."""
+    from openfactory.product import before_code
+    from openfactory.registry import ProjectRegistry
+
+    registry = ProjectRegistry()
+    registry.add(_theirs())
+    registry.add(_codeless())
+    pushed: list[str] = []
+    monkeypatch.setattr(before_code, "_list_in_context",
+                        lambda project, would_be, entry: pushed.append(entry) or True)
+    monkeypatch.setattr(before_code, "_waiting", lambda project: ())
+
+    with pytest.raises(before_code.Refused, match="more than one GitHub organisation") as no:
+        before_code.first_source("myapp", "https://github.com/other/myapp.git")
+    assert no.value.kind == before_code.CONFLICT and "nothing was written" in no.value.message
+    assert pushed == [] and registry.get("myapp").repo_path == ""
+
+    before_code.first_source("myapp", "https://github.com/acme/myapp.git")
+    assert pushed == ["acme/myapp"]
+    assert registry.get("myapp").repo_path == "https://github.com/acme/myapp.git"
+
+
+#: every address `context_kind` reads as a GitHub context — `owner/name` and both clone URLs
+GITHUB_CONTEXTS = ["other/myapp-context", "https://github.com/other/myapp-context.git",
+                   "git@github.com:other/myapp-context.git"]
+
+
+@pytest.mark.parametrize("context", GITHUB_CONTEXTS)
+def test_a_project_with_no_code_is_counted_in_its_contexts_organisation(deployment, context):
+    """Its context is the one repository its work touches, with this deployment's credential, so
+    the one-organisation rule sees it there (review of 9f18a788) — at `add`, through the act."""
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project
+    from openfactory.product.before_code import context_axes, context_kind
+    from openfactory.registry import ProjectRegistry, owners_by_project
+
+    ProjectRegistry().add(_theirs())
+    out = _act("product_start", project="myapp", docs_repo=context)
+
+    assert out.code == base.CONFLICT and "more than one GitHub organisation" in out.message, (
+        out.message)
+    assert "myapp" not in _registry(deployment)
+    # IN EVERY SPELLING A CONTEXT IS DECLARED IN: the act writes `owner/name`, and an entry a
+    # later `product declare` or a hand wrote may carry the clone URL
+    _, axes = context_axes("myapp", context, context_kind(context))
+    codeless = Project(name="myapp", repo_path="", product=ProductConfig(docs_repo=context),
+                       **axes)
+    assert owners_by_project([codeless]) == {"other": ["myapp"]}
 
 
 def test_a_code_repository_on_another_forge_is_refused(started):

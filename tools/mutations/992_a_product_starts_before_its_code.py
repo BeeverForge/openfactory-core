@@ -10,8 +10,11 @@ FOUR CLAIMS, each cut where it is decided:
   3. **What waits says so, at every door.** The acceptance, the conversation's breakdowns, the
      sink, the worker's report, pickup, the verbs that read the code, the doctor and the
      knowledge refresh.
-  4. **The first source**: the context first, then the registry; once; on the context's forge;
-     found, not written twice, when a scaffold listed it.
+  4. **The first source**: the registry asked, the context written, then the registry; once; on
+     the context's forge; found, not written twice, when a scaffold listed it; never written
+     beside other sources.
+
+Rows added after the review of 9f18a788 say so in their section header.
 
 The guard under test is `tests/test_a_product_can_start_before_its_code.py`.
 """
@@ -34,6 +37,7 @@ UNF = "openfactory/product/unfiled.py"
 DOC = "openfactory/doctor.py"
 BC = "openfactory/product/before_code.py"
 LOCAL = "openfactory/adapters/forge/local.py"
+READY = "openfactory/onboarding/readiness.py"
 
 MUTATIONS = [
     # ── 1. the state ─────────────────────────────────────────────────────────────────────────────
@@ -41,17 +45,20 @@ MUTATIONS = [
      "            if before_its_code(project) and not str(getattr(",
      "            if False and not str(getattr(",
      T + "::test_the_registry_admits_one_with_a_context_and_refuses_one_with_neither"),
+    # RE-PINNED 2026-10-21 (review of 9f18a788): `set_code`'s checks moved into
+    # `registry._given_its_code`, shared with `check_code` — the same lines, one indent out
     ("the registry gives a project its code a second time", REG,
-     "            if not before_its_code(Project(**raw[name])):",
-     "            if False:",
+     "    if not before_its_code(Project(**raw[name])):",
+     "    if False:",
      T + "::test_the_registry_gives_a_project_its_code_once"),
     ("a stand-in that carries no `repo_path` is judged as a product before its code", PROJECT,
      "    return isinstance(repo, str) and not repo.strip()",
      '    return not str(repo or "").strip()',
      T + "::test_a_project_with_no_code_repository_is_before_its_code"),
+    # RE-PINNED 2026-10-21: moved with the line above into `registry._given_its_code`
     ("the registry keeps the context's name when the code's forge qualifies it", REG,
-     '            if docs_repo and isinstance(entry.get("product"), dict):',
-     "            if False:",
+     '    if docs_repo and isinstance(entry.get("product"), dict):',
+     "    if False:",
      T + "::test_the_registry_writes_the_contexts_name_as_the_codes_forge_addresses_it"),
     ("the link warns about a source repository that does not exist yet", CFG,
      "    code_less = before_its_code(project)\n", "    code_less = False\n",
@@ -60,6 +67,46 @@ MUTATIONS = [
      "            code_less or not _listed(project, docs)):",
      "            not _listed(project, docs)):",
      T + "::test_the_declarations_that_must_agree_still_agree_when_there_is_no_source"),
+    # ── review of 9f18a788, point 1: a project with no code links only to a product that lists
+    #    nothing, and its first source is never written beside other sources
+    ("a project with no code is linked on `product:` alone to a context that lists sources", CFG,
+     "    if code_less and docs.sources:\n", "    if False:\n",
+     T + "::test_a_project_with_no_code_links_only_to_a_product_that_lists_nothing"),
+    ("the first source is written into a context that lists other sources", BC,
+     "            if docs is not None and docs.sources:\n", "            if False:\n",
+     T + "::test_a_context_that_lists_other_sources_admits_the_first_source_only_when_it_lists_it"
+         "[lists-others]"),
+    ("the start tells somebody to write a declaration into another product's context", CAT,
+     '    elif got.link == "conflict":\n', "    elif False:\n",
+     T + "::test_starting_on_a_context_that_lists_sources_says_the_role_is_off_and_why"),
+    # ── point 2: the registry is asked before the push, and sees a project with no code
+    ("the first source pushes before the registry is asked", BC,
+     "        registry.check_code(name, would_be)\n", "        pass\n",
+     T + "::test_a_first_source_the_registry_would_refuse_writes_nothing_to_the_context"),
+    ("the registry's question asked before the push refuses nothing", REG,
+     "            _given_its_code(self._load_raw(), name, project)\n", "            pass\n",
+     T + "::test_a_first_source_the_registry_would_refuse_writes_nothing_to_the_context"),
+    ("a project with no code is invisible to the one-organisation rule", REG,
+     "    if on_github and before_its_code(project):\n", "    if False:\n",
+     T + "::test_a_project_with_no_code_is_counted_in_its_contexts_organisation"),
+    ("a context named by its clone URL is counted in no organisation", REG,
+     "            context = infer_repo(context)\n", "            pass\n",
+     T + "::test_a_project_with_no_code_is_counted_in_its_contexts_organisation"
+         "[https://github.com/other/myapp-context.git]"),
+    # ── the nit: the doctor's `code` line reaches the panel through `env_check`
+    ("the readiness check is refused for a project before its code", CAT,
+     "            # beside it — refused here, the panel never saw that report (review of 9f18a788)\n"
+     "            needs_code=False,\n",
+     "            # beside it — refused here, the panel never saw that report (review of 9f18a788)\n",
+     T + "::test_the_readiness_check_answers_for_it_and_holds_on_the_state_once"),
+    ("readiness says a line per reader of the code instead of one hold", READY,
+     "    if said:\n        # ONE HOLD FOR THE STATE", "    if False:\n        # ONE HOLD FOR THE STATE",
+     T + "::test_the_readiness_check_answers_for_it_and_holds_on_the_state_once"),
+    # ── the rebase onto #908: the wait names its refusal word
+    ("the breakdown's wait names no refusal word", MOD,
+     "            return [WriteResult(ok=False, refusal=NOT_WAITING, waits_for_code=True,\n",
+     "            return [WriteResult(ok=False, waits_for_code=True,\n",
+     "tests/test_every_deliberate_product_refusal_says_why.py"),
     ("no code repository is read as the directory the process stands in", FACT,
      "    if before_its_code(project):\n        raise NoCodeYet(",
      "    if False:\n        raise NoCodeYet(",
