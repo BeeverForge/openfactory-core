@@ -903,6 +903,31 @@ async def test_the_parameters_a_caller_sent_are_kept_to_a_bound_however_many_and
 
     [row] = _audit_rows(store)
     kept = row["extra"]["params"]
-    assert row["extra"]["project"] == "nosuch", "the caller's extra names pushed the project out"
+    assert kept.get("project") == "nosuch", "the caller's extra names pushed the project out"
     size = sum(len(str(k)) + len(str(v)) for k, v in kept.items())
     assert size <= 64 * VALUE_CHARS, f"the record keeps {size} characters of parameters"
+
+
+async def test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once(store, caplog):
+    """`docs/rotation-and-retention.md` §5: "a record keeps at most 32 parameters, the project
+    first, and 64 characters of each one's name; what is left out is counted in the record", and
+    `_kept` says the drop in one INFO line. On 29b3d3d2 each of the four could be cut with all 144
+    tests of the audit modules green (branch review round 3): the record's `project` field is read
+    from the parameters as sent, so the bound test's project assertion cannot see the order."""
+    import logging
+
+    from openfactory.observability.audit import NAME_CHARS, PARAMS_KEPT
+
+    caplog.set_level(logging.INFO, logger="openfactory.observability.audit")
+    params = {"k" * 1_000: "v", **{f"p{i}": "v" for i in range(100)}, "project": "nosuch"}
+    await actions.perform("product_status", by=actions.Actor(id="eve", via="panel"), **params)
+
+    [row] = _audit_rows(store)
+    kept = row["extra"]["params"]
+    assert kept.get("project") == "nosuch", "the caller's extra names pushed the project out"
+    assert f"{'k' * NAME_CHARS}… [{1_000 - NAME_CHARS} more characters not kept]" in kept, (
+        "a long name was cut without saying so")
+    assert kept.get("…") == f"{102 - PARAMS_KEPT} more parameters not kept", kept.get("…")
+    said = [r.getMessage() for r in caplog.records if r.name == "openfactory.observability.audit"
+            and "was passed 102 parameters" in r.getMessage()]
+    assert len(said) == 1, said

@@ -29,8 +29,9 @@ The claims, each a group of rows (the numbers are the plan's, `ai/tasks/todo.md`
   `openfactory serve` and a curl by hand, 2026-10-21); and the row's key, the project and the
   action a caller sent, kept storable (a lone surrogate written as its escape) and bounded to
   `VALUE_CHARS` (branch review round 1, 2026-10-21), and the parameters bounded in number
-  and by name (round 2); and four documented behaviours the same
-  review's cuts showed no test held — the fallback file `OPENFACTORY_METRICS_DB` names, the action
+  and by name (round 2), with what that bound leaves out counted and said and the project kept
+  first (round 3); and four documented behaviours round 1's cuts showed no test held — the
+  fallback file `OPENFACTORY_METRICS_DB` names, the action
   recorded and filtered by its resolved name, and an unreadable registry's product.
 
 FOUR GUARDS WERE WRITTEN WITH THIS PLAN (2026-10-20), each for a row nothing held: the record of
@@ -418,6 +419,29 @@ MUTATIONS = [
      "        if False:\n",
      _STORE + "test_the_parameters_a_caller_sent_are_kept_to_a_bound_however_many_and_however_"
               "named[one_name_of_a_million_characters]"),
+    # what the bound leaves out is said, and the project is never what it leaves out: four
+    # documented behaviours each cut with all 144 audit tests green (branch review round 3,
+    # 2026-10-21) — the record's `project` field is read from the parameters as sent, so only the
+    # list the record keeps can show the order
+    ("the project is not put first among the parameters kept", _AUDIT,
+     '    names = sorted(given, key=lambda n: n != "project")\n',
+     "    names = list(given)\n",
+     _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
+    ("the parameters left out are not counted in the record", _AUDIT,
+     '        kept["…"] = f"{len(names) - PARAMS_KEPT} more parameters not kept"\n',
+     "        pass\n",
+     _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
+    ("the parameters left out are not said at INFO", _AUDIT,
+     '        log.info("audit: %s was passed %d parameters; the record keeps %d", action, '
+     'len(names),\n'
+     "                 PARAMS_KEPT)\n",
+     "        pass\n",
+     _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
+    ("a long parameter name is cut without the note", _AUDIT,
+     '            name = f"{name[:NAME_CHARS]}… [{len(name) - NAME_CHARS} more characters not '
+     'kept]"\n',
+     "            name = name[:NAME_CHARS]\n",
+     _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
 
     # documented behaviours no test held: each survived the branch review's own cut (round 1,
     # 2026-10-21, 133 passed under each), and each has a guard of its own now

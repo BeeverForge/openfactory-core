@@ -177,7 +177,8 @@ def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
 
     kept: dict[str, object] = {}
     given = redact(params)
-    # `project` first: it is the row's key, and a caller's extra names must not push it out.
+    # `project` first, so the parameters the record lists still name it: a caller's extra names
+    # must not push it out of the `PARAMS_KEPT` kept.
     names = sorted(given, key=lambda n: n != "project")
     for name in names[:PARAMS_KEPT]:
         value = given[name]
