@@ -15,7 +15,10 @@ the INFO line is still written, once per call, beside the row; and a row is read
 `audit.AUDIT_KEPT_DAYS` and not a day longer, the period stated with its value on the page that
 states every other retention. Append-only on the store's own terms: a row's key carries its
 record's own id, and nothing in `openfactory/` but `audit.write` makes or writes an audit row,
-nor forgets one — read off the parsed tree, never its text.
+nor forgets one — read off the parsed tree, never its text. `project forget` keeps a project's
+records (Q8) and may: a person's words are in a record only as their length and sha256 — for the
+one call driven here and for every free-text parameter the catalog takes — so the record is no
+second copy of what `forget-conversations` erases.
 """
 
 from __future__ import annotations
@@ -370,3 +373,106 @@ def test_nothing_rewrites_an_audit_row():
 
     assert found == [], "an audit row is made, written again or forgotten outside audit.write:\n" + (
         "\n".join(found))
+
+
+# ── what `project forget` keeps, and why it may: no client's words are in a record ──────────────
+
+def test_forgetting_a_project_keeps_its_audit_records(store, tmp_path, monkeypatch):
+    """Criterion 3, "the local default sink writes audit records … append-only", against the one
+    command that deletes a project's rows (Q8, decided: kept). A person asks for a registered
+    project's status, leaving one record under it; the project also has a card verdict, which
+    `project forget` removes. After `project forget books --yes --no-backup` the verdict is gone
+    and the record of who asked is still read back — an audit trail a forget erased would answer
+    "who removed this project's records" with nothing. Before #694 there was no record to keep;
+    `forget.RECORD_KINDS` holding `audit` turns this red."""
+    import asyncio
+
+    from typer.testing import CliRunner
+
+    from openfactory.cli import app
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.observability.metrics import MetricRecord
+    from openfactory.registry import ProjectRegistry
+
+    monkeypatch.setenv("OPENFACTORY_BOARD_DB", str(tmp_path / "board.db"))
+    monkeypatch.setenv("OPENFACTORY_LOG_DIR", str(tmp_path / "logs"))
+    ProjectRegistry().add(Project(name="books", repo_path=str(tmp_path / "books"), language="en",
+                                  tracker=ProviderRef(kind="local", repo="books", options={})))
+    # sync, so the command below runs as a person runs it, with no event loop already going
+    asyncio.run(actions.perform("product_status", by=actions.Actor(id="alice", via="panel"),
+                                project="books"))
+    assert store.record(MetricRecord(project="books", ticket="7", ts=datetime.now(UTC).isoformat(),
+                                     kind="card_verdict", role="card_verdict"))
+    assert len(store.records_of_kind("books", "audit")) == 1, "the call left no record to keep"
+
+    done = CliRunner().invoke(app, ["project", "forget", "books", "--yes", "--no-backup"])
+
+    assert done.exit_code == 0, done.output
+    assert store.records_of_kind("books", "card_verdict") == [], "the forget did not run"
+    kept = store.records_of_kind("books", "audit")
+    assert [(r["extra"]["action"], r["extra"]["actor_id"]) for r in kept] == [
+        ("product_status", "alice")], "project forget erased the record of who did what"
+
+
+_SENTINEL = "o saldo do Joaquim vem errado desde março"
+
+
+def _digest(text: str) -> dict[str, object]:
+    import hashlib
+
+    return {"chars": len(text), "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+
+
+async def test_a_clients_words_never_reach_the_audit_record(store):
+    """Criterion 6, and the condition Q8's "kept" rests on: what a client says to the product role
+    is kept in the conversation and erased on request (`project forget-conversations`, ADR-0024);
+    a record kept for `AUDIT_KEPT_DAYS` beside every call, and kept by `project forget`, must not
+    be a second copy of it. `product_say` with a sentinel message leaves a record whose `message`
+    is its length and sha256 and nothing else, and the sentinel's bytes are in neither the sqlite
+    file nor its `-wal`. Before #694's hashing (task 12) the record would have held the message
+    verbatim; dropping `message` from `actions.base.FREE_TEXT` turns this red."""
+    by = actions.Actor(id="alice", via="panel")
+
+    await actions.perform("product_say", by=by, project="nosuch", message=_SENTINEL)
+
+    rows = store.records_of_kind("nosuch", "audit")
+    assert [row["extra"]["action"] for row in rows] == ["product_say"], rows
+    assert rows[0]["extra"]["params"]["message"] == _digest(_SENTINEL), rows[0]["extra"]["params"]
+    files = [p for p in (store.path, store.path.with_name(store.path.name + "-wal")) if p.exists()]
+    assert store.path in files, files
+    leaked = [p.name for p in files if _SENTINEL.encode("utf-8") in p.read_bytes()]
+    assert not leaked, f"the client's words are in {leaked}"
+
+
+#: Parameters the catalog takes that ARE a person's words, each by the row that hands it on: to
+#: the conversation (`product_say`), a card's thread (`card_comment`), an agent's instruction
+#: (`adjust`), the product role's answer (`product_answer`), a question asked of the tech lead
+#: (`ask`). A floor, not the list: `FREE_TEXT` is the list, and this says it cannot shrink below
+#: the words a client is known to type.
+_WORDS_A_CLIENT_TYPES = {("product_say", "message"), ("card_comment", "message"),
+                         ("adjust", "instruction"), ("product_answer", "answer"),
+                         ("ask", "question")}
+
+
+def test_every_free_text_parameter_in_the_catalog_is_hashed():
+    """Criterion 6, across the catalog rather than one row: for every row and every parameter it
+    takes whose name is in `actions.base.FREE_TEXT`, the record `AuditRecord.of` makes of a call
+    holds that value as `{"chars", "sha256"}` and the words nowhere in it; the words a client is
+    known to type are among them; and every name in `FREE_TEXT` is one some row takes, so the set
+    is not a list of words nothing passes. Before #694 there was no record and no `FREE_TEXT`."""
+    from openfactory.actions.base import FREE_TEXT
+    from openfactory.actions.catalog import CATALOG
+    from openfactory.observability.audit import AuditRecord
+
+    taken = {(row.name, p) for row in CATALOG.values() for p in (*row.required, *row.optional)}
+    words = {(name, p) for name, p in taken if p in FREE_TEXT}
+    assert _WORDS_A_CLIENT_TYPES <= words, sorted(_WORDS_A_CLIENT_TYPES - words)
+    assert FREE_TEXT <= {p for _, p in taken}, sorted(FREE_TEXT - {p for _, p in taken})
+
+    verbatim = []
+    for name, param in sorted(words):
+        record = AuditRecord.of(name, actions.SYSTEM, {"project": "nosuch", param: _SENTINEL},
+                                actions.done("fine"), product_of=lambda _: "")
+        if record.params.get(param) != _digest(_SENTINEL) or _SENTINEL in repr(record):
+            verbatim.append(f"{name}.{param}")
+    assert verbatim == [], f"a person's words are kept verbatim by {verbatim}"

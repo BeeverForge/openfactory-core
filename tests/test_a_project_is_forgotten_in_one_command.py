@@ -580,7 +580,12 @@ def test_every_kind_it_forgets_is_one_the_store_knows_and_never_the_people():
     # the card's door keeps a record of every transition (ADR-0055); a forgotten project's cards
     # are removed, and that record must not outlive them
     assert "card_transition" in forget.RECORD_KINDS
-    kept = {"agent_run", "job", "techlead_watch", "product_sweep"}
+    # THE RECORD OF WHO DID WHAT IS KEPT (#694): an audit trail a forget erased is no audit trail —
+    # "who removed this project's records" would be answered by nothing — and it holds no client
+    # words to erase (ADR-0024): a person's words are kept as their length and sha256 only
+    # (`audit._kept`), so `forget-conversations` leaves no second copy behind in it. It goes after
+    # `audit.AUDIT_KEPT_DAYS`, by the store's TTL.
+    kept = {"agent_run", "job", "techlead_watch", "product_sweep", "audit"}
     assert not kept & set(forget.RECORD_KINDS)
     # EVERY KIND IS DECIDED, NOT ONLY THE ONES LISTED: #477 added `preview_shape` — who allowed a
     # change its own shape — and nothing forgot it. A new kind is forgotten by a layer or kept by
