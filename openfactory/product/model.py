@@ -288,9 +288,16 @@ _USERINFO = re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+@")
 #: with any word, "Authorization: handled centrally in middleware.py" lost "centrally" (review on
 #: 28e5da94). `$` is outside the alphabet, so `Bearer $GH_TOKEN` names a variable, not a value;
 #: a header value under 8 characters is a word (`Authorization: Bearer token`), not a credential.
+#: And a header value must carry a credential's mark — a digit, a `+`, `/` or `=`, or a lowercase
+#: letter followed by an uppercase one — because an English word after a named scheme is prose:
+#: "Authorization: Basic authentication is kept for the legacy API" lost "authentication" (review
+#: on 5fe330d2). THE COST, ACCEPTED: a header value with none of those marks — letters only, all
+#: lowercase (or all uppercase, or one capital first), no digit — is no longer withheld. Random
+#: tokens, hex with a digit, base64 and JWTs are not shaped like that.
 _AUTHORIZATION = re.compile(
     r"(\bAuthorization[\"']?\s*[:=]\s*[\"']?(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM"
-    r"|AWS4-HMAC-SHA256)[ \t]+)[\w.~+/-]{8,}=*"
+    r"|AWS4-HMAC-SHA256)[ \t]+)"
+    r"(?=[\w.~+/-]*(?:\d|[+/=]|(?-i:[a-z][A-Z])))[\w.~+/-]{8,}=*"
     r"|(\bBearer[ \t]+)(?=[\w.~+/-]*\d)[\w.~+/-]{16,}=*", re.IGNORECASE)
 #: An environment variable whose value is a secret, by its name.
 _SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE|CREDENTIAL|KEY_CONTENT", re.I)

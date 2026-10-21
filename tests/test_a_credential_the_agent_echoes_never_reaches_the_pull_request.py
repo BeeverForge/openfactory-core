@@ -242,9 +242,14 @@ NEAR_MISSES = [
     "the Bearer credential every route accepts",
     "Bearer authentication",
     'curl -H "Authorization: Bearer $GH_TOKEN"',
+    'curl -H "Authorization: Bearer $GH_TOKEN_2"',          # a variable whose name has the mark
     "send an Authorization: Bearer token with it",
     "- Authorization: handled centrally in middleware.py",   # a word, not a scheme (review on 28e5da94)
     "Authorization: see docs/authorization.md for details",
+    # review on 5fe330d2: an English word after a named scheme, and a short value with a digit
+    "Authorization: Basic authentication is kept for the legacy API",
+    "Authorization: token validation now happens in middleware.py",
+    "Authorization: token v2 only",
     "ghp_ is the prefix of a personal token",
     "sk-learn",
     "https://octocat.github.io/x",

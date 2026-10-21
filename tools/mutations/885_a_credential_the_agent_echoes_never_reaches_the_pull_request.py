@@ -11,9 +11,10 @@ Claims:
   - a URL's userinfo is REPLACED by the marker in the body, never silently dropped;
   - `scrub_credentials` withholds an `Authorization` value after a NAMED scheme (any word there is
     prose: "Authorization: handled centrally …"), in any case, after `:` or `=`, a JSON key's
-    quote included; a header value only from 8 characters; a bare `Bearer` value only when it is
-    16 token68 characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN` stays
-    prose;
+    quote included; a header value only from 8 characters, and only with a credential's mark (a
+    digit, `+`, `/`, `=`, or a lowercase letter before an uppercase one), so "Authorization: Basic
+    authentication is kept …" is prose; a bare `Bearer` value only when it is 16 token68
+    characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN_2` stays prose;
   - the userinfo pattern needs its `@`, so a URL with no userinfo keeps its host, and a userinfo of
     exactly `git` (an SSH remote's user) is no credential;
   - the platform's `_redact` regex (https userinfo only) is no substitute;
@@ -69,12 +70,16 @@ MUTATIONS = [
     ("any word after Bearer is withheld", MODEL,
      '    r"|(\\bBearer[ \\t]+)(?=[\\w.~+/-]*\\d)[\\w.~+/-]{16,}=*", re.IGNORECASE)\n',
      '    r"|(\\bBearer[ \\t]+)[\\w.~+/-]+=*", re.IGNORECASE)\n', PROSE),
+    # re-pinned 2026-10-21: the header value moved to its own line with the credential's mark
     ("a variable reference is read as a value", MODEL,
-     '[ \\t]+)[\\w.~+/-]{8,}=*"\n',
-     '[ \\t]+)[\\w.~+/$-]{8,}=*"\n', PROSE),
+     '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/$-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/$-]{8,}=*"\n', PROSE),
     ("a word after an Authorization scheme is withheld", MODEL,
-     '[ \\t]+)[\\w.~+/-]{8,}=*"\n',
-     '[ \\t]+)[\\w.~+/-]+=*"\n', PROSE),
+     '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]+=*"\n', PROSE),
+    ("a header value needs no credential's mark", MODEL,
+     '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"[\\w.~+/-]{8,}=*"\n', PROSE),
     ("any word is read as an Authorization scheme", MODEL,
      '(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM"\n'
      '    r"|AWS4-HMAC-SHA256)',
