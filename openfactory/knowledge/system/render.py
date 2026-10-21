@@ -20,13 +20,21 @@ one state of the sources is one set of bytes. `derived_key` hashes the map with 
 the clock blanked: a commit that changed nothing the layer reads leaves the key where it was, and
 the refresh publishes nothing (`knowledge-layer.md` §22 D-5, one artefact along) — one commit in
 the context repository per real change to the system, never one per merge.
+
+AND READ BACK WHOLE (#1002). `read_published` is the inverse of `write_system`: every part of the
+map from the file `LAYOUT` puts it in — the one layout both directions use, so a part cannot be
+written to one file and looked for in another — or, when there is no map to answer, why: none was
+published, or one was and a file of it cannot be read. Never a map with an unreadable part left
+out: an `api.yaml` that did not parse would otherwise read as a product that declares no interface.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
+import os
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -40,6 +48,19 @@ SCHEMA_FILE = "schema.yaml"
 ADR_INDEX_FILE = "adr-index.yaml"
 INDEX_FILE = "index.md"
 FILES = (SYSTEM_FILE, API_FILE, SCHEMA_FILE, ADR_INDEX_FILE, INDEX_FILE)
+
+#: WHICH FILE HOLDS WHICH PART OF THE MAP: what `render` writes into each YAML file beside the head
+#: (`version`, `derived_key`, `generated_at`), and where `read_published` reads each part back.
+#: Every field of `SystemMap` but the head's is in exactly one of them — the suite reads the model's
+#: fields and holds it, so a part added to the map is placed here before it can be published.
+LAYOUT: dict[str, tuple[str, ...]] = {
+    SYSTEM_FILE: ("sources", "components", "links", "queues", "infrastructure", "not_derived"),
+    API_FILE: ("http", "grpc", "events"),
+    SCHEMA_FILE: ("databases",),
+    ADR_INDEX_FILE: ("adrs",),
+}
+#: The fields of `SystemMap` every file carries rather than one file holds.
+HEAD = ("version", "generated_at")
 
 #: The sentence that stops a reader taking the map for the system. Written into `system.yaml` and
 #: at the top of `index.md`.
@@ -82,22 +103,17 @@ def derived_key(system: SystemMap) -> str:
 
 
 def render(system: SystemMap) -> dict[str, str]:
-    """`{file name: text}` for the five files."""
+    """`{file name: text}` for the five files: each YAML file the head and the parts `LAYOUT` gives
+    it (`system.yaml` the scope limit too), and the door."""
     data = _plain(system)
     head = {"version": data["version"], "derived_key": derived_key(system)}
     if data["generated_at"]:
         head["generated_at"] = data["generated_at"]
-    return {
-        SYSTEM_FILE: _dump({**head, "scope_limit": SCOPE_LIMIT, "sources": data["sources"],
-                            "components": data["components"], "links": data["links"],
-                            "queues": data["queues"], "infrastructure": data["infrastructure"],
-                            "not_derived": data["not_derived"]}),
-        API_FILE: _dump({**head, "http": data["http"], "grpc": data["grpc"],
-                         "events": data["events"]}),
-        SCHEMA_FILE: _dump({**head, "databases": data["databases"]}),
-        ADR_INDEX_FILE: _dump({**head, "adrs": data["adrs"]}),
-        INDEX_FILE: render_index(system),
-    }
+    out = {name: _dump({**head, **({"scope_limit": SCOPE_LIMIT} if name == SYSTEM_FILE else {}),
+                        **{part: data[part] for part in parts}})
+           for name, parts in LAYOUT.items()}
+    out[INDEX_FILE] = render_index(system)
+    return out
 
 
 def write_system(system: SystemMap, into: str | Path) -> list[Path]:
@@ -126,6 +142,93 @@ def read_derived_key(root: str | Path, rel: str) -> str:
     except (yaml.YAMLError, ValueError, RecursionError):
         return ""
     return str(data.get("derived_key") or "") if isinstance(data, dict) else ""
+
+
+#: What a read of the published map found — a word a program branches on (`Published.state`).
+#: The map was read, whole.
+PUBLISHED = "published"
+#: There is no `system.yaml` to read: the refresh has not published one — it has not run since the
+#: product declared its sources, or the product declares none.
+NOT_PUBLISHED = "not-published"
+#: A map is published and a file of it cannot be read: missing, a link, too large, not YAML, or
+#: not the map's shape. Named, with why; nothing of the map is answered.
+UNREADABLE = "unreadable"
+READ_STATES = (PUBLISHED, NOT_PUBLISHED, UNREADABLE)
+
+
+@dataclass(frozen=True)
+class Published:
+    """The map published at one directory (`system`, with the `derived_key` its files carry), or
+    the word and the sentence that say why there is none to answer."""
+
+    state: str
+    why: str = ""
+    system: SystemMap | None = None
+    derived_key: str = ""
+
+
+def read_published(root: str | Path, rel_dir: str | PurePosixPath) -> Published:
+    """The map `write_system` left at `rel_dir` under `root` — every part read back from the file
+    `LAYOUT` puts it in — or why there is none to answer (`Published.state`).
+
+    Every file through `tree.read_text`, as every file of a checkout is read here: a file replaced
+    by a link, one past the ceiling, one that is not UTF-8 is refused, never followed. Every
+    document through `text.load_yaml`, the layer's one YAML loader. And every part through the
+    map's own models, so what is answered is what `SystemMap` declares and nothing a hand added to
+    a file beside it."""
+    from openfactory.knowledge.system.text import load_yaml
+    from openfactory.knowledge.system.tree import read_text
+
+    base = PurePosixPath(rel_dir)
+    if not os.path.lexists(Path(root) / base / SYSTEM_FILE):
+        return Published(NOT_PUBLISHED, f"no system map is published at `{base}` yet: the "
+                                        f"knowledge refresh derives it from the sources the "
+                                        f"product declares, after a merge and on its schedule")
+    read: dict[str, dict] = {}
+    for name in LAYOUT:
+        rel = str(base / name)
+        got = read_text(root, rel)
+        if got.text is None:
+            return Published(UNREADABLE, f"the system map at `{base}` cannot be read: `{name}` "
+                                         f"{got.why}")
+        try:
+            data = load_yaml(got.text)
+        except (yaml.YAMLError, ValueError, RecursionError) as exc:
+            return Published(UNREADABLE, f"the system map at `{base}` cannot be read: `{name}` is "
+                                         f"not YAML ({type(exc).__name__})")
+        if not isinstance(data, dict):
+            return Published(UNREADABLE, f"the system map at `{base}` cannot be read: `{name}` "
+                                         f"is not a mapping")
+        missing = [part for part in LAYOUT[name] if part not in data]
+        if missing:
+            return Published(UNREADABLE, f"the system map at `{base}` cannot be read: `{name}` "
+                                         f"holds no {', '.join(f'`{m}`' for m in missing)}")
+        read[name] = data
+    head = read[SYSTEM_FILE]
+    try:
+        system = SystemMap(**{key: head[key] for key in HEAD if head.get(key) is not None},
+                           **{part: read[name][part]
+                              for name, parts in LAYOUT.items() for part in parts})
+    except (ValueError, TypeError) as exc:
+        part, where = _first_error(exc)
+        name = next((n for n, parts in LAYOUT.items() if part in parts), SYSTEM_FILE)
+        return Published(UNREADABLE, f"the system map at `{base}` cannot be read: `{name}` does "
+                                     f"not hold the map's shape ({where})")
+    return Published(PUBLISHED, system=system, derived_key=str(head.get("derived_key") or ""))
+
+
+def _first_error(exc: BaseException) -> tuple[str, str]:
+    """`(the part, where in it)` a published map first departs from the map's shape at — the
+    field's path and the kind of departure, never the value found there."""
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        try:
+            first = errors()[0]
+            loc = [str(p) for p in first.get("loc", ())]
+            return (loc[0] if loc else ""), f"{'.'.join(loc)}: {first.get('type', '')}"
+        except (IndexError, TypeError, AttributeError):
+            pass
+    return "", type(exc).__name__
 
 
 def _where(cite) -> str:
@@ -186,6 +289,7 @@ def render_index(system: SystemMap) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-__all__ = ["ADR_INDEX_FILE", "API_FILE", "FILES", "INDEX_FILE", "SCHEMA_FILE", "SCOPE_LIMIT",
-           "SYSTEM_DIRNAME", "SYSTEM_FILE", "derived_key", "read_derived_key", "render",
-           "render_index", "write_system"]
+__all__ = ["ADR_INDEX_FILE", "API_FILE", "FILES", "HEAD", "INDEX_FILE", "LAYOUT", "NOT_PUBLISHED",
+           "PUBLISHED", "READ_STATES", "SCHEMA_FILE", "SCOPE_LIMIT", "SYSTEM_DIRNAME",
+           "SYSTEM_FILE", "UNREADABLE", "Published", "derived_key", "read_derived_key",
+           "read_published", "render", "render_index", "write_system"]
