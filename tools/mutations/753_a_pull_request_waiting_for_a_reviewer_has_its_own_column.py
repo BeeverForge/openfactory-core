@@ -26,6 +26,9 @@ THE CLAIMS, each with a red twin below:
      park again (the default, and the comparison); row 31 lets the product role's parked review
      list a card in Needs Review (ADR-0019 §6: it holds what needs a decision).
   6. **The panel describes the column.** Row 32 removes its `_BCOL` row.
+  7. **A status two keys share reads back as `in_review`** (the reporter's board maps both to "In
+     Review"). Row 33 makes `key_for` answer the LAST key that spells a name, so the shared status
+     reads as `needs_review` and the door would queue a card the factory may still be reviewing.
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -223,4 +226,10 @@ MUTATIONS = [
      ' — not stuck"},\n',
      "",
      "tests/test_the_panel_says_what_every_platform_column_means.py"),
+
+    # ── 7. a status two keys share ──────────────────────────────────────────────────────────────
+    ("a status `in_review` and `needs_review` share reads back as `needs_review`", COLUMNS,
+     "    for key, spelled in {**CANONICAL_COLUMNS, **(renamed or {})}.items():",
+     "    for key, spelled in reversed({**CANONICAL_COLUMNS, **(renamed or {})}.items()):",
+     f"{AC456}::test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs"),
 ]
