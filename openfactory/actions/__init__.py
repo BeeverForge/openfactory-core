@@ -270,7 +270,7 @@ def proposable(by: Actor) -> tuple[str, ...]:
 
 
 async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
-    """Run one action. Never raises. Always returns an `Outcome`.
+    """Run one action and answer with an `Outcome`; what it raises is said below.
 
     THE SIX THINGS THAT HAPPEN HERE RATHER THAN IN THREE FRONT ENDS:
 
@@ -286,15 +286,29 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
        nothing; now the three answers meet in `Actor.admin` and the decision is made in one place.
     5. **A row that needs the code waits for it** (`ActionSpec.needs_code`, #992): on a project
        whose product started before its code it is refused by name, naming the first source.
-    6. **Everything is logged with the actor**, whatever the result. This is the audit line — the
-       first time this platform can say who asked for a thing, which is the question an enterprise
-       security review opens with.
+    6. **Every call leaves its trace, once, whatever the result** (`_leave_record`, in a `finally`
+       around `_decide`, so a `return` added there later cannot skip it): the INFO line
+       `action=… by=… ok=… code=… params=…`, now on every way out including the refusals, and one
+       `observability.audit.AuditRecord` handed to `audit.write` — who asked (the `Subject` and
+       the provider that named them), what, with which parameters (`SECRET` values masked, by the
+       same `audit.redact` the line uses), the answer, the deployment and the product. A call
+       cancelled before it answered is recorded as `failed`/`cancelled`. Who asked for a thing is
+       the question an enterprise security review opens with. Whether the record is kept is
+       `audit.write`'s to answer, not this function's: until the metrics store knows the
+       record's kind it keeps nothing (its docstring), and the line is the only trace that lasts.
 
-    NEVER RAISING IS NOT POLITENESS. Both front ends already have a hard must-always-reply rule,
-    and both implemented it by wrapping every call in `except Exception`. Doing it here means an
-    action author cannot forget, and means the exception's real message survives — `first_message`
-    walks the chain, because an error crossing a Temporal activity boundary otherwise arrives as
-    the fixed string "Activity task failed" (#66).
+    WHAT IT RAISES, PRECISELY. Nothing a row or the audit seam does: a row's exception becomes a
+    `raised` refusal, and a record that could not be made or kept is said at WARNING while the
+    outcome stands. Two things do pass through, each after the call's line and record: the
+    `CancelledError` of a cancelled call, re-raised unchanged so the cancel reaches whoever asked
+    for it; and an exception raised in `_decide` outside the row's own guard (the catalog failing
+    to import, a parameter check that breaks), recorded as `raised` and then propagated.
+
+    NOT RAISING FOR A ROW IS NOT POLITENESS. Both front ends already have a hard must-always-reply
+    rule, and both implemented it by wrapping every call in `except Exception`. Doing it here
+    means an action author cannot forget, and means the exception's real message survives —
+    `first_message` walks the chain, because an error crossing a Temporal activity boundary
+    otherwise arrives as the fixed string "Activity task failed" (#66).
     """
     key = (name or "").strip().lower()
     outcome: Outcome | None = None
