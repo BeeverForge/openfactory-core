@@ -35,6 +35,15 @@ makes too: `GET /api/board/{project}` for a project with a product role, never w
 origins explicitly; a CORS preflight is answered without a credential, and the request after it is
 gated like any other.
 
+**A request may name its correlation id** in `X-Request-ID`, the header nginx (`$request_id`) and
+most proxies and load balancers already set, so an action's audit record lines up with the proxy's
+access log (`docs/rotation-and-retention.md` §5). An id is 1 to 128 characters of letters, digits
+and `. _ : -`; a header that is anything else (a space, a newline, a 129th character) is replaced
+whole by a new id (32 lower-case hex digits) and none of it is kept. A request without the header
+is given a new id the same way. The id is read for the record and the job it starts, nothing
+decides on it, and the response does not echo it. A socket cannot set a header, so each action
+sent on `/api/product/stream` is given an id of its own.
+
 ## 2. Refusals
 
 Every refusal is JSON with a `detail` sentence — but for the framework's 422, whose `detail` is

@@ -252,12 +252,27 @@ in-box orchestrator, while the terminal state is decided by the workflow after t
 of `JobWorkflow.run` now records its outcome (`record_outcome`), appended — the run's own states
 stay true, and what it became is added after them.
 
+**The journal also says who started the job, and which request it was** (#694). The action that
+starts a job (a durable `start`, a local `start`, and each card a `scan` starts, never one it
+skipped) appends one line to its journal: `kind` `note`, `message` `started`, and `data`
+holding `by` (who asked) and `correlation_id`, the id that action's audit record carries (§5), so
+the job's events read back to the click, the command or the scan that caused them. It is a `note`
+and not a `state`, so it is never read as how the job ended. The action's process writes it, not
+the job: the workflow is not told the id. On a deployment whose jobs run on a remote box that
+process is the panel's host, so the line sits in the panel's copy of the journal and the panel
+reads the box's journal after it, never instead of it. A journal that cannot be written is logged
+as `OPENFACTORY_START_NOT_JOURNALLED project=… issue=…`, naming the cause, and the start stands.
+
 ### Where it lives
 
 - `docker-compose.yml` — `DEFAULT_NAMESPACE_RETENTION` on the `temporal` service.
 - `openfactory/runtime/temporal/schedule.py` — `RETENTION_DAYS`, `ensure_retention`.
 - `openfactory/runtime/temporal/workflow.py` — `JobWorkflow._journal_outcome`, at the one exit.
 - `openfactory/runtime/temporal/activities.py` — `record_outcome`, the append itself.
+- `openfactory/observability/job_record.py` — `record_started`, the started note, and
+  `is_start_note`, how a reader tells it from the job's own lines.
+- `openfactory/actions/catalog.py` — `_journal_the_start`, called by the three paths that start a
+  job, and the `OPENFACTORY_START_NOT_JOURNALLED` line.
 
 ---
 
@@ -269,6 +284,11 @@ its parameters, what came of it, the correlation id, the deployment, the project
 and when. It is written beside the action's INFO log line, not instead of it. Before #694 that line
 was the only trace, eight of `perform`'s nine ways out never wrote it, and on a host CLI it reached
 nobody, so *who approved that production release* had no answer anyone could read back.
+
+**The correlation id** is the panel request's `X-Request-ID` when that is an id
+([the front end's API](reference/the-front-end-api.md#1-credentials)), one per command on the
+command line, and otherwise one the action layer mints for the call. A row relayed from another
+call shares its caller's id, and a job the call starts carries it in its journal (§4).
 
 | what | how long | where |
 |---|---|---|

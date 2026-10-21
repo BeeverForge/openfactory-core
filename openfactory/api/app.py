@@ -1261,7 +1261,12 @@ def _actor(request: Request) -> actions.Actor:
 
     A CALLER NOBODY NAMED MAY LABEL ITSELF, and the label is carried as `Actor.label` — beside the
     actor, never in its id or its display (`_label_of`). A person the provider named carries none:
-    they must not be able to rename themselves in the audit trail."""
+    they must not be able to rename themselves in the audit trail.
+
+    THE REQUEST'S CORRELATION ID rides on the actor too (`_correlation_of`): its `X-Request-ID`
+    when that is an id, else a new one, so every request reaches `perform` with an id and the
+    audit record, a relayed row's record and the started job's journal all carry that one (#694).
+    It is not echoed in the response, and no gate reads it."""
     return _actor_of(request, _subject(request), label=_label_of(request),
                      correlation=_correlation_of(request))
 
