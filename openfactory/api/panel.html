@@ -2119,8 +2119,9 @@ async function bootProduct(){
   // socket now (`renderProduct` attaches it), and a socket that drops reconnects with a backoff
   // and catches up from the transcript.
   renderProduct(_prod.project);
-  if(_prod.project){paintScope();loadProductStatus();loadRequirements();loadAgenda();loadDocuments();pvBoardLoad();
-    if(_pv.tab==="system")pvSystemLoad()}
+  if(_prod.project){paintScope();loadProductStatus();loadRequirements();loadAgenda();loadDocuments();pvBoardLoad()}
+  // THE SYSTEM MAP IS READ WHEN ITS TAB IS OPEN (#1002) — the one the person left open included
+  if(_prod.project&&_pv.tab==="system")pvSystemLoad();
   if(_prod.project)loadSessions();
   // …AND WHAT THE LINK NAMES: the preview, walked into with a key minted for this person now (the
   // same call the floor makes), or the card on the Board tab (#384's own view of it).

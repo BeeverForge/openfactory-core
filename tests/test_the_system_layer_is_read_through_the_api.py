@@ -699,6 +699,21 @@ def test_a_project_with_no_product_role_is_the_unknown_project_s_404_and_checks_
     assert _listing(tmp / "cache") == before
 
 
+def test_the_description_names_the_read_s_body_and_its_404_on_both_addresses(monkeypatch):
+    from openfactory.api.app import app
+
+    monkeypatch.delenv("OPENFACTORY_PANEL_TOKEN", raising=False)
+    described = TestClient(app).get("/openapi.json").json()
+    for address in addresses():
+        responses = described["paths"][address]["get"]["responses"]
+        assert responses["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+            "/SystemRead"), address
+        assert responses["404"]["content"]["application/json"]["schema"]["$ref"].endswith(
+            "/Refusal"), address
+    assert "deprecated" not in described["paths"][addresses()[1]]["get"]
+    assert described["paths"][addresses()[0]]["get"]["deprecated"] is True
+
+
 def test_a_read_pushes_nothing_and_files_no_impediment(product, client, monkeypatch):
     project, remotes, tmp = product
     _publish(project, tmp)

@@ -3509,7 +3509,9 @@ def product_document_file(project: str, path: str) -> Response:
                              "Cache-Control": "private, no-store"})
 
 
-@_read("/api/product/{project}/system", read_models.SystemRead)
+@_read("/api/product/{project}/system", read_models.SystemRead, refusals={
+    404: "no project of that name in this deployment — one with no product role is answered "
+         "alike"})
 def product_system(project: str) -> dict:
     """One product's SYSTEM LAYER (#1002, ADR-0052 D17): the sources read, the components, the
     links between them, the HTTP and gRPC interfaces with their operations, the events, the
@@ -3537,7 +3539,7 @@ def product_system(project: str) -> dict:
     A PROJECT WITH NO PRODUCT ROLE is answered in the very words an unknown project is, before its
     context repository is looked for — nothing is checked out for a project the role never reads,
     and which projects a deployment runs outside the product area is not a product credential's to
-    learn."""
+    learn (`_no_such_project`, the rule the product's search follows)."""
     from openfactory.credentials import deployment_forge_token, forge_token_for
     from openfactory.knowledge.system.refresh import system_subpath
     from openfactory.knowledge.system.render import (
@@ -3551,8 +3553,7 @@ def product_system(project: str) -> dict:
 
     proj = _project_or_404(project)
     if not _has_product_role(proj):
-        raise HTTPException(status_code=404,
-                            detail=f"no project named {project!r} in this deployment")
+        raise _no_such_project(project)
     where = system_subpath().as_posix()
     ctx = load_product_context(
         proj, token=forge_token_for(proj) or deployment_forge_token(proj) or "")
