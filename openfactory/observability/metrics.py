@@ -15,6 +15,7 @@ A scan + in-process aggregation powers the dashboard (low volume: dozens of jobs
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -214,6 +215,26 @@ class KeyedSink(Protocol):
 
     def records_under(self, project: str, prefix: str) -> list[dict]:
         """Every row of `project` whose key starts with `prefix`, in key order."""
+        ...
+
+
+@runtime_checkable
+class KindStreamingSink(Protocol):
+    """A sink that reads every live row of ONE kind, across projects, NEWEST FIRST, a row at a time
+    (#694, PR #1039 review) — so a reader that wants the most recent rows of a kind stops when it
+    has them, rather than holding the whole store.
+
+    WHY. `openfactory audit` read `scan()` — every row of every kind, each parsed from its JSON —
+    to keep the rows of kind `audit` and print the last `--limit` of them: on a store whose rows
+    are mostly a job's cost, its memory and its time were the store's size, not the answer's.
+
+    A SEPARATE PROTOCOL, like `TicketReadingSink`: a store added from outside declares it by
+    implementing the method, and one that does not is read the old way, through `scan`
+    (`cli.audit_cmd`). The shipped sqlite sink does it with one query on `kind`, read in batches.
+    RAISES `query.StoreUnreadable` WHEN THE STORE WILL NOT ANSWER, before or during the read."""
+
+    def stream_of_kind(self, kind: str) -> Iterator[dict]:
+        """Every live row of `kind`, newest first (`ts`, then the row's key), as it is read."""
         ...
 
 

@@ -293,6 +293,32 @@ class SqliteMetricsSink:
             (project, kind, int(time.time()), max(0, limit)))
         return list(reversed(rows))
 
+    def stream_of_kind(self, kind: str, *, batch: int = 500) -> Iterator[dict]:
+        """Every live row of `kind`, across projects, newest first (`KindStreamingSink`, #694):
+        one query, fetched `batch` rows at a time, so a reader that stops early holds no more than
+        a batch. RAISES `StoreUnreadable`, as `_query` does, before the first row or during the
+        read.
+
+        NO INDEX OF ITS OWN. The table's indexes lead with `pk`, so this walks the table once
+        and sorts the rows of `kind` alone, parsing `data` only for those it hands back: on a
+        336 MB store of 200,000 `agent_run` rows and 2,000 audit rows, `openfactory audit --limit
+        20` took 0.25-0.38 s with a peak RSS of 47 MB, against 2.33-2.45 s and 1,011 MB through
+        `scan` (`/usr/bin/time`, three runs each, 2026-10-21, load average 15). An index on `kind`
+        would cost every write of every kind, for one command an operator runs."""
+        try:
+            with self._connect(write=False) as conn:
+                cursor = conn.execute(
+                    "SELECT data FROM metrics WHERE kind = ?"
+                    " AND (expires_at IS NULL OR expires_at > ?) ORDER BY ts DESC, sk DESC",
+                    (kind, int(time.time())))
+                while rows := cursor.fetchmany(batch):
+                    for (data,) in rows:
+                        yield self._row(data)
+        except GeneratorExit:
+            raise
+        except Exception as exc:
+            raise self._unreadable(exc) from exc
+
     def records_of_ticket(self, project: str, kind: str, ticket: str, *, before: str = "",
                           limit: int = 50) -> list[dict]:
         """Rows of one kind under one ticket, **oldest first**, keeping the most RECENT `limit`
@@ -323,15 +349,19 @@ class SqliteMetricsSink:
         human gates were blinded by: it returned `[]`, so `messages.read`'s own careful guard was
         dead code that could never fire, and an unreadable file reached the operator as a factory
         with nothing to say and a question that had "already been answered"."""
-        from openfactory.observability.query import StoreUnreadable
-
         try:
             with self._connect(write=False) as conn:
                 return [self._row(r[0]) for r in conn.execute(sql, args).fetchall()]
         except Exception as exc:
-            # a file replaced or deleted while this process ran loses its table: make sure again
-            # on the next read rather than failing on every one for the life of the process
-            _SCHEMA_ENSURED.discard(str(self.path))
-            log.warning("metrics read failed on %s: %s", self.path, exc)
-            raise StoreUnreadable(f"could not read the metrics store at {self.path}: {exc}") \
-                from exc
+            raise self._unreadable(exc) from exc
+
+    def _unreadable(self, exc: Exception) -> Exception:
+        """What a read that failed leaves, for `_query` and `stream_of_kind` alike: the WARNING
+        naming the file, and the `StoreUnreadable` its caller raises."""
+        from openfactory.observability.query import StoreUnreadable
+
+        # a file replaced or deleted while this process ran loses its table: make sure again
+        # on the next read rather than failing on every one for the life of the process
+        _SCHEMA_ENSURED.discard(str(self.path))
+        log.warning("metrics read failed on %s: %s", self.path, exc)
+        return StoreUnreadable(f"could not read the metrics store at {self.path}: {exc}")

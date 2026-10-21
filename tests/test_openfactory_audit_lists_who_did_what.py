@@ -356,3 +356,129 @@ def test_an_action_asked_in_capitals_is_recorded_and_listed_by_its_name(tmp_path
 
     out = CliRunner().invoke(app, ["audit", "--action", "PRODUCT_STATUS", "--json"])
     assert [r["action"] for r in json.loads(out.stdout)["records"]] == ["product_status"], out.output
+
+
+# ── the read is bounded (PR #1039 review) ───────────────────────────────────────────────────────
+
+def _rows_of_another_kind(db, count: int) -> None:
+    """`count` rows of a job's cost (`agent_run`) in the store the records share — what a busy
+    deployment's metrics store mostly holds — each written as `SqliteMetricsSink.record` writes
+    one, in one transaction (a `record` per row costs a connection and a commit each)."""
+    import sqlite3
+
+    from openfactory.observability.metrics import MetricRecord
+
+    rows = []
+    for i in range(count):
+        rec = MetricRecord(kind="agent_run", project="alpha", ticket=str(i),
+                           ts=TODAY.isoformat(), extra={"cost_usd": 0.01})
+        key = rec.dynamo_key()
+        rows.append((key["pk"], key["sk"], rec.kind, rec.ts, rec.ticket, rec.expires_at,
+                     json.dumps({**rec.model_dump(), **key}, default=str)))
+    with sqlite3.connect(db) as conn:
+        conn.executemany("INSERT INTO metrics (pk, sk, kind, ts, ticket, expires_at, data)"
+                         " VALUES (?,?,?,?,?,?,?)", rows)
+    conn.close()
+
+
+@pytest.fixture
+def parsed(monkeypatch) -> list[int]:
+    """How many rows the sqlite store turned into a dict for the command — every row a reader
+    holds in memory passes through `SqliteMetricsSink._row`."""
+    from openfactory.observability.sqlite_metrics import SqliteMetricsSink
+
+    count = [0]
+    real = SqliteMetricsSink._row
+
+    def counted(data: str) -> dict:
+        count[0] += 1
+        return real(data)
+
+    monkeypatch.setattr(SqliteMetricsSink, "_row", staticmethod(counted))
+    return count
+
+
+def test_the_store_is_asked_for_audit_rows_and_never_scanned_whole(deployment, monkeypatch):
+    """The review's point: `openfactory audit` read the whole store (`scan()`, every kind, every
+    row's JSON) into memory to keep the audit rows. A sqlite store is asked for rows of kind
+    `audit` alone; its `scan` is never called. On c310ba28 it was: exit 2, `scan read the whole
+    store`."""
+    from openfactory.observability.sqlite_metrics import SqliteMetricsSink
+
+    def whole(_self):
+        raise AssertionError("scan read the whole store")
+
+    monkeypatch.setattr(SqliteMetricsSink, "scan", whole)
+
+    result = _audit()
+
+    assert result.exit_code == 0, (result.exit_code, result.output)
+    assert len(result.stdout.splitlines()) == len(CALLS), result.stdout
+
+
+def test_the_store_is_read_to_the_limit_and_one_more_however_many_rows_it_holds(deployment,
+                                                                               parsed):
+    """`--limit 1` over a store of 4 records and 200 rows of another kind turns 2 rows into
+    memory — the most recent record, and one more to know the list was cut — not 204. Measured
+    on c310ba28: 204 rows parsed for one line printed."""
+    _rows_of_another_kind(deployment, 200)
+    parsed[0] = 0
+
+    result = _audit("--limit", "1")
+
+    assert result.exit_code == 0, (result.exit_code, result.output)
+    assert [line.split()[1:3] for line in result.stdout.splitlines()] == [["alice", "ack"]]
+    assert "--limit" in result.stderr, result.stderr
+    assert parsed[0] <= 2, f"{parsed[0]} rows read for --limit 1"
+
+
+def test_the_store_is_read_back_to_since_and_no_further(deployment, parsed):
+    """Rows come newest first, so `--since` stops the read at the first record older than it:
+    today's two records and the one before them are read, not the days before. On c310ba28 every
+    row of the store was."""
+    _rows_of_another_kind(deployment, 50)
+    parsed[0] = 0
+
+    listed = _listed("--since", TODAY.date().isoformat())
+
+    assert listed == [("bob", "skip", "beta"), ("alice", "ack", "alpha")], listed
+    assert parsed[0] <= 3, f"{parsed[0]} rows read for two records since today"
+
+
+def test_a_store_that_cannot_ask_by_kind_is_still_listed_through_its_scan(tmp_path, monkeypatch):
+    """`KindStreamingSink` is optional: a store that reads back (`ReadableSink`) without it — an
+    add-on's, as the DynamoDB one is today — is listed as before, through its `scan`, its other
+    kinds left out (a cost row carrying a record's field names among them), cut here to the most
+    recent. Green on c310ba28 (that was the only path); the cuts that drop the fallback, or its
+    filter on the kind, turn it red."""
+    import asyncio
+
+    from openfactory.observability import registry as sinks
+    from openfactory.observability.metrics import MetricRecord
+    from openfactory.observability.sqlite_metrics import SqliteMetricsSink
+
+    class _ScanOnly:
+        def __init__(self, path):
+            self._inner = SqliteMetricsSink(path)
+
+        def record(self, rec) -> bool:
+            return self._inner.record(rec)
+
+        def scan(self) -> list[dict]:
+            return self._inner.scan()
+
+        def records_of_kind(self, project, kind, *, limit=500) -> list[dict]:
+            return self._inner.records_of_kind(project, kind, limit=limit)
+
+    db = tmp_path / "scan-only.db"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "scan_only")
+    monkeypatch.setitem(sinks.METRICS_SINKS, "scan_only", lambda **_kw: _ScanOnly(db))
+    for project in ("one", "two", "three"):
+        asyncio.run(actions.perform("product_status", by=actions.SYSTEM, project=project))
+    ts = datetime.now(UTC).isoformat()
+    assert _ScanOnly(db).record(MetricRecord(
+        kind="agent_run", project="alpha", ticket="7", ts=ts,
+        extra={"ts": ts, "actor_id": "alice", "action": "skip", "project": "alpha", "ok": True}))
+
+    assert [p for _a, _b, p in _listed("--limit", "2")] == ["two", "three"]

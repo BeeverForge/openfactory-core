@@ -3892,7 +3892,7 @@ def audit_cmd(
     from datetime import UTC, datetime, time, timedelta
 
     from openfactory.observability import audit
-    from openfactory.observability.metrics import ReadableSink
+    from openfactory.observability.metrics import KindStreamingSink, ReadableSink
     from openfactory.observability.registry import metrics_sink_kind
 
     # NOT A CATALOG ROW, AND NO ROUTE (#694 Q2). Every capability is reachable from both
@@ -3920,15 +3920,24 @@ def audit_cmd(
                    f"read back, so there is nothing this command can list — set "
                    f"OPENFACTORY_METRICS_SINK to a store that reads (sqlite)", err=True)
         raise typer.Exit(2)
-    # ONE SCAN, FILTERED HERE, even with --project: `records_of_kind` keeps the most recent
-    # `limit` rows BEFORE --actor, --outcome or the period are applied, so a bound there would
-    # drop records that match and call rows that do not "cut". Rows of any other kind are skipped.
-    try:
-        rows = [r for r in store.scan() if r.get("kind") == "audit"]
-    except Exception as exc:  # noqa: BLE001 — StoreUnreadable, or an add-on's vendor error
-        typer.echo(f"audit: {audit._named(store)} cannot be read, so this cannot say who did "
-                   f"what — {exc}", err=True)
-        raise typer.Exit(2) from None
+    # THE AUDIT ROWS, NEWEST FIRST, READ UNTIL THE ANSWER IS WHOLE (PR #1039 review). A store that
+    # streams one kind (`KindStreamingSink`, the sqlite sink) is asked for `audit` alone and read
+    # until `limit` + 1 records match — one more, to know the list was cut — or the rows are older
+    # than --since; on c310ba28 every row of every kind was parsed into memory first (204 for
+    # `--limit 1` over 4 records and 200 cost rows). One that cannot is read as before, through
+    # `scan`, and sorted here. Filtered HERE, even with --project: `records_of_kind` keeps the
+    # most recent `limit` rows BEFORE --actor, --outcome or the period are applied, so a bound
+    # there would drop records that match and call rows that do not "cut".
+    def newest_first():
+        if isinstance(store, KindStreamingSink):
+            yield from store.stream_of_kind("audit")
+            return
+        def when(r: dict):
+            ts = (r.get("extra") or {}).get("ts")
+            return (_audit_when(ts) if ts else datetime.min.replace(tzinfo=UTC)), r.get("sk", "")
+
+        yield from sorted((r for r in store.scan() if r.get("kind") == "audit"), key=when,
+                          reverse=True)
 
     def matches(r: dict) -> bool:
         if actor is not None and r.get("actor_id") != actor:
@@ -3945,17 +3954,35 @@ def audit_cmd(
                 r.get("ok") or outcome not in (r.get("code"), r.get("reason"))):
             return False
         when = _audit_when(r["ts"])
-        return (start is None or when >= start) and (end is None or when < end)
+        # --since is the read's own stop (below): rows come newest first, so the first one
+        # older than it ends the read, and none of them reaches here.
+        return end is None or when < end
 
-    found = sorted((r for r in (row.get("extra") or {} for row in rows) if r.get("ts")
-                    and matches(r)), key=lambda r: (_audit_when(r["ts"]), r.get("record_id", "")))
+    seen = False
+    found: list[dict] = []
+    try:
+        for row in newest_first():
+            seen = True
+            r = row.get("extra") or {}
+            if not r.get("ts"):
+                continue
+            if start is not None and _audit_when(r["ts"]) < start:
+                break   # newest first: every row after this one is older still
+            if matches(r):
+                found.append(r)
+                if len(found) > limit:
+                    break
+    except Exception as exc:  # noqa: BLE001 — StoreUnreadable, or an add-on's vendor error
+        typer.echo(f"audit: {audit._named(store)} cannot be read, so this cannot say who did "
+                   f"what — {exc}", err=True)
+        raise typer.Exit(2) from None
     cut = len(found) > limit
-    if cut:
-        found = found[-limit:]   # the most recent: a trail cut to its oldest says nothing of now
+    # The most recent `limit`, printed oldest first: a trail cut to its oldest says nothing of now.
+    found = sorted(found[:limit], key=lambda r: (_audit_when(r["ts"]), r.get("record_id", "")))
     if as_json:
         typer.echo(_json.dumps({"store": audit._named(store), "limit": limit, "cut": cut,
                                 "records": found}, indent=2, default=str))
-    elif not rows:
+    elif not seen:
         typer.echo(f"audit: {audit._named(store)} holds no audit record yet", err=True)
     elif not found:
         typer.echo(f"audit: no audit record in {audit._named(store)} matches what was asked",
