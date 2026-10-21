@@ -381,7 +381,9 @@ the generic pair, the GitHub App key, the harness tokens, the panel's tokens and
 key, a `box.env` name the box passes through, and the box image's pull credential. The readiness
 report and `openfactory certify` also measure an environment or audit `.env.compose`, and ask the
 store beside it; the stack preflight, which runs before the stack and its store exist, reads
-`.env.compose` alone. `tests/test_every_stored_credential_is_read_through_the_store.py`
+`.env.compose` alone, and when `OPENFACTORY_CREDENTIAL_STORE` declares a store other than `env` it
+sends a missing agent credential to that store, not to `.env.compose`, and names `openfactory
+doctor` as the check once the stack is up. `tests/test_every_stored_credential_is_read_through_the_store.py`
 holds every module of the package to that: a credential read by a name the code spells (a
 literal, a constant, a table of them), from the environment or through any other mapping, fails it
 outside the store unless the function says what its mapping is. A name computed while running is

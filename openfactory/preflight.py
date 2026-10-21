@@ -121,6 +121,8 @@ class Probes:
     #: that cannot be postponed, and the stack boots happily without it.
     #: `(visible, detail)`, and on a miss the REPAIR the harness names as a third item — its own
     #: words for how its credential is fixed, which the finding says where the file is (#582).
+    #: Under a declared credential store other than `env`, "where" is that store, named and never
+    #: read: this check runs before the stack, and `openfactory doctor` checks the store (#904).
     agent_credential: Callable[[], tuple[bool, str] | tuple[bool, str, str]]
     #: The published ports this deployment will actually use, after its own overrides.
     ports: Callable[[], tuple[tuple[str, int], ...]]
@@ -588,7 +590,8 @@ def _probe_agent_credential() -> tuple[bool, str] | tuple[bool, str, str]:
         # pool, and the old fixed sentence sent it to replace the pool with one token.
         # WHERE IT GOES IS THE DEPLOYMENT'S (#904): under a declared credential store the worker
         # asks that store first, and "— in .env.compose" sent the person past the place they chose
-        # for their secrets. Read from `settings`, never the environment alone (#560).
+        # for their secrets. Read from `settings`, never the environment alone (#560). The store
+        # is named, never built or asked: why is `_in_the_store`'s.
         from openfactory.adapters.credential_store.registry import ENV, deployment_store
 
         store = deployment_store(settings)
