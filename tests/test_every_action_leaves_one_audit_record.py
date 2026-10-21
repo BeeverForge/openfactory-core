@@ -98,6 +98,23 @@ def test_a_project_with_a_product_names_it_and_one_without_leaves_it_empty(regis
     assert (nobody.project, nobody.product) == ("nosuch", "")
 
 
+def test_a_long_value_is_kept_to_its_bound_and_the_cut_is_said(caplog):
+    """Criterion 1's record is held by a store that writes one row per call, and a parameter's
+    value is whatever a caller sent: before this bound a 5,000-character `target` was kept whole,
+    in every row a refused call left. Now a value is kept to its first 2,000 characters (#694 Q11)
+    with a marker saying how many were cut, and the cut is logged naming the action and the
+    parameter — a silent truncation reads as "that was everything" (engineering-lessons §6)."""
+    sent = "a" * 2_000 + "b" * 3_000
+
+    with caplog.at_level("INFO", logger="openfactory.observability.audit"):
+        kept = _record({"project": "x", "target": sent}).params["target"]
+
+    assert isinstance(kept, str) and kept.startswith("a" * 2_000) and "b" not in kept[:2_000], kept
+    assert len(kept) < len(sent) and "3000" in kept, kept
+    said = [r.getMessage() for r in caplog.records if "target" in r.getMessage()]
+    assert any("product_status" in line and "5000" in line for line in said), said
+
+
 # ── which identity provider named the caller ─────────────────────────────────────────────────────
 
 

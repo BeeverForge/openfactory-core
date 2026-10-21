@@ -349,6 +349,18 @@ PARAMS: dict[str, str] = {
     "unit": "what the preview is of: a card's number, e.g. `34`, or a requirement as `req0012`",
 }
 
+#: THE PARAMETERS WHOSE VALUE IS A PERSON'S OWN WORDS — what they said, asked, decided or want
+#: changed, as they typed it — named in the vocabulary above, the one place a parameter is
+#: declared for every row (#694). The audit record keeps each of these as its length and sha256,
+#: never as text (`observability.audit`): ADR-0024 holds a client's words for a retention period
+#: and erases them on request (`forget-conversations`), and a record kept for a year beside every
+#: call would otherwise hold a second copy nothing erases. A row that takes one of these names
+#: takes it as free text; a new word of the same kind belongs here, beside its prose.
+FREE_TEXT: frozenset[str] = frozenset({
+    "reason", "comment", "instruction", "message", "question", "query", "answer", "answers",
+    "decision", "term", "body", "restated", "text", "title", "criteria", "ask",
+})
+
 
 @dataclass(frozen=True)
 class ActionSpec:

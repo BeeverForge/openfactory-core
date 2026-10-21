@@ -12,6 +12,11 @@ ONE REDACTION FOR BOTH. `redact` is the function the log line uses too (`actions
 its alias), so a parameter that is masked in one is masked in the other — there is no second
 list of secrets to forget to update.
 
+WHERE IT IS KEPT. `write` hands each record to `sink()` as one row of kind `audit` in the metrics
+store, off the event loop; a deployment that declares no store keeps them in `audit.db` beside
+`registry.yaml`. A person's words are kept as their length and digest, never as text (ADR-0024),
+and every other value is bounded.
+
 NO ENGINE AT IMPORT. This module is imported by `openfactory.actions`, which the panel imports;
 the panel serves without the `runtime` extra (`tests/test_the_panel_serves_without_the_engines_
 client.py`), so nothing here imports `temporalio` or `openfactory.runtime` at module level.
@@ -19,11 +24,15 @@ client.py`), so nothing here imports `temporalio` or `openfactory.runtime` at mo
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import hashlib
 import logging
 import os
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -31,6 +40,7 @@ from openfactory.observability.events import now_iso
 
 if TYPE_CHECKING:
     from openfactory.actions.base import Actor, Outcome
+    from openfactory.observability.metrics import MetricRecord, MetricsSink
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +66,16 @@ CANCELLED = "cancelled"
 #: The variable an operator names a deployment by, for the records it writes.
 DEPLOYMENT_ENV = "OPENFACTORY_DEPLOYMENT"
 
+#: The most characters of one parameter's value a record keeps (#694 Q11). A value is whatever the
+#: caller sent, and a refused call is recorded as faithfully as a kept one, so without a bound one
+#: caller could write a row of any size per call into a store kept for a year. Two thousand holds
+#: every URL, ref and name the catalog takes; what is cut is said in the value and in the log.
+VALUE_CHARS = 2_000
+
+#: The file the records go to on a deployment that declares no metrics store (`null`, a host CLI
+#: with no compose environment), beside `registry.yaml` — see `sink`.
+AUDIT_FILE = "audit.db"
+
 
 def deployment() -> str:
     """Which deployment this process is: `OPENFACTORY_DEPLOYMENT` when set, else the Temporal
@@ -75,6 +95,35 @@ def redact(params: Mapping[str, object]) -> dict[str, object]:
     """`params` with the value of every `SECRET` name replaced by `MASK`; the names stay, so the
     line and the record still say that a password was given."""
     return {k: (MASK if k in SECRET else v) for k, v in params.items()}
+
+
+def _words(value: object) -> dict[str, object]:
+    """A person's words as the record keeps them: how many characters, and their sha256 — that and
+    when they spoke, never what they said (`actions.base.FREE_TEXT`)."""
+    text = str(value)
+    return {"chars": len(text), "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+
+
+def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
+    """`params` as a record keeps them: `SECRET` values masked (`redact`, the line's own function),
+    each `FREE_TEXT` value as its length and digest, and every other value cut to `VALUE_CHARS`
+    with the cut said — in the value, and in one INFO line naming the action and the parameter."""
+    from openfactory.actions.base import FREE_TEXT
+
+    kept: dict[str, object] = {}
+    for name, value in redact(params).items():
+        if name in FREE_TEXT and name not in SECRET and value is not None:
+            kept[name] = _words(value)
+            continue
+        text = value if isinstance(value, str) else str(value)
+        if len(text) <= VALUE_CHARS:
+            kept[name] = value
+            continue
+        cut = len(text) - VALUE_CHARS
+        kept[name] = f"{text[:VALUE_CHARS]}… [{cut} more characters not kept]"
+        log.info("audit: %s's %s was %d characters; the record keeps the first %d", action, name,
+                 len(text), VALUE_CHARS)
+    return kept
 
 
 def _product_of(name: str) -> str:
@@ -127,7 +176,9 @@ class AuditRecord:
     via: str
     #: The action as `perform` resolved it (lower-cased, stripped), or as asked when no row has it.
     action: str
-    #: What was passed, with every `SECRET` value masked by `redact`. Read-only.
+    #: What was passed, as `_kept` keeps it: every `SECRET` value masked by `redact`, a person's
+    #: words (`actions.base.FREE_TEXT`) as `{"chars", "sha256"}`, other values cut to `VALUE_CHARS`.
+    #: Read-only.
     params: Mapping[str, object]
     ok: bool
     #: `Outcome.code` (one of `actions.CODES`), and the refusal's `reason` (`""` when it worked).
@@ -155,14 +206,15 @@ class AuditRecord:
         # carries no subject and the name is written here rather than invented on `Actor`.
         provider = "system" if by is SYSTEM else (by.subject.via if by.subject else "")
         project = str(params.get("project") or "")
+        action = (name or "").strip().lower() or name
         return cls(
             record_id=uuid.uuid4().hex,
             actor_id=by.id,
             actor_display=by.display or by.id,
             provider=provider,
             via=by.via,
-            action=(name or "").strip().lower() or name,
-            params=MappingProxyType(redact(params)),
+            action=action,
+            params=MappingProxyType(_kept(action, params)),
             ok=outcome.ok,
             code=outcome.code,
             reason=str(outcome.data.get("reason", "") or ""),
@@ -173,12 +225,61 @@ class AuditRecord:
         )
 
 
-async def write(record: AuditRecord) -> bool:
-    """Hand `record` to the deployment's store; True only when it was kept.
+def audit_path() -> Path:
+    """The file `sink` keeps records in when the deployment declares no metrics store:
+    `OPENFACTORY_METRICS_DB` when set, else `audit.db` beside `registry.yaml` — resolved as ADR-0049
+    D5 resolves the board's file, so a host installation's `act`, `serve` and `openfactory audit`
+    meet in the operator's directory, and never a file relative to wherever the shell stood."""
+    if named := os.environ.get("OPENFACTORY_METRICS_DB", "").strip():
+        return Path(named)
+    from openfactory.registry import ProjectRegistry
 
-    The one seam `actions.perform` writes through, once per call. The store knows the record's
-    kind (`audit` in `MetricKind`), but nothing here writes it yet, so this answers False —
-    said at DEBUG rather than WARNING, because it is every call, not a store that refused one."""
-    log.debug("audit: no store keeps action records yet; %s by %s not kept", record.action,
-              record.actor_id)
-    return False
+    return ProjectRegistry().path.parent / AUDIT_FILE
+
+
+def sink() -> MetricsSink:
+    """The store the records are written to and `openfactory audit` reads: ONE definition for
+    both, because a writer and a reader that resolved their file apart is how a deployment came to
+    write rows its own readers could not open (`registry.metrics_db_path`'s docstring).
+
+    The deployment's metrics sink (`deployment_metrics_sink`) when it declares one; when it is
+    `null` — a host CLI with no compose environment, the transport ADR-0039 §2 says outranks every
+    gate — a sqlite file at `audit_path()`, so every call still leaves a record. Built at each call,
+    not at import, so the store the environment names now is the one written. `metrics_sink_kind`'s
+    own inference is not changed: it decides where a deployment's cost dashboard reads."""
+    from openfactory.observability.registry import deployment_metrics_sink, metrics_sink_kind
+
+    if metrics_sink_kind() != "null":
+        return deployment_metrics_sink()
+    from openfactory.observability.sqlite_metrics import SqliteMetricsSink
+
+    return SqliteMetricsSink(audit_path())
+
+
+def metric_of(record: AuditRecord) -> MetricRecord:
+    """`record` as one row of kind `audit`: under its project, or the deployment-wide key the
+    people store uses when the call named none (#694 Q7); `ticket` its own record id, so the row's
+    key `<ts>#<record_id>#<action>` is one no other record shares and no write replaces; `ts` the
+    record's own, never a second read of the clock; and every field of the record in `extra`."""
+    from openfactory.identity.people import PROJECT as DEPLOYMENT_KEY
+    from openfactory.observability.metrics import MetricRecord
+
+    extra = {f.name: getattr(record, f.name) for f in dataclasses.fields(record)}
+    extra["params"] = dict(record.params)  # a store serialises a dict, not a read-only view
+    return MetricRecord(kind="audit", project=record.project or DEPLOYMENT_KEY,
+                        ticket=record.record_id, ts=record.ts, role=record.action, extra=extra)
+
+
+def _keep(record: AuditRecord) -> bool:
+    return bool(sink().record(metric_of(record)))
+
+
+async def write(record: AuditRecord) -> bool:
+    """Write `record` to `sink()` as one row of kind `audit`; True only when the store says it
+    landed. The one seam `actions.perform` writes through, once per call.
+
+    OFF THE EVENT LOOP (`asyncio.to_thread`): the panel performs on its loop, and a sqlite write
+    waits on the file's lock for up to its busy timeout — every other request would wait with it
+    (the #748 lesson). What the sink raises is raised here, and `perform` says it at WARNING while
+    the outcome stands."""
+    return await asyncio.to_thread(_keep, record)

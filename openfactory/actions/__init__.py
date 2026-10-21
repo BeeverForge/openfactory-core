@@ -294,8 +294,10 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
        same `audit.redact` the line uses), the answer, the deployment and the product. A call
        cancelled before it answered is recorded as `failed`/`cancelled`. Who asked for a thing is
        the question an enterprise security review opens with. Whether the record is kept is
-       `audit.write`'s to answer, not this function's: until it hands the record to the metrics
-       store it keeps nothing (its docstring), and the line is the only trace that lasts.
+       `audit.write`'s to answer, not this function's: it writes the record as a row of kind
+       `audit` to the deployment's metrics store, off the event loop, or to `audit.db` beside
+       `registry.yaml` when the deployment declares none (`audit.sink`); a person's words go in as
+       their length and digest, never as text.
 
     WHAT IT RAISES, PRECISELY. Nothing a row or the audit seam does: a row's exception becomes a
     `raised` refusal, and a record that could not be made or kept is said at WARNING while the
