@@ -5063,14 +5063,18 @@ async function submitPromote(project,issue){
 let _bd = {project:null, data:null, card:null, pr:null, drawer:null, timer:null, draft:"",
            sig:null, dragging:false, form:null};
 
-// The platform's own six keys, in board order, with what each one MEANS. Matched to the board's
+// The platform's own seven keys, in board order, with what each one MEANS. Matched to the board's
 // answer BY NAME, never assumed: a client who renamed their columns keeps their names and simply
 // loses the note, which is better than a screen that insists on the platform's word for it.
+// "Needs Review" is NOT the alarm: before #753 a pull request waiting on a person's review sat in
+// Needs Action, so the alarm column read non-zero for every merge gate that was working as meant.
+// Its tone is "queued" — in line, waiting its turn — and Needs Action keeps "err".
 const _BCOL = [
   {name:"Backlog",      tone:"idle",   note:"a ticket a person took off the floor — nobody is waiting on it"},
   {name:"TO-DO",        tone:"queued", pickup:true, note:"the pickup queue — the poller reads this column every tick"},
   {name:"In progress",  tone:"run",    note:"the factory is spending money here"},
   {name:"In review",    tone:"idle",   note:"machine-owned: review, CI, merge, staging"},
+  {name:"Needs Review", tone:"queued", note:"a pull request waiting on a person's review — not stuck"},
   {name:"Needs Action", tone:"err",    note:"a person is the blocker — this column reading non-zero is the alarm"},
   {name:"Done",         tone:"ok",     note:"delivered, and the report that has to stay trustworthy"},
 ];
