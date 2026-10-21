@@ -316,7 +316,10 @@ _AUTHORIZATION = re.compile(
 #: with a parameter list not named here is not read. The scan from the scheme to its parameter is
 #: BOUNDED at 1,000 characters (a header is far shorter): unbounded, it read to the end of the line
 #: from every `Digest`, and one 400 KB line of prose with `Digest` every ~80 characters took 11.29 s
-#: (0.09 s bounded; review on cfe48e02).
+#: (0.09 s bounded; review on cfe48e02). THE BOUND'S COST, ACCEPTED: a header whose parameters
+#: before `response=` / `Signature=` run past 1,000 characters is quoted whole, secret included —
+#: measured at 04c620b9, a `uri="/x?<973 q>"` (1,000 characters after `Digest `) is withheld and
+#: `<974 q>` leaves the response raw (review on 34209477).
 _SIGNED_PARAMETER = re.compile(
     r"(\bDigest[ \t]+[^\n]{0,1000}?\bresponse[ \t]*=[ \t]*\"?)[0-9a-f]{32,}"
     r"|(\bAWS4-HMAC-SHA256[ \t]+[^\n]{0,1000}?\bSignature[ \t]*=[ \t]*)[0-9a-f]{64}", re.IGNORECASE)
