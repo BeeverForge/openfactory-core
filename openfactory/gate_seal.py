@@ -75,6 +75,15 @@ PROBE = "gate_key_probe"
 _VERSION = "v1"
 
 
+class KeyRefused(Exception):  # noqa: N818 — a refusal is the store's answer, not a fault
+    """The gate key the deployment declared is refused by its credential store (#742).
+
+    NOT A `RuntimeError`, ON PURPOSE. The gate's callers read a `RuntimeError` from the engine as
+    "this job is not at that gate", and a refused key read that way told a person their job was not
+    waiting when it was — the store's refusal, folded into "there is nothing". Raised by `_key`,
+    said as itself by every caller that seals an answer."""
+
+
 def key_path() -> Path:
     registry = (os.environ.get("OPENFACTORY_REGISTRY") or "").strip()
     if registry:
@@ -85,7 +94,20 @@ def key_path() -> Path:
 
 
 def _key() -> bytes:
-    declared = (os.environ.get(VARIABLE) or "").strip()
+    # A deployment credential, read through the credential store (#742): a key mounted as a file is
+    # the one both processes seal and verify with.
+    #
+    # A REFUSED KEY IS NOT REPLACED BY THE GENERATED ONE (review of #822). The generated key is
+    # for a deployment that declares none; one that declared a key the store will not trust would
+    # seal with a key the other half does not hold, and the doctor would send the operator to set
+    # a variable that is already set. Raised, so `seal` refuses by name and `refusal` says it.
+    from openfactory.adapters.credential_store.registry import lookup
+
+    found = lookup(VARIABLE)
+    if found.refused:
+        raise KeyRefused(f"the gate key {VARIABLE} is refused by the credential store — "
+                         f"{found.refused}; no other key is used in its place")
+    declared = (found.value or "").strip()
     if declared:
         return declared.encode()
     path = key_path()
@@ -145,7 +167,7 @@ def refusal(token: str, kind: str, workflow_id: str, *fields: str,
         return "the answer's seal has expired — answer the gate again from the panel"
     try:
         key = _key()
-    except (OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError, KeyRefused) as exc:
         return f"the gate key cannot be read ({exc.__class__.__name__}: {exc})"
     expected = hmac.new(key, _message(kind, workflow_id, expires, nonce, tuple(fields)),
                         hashlib.sha256).hexdigest()

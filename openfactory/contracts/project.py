@@ -136,6 +136,18 @@ class BoxConfig(BaseModel):
     #: why it lives in the registry and not in the client repo's own manifest.
     env: list[str] = Field(default_factory=list)
 
+    #: THE IMAGE'S PULL CREDENTIAL, as a REFERENCE to a stored secret (#742, ADR-0037 §7.2) —
+    #: `file:acme-registry`, `env:ACME_REGISTRY_TOKEN`, or a bare variable name — never the secret.
+    #: Resolved through the credential store at the moment the image is pulled, written only into
+    #: a configuration directory of that one pull and deleted with it, and never handed to the box:
+    #: the box runs the image, it does not need the right to fetch it. Unset → the image is pulled
+    #: as before, with whatever the daemon's client already holds.
+    pull_credential: str | None = None
+
+    #: The registry user the pull credential belongs to. A registry login is a pair; the user name
+    #: is not a secret, so it is written here, where `openfactory doctor` can say it.
+    pull_username: str | None = None
+
 
 log = logging.getLogger("openfactory.contracts.project")
 

@@ -33,7 +33,6 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 import subprocess
 import threading
 import time
@@ -246,8 +245,11 @@ def credential_source(options: dict | None = None) -> tuple[str, object]:
          ELSE: not a stored secret that happens to be set for another project, not a login. A
          declaration that cannot be used (an unknown value, `token_env` beside it) is no
          credential at all, never a quiet fallback.
-      2. the variable the project names (`token_env`, default `AZURE_DEVOPS_PAT`), when it holds a
-         value — without spawning anything.
+      2. the credential the project names (`token_env`, default `AZURE_DEVOPS_PAT`), when it
+         holds a value — without spawning anything. A reference since #742: a bare variable name
+         is resolved through the deployment's credential store, `file:<name>` from that store
+         alone, and the identity is the reference that answered (`env:AZURE_DEVOPS_PAT`,
+         `file:acme-pat`). Read again at each use, so a rotated file is the next request's.
       3. this machine's `az` login, when a person ran one.
 
     The registry NAMES the variable and the environment holds the value — never the other way
@@ -265,9 +267,18 @@ def credential_source(options: dict | None = None) -> tuple[str, object]:
     if declared:
         client_id = str(options.get(IDENTITY_CLIENT_ID_OPTION) or "").strip()
         return WORKLOAD_SOURCE, (lambda: workload_token(client_id))
-    name = (options.get("token_env") or DEFAULT_TOKEN_ENV).strip()
-    if (os.environ.get(name) or "").strip():
-        return f"env:{name}", (lambda: (os.environ.get(name) or "").strip() or None)
+    from openfactory.adapters.credential_store import registry as credential_store
+
+    reference = (options.get("token_env") or DEFAULT_TOKEN_ENV).strip()
+    found = credential_store.look(reference)
+    if found.refused:
+        # A REFUSED SECRET IS NOT AN ABSENT ONE (review of #822): the login is the fallback for
+        # a deployment that stores no PAT, and this one stored a PAT the store will not trust —
+        # nothing is used in its place, and `credentials.axis_refusal` says which and why.
+        return "", None
+    if (found.value or "").strip():
+        return found.reference, (lambda: (credential_store.resolve(reference) or "").strip()
+                                 or None)
     return "login:az", az_token
 
 

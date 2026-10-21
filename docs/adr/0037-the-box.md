@@ -259,6 +259,7 @@ ground moves.
    N client registries with one shared docker config, or the inverse — clients pushing into a
    per-tenant repository in the framework's own registry. The second is better isolated and worse
    for onboarding friction; it needs a decision before the first hosted multi-tenant client.
+   *The stored half is answered by the addendum below (2026-10-18): no shared configuration.*
 
 ## §8 — Objections raised and answered
 
@@ -279,3 +280,33 @@ An adversarial panel (ops, supply-chain security, product) attacked the draft; a
   credential question in §7.
 - *"Any image your CI uses"* — **assumes an unstated contract**; became the written contract in D1,
   checked by D3.
+
+## Addendum (2026-10-18): the stored half of §7.2 is answered
+
+Issue #742 gave every stored secret one seam, the credential store: a reference (`env:<NAME>`,
+`file:<name>`, or an installed store's `<kind>:<name>`) resolved at the moment it is used. The box
+image's pull credential is one of those references, and that answers the half of §7.2 that is
+about a credential the deployment stores:
+
+- **Per project, never shared.** `box.pull_credential` names the registry's secret in the
+  project's registry entry, beside the image it pulls, and `box.pull_username` the user name. Nothing
+  is written to the worker's own client configuration, so one project's login is never readable
+  by another project's pull: the shared `~/.docker/config.json` this ADR's costs named is not used.
+- **For the pull, and never for the box.** When the image is not already on the daemon, the worker
+  resolves the secret, writes it into a client configuration made for that one pull, pulls, and
+  deletes the configuration. The daemon keeps the image and not the login, and the box, which runs
+  agent-written code, sees neither. `openfactory box prove` pulls the same way, so a proof obtains
+  the image the way a job will.
+- **Only when absent**, which is exactly when `docker run` would have pulled. A project that
+  declares a credential runs the image it ran before, and the digest a proof was taken against
+  (D5) does not move under it.
+- **Into the daemon the box uses** (review of #822). Which daemon a docker client talks to lives
+  in its configuration (`currentContext`, resolved through `contexts/`), so a fresh one meant the
+  default socket while the box's `docker run` kept the person's own context. The pull's
+  configuration carries the person's current context and links their contexts, and nothing else
+  of theirs — no `auths`, no credential helper.
+
+What stays open is the other option §7.2 names, where clients push into a repository the platform
+runs for them. That is a choice about who operates a registry, not about where a stored secret
+comes from, and nothing here forecloses it. A credential the machine's own identity provides,
+with nothing stored, is the other half of the credential question and is not decided here.

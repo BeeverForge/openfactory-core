@@ -206,7 +206,8 @@ MUTATIONS = [
     # ── 4. the credential that is not needed ───────────────────────────────────────────────────
     ("a vendor that needs nothing falls through to the deployment's own pair — a local project on "
      "a machine that also runs a GitHub one is handed that project's token", CREDS,
-     "    if not vendor_needs_credential(ref):\n        return \"\", None\n",
+     # re-pinned 2026-10-19 (#822): the resolution answers the store's `Answer`
+     "    if not vendor_needs_credential(ref):\n        return credential_store.NOTHING\n",
      ""
      , SLICE),
 

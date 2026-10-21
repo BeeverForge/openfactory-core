@@ -30,6 +30,7 @@ from openfactory import plugins
 def _github(project, **kw):
     from openfactory.adapters.board.factory import declared_columns
     from openfactory.adapters.tracker.github import GitHubIssuesTracker
+    from openfactory.credentials import github_refusal
 
     options = (getattr(project.tracker, "options", None) or {})
     return GitHubIssuesTracker(
@@ -38,6 +39,8 @@ def _github(project, **kw):
         board_number=options.get("board_number"),
         token=kw.get("token"),
         token_provider=kw.get("token_provider"),
+        # with no token, never the machine's own login after a refusal (#742)
+        refused="" if kw.get("token") else github_refusal(project, "tracker"),
         # the client's own column names (C-14) — same registry row the Jira status_map uses,
         # and PARSED where the board registry parses it (#231): this row handed the raw option
         # to a board that does `(columns or {}).items()` on it, so a deployment that declared
@@ -92,10 +95,17 @@ def _jira(project, **kw):
     # passes `token=` resolved it through `credentials.tracker_token_for`, which falls back to
     # that pair, so a GitHub token reaches Jira and reads as "different accounts" (measured on a
     # Jira Cloud site, 2026-10-19).
-    from openfactory.credentials import vendor_default
+    from openfactory.credentials import axis_refusal, vendor_default
 
-    token = kw.get("token") or vendor_default(getattr(project, "tracker", None))
+    # …AND NOT AFTER A REFUSAL (#822): `JIRA_API_TOKEN` is the step after the project's own
+    # reference, and a refused reference ends the resolution, here as in `credentials`.
+    refused = "" if kw.get("token") else axis_refusal(project, "tracker")
+    token = kw.get("token") or (None if refused
+                                else vendor_default(getattr(project, "tracker", None)))
     return JiraTracker(
+        # …and the sentence an anonymous answer gets says the refusal, not "Set JIRA_API_TOKEN",
+        # which would send the operator to set a variable that is already set
+        refused=refused,
         site=options.get("site", ""),
         project_key=options.get("project_key") or project.tracker.repo or "",
         email=options.get("email", ""),

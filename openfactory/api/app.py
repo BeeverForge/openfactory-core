@@ -74,14 +74,11 @@ def _load_environment() -> None:
     """
     load_dotenv()
 
-# deployed panel: Secrets Manager delivers the bot App key as CONTENT — materialize it
-# so token minting (forge reads) works, same as the worker/task do.
-if os.environ.get("OPENFACTORY_GH_APP_KEY_CONTENT") and not os.environ.get("OPENFACTORY_GH_APP_KEY"):
-    import tempfile as _tmp
-
-    from openfactory.runtime.boxed_job import materialize_app_key
-
-    materialize_app_key(dict(os.environ), dest_dir=Path(_tmp.mkdtemp(prefix="openfactory-panel-")))
+# NO KEY IS WRITTEN TO DISK AT IMPORT (#742). This block copied an App key delivered as content
+# into a temp file and pointed `OPENFACTORY_GH_APP_KEY` at it, for readers that wanted a path.
+# None is left: `credentials.app_private_key` reads the content first and the minter takes it as
+# content, so the copy was read by nothing, and it was the one place a stored secret outlived the
+# call that used it.
 
 #: What this half of the deployment calls itself when it announces its build (#135). Named here
 #: because two places must agree on the spelling — `cli serve`, which announces it, and
@@ -589,7 +586,17 @@ async def preview_link(project: str, unit: str, request: Request):
         body["why"] = said
         return body
     expires = min(int(time.time()) + preview.LINK_TTL_SECONDS, found.expires_at)
-    key = preview.mint(found.project, unit, expires=expires)
+    try:
+        key = preview.mint(found.project, unit, expires=expires)
+    except RuntimeError as exc:
+        # A PREVIEW KEY THE CREDENTIAL STORE REFUSES SIGNS NO LINK (#822), and the card says so in
+        # the store's own sentence — the key's name and why, a path at most, never a value — the
+        # way it says every other reason a preview cannot be opened. The caller is one the panel
+        # already let in.
+        log.error("no preview link for %s/%s: %s", found.project, unit, exc)
+        body["live"] = False
+        body["why"] = str(exc)
+        return body
     scheme = "https" if _is_secure(request) else "http"
     body["live"] = True
     body["why"] = ""
@@ -4337,11 +4344,14 @@ def _auth_credential() -> str:
     Read from the environment this process shares with the worker (compose forwards the whole
     `.env.compose` to both). Empty when neither variable is visible here, because the honest
     answer to "which of these two is paying" is sometimes "I cannot see from here"."""
-    import os as _os
+    from openfactory.adapters.credential_store.registry import lookup
 
-    if _os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+    # A REFUSED SUBSCRIPTION TOKEN IS NOT AN API KEY PAYING (#822): the harness runs on neither
+    # then (`claude_code._load_agent_token_pool`), and "I cannot see from here" is the answer.
+    subscription = lookup("CLAUDE_CODE_OAUTH_TOKEN")
+    if subscription.value:
         return "subscription"
-    if _os.environ.get("ANTHROPIC_API_KEY"):
+    if not subscription.refused and lookup("ANTHROPIC_API_KEY").value:
         return "api key"
     return ""
 

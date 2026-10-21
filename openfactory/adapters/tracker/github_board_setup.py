@@ -158,6 +158,18 @@ class GitHubBoardSetup:
                 "cannot tell where to create the board — a GitHub Projects v2 board lives under a "
                 "user or an organisation. Pass --board-owner, or set the project's tracker repo "
                 "to `owner/name`")
+        if not token:
+            # A REFUSAL IS FINAL HERE TOO (#742): handed no token because the project's tracker
+            # credential, or the App key, is refused, the board is not created on `GH_TOKEN` or
+            # on the machine's own login in its place — asked before any `gh` call
+            from openfactory.credentials import github_refusal
+
+            refusal = github_refusal(project, "tracker")
+            if refusal:
+                raise BoardSetupError(
+                    f"the tracker credential {refusal}. Nothing is used in its place; fix what "
+                    f"it names and re-run `openfactory project init` — the board step is "
+                    f"idempotent")
         return create_board(owner=owner, title=title, token=token)
 
 
@@ -168,7 +180,20 @@ def create_board(*, owner: str, title: str, token: str | None = None) -> tuple[s
     Raises `BoardSetupError` with an actionable sentence; never leaves a half-described state
     unreported (a created board whose columns failed is SAID, because the board exists either
     way and silence would hide where the retry must start)."""
-    if not token and not os.environ.get("GH_TOKEN"):
+    # `gh`'s own variable is a deployment credential like any other (#742): read through the
+    # store, and handed to every `gh` call below as the token, so one held in a file works too.
+    from openfactory.adapters.credential_store.registry import lookup
+
+    found = lookup("GH_TOKEN") if not token else None
+    if found is not None and found.refused:
+        # SAID AS ITSELF (review of #822): "no credential is configured" would send the operator
+        # to set a variable that is set, under a file the store will not trust.
+        raise BoardSetupError(
+            f"the tracker credential `GH_TOKEN` is refused by the credential store — "
+            f"{found.refused}. Nothing is used in its place; fix what it names and re-run "
+            f"`openfactory project init` — the board step is idempotent")
+    token = token or (found.value if found is not None else None)
+    if not token:
         # REFUSE IN OUR VOCABULARY, BEFORE the subprocess. With no token, `gh` answers "run
         # `gh auth login` … or populate GH_TOKEN" — the vendor tool's remedy, in a container
         # where neither is a thing the operator should do. The first pilot funnel run hit

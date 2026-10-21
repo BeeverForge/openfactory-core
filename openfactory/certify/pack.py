@@ -432,7 +432,19 @@ def _secret_values(rows, env: dict[str, str]) -> set[str]:
             if axis is not None and (axis.options or {}).get("token_env"):
                 named.add(str(axis.options["token_env"]))
         named.update(str(v) for k, v in (p.channel_options or {}).items() if k.endswith("_env"))
-    return {env[n].strip() for n in named if (env.get(n) or "").strip()}
+    return ({env[n].strip() for n in named if (env.get(n) or "").strip()}
+            | _held_values(named))
+
+
+def _held_values(named: set[str]) -> set[str]:
+    """The values the credential stores hold for what the pack must never print (#742): every
+    reference the registry names (`token_env: file:acme-jira`), every entry of a store that lists
+    what it holds, and, for a declared store that cannot list, every credential the core reads by
+    name — the store's own `held_values`, which the product role's facts withhold by too (review
+    of 256c5b0). Never logged; only redacted."""
+    from openfactory.adapters.credential_store import registry as store
+
+    return store.held_values(named)
 
 
 def _variable_names(rows) -> set[str]:

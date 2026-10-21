@@ -724,7 +724,7 @@ def project_init(
     elif attached:
         typer.echo(f"· board already attached ({attached})")
     else:
-        from openfactory.credentials import deployment_tracker_token, tracker_token
+        from openfactory.credentials import deployment_tracker_token, tracker_token_for
 
         # EMPTY IS ALLOWED HERE AND REFUSED BY THE ROW. A GitHub board lives under a login or an
         # organisation and says so in its own words; the platform's own board has no such place,
@@ -739,7 +739,9 @@ def project_init(
             # the pilot hit (2026-08-10).
             number, url = create_board.create(
                 project=project, owner=owner, title=name,
-                token=tracker_token() or deployment_tracker_token(project))
+                # THE PROJECT'S OWN RESOLUTION (#822), which ends with the deployment's pair — so
+                # the static token still comes first, and a refused reference is answered by none
+                token=tracker_token_for(project) or deployment_tracker_token(project))
         except BoardSetupError as exc:
             # the project stays registered (tickets-only is legitimate) AND init keeps its own
             # docstring's promise — CONVERGES — by continuing to the manifest scaffold instead of

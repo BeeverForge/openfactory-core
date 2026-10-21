@@ -52,6 +52,7 @@ from openfactory.adapters.sandbox.base import (
     Workspace,
     run_and_stream,
 )
+from openfactory.adapters.sandbox.pull import PullCredential
 from openfactory.observability import logs
 
 log = logging.getLogger("openfactory.sandbox.container")
@@ -103,8 +104,8 @@ def _container_name(project: str | None, safe_branch: str) -> str:
     return "-".join(parts)
 
 
-def _host(cmd: list[str], timeout: int = 120) -> tuple[int, str]:
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+def _host(cmd: list[str], timeout: int = 120, env: dict[str, str] | None = None) -> tuple[int, str]:
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
@@ -372,6 +373,10 @@ class ContainerSandbox(SandboxAdapter):
         #: is the operator's own checkout of their standards; on a containerised worker it has to
         #: be a path the HOST's daemon can resolve, exactly as the workspace bind does.
         guidelines: str | None = None,
+        #: The image's PULL CREDENTIAL (registry `box.pull_credential` / `box.pull_username`,
+        #: #742): a reference resolved through the credential store for the one pull that needs
+        #: it, and never passed into the box. None → the daemon pulls as it always did.
+        pull_credential: PullCredential | None = None,
     ) -> None:
         bad = [v for v in extra_env if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v or "")]
         if bad:
@@ -393,6 +398,7 @@ class ContainerSandbox(SandboxAdapter):
         self.network = network
         self.extra_env = tuple(extra_env)
         self.guidelines = (guidelines or "").strip()
+        self.pull_credential = pull_credential
         # concurrency = 1 for now, so a single-job handle on the instance is fine.
         self._container: str | None = None
         self._host_clone: Path | None = None
@@ -466,18 +472,68 @@ class ContainerSandbox(SandboxAdapter):
             return None
         return target
 
-    def _passthrough_env(self) -> list[str]:
-        """Which variable NAMES cross into the box right now: the harness defaults plus this
-        project's own `box.env`, deduplicated, only when PRESENT in the worker's environment.
+    def _pull_if_absent(self) -> None:
+        """Pull the image with the project's pull credential when the daemon does not hold it.
 
-        Presence is re-checked at every call on purpose — the token pool rotates os.environ
-        between execs, and a snapshot taken at prepare() would keep exec'ing with a dead
-        credential (the audit that made run() re-read _AUTH_ENV_VARS applies to these too)."""
-        seen: list[str] = []
-        for var in (*_AUTH_ENV_VARS, *self.extra_env):
-            if var not in seen and os.environ.get(var):
-                seen.append(var)
+        ONLY WHEN IT IS ABSENT, which is exactly when `docker run` would have pulled it — so a
+        project that declares a credential runs the same image it ran before, and the tag a proof
+        was taken against does not move under it (ADR-0037 D5). RAISES naming the registry
+        reference, never the secret, before anything else is created."""
+        if self.pull_credential is None:
+            return
+        if _host(["docker", "image", "inspect", self.image])[0] == 0:
+            return
+        from openfactory.adapters.sandbox.pull import pull
+
+        pulled, said = pull(self.image, self.pull_credential)
+        if not pulled:
+            raise RuntimeError(f"could not pull the box image {self.image!r} with the project's "
+                               f"pull credential `{self.pull_credential.reference}`: {said}")
+
+    def _passthrough(self) -> dict[str, str]:
+        """`{name: value}` of what crosses into the box right now: the harness defaults plus this
+        project's own `box.env`, deduplicated, only when one ANSWERS.
+
+        Asked again at every call on purpose — the token pool rotates os.environ between execs,
+        and a snapshot taken at prepare() would keep exec'ing with a dead credential (the audit
+        that made run() re-read _AUTH_ENV_VARS applies to these too).
+
+        THROUGH THE CREDENTIAL STORE (#742). A `box.env` name is a deployment credential, so one
+        held in a mounted file crosses as well as a variable does. A harness default is first the
+        value this process holds, because the harness adapter puts the token it chose from the
+        pool there (`claude_code._apply_token`) and a file must not undo a rotation; the store
+        answers for it only when nothing has. The values reach `docker` in its own environment,
+        for the `-e NAME` form to read: never on a command line, never in a log.
+
+        A NAME THE STORE REFUSES DOES NOT CROSS AT ALL (review of #822), whatever the variable of
+        that name holds: the refusal is the answer, and a variable in its place is the fallback a
+        refusal never is. The worktree box withholds the same names (`worktree._scrubbed_env`)."""
+        from openfactory.adapters.credential_store.registry import ENV, look, lookup
+
+        seen: dict[str, str] = {}
+        for var in _AUTH_ENV_VARS:
+            if var in seen or (found := lookup(var)).refused:
+                continue
+            # `env:<var>` FIRST, BY ITS REFERENCE: the value this process holds, which is the token
+            # the pool rotated to — asked of the store's environment row, so the read says what it
+            # is and the sweep over the package holds every other read to the declared store.
+            if value := look(f"{ENV}:{var}").value or found.value:
+                seen[var] = value
+        for var in self.extra_env:
+            if var not in seen and (value := lookup(var).value):
+                seen[var] = value
         return seen
+
+    def _passthrough_env(self) -> list[str]:
+        """Which variable NAMES cross into the box right now — `_passthrough`'s keys."""
+        return list(self._passthrough())
+
+    def _client_env(self, passing: dict[str, str]) -> dict[str, str] | None:
+        """The environment the `docker` client runs with, so `-e NAME` reads each value
+        `_passthrough` resolved; None — inherit as before — when every one is already there."""
+        if all(os.environ.get(k) == v for k, v in passing.items()):
+            return None
+        return {**os.environ, **passing}
 
     def prepare(
         self, *, repo_path: Path, base_branch: str, branch: str, checkout_existing: bool = False,
@@ -487,6 +543,7 @@ class ContainerSandbox(SandboxAdapter):
         is testable without a docker daemon."""
         safe = branch.replace("/", "-")
         self._repo_path = repo_path
+        self._pull_if_absent()
         # WHERE the clone lives decides whether the box can see it at all. `docker run -v <path>`
         # is resolved by the DAEMON, and under docker-out-of-docker the worker is itself a
         # container: a `mkdtemp()` path exists in the worker and NOT on the host, so Docker
@@ -560,10 +617,12 @@ class ContainerSandbox(SandboxAdapter):
             run_cmd += ["-v", f"{self.guidelines}:{GUIDELINES_MOUNT}:ro"]
         if self.cache_volume:
             run_cmd += ["-v", f"{self.cache_volume}:/cache"]
-        for var in self._passthrough_env():
+        passing = self._passthrough()
+        for var in passing:
             run_cmd += ["-e", var]  # value inherited from the daemon client env
         run_cmd += [self.image, "infinity"]
-        rc, out = _host(run_cmd)
+        client_env = self._client_env(passing)
+        rc, out = _host(run_cmd) if client_env is None else _host(run_cmd, env=client_env)
         if rc != 0:
             # NEVER record a handle for a container that was not created. This used to be a bare
             # `_host(run_cmd)` with `self._container = cname` below it regardless, so a refused
@@ -743,7 +802,8 @@ class ContainerSandbox(SandboxAdapter):
         # burn n identical attempts on one dead credential (audit CRITICAL). Also covers a
         # pool-only deploy where no auth var existed yet at prepare() time.
         env_flags: list[str] = []
-        for var in self._passthrough_env():
+        passing = self._passthrough()
+        for var in passing:
             env_flags += ["-e", var]
         return run_and_stream(
             subprocess.Popen(
@@ -763,7 +823,7 @@ class ContainerSandbox(SandboxAdapter):
                 ["docker", "exec", *env_flags, "-w", _WORKDIR, self._container,
                  "sh", "-c", command],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, errors="replace", bufsize=1,
+                text=True, errors="replace", bufsize=1, env=self._client_env(passing),
             ),
             command=command, timeout=timeout, buffer=self._output, on_output=on_output,
         )

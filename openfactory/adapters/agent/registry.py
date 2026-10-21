@@ -198,6 +198,37 @@ def harness_credential(kind: str, settings: Mapping[str, str]) -> tuple[str, str
     return read(settings) if read else None
 
 
+def credential_names(kind: str) -> list[str]:
+    """Every setting the harness `kind` reads its credential from, in its order — read off its own
+    reader (`HARNESS_CREDENTIALS`) by walking it over a mapping that holds nothing and records
+    what it is asked, so this list IS the harness's table and can never be a copy of it."""
+
+    class _Asked(dict):
+        def __init__(self) -> None:
+            super().__init__()
+            self.names: list[str] = []
+
+        def get(self, name, default=None):
+            self.names.append(name)
+            return default
+
+    asked = _Asked()
+    harness_credential(kind, asked)
+    return asked.names
+
+
+def harness_refusals(kind: str) -> dict[str, str]:
+    """`{name: why}` of every credential of the harness `kind` the credential store refuses (#742)
+    — on its walk, and among every name it reads (`credential_names`), because a refused name
+    stops the harness even where the walk ended before it (`claude_code._refused_credentials`).
+    What the doctor's agent line and onboarding ask, so both refuse exactly where it does."""
+    from openfactory.adapters.credential_store.registry import Stored, refusals
+
+    walk = Stored()
+    harness_credential(kind, walk)
+    return {**walk.refused, **refusals(credential_names(kind))}
+
+
 #: The key a dict-shaped `harness:` / `model:` uses for every role it does not name. Named once,
 #: because it is read in two places (here and the registry file's unknown-key warning) and
 #: REFUSED in a third: an add-on role called `default` would make `harness: {default: codex}` say

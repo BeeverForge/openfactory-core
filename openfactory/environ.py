@@ -42,6 +42,31 @@ ENV_NAME_SHAPE = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$")
 #: The mapping methods a read goes through, by literal key.
 _READ_METHODS = frozenset({"get", "getenv", "pop", "setdefault"})
 
+#: The last word of a variable's name says what the variable HOLDS, and these words say it holds a
+#: secret. A shape rule rather than a list of names, because a list of names is the thing that was
+#: wrong twice: SECURITY.md's first claim and its replacement were both tables written in prose,
+#: and both went stale the day a credential was added. The rule errs towards INCLUDING — a false
+#: positive costs one row in a table, a false negative is a credential nobody measured.
+_SECRET_NOUNS = frozenset({
+    "TOKEN", "TOKENS", "SECRET", "SECRETS", "KEY", "KEYS", "PASSWORD", "PASSWORDS",
+    "PAT", "PATS", "CREDENTIAL", "CREDENTIALS",
+})
+
+#: …and a name ending in one of these holds something ABOUT a secret rather than the secret: which
+#: source a token pool comes from, which key an id names. A locator (`…_TOKEN_FILE`,
+#: `…_CREDENTIALS_URI`) is deliberately NOT here — a path to a credential is reach to it.
+_NOT_THE_SECRET = frozenset({
+    "SOURCE", "MODE", "KIND", "NAME", "ENABLED", "ID", "COUNT", "TTL", "PROVIDER", "STORE",
+})
+
+
+def holds_a_credential(name: str) -> bool:
+    """Whether the variable `name` holds a secret, by the shape of its name — the rule SECURITY.md's
+    measured table is built on (`tests/test_the_environment_carries_the_products_name.py`), and the
+    one `openfactory doctor` walks the core's credentials by to find one its store refuses."""
+    words = name.split("_")
+    return bool(set(words) & _SECRET_NOUNS) and words[-1] not in _NOT_THE_SECRET
+
 
 def _env_shaped(node: ast.AST) -> str | None:
     """The env-shaped string this constant node is, or None."""
@@ -107,7 +132,9 @@ def names_read(root: Path | None = None) -> frozenset[str]:
          how the vendor-default credentials are spelled; `__all__` is a list of exports and is
          skipped;
       3. a literal handed to a function that reads ITS PARAMETER from the environment
-         (`_resolve_token(configured, "SLACK_BOT_TOKEN")`), found by name across the package;
+         (`_resolve_token(configured, "SLACK_BOT_TOKEN")`), found by name across the package —
+         or a module-level name bound to one, which is how a module hands the credential store
+         the variable it used to read itself (`stored(VARIABLE)`, #742);
       4. a literal bound to a module-level name that a read in the same module uses
          (`ENDPOINT_OVERRIDE = "…"; e.get(ENDPOINT_OVERRIDE)`).
 
@@ -159,7 +186,7 @@ def names_read(root: Path | None = None) -> frozenset[str]:
                 if all(found):
                     names.update(found)                                            # shape 2
             if isinstance(node, ast.Call) and _callee(node) in readers:
-                names.update(_env_shaped(a) for a in node.args)                    # shape 3
+                names.update(_key_of(a, bound) for a in node.args)                 # shape 3
     names.discard(None)
     return frozenset(names)
 

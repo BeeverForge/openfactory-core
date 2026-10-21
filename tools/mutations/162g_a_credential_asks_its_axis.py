@@ -44,11 +44,13 @@ MUTATIONS = [
      "    tickets, error = read_board(project, token=token)"),
 
     # ── the box ─────────────────────────────────────────────────────────────────────────────────
+    # re-pinned 2026-10-19 (#822, second round): the pair is asked only after the refusal question
     ("the box goes back to a process-wide credential", BOX,
-     "        token = (forge_token_for(_project_for(cfg, repo_dir=None))\n"
-     "                 or forge_token()             # honour OPENFACTORY_BOT_TOKEN for the "
+     "        token = (forge_token_for(carried)\n"
+     "                 or (None if axis_refusal(carried, \"forge\")\n"
+     "                     else forge_token())      # honour OPENFACTORY_BOT_TOKEN for the "
      "GitHub path\n"
-     "                 or deployment_forge_token(_project_for(cfg, repo_dir=None)))",
+     "                 or deployment_forge_token(carried))",
      "        token = forge_token()"),
 
     # ── the ratchet ─────────────────────────────────────────────────────────────────────────────

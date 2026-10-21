@@ -906,8 +906,9 @@ def _the_gate_said(why: str, *, ref: str, detail: str) -> WriteResult:
     """A merge gate's answer to a person's pass or yes, as a not-ok result that says what it is
     (#908): `not_yours` is theirs to refuse; a STATE of the gate a person can read and wait out —
     nobody waits on them, a pass is running, the job cannot hear from here, the passes are spent,
-    nothing was tried, the pull request moved — is `NOT_WAITING`; an engine that could not be asked
-    or an acceptance that could not be written down was tried and did not happen (`NOT_REFUSED`).
+    nothing was tried, the pull request moved — is `NOT_WAITING`; an engine that could not be asked,
+    an answer the deployment's refused gate key could not seal (#742), or an acceptance that could
+    not be written down was tried and did not happen (`NOT_REFUSED`).
     One table for `send_back` and `accept_change`, so the two doors cannot read one word two ways.
     A word in none of them raises: `adjust.WHY` is a closed set, and a new member is said here
     before it ships."""
@@ -915,7 +916,7 @@ def _the_gate_said(why: str, *, ref: str, detail: str) -> WriteResult:
 
     waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,
              accept.MOVED}
-    failed = {adjust.UNREACHABLE, accept.UNRECORDED}
+    failed = {adjust.UNREACHABLE, adjust.KEY_REFUSED, accept.UNRECORDED}
     if why == "not_yours":
         return WriteResult(ok=False, refusal=NOT_YOURS, ref=ref, detail=detail)
     if why in waits:
@@ -4350,7 +4351,7 @@ class ProductModule:
         inner = self._given_tracker
         if inner is None:
             from openfactory.credentials import tracker_token_for
-            from openfactory.factory import _bot_token_provider
+            from openfactory.factory import bot_token_provider_for
 
             # THIS PROJECT'S CREDENTIAL, NOT THE PROCESS'S. `tracker_token()` is one value for the
             # whole worker (`OPENFACTORY_TRACKER_TOKEN` / `OPENFACTORY_BOT_TOKEN`), and one
@@ -4375,7 +4376,8 @@ class ProductModule:
             from openfactory.adapters.tracker.registry import build_tracker
 
             inner = build_tracker(self.project, token=tok,
-                                  token_provider=None if tok else _bot_token_provider())
+                                  token_provider=(None if tok else
+                                                  bot_token_provider_for(self.project, "tracker")))
         return _WatchedWrites(inner, self._write_outcome)
 
     # ---- what a person can ASK it to do --------------------------------------------------------

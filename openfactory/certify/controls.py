@@ -270,15 +270,49 @@ def evaluate(reading: Reading, profile: str, names: Pseudonyms) -> list[Control]
 Answer = tuple[str, str, list[str]]
 
 
+_PANEL_TOKENS = ("OPENFACTORY_PANEL_TOKENS", "OPENFACTORY_PANEL_TOKEN")
+
+
 def _panel(r: Reading, _n: Pseudonyms) -> Answer:
     identity = (r.env.get("OPENFACTORY_IDENTITY") or "").strip().lower()
     if identity == "oidc":
         return PASS, "OPENFACTORY_IDENTITY=oidc — people sign in through the provider", []
-    for name in ("OPENFACTORY_PANEL_TOKENS", "OPENFACTORY_PANEL_TOKEN"):
+    for name in _PANEL_TOKENS:
         if (r.env.get(name) or "").strip():
             return PASS, f"{name} is set — the panel asks for a sign-in", []
+    held = _panel_in_the_store(r)
+    if held is not None:
+        return held
     return FAIL, ("neither OPENFACTORY_PANEL_TOKENS nor OPENFACTORY_PANEL_TOKEN is set and the "
                   "identity is not OIDC — the panel answers anybody who can reach it"), []
+
+
+def _panel_in_the_store(r: Reading) -> Answer | None:
+    """What the deployment's credential store says of the panel's tokens, when the deployment
+    declares one (#742): held, refused, or not readable where certify ran — None when it declares
+    none, and the environment's answer above is the whole answer.
+
+    NOT CHECKED IS NOT A FAILURE. Certify usually runs beside `.env.compose`, where a store's
+    directory (`/run/secrets`) is a path inside the containers; a token held there is the
+    deployment's, and certify cannot say whether it is, so it says that instead of FAIL."""
+    from openfactory.adapters.credential_store import registry as store
+
+    declared = (r.env.get(store.STORE_VAR) or "").strip().lower() or store.ENV
+    if declared == store.ENV:
+        return None
+    if store.deployment_store() != declared or store.unusable(declared):
+        return UNKNOWN, (f"the panel's tokens may be held in the `{declared}` credential store, "
+                         f"which certify cannot read where it ran — not checked here; run it "
+                         f"where the deployment runs"), []
+    for name in _PANEL_TOKENS:
+        found = store.lookup(name, quiet=True)
+        if found.refused:
+            return UNKNOWN, (f"the credential store refuses {name}, so the panel admits nobody "
+                             f"until it is fixed — `openfactory doctor` says why"), []
+        if found.value:
+            return PASS, (f"{name} is held in the `{declared}` credential store — the panel asks "
+                          f"for a sign-in"), []
+    return None
 
 
 def _envfile(r: Reading, _n: Pseudonyms) -> Answer:

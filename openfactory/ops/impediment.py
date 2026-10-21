@@ -215,15 +215,21 @@ def _tracker_for(project, tracker):
     if board is None or board.tracker is None:
         return None
     from openfactory.adapters.tracker.registry import build_tracker
-    from openfactory.credentials import tracker_token
-    from openfactory.factory import _bot_token_provider
+    from openfactory.credentials import tracker_token_for
+    from openfactory.factory import bot_token_provider_for
 
     # THE SAME SEAM, POINTED SOMEWHERE ELSE — a project whose `tracker` is the factory's board.
     # Building it this way rather than by hand is what keeps the vendor-agnosticism literal: a
     # deployment that keeps its tickets in Jira files its impediments in Jira, through the
     # dispatch that already exists, without a line of code here knowing that.
-    return build_tracker(project.model_copy(update={"tracker": board.tracker}),
-                         token=tracker_token(), token_provider=_bot_token_provider())
+    #
+    # ITS CREDENTIAL IS RESOLVED LIKE ANY TRACKER'S (#822): the board's own reference, its vendor's
+    # default, the deployment's pair, then the mint — and nothing after a refusal.
+    on_the_board = project.model_copy(update={"tracker": board.tracker})
+    tok = tracker_token_for(on_the_board)
+    return build_tracker(on_the_board, token=tok,
+                         token_provider=None if tok else bot_token_provider_for(on_the_board,
+                                                                                "tracker"))
 
 
 def report(project, cause: str, detail: str = "", *, tracker=None) -> str:

@@ -19,7 +19,9 @@ EXPECTED = {"not_yours": NOT_YOURS,
             adjust.NOT_WAITING: NOT_WAITING, adjust.WORKING: NOT_WAITING,
             adjust.DEAF: NOT_WAITING, adjust.SPENT: NOT_WAITING,
             accept.UNTRIED: NOT_WAITING, accept.MOVED: NOT_WAITING,
-            adjust.UNREACHABLE: NOT_REFUSED, accept.UNRECORDED: NOT_REFUSED}
+            adjust.UNREACHABLE: NOT_REFUSED, accept.UNRECORDED: NOT_REFUSED,
+            # an answer the deployment's refused gate key could not seal: nothing was sent (#742)
+            adjust.KEY_REFUSED: NOT_REFUSED}
 
 
 def test_every_word_a_gate_can_answer_is_classified_here():

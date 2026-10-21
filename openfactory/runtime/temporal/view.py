@@ -785,7 +785,7 @@ async def _pr_checks(project: str, pr_url: str) -> list[dict]:
         try:
             from openfactory.adapters.forge.registry import build_forge
             from openfactory.credentials import forge_token_for
-            from openfactory.factory import _bot_token_provider
+            from openfactory.factory import bot_token_provider_for
             from openfactory.registry import ProjectRegistry
 
             # PER PROJECT. `forge_token()` is one process-wide value, so this handed an Azure Repos
@@ -794,7 +794,8 @@ async def _pr_checks(project: str, pr_url: str) -> list[dict]:
             proj = ProjectRegistry().get(project)
             tok = forge_token_for(proj)
             forge = build_forge(proj, token=tok,
-                                token_provider=None if tok else _bot_token_provider())
+                                token_provider=(None if tok
+                                                else bot_token_provider_for(proj, "forge")))
             # WHAT EACH CHECK IS, the way the merge watch reads it (#184): a row that cannot stop
             # the merge arrives `advisory`, so the panel stops drawing an optional policy as a red
             # gate. The rows only — never `checks.read`, which also fetches the failing log, and

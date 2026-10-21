@@ -381,10 +381,15 @@ def scrub_credentials(text: str, *, userinfo: str = "") -> str:
 
 
 def _secrets_of_this_process() -> list[str]:
-    """The values of this process's secret-named variables, longest first. Eight characters at
-    least: a shorter value is a flag (`1`, `true`), and withholding it would eat ordinary words."""
+    """The values of this process's secret-named variables, and every value the credential stores
+    hold — a token moved into a mounted file is no less a token, and the store's entries have no
+    name to match (review of 256c5b0 for #742) — longest first. Eight characters at least: a
+    shorter value is a flag (`1`, `true`), and withholding it would eat ordinary words."""
+    from openfactory.adapters.credential_store import registry as store
+
     found = {value for name, value in os.environ.items()
              if _SECRET_NAME.search(name) and len(value or "") >= 8}
+    found |= {value for value in store.held_values() if len(value) >= 8}
     return sorted(found, key=len, reverse=True)
 
 

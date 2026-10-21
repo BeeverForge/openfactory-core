@@ -345,6 +345,15 @@ class Probes:
     #: probe here: the checks below that read the code or its proof have nothing to read, so
     #: `assess` says the state once, as a hold.
     before_its_code: Callable[[], tuple[str, str]] = field(default=lambda: ("", ""))
+    #: `credential_store.stored` — a `box.env` name the deployment's credential store answers for
+    #: that the environment does not hold (a mounted secret file, #742). The box receives it, so it
+    #: is not missing. Answers nothing by default, so a test presenting an environment measures
+    #: that environment alone.
+    stored: Callable[[str], str | None] = lambda _name: None
+    #: `credential_store.refusals` for one name — why the store REFUSES it, `""` when it does not
+    #: (review of #822). A refused `box.env` name crosses into no box, and it is set: "not set"
+    #: would send the operator to set it. Answers nothing by default, like `stored`.
+    refused: Callable[[str], str] = lambda _name: ""
 
 
 #: The checks `assess` does not ask of a project whose product started before its code (#992):
@@ -513,9 +522,14 @@ def _product_role(p: Probes, on: str) -> tuple[Finding, str]:
             f"empty list is nobody, never everybody", on=on), ""
 
     env = p.environ()
+    # THE CREDENTIAL STORE BESIDE THE ENVIRONMENT MEASURED (#822), asked by `getattr`: a probe set
+    # from before the store measures its environment alone, as it always did.
+    stored = getattr(p, "stored", None) or (lambda _name: None)
+    refusal = getattr(p, "refused", None) or (lambda _name: "")
 
     def _set(*names: str) -> bool:
-        return any(str(env.get(n, "") or "").strip() for n in names)
+        # a token the panel reads from a mounted file is issued, though no variable holds it
+        return any(str(env.get(n, "") or "").strip() or stored(n) for n in names)
 
     # THE DOOR'S OWN VARIABLES, imported rather than spelled, because a report that checked
     # `OPENFACTORY_PRODUCT_TOKEN*` by literal would keep saying "issued" for a day after somebody
@@ -528,6 +542,17 @@ def _product_role(p: Probes, on: str) -> tuple[Finding, str]:
         PRODUCT_SHARED_ENV,
     )
     from openfactory.identity.registry import identity_kind
+
+    # A REFUSED ONE CLOSES THE PANEL TO EVERYBODY (#822), the client included: said as itself.
+    refused = {n: why for n in CLOSING_ENVS if (why := refusal(n))}
+    if refused:
+        return _fail(
+            "product_role",
+            f"the credential store refuses {', '.join(sorted(refused))}, which closes the panel to "
+            f"everybody, the client included, until it is fixed — "
+            + "; ".join(f"`{n}`: {why}" for n, why in sorted(refused.items())),
+            "fix what the refusal names, where the secret is kept — nothing is used in its place",
+            on=on), ""
 
     # AN SSO DEPLOYMENT ISSUES NO TOKEN ROWS (#33). Its door is closed by definition, and "a
     # product credential" there is a provider group mapped to `product` in the row's own map —
@@ -885,8 +910,17 @@ def _env_names(p: Probes, on: str) -> tuple[Finding, str]:
                    "this project names no variables in `box.env`, so the box receives only the "
                    "harness defaults (`container.py::_AUTH_ENV_VARS`)", on=on), ""
     env = p.environ()
-    absent = [n for n in names if env.get(n) is None]
-    blank = [n for n in names if n not in absent and not str(env.get(n, "")).strip()]
+    refused = {n: why for n in names if (why := p.refused(n))}
+    absent = [n for n in names if n not in refused and env.get(n) is None and p.stored(n) is None]
+    blank = [n for n in names if n not in absent and n not in refused and env.get(n) is not None
+             and not str(env.get(n)).strip()]
+    if refused:
+        return _fail("env_names",
+                     f"`box.env` names {', '.join(sorted(refused))}, which the credential store "
+                     f"refuses, so no box receives it — "
+                     + "; ".join(f"`{n}`: {why}" for n, why in sorted(refused.items())),
+                     "fix what the refusal names, where the secret is kept — the variable of the "
+                     "same name is not passed in its place", on=on), ""
     if not absent and not blank:
         return _ok("env_names",
                    f"all {len(names)} name(s) in `box.env` are set and non-empty in the {on} "
@@ -1058,6 +1092,16 @@ def probes_for(project) -> Probes:
 
         return os.environ
 
+    def _stored(name: str) -> str | None:
+        from openfactory.adapters.credential_store.registry import stored
+
+        return stored(name)
+
+    def _refused(name: str) -> str:
+        from openfactory.adapters.credential_store.registry import refusals
+
+        return refusals((name,)).get(name, "")
+
     return Probes(
         project_name=name,
         measured_on=where_this_answers_for,
@@ -1079,6 +1123,8 @@ def probes_for(project) -> Probes:
         harness_kind=lambda: harness_kind(project, "executor"),
         box_env_names=lambda: list(getattr(getattr(project, "box", None), "env", None) or []),
         environ=_environ,
+        stored=_stored,
+        refused=_refused,
         enabled=lambda: bool(getattr(project, "enabled", True)),
         registry_entry=lambda: project.model_dump(mode="json"),
         worker_registry_entry=_worker_entry,

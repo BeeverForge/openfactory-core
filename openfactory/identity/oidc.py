@@ -150,6 +150,14 @@ HTTP_TIMEOUT_SECONDS = 5.0
 
 # ── configuration ───────────────────────────────────────────────────────────────────────────────
 
+def _environment() -> dict[str, str]:
+    """This deployment's settings for the provider: its environment, with the client secret read
+    through the credential store (#742), so a secret mounted as a file is the one presented."""
+    from openfactory.adapters.credential_store.registry import held
+
+    return {**os.environ, CLIENT_SECRET_ENV: "", **held((CLIENT_SECRET_ENV,))}
+
+
 @dataclass(frozen=True)
 class Settings:
     """What a deployment says about its provider. Read once per provider, never per call."""
@@ -341,13 +349,26 @@ class OidcIdentity:
     login_path = LOGIN_PATH
 
     def __init__(self, *, env: dict[str, str] | None = None, fetch=None, post=None) -> None:
-        self.settings = Settings.from_env(dict(env if env is not None else os.environ))
+        self.settings = Settings.from_env(dict(env if env is not None else _environment()))
+        #: Whether the credential store refuses the client secret (review of #822): a refused
+        #: secret is not "a public client", it is a configured secret nobody can present, and the
+        #: row is misconfigured until it is fixed — refused at startup, by name.
+        self._refused = False
+        if env is None:
+            from openfactory.adapters.credential_store.registry import refusals
+
+            self._refused = bool(refusals((CLIENT_SECRET_ENV,)))
         self._fetch = fetch or _http_json
         self._post = post or _http_post_form
 
     # ── the port ──────────────────────────────────────────────────────────────────────────────
 
     def misconfiguration(self) -> str:
+        if self._refused:
+            # the variable's name, never the store's reason: this sentence reaches the login
+            # route's anonymous caller, and the reason, with its path, is in the log already
+            return (f"the credential store refuses {CLIENT_SECRET_ENV}, so no login can be "
+                    f"finished — `openfactory doctor` says why")
         return self.settings.misconfiguration()
 
     def open_to_everyone(self) -> bool:
@@ -359,7 +380,7 @@ class OidcIdentity:
     def identify(self, *, credential: str, via: str = "") -> Subject | None:
         try:
             token = str(credential or "").strip()
-            if not token or self.settings.misconfiguration():
+            if not token or self.misconfiguration():
                 return None
             claims = self._claims(token)
             if isinstance(claims, str):

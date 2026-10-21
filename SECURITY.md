@@ -54,6 +54,13 @@ interesting surface is well-defined:
   and they reach a worktree workload in exactly the same way — read that package's own policy
   alongside this one.
 
+  That table measures the **environment**. A secret a deployment mounts as a file instead (the
+  credential store's `file` kind) is not in any workload's environment, and the worktree box
+  withholds the directory's path (`OPENFACTORY_CREDENTIAL_DIR`). It does not withhold the files:
+  they are on the worker's filesystem, readable by the worker's user, and a worktree workload runs
+  as that user, so code that knows where to look can read them. The container box mounts none of
+  them; a `box.env` name held in a file crosses into it exactly as a variable would, by name.
+
   Anything that lets workload code reach a credential outside that set is a vulnerability — a
   spelling a deny list misses, a credential in a log line or a diff, a name crossing the
   container box without `box.env` naming it. So is that set growing while this table does not:

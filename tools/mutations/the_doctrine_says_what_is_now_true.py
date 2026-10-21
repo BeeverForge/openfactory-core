@@ -53,10 +53,11 @@ MUTATIONS = [
      "| `openfactory/runtime/fargate/` | `openfactory-aws` — the cloud box",
      "| `openfactory/runtime/fargate/` | `openfactory-cloud` — the cloud box"),
     # re-pinned 2026-09-24 (#269 slice 2): `embed` now follows `credential` in the list
+    # re-pinned 2026-10-18 (#742): `credential_store` now follows `credential` in the list
     ("CONTRIBUTING's axis list loses the credential axis",
      "CONTRIBUTING.md",
-     "board_setup, box, box_runner, channel, ci, credential, embed, event,",
-     "board_setup, box, box_runner, channel, ci, embed, event,"),
+     "board_setup, box, box_runner, channel, ci, credential, credential_store, embed, event,",
+     "board_setup, box, box_runner, channel, ci, credential_store, embed, event,"),
     ("the reader's page names a group the loader never reads",
      "docs/README.md",
      "in the `openfactory.adapters` entry-point group",
