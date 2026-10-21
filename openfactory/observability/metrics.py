@@ -101,9 +101,11 @@ class MetricRecord(BaseModel):
     # the arms apart and the experiment is unmeasurable. "" for pre-instrumentation rows.
     knowledge: str = ""
     #: Unix epoch SECONDS after which DynamoDB deletes this row (ADR-0024: client conversation is
-    #: retained, not kept forever). Set ONLY on `kind="message"` — an operational-memory row that
-    #: carried this would make the tech-lead forget what it learned. Rows without it never expire,
-    #: which is why enabling TTL on this shared table is safe.
+    #: retained, not kept forever). Set only on rows held for a period — `kind="message"`, the
+    #: people store's invitations, and `kind="audit"` for `audit.AUDIT_KEPT_DAYS` — never on
+    #: operational memory: a row of it that carried this would make the tech-lead forget what
+    #: it learned. Rows without it never expire, which is why enabling TTL on this shared table
+    #: is safe.
     expires_at: int | None = None
     extra: dict = Field(default_factory=dict)
 

@@ -72,6 +72,14 @@ DEPLOYMENT_ENV = "OPENFACTORY_DEPLOYMENT"
 #: every URL, ref and name the catalog takes; what is cut is said in the value and in the log.
 VALUE_CHARS = 2_000
 
+#: How long a record is read, in days (#694 Q3): who did what, when, and on which deployment is
+#: a question a security review asks of the last year, not forever — the precedent of the board's
+#: own audit line, `adapters/tracker/local.py` `_REMOVED_KEPT_DAYS` (365, #384). Carried by each
+#: row as `expires_at`, which the sqlite store hides on read and `purge_expired` deletes, and
+#: which a DynamoDB table deletes by its TTL — so the period is the record's own, in every store.
+#: Stated with its value in `docs/rotation-and-retention.md`; change both together.
+AUDIT_KEPT_DAYS = 365
+
 #: The file the records go to on a deployment that declares no metrics store (`null`, a host CLI
 #: with no compose environment), beside `registry.yaml` — see `sink`.
 AUDIT_FILE = "audit.db"
@@ -260,14 +268,21 @@ def metric_of(record: AuditRecord) -> MetricRecord:
     """`record` as one row of kind `audit`: under its project, or the deployment-wide key the
     people store uses when the call named none (#694 Q7); `ticket` its own record id, so the row's
     key `<ts>#<record_id>#<action>` is one no other record shares and no write replaces; `ts` the
-    record's own, never a second read of the clock; and every field of the record in `extra`."""
+    record's own, never a second read of the clock; `expires_at` that `ts` plus `AUDIT_KEPT_DAYS`,
+    so the row is read for its period and not a day longer; and every field of the record in
+    `extra`."""
+    from datetime import datetime
+
     from openfactory.identity.people import PROJECT as DEPLOYMENT_KEY
     from openfactory.observability.metrics import MetricRecord
 
     extra = {f.name: getattr(record, f.name) for f in dataclasses.fields(record)}
     extra["params"] = dict(record.params)  # a store serialises a dict, not a read-only view
     return MetricRecord(kind="audit", project=record.project or DEPLOYMENT_KEY,
-                        ticket=record.record_id, ts=record.ts, role=record.action, extra=extra)
+                        ticket=record.record_id, ts=record.ts, role=record.action,
+                        expires_at=int(datetime.fromisoformat(record.ts).timestamp())
+                        + AUDIT_KEPT_DAYS * 86_400,
+                        extra=extra)
 
 
 def _keep(record: AuditRecord) -> bool:
