@@ -13,6 +13,10 @@ agents' memory depend on without ever saying so, and none of them is a property 
     numbers survive the round trip      stored as strings there, parsed back by the reader
     a write failure never fails a job   telemetry is additive
 
+The overwrite is a promise for a retried write, and a hazard for a row that must never be replaced:
+an action's audit row (kind `audit`, #694) is keyed by its own record id (`audit.metric_of`), so
+no second write, in this store or any other keyed by `dynamo_key`, can meet its key and replace it.
+
 The TTL one is the trap. Nothing raises and nothing logs if it is missed: the deployment simply
 keeps client messages for ever while its own ADR says otherwise, and the first person to find out
 is a client asking how long their data is held. So `expires_at` is honoured on every read AND

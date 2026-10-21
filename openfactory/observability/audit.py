@@ -75,8 +75,9 @@ VALUE_CHARS = 2_000
 #: How long a record is read, in days (#694 Q3): who did what, when, and on which deployment is
 #: a question a security review asks of the last year, not forever — the precedent of the board's
 #: own audit line, `adapters/tracker/local.py` `_REMOVED_KEPT_DAYS` (365, #384). Carried by each
-#: row as `expires_at`, which the sqlite store hides on read and `purge_expired` deletes, and
-#: which a DynamoDB table deletes by its TTL — so the period is the record's own, in every store.
+#: row as `expires_at`, which the sqlite store hides on read (its bytes stay until
+#: `purge_expired` runs, and nothing in this tree runs it yet) and which a store that deletes by
+#: a TTL on that field deletes — so the period is the record's own, in every store.
 #: Stated with its value in `docs/rotation-and-retention.md`; change both together.
 AUDIT_KEPT_DAYS = 365
 

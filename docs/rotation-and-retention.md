@@ -3,17 +3,19 @@
 > **§2 drives `infra/`, which is not in this tree.** The image registry and its lifecycle
 > policies belong to the reference deployment on one cloud, which ships with the
 > `openfactory-aws` **add-on package** ([STATUS.md](STATUS.md) lists what leaves with it); every
-> `infra/…` path here is a path inside that package's checkout. §1, §3 and §4 are the platform's
-> own and hold on any deployment, cloud or none.
+> `infra/…` path here is a path inside that package's checkout. §1, §3, §4 and §5 are the
+> platform's own and hold on any deployment, cloud or none.
 
-Four things that expire, and each must be unambiguous, because getting one wrong either drains
-credits, deletes an image that is still in use, or loses the record of what shipped. This is the
+Five things that expire, and each must be unambiguous, because getting one wrong either drains
+credits, deletes an image that is still in use, loses the record of what shipped, or loses the
+record of who asked for it. This is the
 authoritative reference; ADR-0012 records *why* the pause/resume rules exist.
 
 - [1. Token-pool rotation & pauses](#1-token-pool-rotation--pauses) — how a rate limit is handled
 - [2. Image retention & prune](#2-image-retention--prune) — what deletes which images, and what is protected
 - [3. The conversation and its staged decisions](#3-the-conversation-and-its-staged-decisions) — how long a thread and a proposed action last
 - [4. The engine's memory, and the record that outlives it](#4-the-engines-memory-and-the-record-that-outlives-it) — how long a finished job is answerable for
+- [5. Who did what: the action audit record](#5-who-did-what-the-action-audit-record) — how long the record of every call into the action layer is kept, and where
 
 ---
 
@@ -256,3 +258,51 @@ stay true, and what it became is added after them.
 - `openfactory/runtime/temporal/schedule.py` — `RETENTION_DAYS`, `ensure_retention`.
 - `openfactory/runtime/temporal/workflow.py` — `JobWorkflow._journal_outcome`, at the one exit.
 - `openfactory/runtime/temporal/activities.py` — `record_outcome`, the append itself.
+
+---
+
+## 5. Who did what: the action audit record
+
+Every call into the action layer — from the panel, the command line or a relayed row, kept or
+refused — leaves **one record**: who asked (and which identity provider named them), the action,
+its parameters, what came of it, the correlation id, the deployment, the project and its product,
+and when. It is written beside the action's INFO log line, not instead of it. Before #694 that line
+was the only trace, eight of `perform`'s nine ways out never wrote it, and on a host CLI it reached
+nobody, so *who approved that production release* had no answer anyone could read back.
+
+| what | how long | where |
+|---|---|---|
+| one record per call | **365 days** (`audit.AUDIT_KEPT_DAYS = 365`), carried by each row as `expires_at` | the metrics store, as rows of kind `audit` |
+
+**Where the rows go.** The deployment's metrics store (`OPENFACTORY_METRICS_SINK`) when it declares
+one. A deployment that declares none (`null`, a host CLI with no compose environment) keeps them in
+a sqlite file instead: `OPENFACTORY_METRICS_DB` when set, else `audit.db` beside `registry.yaml` —
+never a file relative to wherever the shell stood. A store that refuses a row is said in one
+WARNING naming the action and the store; the action's outcome stands.
+
+**What a record holds of a person's words.** Nothing readable. A free-text parameter (a message, a
+comment, an instruction, an answer) is kept as its length and its sha256, so the record can prove
+what was sent without holding it (ADR-0024). Passwords, tokens and keys are masked as they are in
+the log line, and any other value is cut at 2,000 characters, the cut said in the value.
+
+**`openfactory project forget` keeps the records.** An audit trail that forgetting a project erases
+is no audit trail, and the records hold no client words for the forget to protect. They leave when
+their period does, and not before: no write ever replaces an audit row (each is keyed by its own
+record id).
+
+**On a sqlite store, the period is a read and not yet a deletion.** A row past its `expires_at` is
+never read again, but its bytes stay in the file until `SqliteMetricsSink.purge_expired` runs, and
+nothing in this tree runs it yet — the same is true of every other row the sqlite store keeps for a
+period (a follow-up of #694). A store that deletes by a TTL on `expires_at` deletes the bytes too.
+
+**Read it back** with `openfactory audit`, which lists the records by actor, action, project,
+outcome and period ([the command reference](reference/cli.md#the-rest)).
+
+### Where it lives
+
+- `openfactory/observability/audit.py` — `AuditRecord`, `AUDIT_KEPT_DAYS`, `sink` and `audit_path`
+  (where the rows go), `metric_of` (the row and its `expires_at`), `write`.
+- `openfactory/actions/__init__.py` — `perform`, which leaves the line and the record on every way
+  out, cancellation included.
+- `openfactory/product/forget.py` — `RECORD_KINDS`, which does not list `audit`.
+- `openfactory/cli.py` — `openfactory audit`, the reader.

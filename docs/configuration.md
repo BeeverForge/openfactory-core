@@ -132,7 +132,10 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
     OPENFACTORY_PANEL_TOKENS="s3cret-a:ana:Ana Lima,s3cret-b:leo:Leo Martins"
     ```
 
-    Every action's audit line then names the person instead of the word `panel`. The shared token
+    Every action's audit line, and the audit record kept beside it, then names the person instead
+    of the word `panel` — the record also names the identity provider (`local`), and
+    `openfactory audit --actor ana` reads back what Ana asked for and what came of it
+    ([how long it is kept](rotation-and-retention.md#5-who-did-what-the-action-audit-record)). The shared token
     keeps working alongside it (a caller presenting it is recorded as `anonymous`, and one
     `OPENFACTORY_IDENTITY_ANONYMOUS` log line says so), so a deployment can migrate without an outage —
     and **either variable alone closes the panel**. With *neither* set the panel is open, which is

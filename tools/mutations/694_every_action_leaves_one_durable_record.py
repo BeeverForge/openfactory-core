@@ -30,13 +30,11 @@ printed `!!GREEN!!` on the first run (51 of 53 red) — and the WARNING when no 
 built, and the refusal of a `--since`/`--until` that is not a date, both driven only by hand
 before. Each is green on the code and red under its row.
 
-NOT HERE YET: cut 9's second half, `AUDIT_KEPT_DAYS` changed without
-`docs/rotation-and-retention.md`. Its guard,
-`test_the_period_is_stated_where_the_other_retentions_are`, is red until that document states the
-period (task 22, the same pull request), and a cut aimed at a red test reads RED whether or not
-it was seen — so the row is added by the task that turns the guard green, not counted here.
-Every row aimed at the store's test file names one test for the same reason: that file holds the
-red guard, and the runner refuses a red baseline.
+Cut 9's second half, `AUDIT_KEPT_DAYS` changed without `docs/rotation-and-retention.md`, was
+added when that page's §5 stated the period (2026-10-20): until then its guard,
+`test_the_period_is_stated_where_the_other_retentions_are`, was red, and a cut aimed at a red test
+reads RED whether or not it was seen. Every row aimed at the store's test file names one test, so
+each row is proved by the guard that holds its claim and by no other.
 """
 
 TEST = "tests/test_every_action_leaves_one_audit_record.py"
@@ -146,6 +144,10 @@ MUTATIONS = [
      "                        + AUDIT_KEPT_DAYS * 86_400,\n",
      "                        + (AUDIT_KEPT_DAYS - 2) * 86_400,\n",
      _STORE + "test_a_record_is_still_read_the_day_before_its_period_ends_and_not_after"),
+    ("the period changes and the retention page still states the old one", _AUDIT,
+     "AUDIT_KEPT_DAYS = 365\n",
+     "AUDIT_KEPT_DAYS = 366\n",
+     _STORE + "test_the_period_is_stated_where_the_other_retentions_are"),
 
     # 10. project forget
     ("project forget removes the audit records", _FORGET,
