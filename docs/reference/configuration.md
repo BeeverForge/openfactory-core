@@ -448,14 +448,24 @@ installed, refuses every credential in the same way. With no token, the GitHub f
 board, CI observer and `openfactory project init`'s board creation do not run `gh` on the
 machine's own login in its place either.
 
-**A remote box** cannot read the worker's files, and it is not handed what they hold either. A
-remote box's launcher is handed short-lived minted tokens only (the machine's own identity, minted
-on the worker), because a launcher may keep its launch environment where others can read it, and
-a stored secret lives as long as its owner keeps it. So an axis whose secret a store other than
-the environment holds is refused for a remote box, by name, until a launcher can declare that it
-resolves credential references itself and be handed the reference instead. Hold such a secret in a
-variable the box reads for itself, which is handed over by name only, or declare the machine's own
-identity (`identity: workload`).
+**A remote box** cannot read the worker's files, and what its launcher is handed for a stored
+secret depends on what the launcher declares. A launcher that declares nothing is handed values:
+short-lived minted tokens only (the machine's own identity, minted on the worker), because a
+launcher may keep its launch environment where others can read it, and a stored secret lives as
+long as its owner keeps it. So an axis whose secret a store other than the environment holds is
+refused for it, by name, before anything is launched: "the `fargate` box's launcher does not
+declare that it resolves credential references itself, so it is handed only short-lived minted
+tokens and the store's secret is not put into its launch environment". The core's `fargate` row
+declares nothing, so it receives minted tokens only. A launcher that declares
+`resolves_references = True` is handed references to stored secrets and resolves them on its own
+side: it receives the reference (`file:<name>`, or `<kind>:<name>`), never the value, and the box
+reads that axis from the variable the launcher fills. For a box whose launcher declares nothing,
+hold such a secret in a variable the box reads for itself (`env:<NAME>`), which is handed over by
+name only, or declare the machine's own identity (`identity: workload`). The doctor's
+`launcher_credentials` line says, for each remote box, whether its launcher is handed references
+or values (or that its runner is not installed here, so what it declares cannot be seen), and fails
+before the first job when this deployment's box is remote, its launcher declares nothing, and one
+of the project's secrets is held in the store.
 
 **`openfactory doctor` says where each credential comes from, never its value**: the
 `credential_store` line names the store the deployment declares and every reference the project

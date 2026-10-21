@@ -154,7 +154,7 @@ that matters:
 | `channel` | `builder()` | a `ChannelAdapter` |
 | `harness` | `builder(**kw)` | a `CodingAgentAdapter` |
 | `box` | `builder()` | a `(BoxTraits, factory)` row |
-| `box_runner` | `builder(**kw)` | a `RemoteBox` |
+| `box_runner` | `builder(**kw)` | a `RemoteBox`; one that sets `resolves_references = True` is a `ResolvesReferences`, and its `launch` must take `references=` |
 | `event`, `metrics` | `builder(**kw)` | a sink |
 | `session_store`, `token_pool` | `builder(**kw)` | a store / a mapping |
 | `identity` | `builder()` | an `IdentityProvider` |
@@ -216,6 +216,31 @@ Without the keyword `brief` is one text, the instruction first, as it always was
 render `brief` as an order, and say nothing of your own about why the run stopped — a turn cap,
 an error, a caller's reason: only the caller knows (`RECOVER_INSTRUCTION` and
 `CONTINUE_INSTRUCTION` in `adapters/agent/base.py` are what a row may say when nobody sent one).
+
+**A remote launcher is handed values unless it declares otherwise, and declaring is a promise
+its `launch` must keep.** A `box_runner` that is only a `RemoteBox` is handed short-lived minted
+tokens in `extra_env`, and a secret the credential store holds is refused for it by name, before
+anything is launched. Set `resolves_references = True` on the runner and it is handed the
+reference instead, never the value, as a keyword its `launch` must take:
+
+```python
+class MyRunner:
+    resolves_references = True     # only a literal True declares; "yes" or 1 does not
+
+    def launch(self, box, *, journal=None, variant="", extra_env=None, timeout=..., run_id=None,
+               references=None):
+        # references = {"OPENFACTORY_BOX_FORGE_TOKEN": "file:acme-forge"}: resolve each on YOUR
+        # side and set the variable inside the box; refuse, by name, a store kind you cannot read
+```
+
+**The trap: declaring without the keyword.** A runner that sets `resolves_references = True` and
+whose `launch` cannot take `references` is refused by name when `remote_box` builds it, naming the
+kind, the declaration and the missing keyword: the doctor says the row could not be asked, and
+the first job is refused with that sentence.
+Unlike `repair`'s `instruction`, a `launch(self, box, **kw)` can take the keyword, so it is
+admitted, and it is then handed `references` and must read it. A runner that declares nothing is
+never passed the keyword, so a launcher written before the declaration keeps working unchanged
+(`docs/core/07-extensibility.md` §10.1).
 
 ## 3b. A preview runtime is a row, and it re-judges what it is handed
 
