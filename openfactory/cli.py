@@ -3419,10 +3419,6 @@ def serve(
 @app.command("bot-token")
 def bot_token(
     app_id: str = typer.Option(None, help="GitHub App ID (default: OPENFACTORY_GH_APP_ID)"),
-    key_path: str = typer.Option(
-        None, envvar="OPENFACTORY_GH_APP_KEY",
-        help="Path to the App .pem (or set OPENFACTORY_GH_APP_KEY_CONTENT with the PEM itself)",
-    ),
     installation_id: str = typer.Option(
         None, help="Installation ID (default: OPENFACTORY_GH_APP_INSTALLATION_ID)"
     ),
@@ -3434,6 +3430,11 @@ def bot_token(
     hour and the factory mints its own for every job. The pilot operator asked what to do with
     it (2026-08-12), which is fair: `--help` showed only the export form below, so the command
     read as something that produces a credential you keep.
+
+    The App key comes through the credential store, as every credential the factory reads:
+    OPENFACTORY_GH_APP_KEY_CONTENT (the PEM itself) or OPENFACTORY_GH_APP_KEY (a path to it),
+    asked of the store OPENFACTORY_CREDENTIAL_STORE declares and then of the environment. There
+    is no flag for it.
 
     The export form is for a SHELL that needs a token for a one-off `gh` command:
 
@@ -3449,10 +3450,12 @@ def bot_token(
     # override could never reach, since typer resolves it before any of our code runs. The
     # explicit flag still wins; `--help` now names the variable in prose instead.
     #
-    # `key_path` stays as the flag — a path is what somebody types — but the KEY is resolved by the
-    # composition root, which also accepts the content form a container is handed. This command run
-    # inside the compose worker used to report a missing option while the PEM sat in its
-    # environment.
+    # THE KEY HAS NO FLAG (#905). `--key-path` stayed when the other two lost their `envvar=`, on
+    # the reasoning that a path is what somebody types — and the key was already resolved by the
+    # composition root, which also takes the content form a container is handed. So the flag was
+    # accepted and never read, and its `envvar=` kept typer reading a credential's locator from
+    # the environment, beside the credential store and never through it. The key now has one
+    # reader, `app_private_key`, and `--help` says where it looks.
     app_id = app_id or env_app_id()
     installation_id = installation_id or app_installation_id()
     key = app_private_key()
@@ -3460,7 +3463,9 @@ def bot_token(
         typer.echo(
             "need OPENFACTORY_GH_APP_ID, OPENFACTORY_GH_APP_INSTALLATION_ID, and the App key as "
             "either "
-            "OPENFACTORY_GH_APP_KEY (a path) or OPENFACTORY_GH_APP_KEY_CONTENT (the PEM itself)",
+            "OPENFACTORY_GH_APP_KEY (a path) or OPENFACTORY_GH_APP_KEY_CONTENT (the PEM itself), "
+            "read through the credential store (the one OPENFACTORY_CREDENTIAL_STORE declares, "
+            "then the environment)",
             err=True,
         )
         raise typer.Exit(1)

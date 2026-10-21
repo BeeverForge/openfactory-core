@@ -400,6 +400,7 @@ declares nothing. Set it to `file` and the credential `CLAUDE_CODE_OAUTH_TOKEN` 
 `CLAUDE_CODE_OAUTH_TOKEN` in the credential directory when there is one, and the variable when there
 is not, so secrets move into files one at a time. A file holds the value its variable would have
 held: the PEM for `OPENFACTORY_GH_APP_KEY_CONTENT`, a path for `OPENFACTORY_GH_APP_KEY`.
+`openfactory bot-token` reads the App key the same way, and takes no flag for it.
 
 **The file store**, for secrets mounted into the worker the way container platforms deliver them:
 
