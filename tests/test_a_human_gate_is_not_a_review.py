@@ -102,10 +102,16 @@ def test_and_so_does_every_board(module, symbol):
     "openfactory.adapters.tracker.azure_devops",
     "openfactory.adapters.tracker.github_project",
     "openfactory.adapters.board.azure_devops",
+    "openfactory.adapters.board.jira",
 ])
 def test_nobody_reads_the_TABLE_around_the_resolver(module):
     """The reading is the point. A `STATE_KEYS.get(state)` anywhere is an adapter that cannot see a
-    human merge gate — and it would look correct, because the table it reads is the right one."""
+    human merge gate — and it would look correct, because the table it reads is the right one.
+
+    The Jira board was missing from this list, and did exactly that until #753: its `set_status`
+    read `STATE_KEYS.get(state)` and dropped `needs_person`, so it sent a person-gated pull request
+    to In review under any map — the second instance of the defect, dormant only because its one
+    caller (`Ports.place`) passes no `needs_person`."""
     import importlib
 
     from conftest import code_only

@@ -381,15 +381,24 @@ class JiraProjectBoard:
         The map is the tracker's (`status_map` in the project's tracker options), so the board and
         the state machine cannot disagree about what "done" is called here. Unmapped is False with
         a reason, never a guess: every Jira project has its own workflow (C-14 — the client's
-        vocabulary belongs to the client)."""
-        from openfactory.adapters.tracker.base import STATE_KEYS
+        vocabulary belongs to the client).
 
-        key = STATE_KEYS.get(state)
-        target = (getattr(self._tracker, "status_map", None) or {}).get(key or "", "")
+        THROUGH THE CONTRACT'S RESOLVER, AS THE TRACKER IS (#753). This read `STATE_KEYS.get(state)`
+        and dropped `needs_person`, so a pull request a person must review went to In review here
+        under any map, while the tracker sent the same card to Needs Action: the second instance
+        of the defect, dormant only because `Ports.place` passes no `needs_person`. It now takes
+        the first of `column_keys` the map names — `needs_review`, then `needs_action` on a map
+        written before 0.7 — the same order `JiraTracker._transition_for` takes."""
+        from openfactory.adapters.tracker.base import column_keys
+
+        status_map = getattr(self._tracker, "status_map", None) or {}
+        keys = column_keys(state, needs_person=needs_person)
+        key = next((k for k in keys if status_map.get(k)), None)
+        target = status_map.get(key or "", "")
         if not target:
             log.warning("no jira status mapped for %s (status_map key %r) on %s — the card stays "
                         "where it is; add the mapping in the project's tracker options",
-                        state, key, self.project_key)
+                        state, keys[-1] if keys else None, self.project_key)
             return False
         return self.set_column(issue=issue, issue_url=issue_url, name=target)
 
