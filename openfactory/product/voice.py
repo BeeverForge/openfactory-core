@@ -2455,6 +2455,147 @@ def record_said(reason: str, *, number: object = "", term: str = "", body: str =
     return _pick(_RECORD_SAID[reason], language).format(number=number, term=term, body=body)
 
 
+#: AN IMPORT, SAID (#993): the plan a person reads before their yes, what landed after it, and
+#: every reason one is refused or a file of the folder is left out — in the product's language.
+#: The plan's lines are composed from these and nothing else (`importing.lines`).
+_IMPORT_SAID = {
+    # the plan, and what landed
+    "plan": {"pt-BR": ("Importar {origin} faria isto no produto — nada é escrito antes do seu "
+                       "sim:"),
+             "en": "Importing {origin} would do this to the product — nothing is written before "
+                   "your yes:"},
+    "landed": {"pt-BR": "Importei {origin}:", "en": "Imported {origin}:"},
+    "commit": {"pt-BR": "importação {id}: {origin}\n\n{counted}\nImportado por {by}.",
+               "en": "import {id}: {origin}\n\n{counted}\nImported by {by}."},
+    "counted": {"pt-BR": ("{new} requisito(s) novo(s), {revision} revisão(ões) de um texto que "
+                          "ninguém tinha acordado, {beside} guardado(s) ao lado de um acordado, "
+                          "{same} já presente(s)."),
+                "en": ("{new} new requirement(s), {revision} revision(s) of a text nobody had "
+                       "agreed, {beside} kept beside an agreed one, {same} already here.")},
+    "say_yes": {"pt-BR": "Responda com `yes` e o token {token} para que eu importe exatamente "
+                         "isto.",
+                "en": "Answer with `yes` and the token {token} to import exactly this."},
+    "new": {"pt-BR": "REQ-{number} — {title}: novo (REQ-{source} na pasta)",
+            "en": "REQ-{number} — {title}: new (REQ-{source} in the folder)"},
+    "revision": {"pt-BR": ("REQ-{number} — {title}: um texto novo para {replaces}, que ninguém "
+                           "tinha acordado — substitui"),
+                 "en": ("REQ-{number} — {title}: a new text for {replaces}, which nobody had "
+                        "agreed — it replaces it")},
+    "same": {"pt-BR": "REQ-{number} — {title}: já está aqui, palavra por palavra{rows}",
+             "en": "REQ-{number} — {title}: already here, word for word{rows}"},
+    "rows": {"pt-BR": " — {rows} decisão(ões) entram no registro dele",
+             "en": " — {rows} decision(s) join its register"},
+    "beside": {"pt-BR": ("REQ-{number} — {title}: já acordado, e a pasta diz outra coisa — o "
+                         "texto fica guardado ao lado, como proposta de mudar uma promessa, que "
+                         "só um sim faz; nada em REQ-{number} muda"),
+               "en": ("REQ-{number} — {title}: agreed already, and the folder says something "
+                      "else — its text is kept beside it as a proposal to change a promise, "
+                      "which only a yes can make; nothing in REQ-{number} changes")},
+    "history": {"pt-BR": "REQ-{number} — {title}: já não vale na pasta ({status}), guardado como "
+                         "histórico",
+                "en": "REQ-{number} — {title}: no longer stands in the folder ({status}), kept as "
+                      "history"},
+    "fact_new": {"pt-BR": "fato “{name}”: novo, em {path}",
+                 "en": "fact “{name}”: new, under {path}"},
+    "fact_known": {"pt-BR": "fato “{name}”: já está escrito — não é reescrito",
+                   "en": "fact “{name}”: already written — not rewritten"},
+    "document_new": {"pt-BR": "documento {name}: entra em {path}",
+                     "en": "document {name}: lands at {path}"},
+    "document_same": {"pt-BR": "documento {name}: já está aqui, o mesmo arquivo",
+                      "en": "document {name}: already here, the same file"},
+    "document_beside": {"pt-BR": ("documento {name}: já há outro arquivo em {beside} — este fica "
+                                  "ao lado, em {path}"),
+                        "en": ("document {name}: a different file is already at {beside} — "
+                               "this one is kept beside it, at {path}")},
+    "left_out": {"pt-BR": "{name}: fica de fora — {why}", "en": "{name}: left out — {why}"},
+    # why a file of the folder is left out
+    "hidden": {"pt-BR": "é oculto (do git, da plataforma ou de uma ferramenta)",
+               "en": "it is hidden (git's, the platform's or a tool's own)"},
+    "a_link": {"pt-BR": "é um link, e não sigo links", "en": "it is a link, and I follow none"},
+    "not_a_file": {"pt-BR": "não é um arquivo", "en": "it is not a file"},
+    "too_large_a_file": {"pt-BR": "é grande demais para ser lido",
+                         "en": "it is too large to be read"},
+    "outside_the_folder": {"pt-BR": "o nome sai da pasta",
+                           "en": "its name leads out of the folder"},
+    "reserved": {"pt-BR": ("só a confirmação de uma pessoa ou o resumo de uma conversa escrevem "
+                           "ali"),
+                 "en": "only a person's confirmation or a conversation's summary writes there"},
+    "not_a_requirement": {"pt-BR": "está na pasta de requisitos e não se chama NNNN-titulo.md",
+                          "en": "it is in the requirements folder and is not named "
+                                "NNNN-title.md"},
+    "the_template": {"pt-BR": "é o modelo, não um requisito",
+                     "en": "it is the template, not a requirement"},
+    "inside_the_requirements": {"pt-BR": "está dentro da pasta de requisitos, numa subpasta",
+                                "en": "it is inside the requirements folder, in a subfolder"},
+    "no_fact": {"pt-BR": "não tem nenhum fato (`### termo`)",
+                "en": "it holds no fact (`### term`)"},
+    "a_retired_fact": {"pt-BR": "é um fato aposentado", "en": "it is a retired fact"},
+    "unreadable_manifest": {"pt-BR": "não consegui ler como YAML",
+                            "en": "it could not be read as YAML"},
+    "no_register": {"pt-BR": ("o requisito não tem registro de decisões, então {rows} decisão(ões) "
+                              "da pasta não foram escritas"),
+                    "en": ("the requirement has no decision register, so {rows} decision(s) "
+                           "from the folder were not written")},
+    # why nothing is imported
+    "no_yes": {"pt-BR": ("nada foi importado sem `yes` — e o plano de uma importação só é mostrado "
+                         "a quem pode dar o sim que a faz."),
+               "en": ("nothing was imported without `yes` — and the plan of an import is shown "
+                      "only to a person whose yes would land it.")},
+    "no_source": {"pt-BR": "diga qual pasta ou arquivo importar.",
+                  "en": "name the folder or archive to import."},
+    "not_found": {"pt-BR": "não há pasta nem arquivo chamado {name} para importar.",
+                  "en": "there is no folder or archive called {name} to import."},
+    "not_a_folder": {"pt-BR": ("{name} não é uma pasta nem um arquivo .zip, .tar ou .tar.gz — não "
+                               "sei importá-lo."),
+                     "en": "{name} is neither a folder nor a .zip, .tar or .tar.gz archive — I "
+                           "cannot import it."},
+    "outside_the_inbox": {
+        "pt-BR": ("só a linha de comando, no servidor, pode nomear uma pasta em qualquer lugar; "
+                  "por aqui, nomeie uma que esteja na caixa de importação do produto."),
+        "en": ("only the command line on the host may name a folder anywhere; from here, name "
+               "one inside the product's import inbox.")},
+    "unreadable_archive": {"pt-BR": "não consegui ler {name} como um arquivo compactado.",
+                           "en": "I could not read {name} as an archive."},
+    "too_many": {"pt-BR": "{name} tem mais de {limit} arquivos — demais para importar de uma vez.",
+                 "en": "{name} holds more than {limit} files — too many to import at once."},
+    "too_large": {"pt-BR": "{name} passa de {limit} — demais para importar de uma vez.",
+                  "en": "{name} holds more than {limit} — too much to import at once."},
+    "contradicts_itself": {
+        "pt-BR": "os requisitos da pasta se contradizem, então não planejei nada: {errors}",
+        "en": "the folder's requirements contradict themselves, so nothing was planned: "
+              "{errors}"},
+    "nothing_new": {"pt-BR": "nada em {origin} é novo para o produto — não escrevi nada.",
+                    "en": "nothing in {origin} is new to the product — nothing was written."},
+    "already": {"pt-BR": "{origin} já foi importado ({id}) — não escrevi nada de novo.",
+                "en": "{origin} was already imported ({id}) — nothing was written again."},
+    "moved": {"pt-BR": ("o produto mudou desde que esse plano foi mostrado, então não importei "
+                        "nada. Este é o plano como está agora:"),
+              "en": ("the product changed since that plan was shown, so nothing was imported. "
+                     "This is the plan as it stands now:")},
+    "push_refused": {
+        "pt-BR": ("o repositório de contexto recusou o registro da importação, então nada entrou. "
+                  "Planeje de novo: o plano parte do que está lá agora."),
+        "en": ("the context repository refused the import's commit, so nothing landed. Plan it "
+               "again: it starts from what is there now.")},
+    "supersede_failed": {
+        "pt-BR": ("um requisito que a importação substitui não pôde ser marcado como substituído, "
+                  "então nada entrou — assim não ficam duas versões valendo."),
+        "en": ("a requirement this import replaces could not be marked as replaced, so nothing "
+               "landed — two versions are never left standing.")},
+    "outside": {"pt-BR": ("um arquivo que a importação escreveria é um link no repositório, e não "
+                          "escrevo através de links — nada entrou."),
+                "en": ("a file the import would write is a link in the repository, and I write "
+                       "through none — nothing landed.")},
+    "failed": {"pt-BR": "não consegui importar {origin} agora — nada foi escrito.",
+               "en": "I could not import {origin} just now — nothing was written."},
+}
+
+
+def import_said(reason: str, *, language: str | None = None, **values: object) -> str:
+    """One sentence of an import (#993), in the product's language."""
+    return _pick(_IMPORT_SAID[reason], language).format(**values)
+
+
 #: A requirement broken into cards, and the cards that came of it — the filing, the vetting, where
 #: a card was filed, and the acceptance stamped on it. `{ref}` is a card, named by `ref_label`.
 _BREAKDOWN_SAID = {

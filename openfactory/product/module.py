@@ -3571,6 +3571,130 @@ class ProductModule:
                                           language=getattr(self.project, "language", None)),
                               act="file a document", cause=exc)
 
+    # ---- an import (#993) ---------------------------------------------------------------------
+
+    def _may_import(self, brought) -> WriteResult | None:
+        """Why `brought` may not be planned or landed here — or None. The corpus must be seen, the
+        person must be one whose yes writes (`may_act`), and the folder's requirements must not
+        contradict themselves."""
+        from openfactory.product.voice import import_said
+
+        ctx = self.context()
+        if not ctx.available or not ctx.docs_path:
+            return self._cannot_see_the_product()
+        if brought.refusals:
+            return WriteResult(ok=False, detail=import_said(
+                "contradicts_itself", language=getattr(self.project, "language", None),
+                errors="; ".join(brought.refusals[:3])))
+        return None
+
+    def plan_import(self, brought, *, actor: str, origin: str = ""):
+        """What importing `brought` WOULD do to this product, read against its checkout as it is
+        now — nothing is written (#993). An `importing.Imported` with the plan, or the refusal.
+
+        GATED LIKE THE WRITE. A plan names the product's requirements and the folder's files, and
+        only a person whose yes would land it is shown one."""
+        from openfactory.product import importing
+        from openfactory.product.authoring import _requirement_branches, _w
+        from openfactory.product.voice import import_said
+
+        lang = getattr(self.project, "language", None)
+        if not may_act(self.project, actor, via=self._via):
+            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+        bad = self._may_import(brought)
+        if bad is not None:
+            return bad
+        ctx = self.context()
+        origin = origin or brought.manifest.get("origin") or brought.name
+        try:
+            branches = _requirement_branches(self._forge(), ctx.link.docs_repo)
+            if branches is None:
+                return WriteResult(ok=False, detail=_w(lang, "branches_unreadable"))
+            root = Path(ctx.docs_path)
+            ident = importing.import_id(brought, _today())
+            if importing.record_of(root, ident) is not None:
+                return importing.Imported(ok=True, existed=True, detail=import_said(
+                    "already", language=lang, origin=origin, id=ident))
+            the_plan = importing.plan(
+                brought, root=root, requirements_dir=ctx.requirements_dir,
+                first=importing.first_number(root, ctx.requirements_dir, branches), ident=ident,
+                origin=origin, existing_terms=ctx.domain)
+        except Exception as exc:  # noqa: BLE001 — a plan that cannot be made writes nothing
+            return _could_not(import_said("failed", language=lang, origin=origin),
+                              act="plan an import", cause=exc)
+        if not the_plan.lands_anything:
+            return importing.Imported(ok=True, existed=True, plan=the_plan, detail=import_said(
+                "nothing_new", language=lang, origin=origin))
+        return importing.Imported(ok=True, plan=the_plan,
+                                  detail=importing.said(the_plan, landed=False, language=lang))
+
+    def import_requirements(self, brought, *, actor: str, origin: str = "", token: str = ""):
+        """Land `brought` in the product — planned again against the base as it is under the
+        product's semaphore, ONE commit, ONE push (#993) — then refresh the product's knowledge so
+        the next search finds what arrived.
+
+        `token` is the plan the person said yes to (`Plan.token`): a product that moved since is
+        planned again and NOTHING is written — the new plan comes back for a new yes. Every
+        requirement it lands is noted as saved in the product's write sequence, so a conversation
+        drafting the same title at this moment is told it was just written."""
+        from openfactory.product.voice import import_said
+
+        lang = getattr(self.project, "language", None)
+        if not may_act(self.project, actor, via=self._via):
+            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+        bad = self._may_import(brought)
+        if bad is not None:
+            return bad
+        ctx = self.context()
+        cfg = getattr(self.project, "product", None)
+        origin = origin or brought.manifest.get("origin") or brought.name
+
+        try:
+            result = self._corpus_changed(self._checked_write(
+                act="import requirements", kind="import", text=f"import {brought.digest[:10]}",
+                seen=None, against=(), saved=_saved_in_the_repository,
+                found=lambda item: WriteResult(ok=True, existed=True, ref=item.ref),
+                write=lambda: _imported_and_noted(
+                    self.project, docs_repo=ctx.link.docs_repo,
+                    clone_url=self._clone_url(ctx.link.docs_repo), brought=brought,
+                    forge=self._forge(), requirements_dir=ctx.requirements_dir,
+                    base=getattr(cfg, "docs_branch", "main"), by=actor, origin=origin,
+                    token=token, language=lang)))
+        except Exception as exc:  # noqa: BLE001 — nothing landed, and the person is told
+            return _could_not(import_said("failed", language=lang, origin=origin),
+                              act="import requirements", cause=exc)
+        if result.ok and not result.existed:
+            self._refresh_after_import(list(getattr(result, "landed", []) or []))
+        return result
+
+    def _refresh_after_import(self, landed: list[str]) -> None:
+        """THE PRODUCT'S KNOWLEDGE, BROUGHT UP TO WHAT LANDED — the documents read into the
+        product's memory and its index brought up to the new corpus, so the next search finds
+        them (#993). Outside the semaphore, always: reading a document may ask a model.
+
+        Told as ONE event by the import itself, never a message per file: the pass is handed an
+        announcement that tells nobody. Best-effort — the scheduled pass reads whatever this did
+        not reach, and the turn's own sync brings the index up before it searches."""
+        from openfactory.product.documents.ingest import ingest
+        from openfactory.product.importing import INGEST_SECONDS
+        from openfactory.product.index import retrieval
+
+        try:
+            ctx = self.context()
+            if not ctx.docs_path:
+                return
+            documents = [p for p in landed if not p.startswith(".openfactory/")]
+            if documents:
+                ingest(self.project, root=Path(ctx.docs_path), commit=ctx.docs_commit,
+                       paths=documents, terms=[f.term for f in ctx.domain.live()],
+                       announce=_one_event_for_the_import, budget_seconds=INGEST_SECONDS)
+            if retrieval.enabled():
+                retrieval.refresh(self.project, corpus=ctx.corpus,
+                                  requirements_dir=ctx.requirements_dir)
+        except Exception:  # noqa: BLE001 — what landed stands; the next pass reads it
+            log.warning("[%s] the product's knowledge was not refreshed after an import",
+                        getattr(self.project, "name", "?"), exc_info=True)
+
     def baseline(self, *, areas: list[str] | None = None) -> WriteResult:
         """The brownfield first pass: READ the source repository, write what it appears to do.
 
@@ -6467,6 +6591,42 @@ def _promised_id(project: str, card: str, owed: dict) -> str:
     issues = str(((owed or {}).get("context") or {}).get("issues") or "")
     seed = f"{project}|{canonical_ref(card)}|{(owed or {}).get('subject', '')}|{issues}"
     return f"promised-{hashlib.sha256(seed.encode()).hexdigest()[:20]}"
+
+
+def _imported_and_noted(project, **land):
+    """The import's write, as the product's semaphore runs it (`ProductModule.import_requirements`):
+    `importing.land_import`, and every requirement it landed noted as SAVED in the product's write
+    sequence — so a conversation about to write the same title at this moment is told it was just
+    written, by the check every proposal already makes (ADR-0051 D7)."""
+    from openfactory.product import importing, semaphore
+
+    result = importing.land_import(**land)
+    if result.ok and not result.existed and result.plan is not None:
+        for row in result.plan.requirements:
+            if row.kind not in (importing.NEW, importing.REVISION):
+                continue
+            try:
+                semaphore.note(project, state=semaphore.SAVED, kind="requirement",
+                               text=row.title, ref=f"REQ-{row.number:04d}")
+            except Exception:  # noqa: BLE001 — written; only the sequence missed it
+                log.warning("the import's REQ-%04d was not noted in the write sequence",
+                            row.number, exc_info=True)
+    return result
+
+
+def _today() -> str:
+    """Today, as the day an import is planned on — its id's first half (`importing.import_id`)."""
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).date().isoformat()
+
+
+def _one_event_for_the_import(project, record, *, conversation: str = "") -> bool:
+    """The announcement an import's documents are read with: none. The import says what arrived
+    as one event (#994), and a room is not told one document at a time what a single act brought
+    in."""
+    del project, record, conversation
+    return False
 
 
 def _saved_in_the_repository(result: WriteResult) -> tuple[str, str] | None:

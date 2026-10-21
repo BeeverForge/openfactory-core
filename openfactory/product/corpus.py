@@ -479,6 +479,25 @@ def _decision_rows(text: str) -> list[str]:
     return rows
 
 
+#: A cell boundary in a register row: a `|` the writer did not escape (`authoring._cell`).
+_CELL_BOUNDARY = re.compile(r"(?<!\\)\|")
+
+
+def decision_cells(text: str) -> list[tuple[str, str, str]]:
+    """Every row of the decision register as its three cells — `(day, decision, who decided and
+    where)` — with the writer's escapes undone, so a decision that holds a `|` reads back as the
+    sentence it was. THE READER'S HALF of `authoring.add_decision_row`, built on the rows the
+    corpus already reads (`_decision_rows`): an import that joins a register compares by day and
+    text against exactly what `has_decisions` counts (#993)."""
+    out: list[tuple[str, str, str]] = []
+    for row in _decision_rows(text):
+        cells = [c.strip().replace("\\|", "|")
+                 for c in _CELL_BOUNDARY.split(row.strip().removeprefix("|").removesuffix("|"))]
+        cells += [""] * (3 - len(cells))
+        out.append((cells[0], cells[1], " | ".join(cells[2:]).strip(" |")))
+    return out
+
+
 def load_corpus(requirements_dir: str | Path) -> Corpus:
     """Every `NNNN-slug.md` under a directory, parsed and cross-checked.
 

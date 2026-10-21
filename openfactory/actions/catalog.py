@@ -4718,6 +4718,108 @@ async def _product_note_fact(*, project: str, term: str, body: str, by: Actor,
     return _write_outcome(result, did=f"noted {handle!r}", project=proj.name)
 
 
+def _import_source(proj, source: object, *, by: Actor) -> tuple[Path | None, Outcome | None]:
+    """Where the folder or archive `source` names is, for THIS caller — or the refusal (#993).
+
+    THE COMMAND LINE NAMES ANY PATH, EVERY OTHER CALLER ONLY ONE IN THE PRODUCT'S IMPORT INBOX.
+    A shell on the host already reads every file there, so a path is only what it says. Over the
+    API the same parameter would let any credential that reaches a product row read the server's
+    own files — a key, an environment file — into a context repository and then read them back
+    from it. So anywhere but the CLI, `source` is a name inside `importing.inbox`, and one that
+    resolves outside it (`..`, an absolute path, a link out) is refused before anything is read."""
+    from openfactory.product import importing
+    from openfactory.product.voice import import_said
+
+    lang = getattr(proj, "language", None)
+    raw = str(source or "").strip()
+    if not raw:
+        return None, refused(INVALID, import_said("no_source", language=lang),
+                             project=proj.name)
+    if getattr(by, "via", "") == "cli":
+        return Path(raw).expanduser(), None
+    box = importing.inbox(proj)
+    candidate = box / raw
+    spelled = Path(raw)
+    try:
+        inside = (not spelled.is_absolute() and ".." not in spelled.parts
+                  and candidate.resolve().is_relative_to(box.resolve())
+                  and candidate.resolve() != box.resolve())
+    except (OSError, RuntimeError):
+        inside = False
+    if not inside:
+        return None, refused(DENIED, import_said("outside_the_inbox", language=lang),
+                             project=proj.name)
+    return candidate, None
+
+
+async def _product_import(*, project: str, by: Actor, source: str = "", origin: str = "",
+                          token: str = "", yes: object = False) -> Outcome:
+    """Import a folder — or an archive of one — of requirements, facts and documents into the
+    product, under its corpus's rules (#993): numbered after every number it ever used, the same
+    promise never written twice, nothing accepted touched.
+
+    SHOWS BEFORE IT WRITES, the shape `product init` has. Without `yes` this answers the PLAN —
+    every requirement with what becomes of it, every fact, every document, every file left out and
+    why — and its token, and writes nothing. With `yes` it plans again under the product's
+    semaphore and lands that, in one commit pushed once; a `token` from the plan shown makes a
+    product that moved in between come back as the new plan, never as a write nobody saw.
+
+    WHOSE YES LANDS IT is the product's (`may_act`), asked HERE before the folder is even read, and
+    again by the module: an import writes a client's requirements, and reading a folder on the
+    server is not a thing anybody else may make this row do. Without `yes`, a person who may not
+    import is refused for the missing yes, like every row that asks for one — and shown no plan."""
+    import asyncio
+
+    from openfactory.product import importing
+    from openfactory.product.module import may_act, unauthorized_message
+    from openfactory.product.voice import import_said
+
+    module, proj, bad = _product_module(project, by=by)
+    if bad:
+        return bad
+    lang = getattr(proj, "language", None)
+    if not await asyncio.to_thread(lambda: may_act(proj, by.id, via=by.via or "api")):
+        if not _said_yes(yes):
+            return refused(INVALID, import_said("no_yes", language=lang), project=proj.name,
+                           written=False)
+        return refused(DENIED, unauthorized_message(proj), project=proj.name)
+    where, bad = _import_source(proj, source, by=by)
+    if bad:
+        return bad
+    # THE FOLDER IS READ WITH THE PRODUCT'S OWN NAME FOR ITS REQUIREMENTS' FOLDER, when the
+    # folder has one by that name — the checkout the module plans against (cached, read once)
+    ctx = await asyncio.to_thread(module.context)
+    try:
+        brought = await asyncio.to_thread(
+            importing.read, where,
+            requirements_dir=getattr(ctx, "requirements_dir", "") or "requirements")
+    except importing.NotImportable as exc:
+        said = import_said(exc.reason, language=lang, **exc.values)
+        if exc.reason == "not_found":
+            return refused(NOT_FOUND, said, project=proj.name)
+        return refused(INVALID, said, project=proj.name)
+    said_origin = str(origin or "").strip()
+    if not _said_yes(yes):
+        shown = await asyncio.to_thread(
+            lambda: module.plan_import(brought, actor=by.id, origin=said_origin))
+        the_plan = getattr(shown, "plan", None)
+        if not shown.ok or getattr(shown, "existed", False) or the_plan is None:
+            return _write_outcome(shown, did="plan the import", project=proj.name,
+                                  plan=the_plan.as_dict() if the_plan else {})
+        return refused(INVALID, shown.detail, project=proj.name, plan=the_plan.as_dict(),
+                       token=the_plan.token, written=False)
+    result = await asyncio.to_thread(
+        lambda: module.import_requirements(brought, actor=by.id, origin=said_origin,
+                                           token=str(token or "").strip()))
+    the_plan = getattr(result, "plan", None)
+    if getattr(result, "moved", False) and the_plan is not None:
+        return refused(CONFLICT, result.detail, project=proj.name, plan=the_plan.as_dict(),
+                       token=the_plan.token, written=False)
+    return _write_outcome(result, did="imported the folder", project=proj.name,
+                          plan=the_plan.as_dict() if the_plan else {},
+                          landed=list(getattr(result, "landed", []) or []))
+
+
 async def _product_file_defect(*, project: str, restated: str, by: Actor, violates: str = "",
                                severity: str = "", yes: object = False) -> Outcome:
     """Register a broken promise as work — classified, citing the requirement it violates.
@@ -7801,6 +7903,24 @@ CATALOG: dict[str, ActionSpec] = {
             refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "term", "body"),
             optional=("yes",),
+        ),
+        ActionSpec(
+            name="product_import",
+            scope=PRODUCT,
+            summary="import a folder of requirements, facts and documents into the product under "
+                    "its corpus's rules — shows the plan, and lands it on `yes`",
+            run=_product_import,
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
+            required=("project", "source"),
+            optional=("origin", "token", "yes"),
+            params={"source": "the folder or archive (.zip, .tar, .tar.gz) to import — any path "
+                              "on the command line; from anywhere else, its name in the "
+                              "product's import inbox",
+                    "origin": "where it came from, in a few words — the folder's own "
+                              "`openfactory-import.yaml`, or its name, when empty",
+                    "token": "the token the plan was shown with — a `yes` carrying it lands "
+                             "exactly that plan, and a product that moved since is planned "
+                             "again"},
         ),
         ActionSpec(
             name="product_file_defect",

@@ -62,6 +62,8 @@ PRODUCT_ROWS = ("product_status", "product_requirements", "product_propose",
                 "product_ingest",
                 # #1004 — and the product's whole knowledge brought up to date now, on the worker
                 "product_refresh",
+                # #993 — a folder of requirements imported under the corpus's rules
+                "product_import",
                 # #384 — the cards on the product view, and the close and removal on a card
                 "product_board", "product_withdraw_card",
                 # #448 — another pass on a card's change, from the card itself, and its other

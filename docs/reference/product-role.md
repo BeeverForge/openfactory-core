@@ -175,6 +175,43 @@ panel lists, is withheld by it. A document read into the product's memory is ann
 was brought — the conversation of whoever asked for it to be read, else the room — once, never
 for a product's first reading, and at most five per pass.
 
+**Requirements written elsewhere are imported under the corpus's rules (#993).** A later round
+of prototyping, a second phase of a specification, a folder a person brings: `openfactory act
+product_import --param project=<name> --param source=<folder or .zip/.tar/.tar.gz>` shows the
+**plan** — what becomes of every requirement, fact and document, and what is left out and why —
+with a token, and writes nothing; the same call with `yes=true` and that `token` lands it, in
+**one commit pushed once** under the product's semaphore. A product that moved between the plan
+and the yes is planned again and nothing is written; a push the context repository refuses is
+said, never retried. The folder is read like a context repository: `requirements/NNNN-slug.md`,
+facts under `domain/`, everything else a document; an optional `openfactory-import.yaml` says
+where it came from (`origin`), the order to review it in (`order`), where the design is
+(`design`) and the questions still open (`questions`, each with an optional `requirement` and
+`ask`). The rules are the corpus's own:
+
+- every requirement is **numbered after the highest number the product ever used** —
+  superseded and dropped ones included — and after any proposal still on its way, and every
+  reference between the folder's requirements (`REQ-NNNN`, `Supersedes:`) is renumbered with it;
+- **the same slug is the same promise**: the same text word for word is nothing new (its
+  decision rows join the existing register, deduplicated by day and text); a new text for a
+  requirement nobody agreed is a revision that supersedes it; a new text for an `accepted` one
+  touches nothing — it is kept in the import's record as a proposal to change a promise, which
+  only a person's yes makes;
+- **an import never lands a promise**: what it brings lands `proposed` (or `observed`), whatever
+  its file said;
+- a fact whose term the product has is never rewritten; a new one lands as `aprendido`, with its
+  source. Documents land under `imported/`, keeping their own paths there, and never over a file
+  that exists — a different one is kept beside it;
+- nothing hidden (`.git/`, `.openfactory/`, `.okf/`), no link, and nothing under `capabilities/`
+  or `conversations/` — which only a person's confirmation and the distiller write — ever lands.
+
+Each import keeps a record in `.openfactory/imports/<id>/` — where it came from, the plan, and
+what landed — the one path under `.openfactory/` the import may write. Afterwards the documents it
+landed are read into the product's memory and its index is brought up to the new corpus, so the
+next search finds them. Only a person on `admins` may import or see an import's plan. **The
+command line names any path; any other caller** — the panel, a script on `POST /api/act` — names
+a folder or archive **inside the product's import inbox**, `imports/` under the product's state
+directory, and nothing outside it.
+
 **Was this asked before?** Before every answer the role is handed the tickets, the requirements
 and the open decisions whose titles overlap the message — with their references, and never who
 asked (ADR-0051 D9) — so a request somebody else already made is answered with a pointer to it,
