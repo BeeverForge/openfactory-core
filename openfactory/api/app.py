@@ -93,6 +93,51 @@ app = FastAPI(title=os.environ.get("OPENFACTORY_PLATFORM_NAME", "OpenFactory"),
               version=__version__)
 
 
+def _reads(model: type[BaseModel]) -> dict:
+    """What a read route declares about its body (#678): the model it answers in, and that a key it
+    left out stays out — `read_models` says why the bodies are unchanged by it."""
+    return {"response_model": model, "response_model_exclude_unset": True}
+
+
+#: Where the reads that declare their model are served (#678): a front end of one's own builds on
+#: those shapes, so the address it reads says which version of them it is.
+API_V1 = "/api/v1"
+
+
+def _read(path: str, model: type[BaseModel], *, refusals: dict[int, str] | None = None):
+    """Serve a typed read at `/api/v1/…` and at `path`, its unversioned alias, marked deprecated in
+    the API's description. ONE HANDLER, ONE MODEL, both addresses: the default front end calls the
+    alias and is answered the body the versioned read answers. The alias period and what ends it
+    are in `docs/reference/the-front-end-api.md`.
+
+    `refusals` are the statuses the read itself refuses with, each with when — described on both
+    addresses in the core's one refusal shape (`read_models.Refusal`), so a client of the
+    description reads them beside the body."""
+    described = {status: {"model": read_models.Refusal, "description": when}
+                 for status, when in (refusals or {}).items()}
+    extra = {"responses": described} if described else {}
+
+    def register(handler):
+        app.get(API_V1 + path.removeprefix("/api"), **_reads(model), **extra)(handler)
+        app.get(path, deprecated=True, **_reads(model), **extra)(handler)
+        _VERSIONED_READS.append(compile_path(API_V1 + path.removeprefix("/api"))[0])
+        return handler
+    return register
+
+
+#: The addresses `_read` served under `/api/v1`, as the router matches them.
+_VERSIONED_READS: list[re.Pattern] = []
+
+
+def _unversioned(path: str) -> str:
+    """`path` as its alias: the gate decides an area once, by the unversioned address. ONLY FOR A
+    TYPED READ REGISTERED UNDER `/api/v1`: any other path under it keeps its own address, so it
+    cannot inherit an area by sharing a prefix with a read — it is the floor's, and not found."""
+    if any(read.match(path) for read in _VERSIONED_READS):
+        return "/api" + path.removeprefix(API_V1)
+    return path
+
+
 @app.exception_handler(EngineUnreachable)
 async def _the_engine_did_not_answer(request: Request, exc: EngineUnreachable) -> JSONResponse:
     """An engine that did not answer is a 503 that says so, from every route (#674).
@@ -476,7 +521,7 @@ def _proposal_said(record, project: str) -> dict:
     return proposal_said(record, found) or {}
 
 
-@app.get("/api/preview/{project}/{unit}")
+@_read("/api/preview/{project}/{unit}", read_models.PreviewRead)
 async def preview_link(project: str, unit: str, request: Request):
     """One unit's preview as the panel shows it, and the way into it, for somebody the panel
     already let in (ADR-0050; the design on #265, §5.5).
@@ -1088,51 +1133,6 @@ def require_auth(authorization: str = Header(default="")) -> None:
 _AUTH = [Depends(require_auth)]
 
 
-def _reads(model: type[BaseModel]) -> dict:
-    """What a read route declares about its body (#678): the model it answers in, and that a key it
-    left out stays out — `read_models` says why the bodies are unchanged by it."""
-    return {"response_model": model, "response_model_exclude_unset": True}
-
-
-#: Where the reads that declare their model are served (#678): a front end of one's own builds on
-#: those shapes, so the address it reads says which version of them it is.
-API_V1 = "/api/v1"
-
-
-def _read(path: str, model: type[BaseModel], *, refusals: dict[int, str] | None = None):
-    """Serve a typed read at `/api/v1/…` and at `path`, its unversioned alias, marked deprecated in
-    the API's description. ONE HANDLER, ONE MODEL, both addresses: the default front end calls the
-    alias and is answered the body the versioned read answers. The alias period and what ends it
-    are in `docs/reference/the-front-end-api.md`.
-
-    `refusals` are the statuses the read itself refuses with, each with when — described on both
-    addresses in the core's one refusal shape (`read_models.Refusal`), so a client of the
-    description reads them beside the body."""
-    described = {status: {"model": read_models.Refusal, "description": when}
-                 for status, when in (refusals or {}).items()}
-    extra = {"responses": described} if described else {}
-
-    def register(handler):
-        app.get(API_V1 + path.removeprefix("/api"), **_reads(model), **extra)(handler)
-        app.get(path, deprecated=True, **_reads(model), **extra)(handler)
-        _VERSIONED_READS.append(compile_path(API_V1 + path.removeprefix("/api"))[0])
-        return handler
-    return register
-
-
-#: The addresses `_read` served under `/api/v1`, as the router matches them.
-_VERSIONED_READS: list[re.Pattern] = []
-
-
-def _unversioned(path: str) -> str:
-    """`path` as its alias: the gate decides an area once, by the unversioned address. ONLY FOR A
-    TYPED READ REGISTERED UNDER `/api/v1`: any other path under it keeps its own address, so it
-    cannot inherit an area by sharing a prefix with a read — it is the floor's, and not found."""
-    if any(read.match(path) for read in _VERSIONED_READS):
-        return "/api" + path.removeprefix(API_V1)
-    return path
-
-
 # ── the panel as a transport over the action layer (C-23) ────────────────────────────────────────
 
 #: `Outcome.code` → HTTP status. A test asserts every code in `actions.CODES` has a row here: a
@@ -1408,7 +1408,7 @@ async def floor_state(project: str = "") -> dict:
     return floor.state(inputs, project).as_dict()
 
 
-@app.get("/api/projects")
+@_read("/api/projects", read_models.ProjectsRead)
 def list_projects() -> list[dict]:
     return [
         {
@@ -1467,7 +1467,7 @@ class NewProject(BaseModel):
 # the form's reading silently blank. The mutation that removed `_AUTH` survived every test here —
 # the middleware answers first — which is how the extra dependency turned out to be decoration
 # that only cost something.
-@app.get("/api/address")
+@_read("/api/address", read_models.AddressRead)
 def read_address(repo_path: str = "", repo: str = "", provider: str = "") -> dict:
     """What the door below would write for this address — the READING the panel's form asks for.
 
@@ -2534,7 +2534,9 @@ async def approve_suggestion(project: str, body: dict, request: Request) -> JSON
     return JSONResponse(payload, status_code=_STATUS.get(outcome.code, 200))
 
 
-@app.get("/api/coordinator/messages")
+@_read("/api/coordinator/messages", read_models.CoordinatorMessagesRead, refusals={
+    503: "the durable engine cannot be read: it is not declared, its client library is not "
+         "installed, or it did not answer"})
 async def coordinator_messages() -> list[dict]:
     """The tech-lead coordinators' recent narrated updates (pickup / merge / deploy) — the panel
     polls this and toasts what's new; the SAME feed a future Slack/PO bot reads (API-first)."""
@@ -2854,7 +2856,9 @@ def _project_language(name: str) -> str | None:
         return None
 
 
-@app.get("/api/jobs/{project}/{issue}/events")
+@_read("/api/jobs/{project}/{issue}/events", read_models.JobEventsRead, refusals={
+    404: "no project of that name in this deployment",
+    503: "the run's journal is on a remote box, and the box could not be read"})
 def job_events(project: str, issue: str) -> list[dict]:
     """One run's log. A project this deployment does not have is a 404 — `registry.get` raises
     KeyError, which reached the client as a 500 and read as "the panel is broken" for what is
@@ -2935,7 +2939,8 @@ async def trigger_job(body: NewJob, request: Request) -> dict:
     return {"ok": True, "project": body.project, "issue": outcome.data.get("issue", body.issue)}
 
 
-@app.get("/api/promote/{project}/{issue}")
+@_read("/api/promote/{project}/{issue}", read_models.PromoteRead, refusals={
+    404: "no project of that name in this deployment"})
 def promote_info(project: str, issue: str) -> dict:
     """Info for the prod-approval dialog: current version + suggested bumps + approvers.
 
@@ -4408,7 +4413,7 @@ def _hosted_boards() -> list[str]:
         return []
 
 
-@app.get("/api/factory/{project}")
+@_read("/api/factory/{project}", read_models.FactoryRead)
 def factory(project: str) -> dict:
     """A project's cockpit: what harness / auth / tokens it runs on, plus deep-links to
     that project's sources of truth (its board, its workflows on the engine, its logs,

@@ -10,7 +10,10 @@ WHAT IS PROVEN HERE:
     and its unversioned path stays, marked `deprecated` in the description the app generates;
   · the committed description is the one the app generates, `info.version` the package's own, and
     a test that finds them apart says the command that writes it again;
-  · a versioned path belongs to the same area as its alias, at the gate.
+  · a versioned path belongs to the same area as its alias, at the gate;
+  · EVERY `GET` UNDER `/api/` IS ONE OF THOSE READS, OR A ROUTE THE CONTRACT NAMES AS LEFT OUT OF
+    `/api/v1/` WITH ITS REASON (#940) — and a route left out has no `/api/v1/` form, at the router
+    or at the gate.
 
 That both forms answer the same body is proven, route by route, with a populated bench, in
 `tests/test_the_read_routes_declare_their_model.py`.
@@ -19,6 +22,7 @@ That both forms answer the same body is proven, route by route, with a populated
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -27,6 +31,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 import openfactory
+from tests.test_the_front_end_api_is_a_contract import _left_out
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMITTED = ROOT / "docs" / "reference" / "openapi.json"
@@ -58,6 +63,46 @@ def test_every_typed_read_is_served_under_api_v1_by_the_same_handler():
         assert versioned is not None, f"{path} has no /api/v1 form"
         assert versioned.endpoint is alias.endpoint, path
         assert versioned.response_model is alias.response_model, path
+
+
+def _gets() -> dict[str, APIRoute]:
+    from openfactory.api.app import app
+
+    return {r.path: r for r in app.routes if isinstance(r, APIRoute)
+            and r.path.startswith("/api/") and "GET" in (r.methods or set())}
+
+
+def test_every_read_is_typed_or_named_as_left_out():
+    """#940 found seven reads the default front end made that declared no model and were not under
+    `/api/v1/`, and nothing said whether they would be. A `GET` under `/api/` declares its model —
+    and is then served under `/api/v1/`, as above — or is a row of the contract's list of the reads
+    left out of it, which says why."""
+    typed, left_out = _typed_reads(), _left_out()
+    assert sorted(set(_gets()) - set(typed) - set(left_out)) == [], (
+        "GET routes that declare no model and that the contract does not name as left out")
+
+
+def test_a_read_left_out_is_a_route_that_declares_no_model_and_says_why():
+    gets, typed = _gets(), _typed_reads()
+    assert _left_out(), "the contract's list of reads left out of /api/v1 was not found"
+    for path, why in _left_out().items():
+        assert path in gets, f"{path} is named as left out of /api/v1 and is no GET route"
+        assert path not in typed, f"{path} declares its model: it is under /api/v1, not left out"
+        assert why.strip(" -"), f"{path} is left out of /api/v1 and the contract does not say why"
+
+
+def test_a_read_left_out_has_no_api_v1_form_and_borrows_no_area():
+    """A read left out is not served under `/api/v1/`, and the gate does not read its `/api/v1/`
+    form as its alias: that address keeps its own area and is not found (#764's review)."""
+    from openfactory.api.app import _unversioned as as_alias
+    from openfactory.api.app import app
+
+    served = {getattr(r, "path", "") for r in app.routes}
+    for path in _left_out():
+        versioned = "/api/v1" + path.removeprefix("/api")
+        assert versioned not in served, f"{path} is named as left out and is served at {versioned}"
+        concrete = re.sub(r"\{[^}]+\}", "x", versioned)
+        assert as_alias(concrete) == concrete, f"the gate reads {concrete} as {path}'s"
 
 
 def test_only_the_unversioned_alias_is_deprecated():
@@ -120,6 +165,8 @@ def test_the_command_writes_the_document(tmp_path):
     ("/api/v1/product/x/documents", "product"),
     ("/api/v1/floor", "floor"),
     ("/api/v1/board/x", "floor"),
+    ("/api/v1/projects", "floor"),
+    ("/api/v1/preview/x/12", None),
 ])
 def test_a_versioned_path_is_in_its_aliases_area(path, area):
     from openfactory.api.app import _scope_of_path

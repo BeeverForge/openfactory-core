@@ -16,6 +16,8 @@ WHAT IS PROVEN HERE:
 from __future__ import annotations
 
 import json
+import time
+from types import SimpleNamespace
 from typing import get_args
 
 import pytest
@@ -26,7 +28,9 @@ from pydantic import BaseModel, RootModel
 
 #: The read routes #678 lists: the floor, the jobs, a job's detail, the board, attention, the inbox,
 #: the budget, the decisions, the loops, the messages, the product room, its documents, the
-#: metrics, whoami and the action catalogue.
+#: metrics, whoami and the action catalogue — and the seven reads the default front end made that
+#: #940 found typed nowhere: the projects, an address's reading, a project's cockpit, the
+#: coordinators' updates, a run's log, the production approval's form and a card's preview.
 LISTED = (
     "/api/floor", "/api/floor/{project}",
     "/api/jobs", "/api/temporal/jobs", "/api/jobs/{project}/{issue}/detail",
@@ -35,6 +39,9 @@ LISTED = (
     "/api/product/projects", "/api/product/{project}/attachments",
     "/api/product/{project}/documents",
     "/api/metrics", "/api/whoami", "/api/actions",
+    "/api/projects", "/api/address", "/api/factory/{project}", "/api/coordinator/messages",
+    "/api/jobs/{project}/{issue}/events", "/api/promote/{project}/{issue}",
+    "/api/preview/{project}/{unit}",
 )
 
 
@@ -119,8 +126,12 @@ def bench(monkeypatch, tmp_path):
     monkeypatch.setattr(tv, "intake", _intake)
     monkeypatch.setattr(tv, "review_verdicts", _verdicts)
     monkeypatch.setattr(tv, "job_detail", _detail)
+    async def _narrated(_client):
+        return [{"project": "acme", "id": 3, "text": "picked up #12", "kind": "pickup"}]
+
     monkeypatch.setattr(tv, "temporal_config", lambda: ("localhost:7233", "default"))
     monkeypatch.setattr(tv, "ui_base", lambda: "")
+    monkeypatch.setattr(tv, "coordinator_messages", _narrated)
     monkeypatch.setattr("openfactory.box_prove.health",
                         lambda _p: {"state": "proven", "gate": "", "detail": ""})
     monkeypatch.setattr("openfactory.product.accept.at_the_gates", lambda jobs: [None] * len(jobs))
@@ -192,9 +203,40 @@ def bench(monkeypatch, tmp_path):
         {"pk": "acme", "kind": "job", "ticket": "12", "ts": "2026-10-12T08:05:00Z",
          "state": "merged", "title": "Render the board", "wall_s": 300}])
 
+    # the production approval's form: the forge's last tag and the manifest's approvers
+    class _Forge:
+        def latest_tag(self):
+            return "v1.4.0"
+
+    monkeypatch.setattr("openfactory.actions.catalog._forge_and_manifest", lambda _p: (
+        None, SimpleNamespace(prod_approvers=["ana"], prod_tag_prefix="v"), _Forge()))
+
+    # a card's preview, live. ITS EXPIRY IS FIXED HERE, under the link's lifetime, so the key the
+    # read mints into each door is the same on every call of the route — the bench compares two
+    from openfactory import preview
+    from openfactory.preview import demand
+
+    monkeypatch.setenv("OPENFACTORY_PREVIEW_DOMAIN", "preview.localhost")
+    monkeypatch.setenv("OPENFACTORY_PREVIEW_SECRET", "s3cret")
+    monkeypatch.setenv("OPENFACTORY_PREVIEW_RUNTIME", "compose")
+    live = preview.Preview(project="acme", unit="12", cards=("12",), state=preview.LIVE,
+                           services={"web": 3000, "api": 8000},
+                           from_change={"web": True}, health={"web": "ok"},
+                           pr_urls=("https://example.test/pr/12",), notes=("built from the PR",),
+                           commits={"acme": "3f9a1c0"}, started_at=1_900_000_000,
+                           expires_at=int(time.time()) + preview.LINK_TTL_SECONDS // 2,
+                           started_by="ana")
+    monkeypatch.setattr(preview, "unit_of_card", lambda _p, card: card)
+    monkeypatch.setattr(preview, "latest", lambda project, unit: (
+        live if (project, unit) == ("acme", "12") else None))
+    monkeypatch.setattr(demand, "forge_state", lambda *a, **k: demand.ForgeState(
+        open=("https://example.test/pr/12",), heads={}, branches={}))
+    demand._CACHE.clear()
+
     reading.forget_intake()
     yield TestClient(__import__("openfactory.api.app", fromlist=["app"]).app)
     reading.forget_intake()
+    demand._CACHE.clear()
 
 
 #: Each listed route, as the bench calls it: (the route, the address it is called at).
@@ -217,6 +259,13 @@ CALLED = (
     ("/api/metrics", "/api/metrics?project=acme"),
     ("/api/whoami", "/api/whoami"),
     ("/api/actions", "/api/actions"),
+    ("/api/projects", "/api/projects"),
+    ("/api/address", "/api/address?repo_path=https://github.com/acme/shop"),
+    ("/api/factory/{project}", "/api/factory/acme"),
+    ("/api/coordinator/messages", "/api/coordinator/messages"),
+    ("/api/jobs/{project}/{issue}/events", "/api/jobs/acme/12/events"),
+    ("/api/promote/{project}/{issue}", "/api/promote/acme/12"),
+    ("/api/preview/{project}/{unit}", "/api/preview/acme/12"),
 )
 
 
@@ -431,3 +480,19 @@ def test_a_card_with_no_title_or_stamp_is_still_on_the_board(bench, monkeypatch)
         TicketSummary.model_construct(ref="1", title=None, labels=None, updated_at=None)])
     body = _passes_through(bench, "/api/board/{project}", "/api/board/acme")
     assert body["cards"][0]["title"] is None, body
+
+
+def test_the_short_answers_of_a_preview_and_an_address_are_still_their_models(bench, monkeypatch):
+    """A read that answers before it reads anything — a unit no preview is addressed by, a
+    deployment that runs no preview, an address the door refuses — answers in the same model,
+    with only the keys it carries."""
+    body = _passes_through(bench, "/api/preview/{project}/{unit}", "/api/preview/acme/nope")
+    assert set(body) == {"state", "live", "can_start", "why"} and body["why"], body
+
+    monkeypatch.delenv("OPENFACTORY_PREVIEW_DOMAIN")
+    body = _passes_through(bench, "/api/preview/{project}/{unit}", "/api/preview/acme/12")
+    assert set(body) == {"state", "live", "can_start", "why"} and body["why"], body
+
+    body = _passes_through(bench, "/api/address",
+                           "/api/address?repo_path=https://gitlab.com/acme/shop")
+    assert body["kind"] == "" and body["refusal"], body

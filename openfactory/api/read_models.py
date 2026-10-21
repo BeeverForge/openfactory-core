@@ -124,6 +124,84 @@ class JobDetailRead(ReadModel):
     error: str | None = None
 
 
+class JobEvent(ReadModel):
+    """One line of a run's journal (`observability.events.JobEvent`), as the journal holds it."""
+
+    ts: str | None = None
+    job_id: str | None = None
+    ticket_id: str | None = None
+    kind: str | None = None
+    message: str | None = None
+    data: dict[str, Any] | None = None
+
+
+class JobEventsRead(RootModel[list[JobEvent]]):
+    """`/api/jobs/{project}/{issue}/events` — one run's log, oldest first. `[]` when the run wrote
+    nothing where it was read; a box that could not be read is a 503, never `[]` (#298)."""
+
+
+class PromoteRead(ReadModel):
+    """`/api/promote/{project}/{issue}` — what the production approval asks: the last release, the
+    next version of each bump, and who may approve it."""
+
+    latest_tag: str | None = None
+    suggestions: dict[str, str | None] | None = None
+    approvers: list[str] | None = None
+    tag_prefix: str | None = None
+
+
+# ── the projects ────────────────────────────────────────────────────────────────────────────────
+
+class ProjectRow(ReadModel):
+    """One project this deployment runs: each axis's kind, whether pickup is on, and the box's
+    verdict beside it (`box_prove.health`) — the two are one answer about whether a card is taken.
+    `board` is the board number its tracker names, as the registry spells it."""
+
+    name: str | None = None
+    repo_path: str | None = None
+    tracker: str | None = None
+    forge: str | None = None
+    ci: str | None = None
+    board: str | int | None = None
+    enabled: bool | None = None
+    box: dict[str, Any] | None = None
+
+
+class ProjectsRead(RootModel[list[ProjectRow]]):
+    """`/api/projects` — the projects this deployment runs, in the registry's order."""
+
+
+class AddressRead(ReadModel):
+    """`/api/address` — how a repository address would be read before a project is added: the
+    `kind` each axis would be written as (`""` when the address is refused), whether an
+    `owner/name` and a board apply at all, and the door's own sentence when it refuses."""
+
+    kind: str | None = None
+    coordinates: bool | None = None
+    refusal: str | None = None
+
+
+class FactoryRead(ReadModel):
+    """`/api/factory/{project}` — a project's cockpit: what it runs on, resolved through the
+    registry, and the links to its sources of truth that this deployment has. Never a credential's
+    value: `tokens` is the pool's count, ids and format."""
+
+    project: str | None = None
+    harness: str | None = None
+    auth_format: str | None = None
+    auth_credential: str | None = None
+    auth_pool_format: str | None = None
+    tokens: dict[str, Any] | None = None
+    pickup_enabled: bool | None = None
+    single_agent: bool | None = None
+    review_mode: str | None = None
+    models: dict[str, Any] | None = None
+    region: str | None = None
+    hosted_boards: list[str] | None = None
+    links: dict[str, Any] | None = None
+    engine_ui_hint: str | None = None
+
+
 # ── the board ───────────────────────────────────────────────────────────────────────────────────
 
 class BoardCard(ReadModel):
@@ -313,6 +391,21 @@ class MessagesRead(ReadModel):
     messages: list[ChannelMessage] | None = None
     pending: list[PendingQuestion] | None = None
     suggestion: StagedSuggestion | None = None
+
+
+class CoordinatorMessage(ReadModel):
+    """One update a project's tech-lead coordinator narrated (pickup, merge, deploy). `id` grows
+    within a project, so a reader shows what is newer than the last one it saw."""
+
+    project: str | None = None
+    id: int | None = None
+    text: str | None = None
+    kind: str | None = None
+
+
+class CoordinatorMessagesRead(RootModel[list[CoordinatorMessage]]):
+    """`/api/coordinator/messages` — every running coordinator's recent updates, by project and
+    `id`. A coordinator that did not answer is missing from it; the engine unreachable is a 503."""
 
 
 # ── the product room ────────────────────────────────────────────────────────────────────────────
@@ -677,6 +770,53 @@ class ActionRow(ReadModel):
 
 class ActionsRead(RootModel[list[ActionRow]]):
     """`/api/actions` — the catalogue of what this deployment can be asked to do."""
+
+
+# ── a card's preview ────────────────────────────────────────────────────────────────────────────
+
+class PreviewService(ReadModel):
+    """One exposed service of a live preview: its door, which carries a key that opens this unit
+    only, for minutes — never the panel's credential."""
+
+    name: str | None = None
+    url: str | None = None
+    from_change: bool | None = None
+    health: str | None = None
+
+
+class PreviewRead(ReadModel):
+    """`/api/preview/{project}/{unit}` — one unit's preview, and the way into it while it is live.
+    A unit no preview can address, or a deployment that runs none, answers `state`, `live`,
+    `can_start` and `why` alone; `can_start` and `stale` are judged per read, from the deployment
+    and the forge, never read from the record (`preview/demand.py`)."""
+
+    unit: str | None = None
+    state: str | None = None
+    live: bool | None = None
+    services: list[PreviewService] | None = None
+    headline: str | None = None
+    starting: str | None = None
+    started_at: Number | None = None
+    ended_at: Number | None = None
+    link: str | None = None
+    images: dict[str, str] | None = None
+    base_moved: dict[str, str] | None = None
+    notes: list[str] | None = None
+    missing: list[str] | None = None
+    stale: list[str] | None = None
+    proposal_url: str | None = None
+    log_dir: str | None = None
+    expires_at: Number | None = None
+    commits: dict[str, str] | None = None
+    cards: list[str] | None = None
+    pr_urls: list[str] | None = None
+    started_by: str | None = None
+    who: str | None = None
+    can_start: bool | None = None
+    own_shape: str | None = None
+    shape_from: str | None = None
+    can_allow_shape: bool | None = None
+    why: str | None = None
 
 
 # ── the deployment ──────────────────────────────────────────────────────────────────────────────

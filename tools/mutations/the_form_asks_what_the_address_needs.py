@@ -57,10 +57,13 @@ MUTATIONS = [
     # `_panel_gate` gates every read and answers first. The dependency was not protecting
     # anything; it was REFUSING something, a cookie credential the middleware had admitted. So
     # the cut is the dependency coming BACK, and the guard is the direction that can see it.
+    # RE-PINNED 2026-10-21 (#940): the reading is a typed read served by `_read`, which takes no
+    # `dependencies`, so the second gate comes back as the same dependency on the handler itself.
     ("the reading gets a second gate that reads headers alone, so a cookie the middleware "
      "admitted is refused", API,
-     '@app.get("/api/address")',
-     '@app.get("/api/address", dependencies=_AUTH)', TEST),
+     'def read_address(repo_path: str = "", repo: str = "", provider: str = "") -> dict:',
+     'def read_address(repo_path: str = "", repo: str = "", provider: str = "",\n'
+     '                 _gate: None = Depends(require_auth)) -> dict:', TEST),
 
     # ── 2. a read that writes ──────────────────────────────────────────────────────────────────
     ("the reading registers what it was asked about — a door nobody knew was one", API,

@@ -9,7 +9,8 @@ or the streams.
 `docs/reference/the-front-end-api.md` is the contract, and this file pins it to the code:
 
   - every route under `/api/` is a row of its table, in its area, and every row is a route;
-  - every address the default front end calls is a route of the contract;
+  - every address the default front end calls is a route of the contract, and every read it makes
+    is typed under `/api/v1/` or a route the contract names as left out of it (#940);
   - the three ways to present a credential, and the 401 and 403 the table promises, are exercised
     without the page;
   - the streams' frames and endings are the ones the code sends.
@@ -23,6 +24,7 @@ from pathlib import Path
 import pytest
 from fastapi.routing import APIRoute, APIWebSocketRoute
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "docs" / "reference" / "the-front-end-api.md"
@@ -42,6 +44,19 @@ def _rows() -> dict[tuple[str, str], str]:
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 4 and cells[1].startswith("`/api/"):
             rows[(cells[0], cells[1].strip("`"))] = cells[2]
+    return rows
+
+
+def _left_out() -> dict[str, str]:
+    """`path → why` for each `GET` the contract names as left out of `/api/v1/`, on purpose (#940).
+    The ONE list: `tests/test_the_api_is_versioned.py` reads it here too."""
+    table = _contract_text().split("<!-- left-out:start -->")[1].split("<!-- left-out:end -->")[0]
+    rows = {}
+    for line in table.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) == 3 and cells[1].startswith("`/api/"):
+            assert cells[0] == "GET", f"only a read is left out of /api/v1: {line}"
+            rows[cells[1].strip("`")] = cells[2]
     return rows
 
 
@@ -111,6 +126,31 @@ def test_the_default_front_end_calls_only_the_contract():
             assert any(p.startswith(called) for p in paths), called
         else:
             assert any(_reaches(called, p) for p in paths), called
+
+
+def test_every_read_the_default_front_end_makes_is_typed_under_api_v1_or_named_left_out():
+    """#940: SEVEN READS THE PAGE MADE DECLARED NO MODEL, were not under `/api/v1/`, and nothing
+    said whether they ever would be — so a front end of one's own could not tell which reads it may
+    build on. Every `GET` the page's addresses reach is now a typed read whose `/api/v1/` form is
+    the same handler and model, or a route of the contract's list of reads left out of it."""
+    from openfactory.api.app import app
+
+    gets = {r.path: r for r in app.routes if isinstance(r, APIRoute) and "GET" in r.methods}
+    left_out = _left_out()
+    reached = {path for called in _called_by_the_page() for path in gets
+               if path.startswith("/api/") and not path.startswith("/api/v1/")
+               and (path.startswith(called) if called.endswith("/") else _reaches(called, path))}
+    assert len(reached) > len(left_out), sorted(reached)
+
+    untyped = []
+    for path in sorted(reached - set(left_out)):
+        versioned = gets.get("/api/v1" + path.removeprefix("/api"))
+        model = gets[path].response_model
+        if not (isinstance(model, type) and issubclass(model, BaseModel) and versioned is not None
+                and versioned.endpoint is gets[path].endpoint
+                and versioned.response_model is model):
+            untyped.append(path)
+    assert untyped == [], "the page reads these, untyped under /api/v1 and not named as left out"
 
 
 # ── credentials and refusals ────────────────────────────────────────────────────────────────────

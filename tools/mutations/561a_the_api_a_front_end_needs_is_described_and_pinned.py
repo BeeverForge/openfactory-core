@@ -7,7 +7,8 @@ Run:  .venv/bin/python tools/mutate.py \
 The contract is `docs/reference/the-front-end-api.md`. The claims, each a row:
 
   1. every route is a row in its area, and every row a route — the document and the code each cut;
-  2. the default front end calls nothing the contract does not list;
+  2. the default front end calls nothing the contract does not list, and every read it makes is
+     typed under `/api/v1/` or named as left out of it (#940);
   3. the credential is read three ways, and the 401 and 403 are the ones the contract names;
   4. the streams' frames and endings are the ones the code sends.
 """
@@ -35,6 +36,9 @@ MUTATIONS = [
     ("the default front end calls an address the contract does not list", PAGE,
      'let fresh=null;try{fresh=await api("/api/whoami")}catch(e){}',
      'let fresh=null;try{fresh=await api("/api/whoami/private")}catch(e){}'),
+    ("a read the default front end makes is neither typed nor named as left out", CONTRACT,
+     "| GET | `/api/temporal/stream` | a stream of server-sent events (section 4), not a body; the "
+     "streams are not versioned yet |\n", ""),
 
     # 3. credentials and refusals
     ("the cookie is not read", APP,

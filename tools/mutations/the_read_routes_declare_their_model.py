@@ -40,4 +40,7 @@ MUTATIONS = [
     ("the budget is declared without a model", APP,
      '@_read("/api/budget", read_models.BudgetRead)',
      '@app.get("/api/budget")'),
+    ("a card's preview is declared without a model", APP,
+     '@_read("/api/preview/{project}/{unit}", read_models.PreviewRead)',
+     '@app.get("/api/preview/{project}/{unit}")'),
 ]

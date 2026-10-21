@@ -5,11 +5,11 @@
     "version": "0.7.0.dev0"
   },
   "paths": {
-    "/api/preview/{project}/{unit}": {
+    "/api/v1/preview/{project}/{unit}": {
       "get": {
         "summary": "Preview Link",
         "description": "One unit's preview as the panel shows it, and the way into it, for somebody the panel\nalready let in (ADR-0050; the design on #265, §5.5).\n\n`{state, live, services: [{name, url, from_change, health}], images, base_moved, notes,\nmissing, stale, proposal_url, why, log_dir, expires_at, commits, can_start, ...}`. Each URL is\non the service's own host and carries a key that opens this unit only, for minutes — never the\npanel's credential, which a preview's scripts must not be able to read — and CHAINS through\nevery other exposed service's door first, so one click opens them all. The service NOT from\nthe change comes first: the screens a person opens are usually the part the change did not\ntouch.\n\n`can_start` and `stale` ARE JUDGED HERE, NOT READ: from the deployment (a runtime named) and\nthe forge (an open pull request of the unit, the head it points at now), asked at most once a\nminute per unit (`preview/demand.py`). What the job wrote when it offered the preview is never\nthe answer — the moment a person merges what was missing, the card can start one.",
-        "operationId": "preview_link_api_preview__project___unit__get",
+        "operationId": "preview_link_api_v1_preview__project___unit__get",
         "parameters": [
           {
             "name": "project",
@@ -35,7 +35,59 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/preview/{project}/{unit}": {
+      "get": {
+        "summary": "Preview Link",
+        "description": "One unit's preview as the panel shows it, and the way into it, for somebody the panel\nalready let in (ADR-0050; the design on #265, §5.5).\n\n`{state, live, services: [{name, url, from_change, health}], images, base_moved, notes,\nmissing, stale, proposal_url, why, log_dir, expires_at, commits, can_start, ...}`. Each URL is\non the service's own host and carries a key that opens this unit only, for minutes — never the\npanel's credential, which a preview's scripts must not be able to read — and CHAINS through\nevery other exposed service's door first, so one click opens them all. The service NOT from\nthe change comes first: the screens a person opens are usually the part the change did not\ntouch.\n\n`can_start` and `stale` ARE JUDGED HERE, NOT READ: from the deployment (a runtime named) and\nthe forge (an open pull request of the unit, the head it points at now), asked at most once a\nminute per unit (`preview/demand.py`). What the job wrote when it offered the preview is never\nthe answer — the moment a person merges what was missing, the card can start one.",
+        "operationId": "preview_link_api_preview__project___unit__get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          },
+          {
+            "name": "unit",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Unit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewRead"
+                }
               }
             }
           },
@@ -216,22 +268,36 @@
         }
       }
     },
-    "/api/projects": {
+    "/api/v1/projects": {
       "get": {
         "summary": "List Projects",
-        "operationId": "list_projects_api_projects_get",
+        "operationId": "list_projects_api_v1_projects_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": true
-                  },
-                  "title": "Response List Projects Api Projects Get"
+                  "$ref": "#/components/schemas/ProjectsRead"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "summary": "List Projects",
+        "operationId": "list_projects_api_projects_get",
+        "deprecated": true,
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectsRead"
                 }
               }
             }
@@ -351,11 +417,11 @@
         }
       }
     },
-    "/api/address": {
+    "/api/v1/address": {
       "get": {
         "summary": "Read Address",
         "description": "What the door below would write for this address — the READING the panel's form asks for.\n\nTHE FORM ASKED FOR GITHUB COORDINATES WHATEVER YOU TYPED (ADR-0049 slice 4c). `Repo\n(owner/name)` and a board owner/number sat under every path, including a directory on the\noperator's own disk that has no owner and no board — and a person who filled them because the\nform asked turned their own checkout into a hosted row, which is the one thing `kind_for` was\nmoved into `doors.py` to stop.\n\nSO THE FORM ASKS THE RULE RATHER THAN CARRYING A COPY OF IT. A second implementation in\nJavaScript would be a fourth door — the three that write a row agree since 4a, and a fourth\nthat only *shows* what they will do is exactly how a surface comes to promise what the door\nrefuses. This route runs `foreign_host` and `kind_for` and nothing else; it writes nothing,\nreads no disk, and answers about the STRING it was handed.\n\n  · `kind` — what every axis would be written as, `\"\"` when the address is refused;\n  · `coordinates` — whether `owner/name` and a board apply at all;\n  · `refusal` — the door's own sentence, so the form can say it BEFORE the person fills in\n    the rest of the modal rather than after.",
-        "operationId": "read_address_api_address_get",
+        "operationId": "read_address_api_v1_address_get",
         "parameters": [
           {
             "name": "repo_path",
@@ -394,9 +460,69 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Read Address Api Address Get"
+                  "$ref": "#/components/schemas/AddressRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/address": {
+      "get": {
+        "summary": "Read Address",
+        "description": "What the door below would write for this address — the READING the panel's form asks for.\n\nTHE FORM ASKED FOR GITHUB COORDINATES WHATEVER YOU TYPED (ADR-0049 slice 4c). `Repo\n(owner/name)` and a board owner/number sat under every path, including a directory on the\noperator's own disk that has no owner and no board — and a person who filled them because the\nform asked turned their own checkout into a hosted row, which is the one thing `kind_for` was\nmoved into `doors.py` to stop.\n\nSO THE FORM ASKS THE RULE RATHER THAN CARRYING A COPY OF IT. A second implementation in\nJavaScript would be a fourth door — the three that write a row agree since 4a, and a fourth\nthat only *shows* what they will do is exactly how a surface comes to promise what the door\nrefuses. This route runs `foreign_host` and `kind_for` and nothing else; it writes nothing,\nreads no disk, and answers about the STRING it was handed.\n\n  · `kind` — what every axis would be written as, `\"\"` when the address is refused;\n  · `coordinates` — whether `owner/name` and a board apply at all;\n  · `refusal` — the door's own sentence, so the form can say it BEFORE the person fills in\n    the rest of the modal rather than after.",
+        "operationId": "read_address_api_address_get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "repo_path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Repo Path"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Repo"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Provider"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressRead"
                 }
               }
             }
@@ -1026,6 +1152,35 @@
         }
       }
     },
+    "/api/v1/coordinator/messages": {
+      "get": {
+        "summary": "Coordinator Messages",
+        "description": "The tech-lead coordinators' recent narrated updates (pickup / merge / deploy) — the panel\npolls this and toasts what's new; the SAME feed a future Slack/PO bot reads (API-first).",
+        "operationId": "coordinator_messages_api_v1_coordinator_messages_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoordinatorMessagesRead"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the durable engine cannot be read: it is not declared, its client library is not installed, or it did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/coordinator/messages": {
       "get": {
         "summary": "Coordinator Messages",
@@ -1037,17 +1192,23 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "type": "array",
-                  "title": "Response Coordinator Messages Api Coordinator Messages Get"
+                  "$ref": "#/components/schemas/CoordinatorMessagesRead"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the durable engine cannot be read: it is not declared, its client library is not installed, or it did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
                 }
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/v1/metrics": {
@@ -1145,11 +1306,11 @@
         }
       }
     },
-    "/api/jobs/{project}/{issue}/events": {
+    "/api/v1/jobs/{project}/{issue}/events": {
       "get": {
         "summary": "Job Events",
         "description": "One run's log. A project this deployment does not have is a 404 — `registry.get` raises\nKeyError, which reached the client as a 500 and read as \"the panel is broken\" for what is\nonly a stale bookmark or a de-registered project.\n\nA remote box that could not be read is a 503 carrying the sentence (#298) — a status the page\nreads as \"couldn't read this run's log\", never a 200 with an empty journal.",
-        "operationId": "job_events_api_jobs__project___issue__events_get",
+        "operationId": "job_events_api_v1_jobs__project___issue__events_get",
         "parameters": [
           {
             "name": "project",
@@ -1176,12 +1337,97 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": true
-                  },
-                  "title": "Response Job Events Api Jobs  Project   Issue  Events Get"
+                  "$ref": "#/components/schemas/JobEventsRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the run's journal is on a remote box, and the box could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{project}/{issue}/events": {
+      "get": {
+        "summary": "Job Events",
+        "description": "One run's log. A project this deployment does not have is a 404 — `registry.get` raises\nKeyError, which reached the client as a 500 and read as \"the panel is broken\" for what is\nonly a stale bookmark or a de-registered project.\n\nA remote box that could not be read is a 503 carrying the sentence (#298) — a status the page\nreads as \"couldn't read this run's log\", never a 200 with an empty journal.",
+        "operationId": "job_events_api_jobs__project___issue__events_get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          },
+          {
+            "name": "issue",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Issue"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEventsRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the run's journal is on a remote box, and the box could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
                 }
               }
             }
@@ -1245,11 +1491,11 @@
         }
       }
     },
-    "/api/promote/{project}/{issue}": {
+    "/api/v1/promote/{project}/{issue}": {
       "get": {
         "summary": "Promote Info",
         "description": "Info for the prod-approval dialog: current version + suggested bumps + approvers.\n\nRead-only, and deliberately NOT an action (C-23): it does nothing, it only fetches what a\nform needs to populate itself with. `_forge_and_manifest` and `_env_prod_approvers` are\nimported from the action layer's catalog rather than duplicated here — they are the same\nlookups `approve_prod` and `promote` use to decide who may release, and a second copy is\nexactly the drift moving those two actions was meant to end.",
-        "operationId": "promote_info_api_promote__project___issue__get",
+        "operationId": "promote_info_api_v1_promote__project___issue__get",
         "parameters": [
           {
             "name": "project",
@@ -1276,9 +1522,77 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Promote Info Api Promote  Project   Issue  Get"
+                  "$ref": "#/components/schemas/PromoteRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/promote/{project}/{issue}": {
+      "get": {
+        "summary": "Promote Info",
+        "description": "Info for the prod-approval dialog: current version + suggested bumps + approvers.\n\nRead-only, and deliberately NOT an action (C-23): it does nothing, it only fetches what a\nform needs to populate itself with. `_forge_and_manifest` and `_env_prod_approvers` are\nimported from the action layer's catalog rather than duplicated here — they are the same\nlookups `approve_prod` and `promote` use to decide who may release, and a second copy is\nexactly the drift moving those two actions was meant to end.",
+        "operationId": "promote_info_api_promote__project___issue__get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          },
+          {
+            "name": "issue",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Issue"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoteRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
                 }
               }
             }
@@ -3450,11 +3764,11 @@
         }
       }
     },
-    "/api/factory/{project}": {
+    "/api/v1/factory/{project}": {
       "get": {
         "summary": "Factory",
         "description": "A project's cockpit: what harness / auth / tokens it runs on, plus deep-links to\nthat project's sources of truth (its board, its workflows on the engine, its logs,\nits parameters). Read-only — a place to SEE and jump out to, never to configure.",
-        "operationId": "factory_api_factory__project__get",
+        "operationId": "factory_api_v1_factory__project__get",
         "parameters": [
           {
             "name": "project",
@@ -3472,9 +3786,48 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Factory Api Factory  Project  Get"
+                  "$ref": "#/components/schemas/FactoryRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/factory/{project}": {
+      "get": {
+        "summary": "Factory",
+        "description": "A project's cockpit: what harness / auth / tokens it runs on, plus deep-links to\nthat project's sources of truth (its board, its workflows on the engine, its logs,\nits parameters). Read-only — a place to SEE and jump out to, never to configure.",
+        "operationId": "factory_api_factory__project__get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactoryRead"
                 }
               }
             }
@@ -3715,6 +4068,47 @@
         "type": "object",
         "title": "AddonRow",
         "description": "One add-on row installed into the deployment: who ships it, and what it provides."
+      },
+      "AddressRead": {
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "coordinates": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coordinates"
+          },
+          "refusal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "AddressRead",
+        "description": "`/api/address` — how a repository address would be read before a project is added: the\n`kind` each axis would be written as (`\"\"` when the address is refused), whether an\n`owner/name` and a board apply at all, and the door's own sentence when it refuses."
       },
       "AttachmentLimitsRead": {
         "properties": {
@@ -4319,6 +4713,66 @@
         "type": "object",
         "title": "ChannelMessage"
       },
+      "CoordinatorMessage": {
+        "properties": {
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "CoordinatorMessage",
+        "description": "One update a project's tech-lead coordinator narrated (pickup, merge, deploy). `id` grows\nwithin a project, so a reader shows what is newer than the last one it saw."
+      },
+      "CoordinatorMessagesRead": {
+        "items": {
+          "$ref": "#/components/schemas/CoordinatorMessage"
+        },
+        "type": "array",
+        "title": "CoordinatorMessagesRead",
+        "description": "`/api/coordinator/messages` — every running coordinator's recent updates, by project and\n`id`. A coordinator that did not answer is missing from it; the engine unreachable is a 503."
+      },
       "DecisionsRead": {
         "items": {
           "$ref": "#/components/schemas/ParkedDecision"
@@ -4673,6 +5127,174 @@
         "type": "object",
         "title": "EngineJobsRead",
         "description": "`/api/temporal/jobs` — the jobs, live. `jobs` is `None` when nobody could ask the engine,\n`[]` when it answered and nothing is there."
+      },
+      "FactoryRead": {
+        "properties": {
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness"
+          },
+          "auth_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Format"
+          },
+          "auth_credential": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Credential"
+          },
+          "auth_pool_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Pool Format"
+          },
+          "tokens": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tokens"
+          },
+          "pickup_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pickup Enabled"
+          },
+          "single_agent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Single Agent"
+          },
+          "review_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Mode"
+          },
+          "models": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Models"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "hosted_boards": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hosted Boards"
+          },
+          "links": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Links"
+          },
+          "engine_ui_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Ui Hint"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "FactoryRead",
+        "description": "`/api/factory/{project}` — a project's cockpit: what it runs on, resolved through the\nregistry, and the links to its sources of truth that this deployment has. Never a credential's\nvalue: `tokens` is the pool's count, ids and format."
       },
       "FloorRead": {
         "properties": {
@@ -5164,6 +5786,89 @@
         "type": "object",
         "title": "JobDetailRead",
         "description": "`/api/jobs/{project}/{issue}/detail` — one job's briefing, or `connected: false` and why."
+      },
+      "JobEvent": {
+        "properties": {
+          "ts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ts"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Id"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "JobEvent",
+        "description": "One line of a run's journal (`observability.events.JobEvent`), as the journal holds it."
+      },
+      "JobEventsRead": {
+        "items": {
+          "$ref": "#/components/schemas/JobEvent"
+        },
+        "type": "array",
+        "title": "JobEventsRead",
+        "description": "`/api/jobs/{project}/{issue}/events` — one run's log, oldest first. `[]` when the run wrote\nnothing where it was read; a box that could not be read is a 503, never `[]` (#298)."
       },
       "JournalJob": {
         "properties": {
@@ -5865,6 +6570,399 @@
         "type": "object",
         "title": "PendingQuestion"
       },
+      "PreviewRead": {
+        "properties": {
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "live": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live"
+          },
+          "services": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PreviewService"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Services"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
+          "starting": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starting"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "images": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Images"
+          },
+          "base_moved": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Moved"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing"
+          },
+          "stale": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale"
+          },
+          "proposal_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Url"
+          },
+          "log_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log Dir"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "commits": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commits"
+          },
+          "cards": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cards"
+          },
+          "pr_urls": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pr Urls"
+          },
+          "started_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started By"
+          },
+          "who": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Who"
+          },
+          "can_start": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Can Start"
+          },
+          "own_shape": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Shape"
+          },
+          "shape_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape From"
+          },
+          "can_allow_shape": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Can Allow Shape"
+          },
+          "why": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "PreviewRead",
+        "description": "`/api/preview/{project}/{unit}` — one unit's preview, and the way into it while it is live.\nA unit no preview can address, or a deployment that runs none, answers `state`, `live`,\n`can_start` and `why` alone; `can_start` and `stale` are judged per read, from the deployment\nand the forge, never read from the record (`preview/demand.py`)."
+      },
+      "PreviewService": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "from_change": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Change"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "PreviewService",
+        "description": "One exposed service of a live preview: its door, which carries a key that opens this unit\nonly, for minutes — never the panel's credential."
+      },
       "ProductDocument": {
         "properties": {
           "path": {
@@ -6115,6 +7213,114 @@
         "title": "ProductSearchRead",
         "description": "`/api/product/{project}/search` — one product's published knowledge (its requirements, the\ndecisions recorded in its documents, the documents and its board's cards), searched with `q`\nand a `limit`, in the product owner's own ranking. `degraded` says why the semantic stage did\nnot run or ran on part of the index — or that the deployment turned the search off and nothing\nwas searched — and is `\"\"` when it ran whole; never silence. A blank `q` finds nothing. A line\nof a conversation and a conversation's distillate are never returned."
       },
+      "ProjectRow": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Path"
+          },
+          "tracker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracker"
+          },
+          "forge": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Forge"
+          },
+          "ci": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci"
+          },
+          "board": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "box": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Box"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "ProjectRow",
+        "description": "One project this deployment runs: each axis's kind, whether pickup is on, and the box's\nverdict beside it (`box_prove.health`) — the two are one answer about whether a card is taken.\n`board` is the board number its tracker names, as the registry spells it."
+      },
+      "ProjectsRead": {
+        "items": {
+          "$ref": "#/components/schemas/ProjectRow"
+        },
+        "type": "array",
+        "title": "ProjectsRead",
+        "description": "`/api/projects` — the projects this deployment runs, in the registry's order."
+      },
       "PromoteBody": {
         "properties": {
           "approver": {
@@ -6142,6 +7348,71 @@
           "version"
         ],
         "title": "PromoteBody"
+      },
+      "PromoteRead": {
+        "properties": {
+          "latest_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Tag"
+          },
+          "suggestions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions"
+          },
+          "approvers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approvers"
+          },
+          "tag_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Prefix"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "PromoteRead",
+        "description": "`/api/promote/{project}/{issue}` — what the production approval asks: the last release, the\nnext version of each bump, and who may approve it."
       },
       "PullRequestDetail": {
         "properties": {
