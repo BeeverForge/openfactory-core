@@ -55,6 +55,9 @@ line on that conversation — behind the turn in progress, never inside one.
                         there and said it is right, and the project does not let their word
                         release it, so the ROOM hears it, for a product admin (#448 slice 4); once
                         per card and run
+    imported            the import itself (`ProductModule.import_requirements`, #994) — the
+                        moment its one commit landed: what arrived, from where, how many were
+                        added, revised or kept beside an agreed one; to the room, once per import
 
 WHERE AN EVENT IS SAID (`conversation_for`). About a card: to the conversation its REQUESTER asked
 in — recorded on the card's delivery loop when the work was filed, from what they had staged
@@ -106,8 +109,10 @@ DELIVERED, CI_RED, PR_WAITING, PREVIEW_UP, DOCUMENT_INGESTED, CARD_MOVED, READY_
 MERGED = "merged"
 STAGED = "staged"
 TRIED = "tried"
+#: requirements arrived from somewhere else — an import landed (#994)
+IMPORTED = "imported"
 KINDS = (DELIVERED, CI_RED, PR_WAITING, PREVIEW_UP, DOCUMENT_INGESTED, CARD_MOVED,
-         READY_FOR_YOU, MERGED, STAGED, TRIED)
+         READY_FOR_YOU, MERGED, STAGED, TRIED, IMPORTED)
 
 #: Which producer tells each kind on this branch — "" for a kind whose producer lives elsewhere.
 #: The guard reads this, so a producer claimed here is a call that exists.
@@ -124,6 +129,8 @@ PRODUCERS = {
     MERGED: "openfactory/lifecycle/ports.py::tell",
     STAGED: "openfactory/lifecycle/ports.py::tell",
     TRIED: "openfactory/lifecycle/ports.py::tell",
+    # #994: the import itself, the moment its one commit landed
+    IMPORTED: "openfactory/product/module.py::import_requirements",
 }
 
 #: Whose loops these are.
@@ -528,6 +535,26 @@ def document_ingested(project, *, name: str, key: str = "", conversation: str = 
         conversation or room_of(project),
         voice.document_ingested(name=name, language=_language(project),
                                 agent_name=_agent(project))))
+
+
+def imported(project, *, ident: str, origin: str, counts: dict) -> bool:
+    """REQUIREMENTS ARRIVED FROM SOMEWHERE ELSE (#994): what arrived, from where, and how many were
+    added, revised or kept beside an agreed one — told ONCE to the product's room (`ident`, the
+    import's own id), in the product's language, naming the origin and never a person.
+
+    Its producer is the import itself (`ProductModule.import_requirements`), the moment its one
+    commit landed; a folder imported again the same day is the same import, and is not told
+    again."""
+    if not _speaks(project) or not str(ident or "").strip():
+        return False
+    from openfactory.product import voice
+
+    return _once(project, _event_id(IMPORTED, project, ident), lambda: (
+        room_of(project),
+        voice.imported(origin=origin, new=int(counts.get("new") or 0),
+                       revision=int(counts.get("revision") or 0),
+                       beside=int(counts.get("beside") or 0), language=_language(project),
+                       agent_name=_agent(project))))
 
 
 def card_moved(project, *, card: str, notice: str, event_id: str, title: str = "",

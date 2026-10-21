@@ -192,9 +192,12 @@ MUTATIONS = [
     # answers in, as `loops.md` is — else a private decision reaches another person's briefing
     ("the module builds the model with every loop, whoever's conversation it lives in",
      "openfactory/product/module.py",
+     # RE-PINNED 2026-10-21 (#994): the newest import joined the build's arguments after the loops
      "                module.project, corpus=ctx.corpus if ctx.available else None,\n"
-     "                loops_seen=lambda member: _loops_seen_in(member, conversation, member.name))",
-     "                module.project, corpus=ctx.corpus if ctx.available else None)"),
+     "                loops_seen=lambda member: _loops_seen_in(member, conversation, member.name),\n"
+     "                imported=_the_import(module))",
+     "                module.project, corpus=ctx.corpus if ctx.available else None,\n"
+     "                imported=_the_import(module))"),
     ("the model reads the whole ledger even when it is handed the conversation's agenda",
      "openfactory/product/model.py",
      # RE-PINNED 2026-10-11 (#564): the facts leave out what a breakdown did not file

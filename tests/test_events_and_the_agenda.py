@@ -961,6 +961,12 @@ def test_every_WIRED_producer_calls_its_event_and_the_unwired_ones_say_so():
     assert "announce(project, delivered=delivered, cards=mine)" in deliver
     assert 'if action == "deliver":' in ports and "loops.announce_what_it_completes(self.project" in ports
     assert "events._tell(project, id=events._event_id(events.DELIVERED" in loops
+    # #994 wired the import's: the import itself, the moment its one commit landed
+    module = (ROOT / "openfactory/product/module.py").read_text()
+    start = module.index("    def import_requirements(")
+    assert events.PRODUCERS[events.IMPORTED] == (
+        "openfactory/product/module.py::import_requirements")
+    assert "events.imported(" in module[start:module.index("\n    def ", start + 10)]
     assert set(events.PRODUCERS) == set(events.KINDS)
 
 
@@ -1145,7 +1151,9 @@ _TELLING = {"door": {"announce", "announce_now", "report", "_admit", "tell"},
                        # #448 slice 4 — they tried it and say it is right: the settling stage
                        "tried_and_right",
                        # #448 slice 6 — the same three, as the card's door's port says them
-                       "went_in", "to_try_at_the_stage", "tried_it_right"}}
+                       "went_in", "to_try_at_the_stage", "tried_it_right",
+                       # #994 — requirements arrived from somewhere else: the import itself
+                       "imported"}}
 _PRODUCERS = {"openfactory/product/door.py", "openfactory/product/events.py",
               "openfactory/runtime/temporal/activities.py", "openfactory/product/engine.py",
               # #269: a document the ingestion READ — its name is the file's path, and the
@@ -1157,7 +1165,10 @@ _PRODUCERS = {"openfactory/product/door.py", "openfactory/product/events.py",
               "openfactory/lifecycle/ports.py",
               # #414: a delivery a card completed — the door's `Loops("deliver")` announces it and
               # closes its loop where the card's other promises close (`loops.announce`)
-              "openfactory/lifecycle/loops.py"}
+              "openfactory/lifecycle/loops.py",
+              # #994: an import that landed — the import itself tells it, after its one commit; a
+              # transport hands over a folder and a yes, never what is said or to whom
+              "openfactory/product/module.py"}
 
 
 def test_ONLY_the_factorys_own_producers_tell_the_door_an_event():

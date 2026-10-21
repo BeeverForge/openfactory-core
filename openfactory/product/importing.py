@@ -1108,6 +1108,137 @@ def record_of(root: Path, ident: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def newest(root: Path) -> dict | None:
+    """The record of the newest import in the checkout at `root` — by when it landed — or None
+    when nothing was ever imported there (#994). A record that cannot be read is skipped and said;
+    it is never the newest by default."""
+    from openfactory.policy.context_writes import IMPORTS, import_record
+
+    folder = Path(root) / IMPORTS
+    if not folder.is_dir():
+        return None
+    found = []
+    for where in sorted(folder.iterdir()):
+        if not import_record(where.name):
+            continue
+        record = record_of(Path(root), where.name)
+        if record is not None:
+            found.append((str(record.get("landed_at") or ""), where.name, record))
+    return max(found)[2] if found else None
+
+
+#: What an import left open, by kind (#994): a question still to ask — the requirement's own, or
+#: one the folder brought — a decision a document it landed raises, and a text kept beside an
+#: agreed requirement, waiting for a yes.
+QUESTION, DECISION, CHANGE = "question", "decision", "change"
+
+
+@dataclass(frozen=True)
+class Open:
+    """One thing an import left open — said without a name: `ask` is who the record says should
+    answer, and only ever compared, never shown to anybody else (`agenda.from_the_import`)."""
+
+    kind: str
+    text: str
+    requirement: int | None = None
+    ask: str = ""
+    path: str = ""
+
+    def as_dict(self) -> dict:
+        return {"kind": self.kind, "text": self.text, "requirement": self.requirement,
+                "ask": self.ask, "path": self.path}
+
+
+@dataclass
+class Review:
+    """The newest import, as the product stands NOW (#994): where it came from and when, how many
+    of the requirements it landed are still proposed and how many were agreed since, the order the
+    record suggests (of the ones still to review), where the design is, and what is still open."""
+
+    id: str
+    origin: str
+    landed_at: str
+    counts: dict[str, int]
+    landed: list[int]
+    proposed: list[int]
+    agreed: list[int]
+    order: list[int]
+    design: str
+    open: list[Open]
+
+    @property
+    def under_review(self) -> bool:
+        """Whether the import is still a review to hold: a requirement it landed is still waiting
+        for its yes, or a text it kept beside an agreed one is."""
+        return bool(self.proposed) or any(o.kind == CHANGE for o in self.open)
+
+    def as_dict(self) -> dict:
+        return {"id": self.id, "origin": self.origin, "landed_at": self.landed_at,
+                "counts": dict(self.counts), "landed": list(self.landed),
+                "proposed": list(self.proposed), "agreed": list(self.agreed),
+                "order": list(self.order), "design": self.design,
+                "under_review": self.under_review, "open": [o.as_dict() for o in self.open]}
+
+
+def review(record: dict, corpus, *, decisions=None) -> Review:
+    """What `record` — an import's — leaves open against `corpus`, the product's requirements as
+    they are now. `decisions(path)` answers the decisions a document the import landed raises, as
+    the documents' pass read them; None reads none.
+
+    WHAT IS OPEN IS READ, NEVER STORED. A question is open while the requirement it is about is
+    still waiting for its yes; a question about no requirement, and a document's decision, while
+    the import is still a review — any requirement it landed still proposed; a text kept beside an
+    agreed requirement while that requirement is still the agreed one. Nothing here is closed by a
+    clock or by a person ticking it: the corpus moving is what closes it."""
+    from openfactory.product.corpus import _bullets, _section
+
+    rows = [r for r in record.get("requirements") or [] if isinstance(r, dict)]
+    landed = [int(r["number"]) for r in rows if r.get("kind") in (NEW, REVISION)]
+    by_number = {r.number: r for r in getattr(corpus, "requirements", None) or []}
+
+    def waiting(n: int) -> bool:
+        r = by_number.get(n)
+        return r is not None and r.is_live and not r.is_promise
+
+    proposed = [n for n in landed if waiting(n)]
+    agreed = [n for n in landed if (r := by_number.get(n)) is not None and r.is_promise]
+    out: list[Open] = []
+    for n in proposed:
+        for asked in _bullets(_section(by_number[n].body, "Open questions")):
+            out.append(Open(QUESTION, asked, requirement=n))
+    for row in rows:
+        if row.get("kind") != BESIDE:
+            continue
+        n = int(row.get("number") or 0)
+        if (r := by_number.get(n)) is not None and r.is_promise:
+            out.append(Open(CHANGE, str(row.get("title") or r.title), requirement=n,
+                            path=str(row.get("path") or "")))
+    open_review = bool(proposed) or any(o.kind == CHANGE for o in out)
+    for q in record.get("questions") or []:
+        if not isinstance(q, dict) or not str(q.get("text") or "").strip():
+            continue
+        about = q.get("requirement")
+        still = waiting(int(about)) if isinstance(about, int) else open_review
+        if still:
+            out.append(Open(QUESTION, str(q["text"]),
+                            requirement=int(about) if isinstance(about, int) else None,
+                            ask=str(q.get("ask") or "")))
+    if decisions is not None and open_review:
+        for d in record.get("documents") or []:
+            path = str((d or {}).get("path") or "") if isinstance(d, dict) else ""
+            if not path:
+                continue
+            for said in decisions(path) or []:
+                out.append(Open(DECISION, str(said), path=path))
+    counts = dict(record.get("counts") or {})
+    return Review(id=str(record.get("id") or ""), origin=str(record.get("origin") or ""),
+                  landed_at=str(record.get("landed_at") or ""),
+                  counts={k: int(counts.get(k) or 0) for k in REQUIREMENT_KINDS},
+                  landed=landed, proposed=proposed, agreed=agreed,
+                  order=[n for n in record.get("order") or [] if n in proposed],
+                  design=str(record.get("design") or ""), open=out)
+
+
 # ── said ─────────────────────────────────────────────────────────────────────────────────────────
 
 def lines(the_plan: Plan, *, language: str | None = None) -> list[str]:
@@ -1311,6 +1442,13 @@ def _land_failed(done: Landed, *, language: str | None = None) -> str:
 
 __all__ = [
     "BESIDE",
+    "CHANGE",
+    "DECISION",
+    "QUESTION",
+    "Open",
+    "Review",
+    "newest",
+    "review",
     "Imported",
     "HISTORY",
     "IMPORTED_FOLDER",

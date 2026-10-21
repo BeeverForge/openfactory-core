@@ -13,6 +13,8 @@ WHAT IT SAYS, in the order a line is admitted under the bound:
     not read       every gap the model names — unreadable is never absence (ADR-0041)
     documents      the context repository's documents that could not be read (#269) — named
                    only when the turn may read them, counted otherwise
+    imported       where the requirements came from (#994): the newest import, what it brought
+                   and how much of it is still proposed — while it is a review to hold
     moving         the cards the factory is building, one line
     in production  each member's newest release tag, one line
     parked         a job stopped on a person, with whether the tech-lead has diagnosed it
@@ -97,6 +99,8 @@ DELIVERED_DAYS = 7
 #: How much of a card's title, and of a decision's label, rides on its line.
 TITLE_CHARS = 70
 LABEL_CHARS = 120
+#: How much of where an import came from rides on its line (#994).
+ORIGIN_CHARS = 60
 
 #: Stopped, and waiting on a person to move — the jobs the tech-lead diagnoses.
 PARKED = ("on_hold", "needs_refinement")
@@ -162,7 +166,7 @@ def render(model: ProductModel, *, speaker: str = "", raw: bool = False,
     now = now or datetime.now(UTC)
     say = _Say(Names(model.people, speaker=speaker))
     facts = [*_not_read(model, say), *_documents(model, say, audience),
-             *_moving(model), *_in_production(model, say),
+             *_imported(model, say, now), *_moving(model), *_in_production(model, say),
              *_parked(model, say, raw=raw), *_at_a_gate(model, say, raw=raw),
              *_waiting(model, say), *_previews(model, say), *_delivered(model, say, now)]
     said = [(line.kind, _said(line, read=model.read_at, now=now)) for line in facts]
@@ -221,6 +225,35 @@ def _documents(model: ProductModel, say: _Say, audience: str) -> Iterator[_Line]
                                                f"be read, not named here")
     yield _Line("documents", body + " — documents.md says why", "document records", "read",
                 str(documents.get("checked_at") or ""))
+
+
+def _imported(model: ProductModel, say: _Say, now: datetime) -> Iterator[_Line]:
+    """Where the product's requirements came from (#994), read from the newest import's record:
+    the origin, how many it brought, how many of them are still proposed and how many were agreed
+    since, where the design is — while the import is still a review to hold, or landed within
+    `DELIVERED_DAYS`. The detail — the order the record suggests and what is still open — is
+    `imported.md`."""
+    imported = model.imported
+    if not imported:
+        return
+    landed = _when(str(imported.get("landed_at") or ""))
+    recent = landed is not None and (now - landed).days < DELIVERED_DAYS
+    if not imported.get("under_review") and not recent:
+        return
+    counts = imported.get("counts") or {}
+    proposed, agreed = len(imported.get("proposed") or []), len(imported.get("agreed") or [])
+    body = (f"Requirements arrived from «{say(imported.get('origin'), ORIGIN_CHARS)}» — "
+            f"{counts.get('new', 0)} new, {counts.get('revision', 0)} revised, "
+            f"{counts.get('beside', 0)} kept beside an agreed one; {proposed} still proposed, "
+            f"{agreed} agreed since")
+    if imported.get("design"):
+        body += f"; design: {say(imported['design'], TITLE_CHARS)}"
+    if imported.get("under_review"):
+        # THE TAIL IS WHAT THE ROLE ACTS ON, so it is kept short enough never to be the part cut
+        body += (f"; a review to hold: {len(imported.get('open') or [])} still open, the order "
+                 f"in imported.md")
+    yield _Line("imported", body, "import record", "imported",
+                str(imported.get("landed_at") or ""))
 
 
 def _moving(model: ProductModel) -> Iterator[_Line]:

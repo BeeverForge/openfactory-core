@@ -215,7 +215,8 @@ def _the_read_model(module, root) -> dict:
             conversation = str(getattr(module, "_conversation", "") or "")
             module._product_model = read_model.build(
                 module.project, corpus=ctx.corpus if ctx.available else None,
-                loops_seen=lambda member: _loops_seen_in(member, conversation, member.name))
+                loops_seen=lambda member: _loops_seen_in(member, conversation, member.name),
+                imported=_the_import(module))
         except Exception as exc:  # noqa: BLE001 — the pack it always wrote still goes out
             log.warning("[%s] the product's read model could not be built (%s) — the facts "
                         "pack goes without it", getattr(module.project, "name", "?"), exc,
@@ -229,6 +230,21 @@ def _the_read_model(module, root) -> dict:
     # whoever else may read the pack (the product owner's decision of 2026-09-25)
     audience = getattr(module, "_documents_audience", INTERNAL)
     return {"model": model, "speaker": module._facts_for if own else "", "audience": audience}
+
+
+def _the_import(module) -> dict | None:
+    """The newest import as this turn's model carries it (#994), or None — nothing was imported,
+    or a stand-in that carries no checkout. A record that cannot be read costs this field only."""
+    under = getattr(module, "import_under_review", None)
+    if not callable(under):
+        return None
+    try:
+        found = under()
+    except Exception as exc:  # noqa: BLE001 — the model goes out without it, and the log says why
+        log.warning("[%s] the newest import could not be read (%s)",
+                    getattr(module.project, "name", "?"), exc, exc_info=True)
+        return None
+    return found.as_dict() if found is not None else None
 
 
 def _the_sight(module):
@@ -3668,7 +3684,33 @@ class ProductModule:
                               act="import requirements", cause=exc)
         if result.ok and not result.existed:
             self._refresh_after_import(list(getattr(result, "landed", []) or []))
+            # TOLD ONCE, TO THE ROOM (#994): what arrived, from where, and how many — after the
+            # knowledge is brought up to it, so a question asked on hearing it finds what arrived
+            from openfactory.product import events
+
+            the_plan = getattr(result, "plan", None)
+            if the_plan is not None:
+                events.imported(self.project, ident=the_plan.id, origin=the_plan.origin,
+                                counts={k: the_plan.count(k) for k in ("new", "revision",
+                                                                       "beside")})
         return result
+
+    def import_under_review(self):
+        """The newest import into this product, as the product stands now (#994): an
+        `importing.Review` — where its requirements came from, how many are still proposed, the
+        order its record suggests, where the design is and what is still open — or None when
+        nothing was ever imported. Read from the checkout's record and the corpus, never stored:
+        the corpus moving is what closes what was open."""
+        from openfactory.product import importing
+
+        ctx = self.context()
+        if not ctx.docs_path:
+            return None
+        record = importing.newest(Path(ctx.docs_path))
+        if record is None:
+            return None
+        return importing.review(record, ctx.corpus if ctx.available else None,
+                                decisions=_decisions_in_documents(self.project))
 
     def _refresh_after_import(self, landed: list[str]) -> None:
         """THE PRODUCT'S KNOWLEDGE, BROUGHT UP TO WHAT LANDED — the documents read into the
@@ -6615,6 +6657,29 @@ def _imported_and_noted(project, **land):
                 log.warning("the import's REQ-%04d was not noted in the write sequence",
                             row.number, exc_info=True)
     return result
+
+
+def _decisions_in_documents(project):
+    """`path → [decision]`: what a document of the product raises, as the documents' pass read it
+    (`documents/reading.py`, a model's reading, marked as one) — what an import's review asks
+    about the documents it landed (#994). A document not read yet raises nothing yet."""
+    from openfactory.product.documents.store import Store
+    from openfactory.product.key import product_key
+
+    store = Store(product_key(project))
+    try:
+        paths = store.index().get("paths") or {}
+    except (OSError, ValueError) as exc:
+        log.warning("[%s] the documents' index could not be read (%s) — an import's review asks "
+                    "about no document's decisions this time", getattr(project, "name", "?"), exc)
+        paths = {}
+
+    def decisions(path: str) -> list[str]:
+        entry = paths.get(path) or {}
+        record = store.get(path, str(entry.get("digest") or "")) if entry else None
+        return [d.text for d in (record.decisions if record is not None else [])]
+
+    return decisions
 
 
 def _today() -> str:

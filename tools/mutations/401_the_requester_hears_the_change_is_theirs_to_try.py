@@ -91,8 +91,9 @@ MUTATIONS = [
 
     ("the panel's agenda action does not pass the project's language",
      "openfactory/actions/catalog.py",
-     '    language = getattr(proj, "language", None)\n    found = agenda.pending(',
-     '    language = None\n    found = agenda.pending('),
+     # RE-PINNED 2026-10-21 (#994): the ledger's items and the import's are one list now
+     '    language = getattr(proj, "language", None)\n    found = [*agenda.pending(',
+     '    language = None\n    found = [*agenda.pending('),
 
     ("the panel draws its own English chip instead of the server's words",
      "openfactory/api/panel.html",

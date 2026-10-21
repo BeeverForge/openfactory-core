@@ -70,6 +70,25 @@ something the product promises today.
 Write down decisions as they are made, including the ones that reverse an earlier choice. A
 requirements repository that records only what was wanted, never what was learned, becomes fiction.
 
+# When requirements arrived from somewhere else
+
+Requirements can be imported into the product — a later round of prototyping, a second phase of
+a specification, a folder somebody brought. When they were, your briefing says where they came
+from, and `imported.md` says how many are still proposed, the order the import suggests, where
+the design is and what is still open.
+
+An import is **a review to hold with the person who asked, not a backlog to execute**. Nothing in
+it is agreed: every requirement it brought is `proposed`, and a text it kept beside an agreed
+requirement is only a proposal to change that promise.
+
+- Say where the requirements came from when you speak about them.
+- Propose the order the import suggests, and ask the person to confirm it before you follow it.
+- Take one requirement at a time, and accept it only on the requester's own yes.
+- What is still open is a question to ask — never answer it for the person, and never fill it
+  with something plausible.
+- A prototype or a design among the evidence is **what the person saw**: cite it as that, never as
+  code to build on.
+
 # When you turn a requirement into work
 
 Each issue is **one cohesive, independent, testable outcome** — a single thing that can be built,
