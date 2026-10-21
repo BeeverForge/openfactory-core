@@ -20,14 +20,17 @@ The claims, one cut each:
   row whose runner is not installed, and fails the refusal the first job would meet. It asks only
   the axes `box_launch_credentials` asks.
 
-The docs test (#903 task 10) adds its own row: "the docs test compares against a literal rather
-than the export".
+- THE DOCS (`configuration.md`'s "A remote box", `07-extensibility.md` §10.1). They name the
+  declaration, the doctor's words, the doctor's line and the refusal as the code exports them, so
+  renaming any one of the four in the code turns the docs test red until the docs follow. A docs
+  test that compared against a literal of its own would stay green under each of these cuts.
 """
 
 DECLARES = "tests/test_a_launcher_declares_whether_it_resolves_credential_references.py"
 NOTHING = "tests/test_a_launcher_that_declares_nothing_is_never_handed_a_stored_secret.py"
 RESOLVES = "tests/test_a_launcher_that_resolves_references_is_handed_the_reference.py"
 DOCTOR_TEST = "tests/test_the_doctor_says_what_each_launcher_is_handed.py"
+DOCS_TEST = "tests/test_the_docs_say_what_each_launcher_is_handed.py"
 
 TEST = NOTHING
 
@@ -106,4 +109,22 @@ MUTATIONS = [
      "            if not (declared or problem) and (reference := credentials._held_in_a_store(",
      "            if (declared or problem) and (reference := credentials._held_in_a_store(",
      DOCTOR_TEST),
+
+    # ── the docs ───────────────────────────────────────────────────────────────────────────────
+    ("the docs test compares against a literal rather than the export: the declaration's "
+     "attribute", REGISTRY,
+     "RESOLVES_REFERENCES_ATTR = \"resolves_references\"",
+     "RESOLVES_REFERENCES_ATTR = \"resolves_refs\"", DOCS_TEST),
+    ("the docs test compares against a literal rather than the export: the doctor's words for "
+     "values", DOCTOR,
+     "    \"values\": \"is handed values: short-lived minted tokens only\",",
+     "    \"values\": \"is handed values: minted tokens only\",", DOCS_TEST),
+    ("the docs test compares against a literal rather than the export: the doctor's line name",
+     DOCTOR,
+     "lambda: Finding(\"launcher_credentials\", *probes.launcher_credentials())",
+     "lambda: Finding(\"launcher_creds\", *probes.launcher_credentials())", DOCS_TEST),
+    ("the docs test compares against a literal rather than the export: the refusal sentence",
+     CREDENTIALS,
+     "f\"{RESOLVES_REFERENCES}, so it is handed only short-lived minted tokens and \"",
+     "f\"{RESOLVES_REFERENCES}, so it is handed only minted tokens and \"", DOCS_TEST),
 ]
