@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 
 from openfactory.adapters.board_db import connect, now_iso
-from openfactory.adapters.tracker.base import column_key
+from openfactory.adapters.tracker.base import column_keys
 from openfactory.contracts import JobState
 from openfactory.contracts.refs import canonical_ref
 
@@ -301,19 +301,24 @@ class LocalBoard:
                    needs_person: bool | None = None) -> bool:
         """Move a card to whichever column this board maps `state` to.
 
-        THROUGH `column_key`, the platform's ONE resolution for every tracker and every board, so
-        the `pr_open` that a person is blocking on lands in Needs Action here exactly as it does on
-        a vendor's board (#166)."""
-        key = column_key(state, needs_person=needs_person)
-        if not key:
+        THROUGH `column_keys`, the platform's ONE resolution for every tracker and every board, so
+        the `pr_open` that a person is blocking on lands in Needs Review here exactly as it does on
+        a vendor's board (#166, #753) — and in Needs Action on a board that has no Needs Review
+        row, the contract's `FALLS_BACK_TO`, which is every `board.db` 0.6's setup wrote."""
+        keys = column_keys(state, needs_person=needs_person)
+        if not keys:
             return False
         with connect(self._db(), write=True) as conn:
-            col = conn.execute("SELECT name FROM columns WHERE project = ? AND key = ?",
-                               (self.project, key)).fetchone()
-            if col is None:
+            key = next((k for k in keys if conn.execute(
+                "SELECT 1 FROM columns WHERE project = ? AND key = ?",
+                (self.project, k)).fetchone() is not None), None)
+            if key is None:
                 log.warning("%s's board declares no %r column — %s is not moved",
-                            self.project, key, canonical_ref(issue))
+                            self.project, keys[-1], canonical_ref(issue))
                 return False
+            if key != keys[0]:
+                log.warning("%s's board declares no %r column — %s goes to %r instead",
+                            self.project, keys[0], canonical_ref(issue), key)
             moved = conn.execute(
                 "UPDATE cards SET column_key = ?, updated_at = ? WHERE project = ? AND ref = ?",
                 (key, now_iso(), self.project, int(canonical_ref(issue) or 0))).rowcount
