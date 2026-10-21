@@ -22,7 +22,8 @@ The claims, each a group of rows (the numbers are the plan's, `ai/tasks/todo.md`
   19-20. a host CLI with no store named still keeps its records beside `registry.yaml`, and the
      deployment's own metrics inference is unchanged;
   and the deployment's name, the product, the correlation id, and the people store's read under
-  the deployment-wide key the records share.
+  the deployment-wide key the records share; and the cost dashboard's project selector and its
+  default view, which an audit row under a typed or deployment-wide key moved (fixed 2026-10-21).
 
 FOUR GUARDS WERE WRITTEN WITH THIS PLAN (2026-10-20), each for a row nothing held: the record of
 a call raising outside the row's guard, and a store's other kinds read as records — both rows
@@ -47,6 +48,7 @@ _APP = "openfactory/api/app.py"
 _FORGET = "openfactory/product/forget.py"
 _REGISTRY = "openfactory/observability/registry.py"
 _SQLITE = "openfactory/observability/sqlite_metrics.py"
+_DASHBOARD = "openfactory/api/metrics_view.py"
 
 _STORE = "tests/test_the_audit_record_is_kept_in_the_metrics_store.py::"
 _LIST = "tests/test_openfactory_audit_lists_who_did_what.py"
@@ -333,4 +335,10 @@ MUTATIONS = [
      '            " ORDER BY ts DESC, sk DESC LIMIT ?",\n'
      "            (project, kind, int(time.time()), max(0, limit)))\n",
      _STORE + "test_audit_rows_under_the_deployment_key_do_not_hide_a_registered_person"),
+
+    # the dashboard reads the whole store, and its selector is built from the rows' keys
+    ("the dashboard's selector lists the keys of audit rows", _DASHBOARD,
+     '                       if (r.get("pk") or r.get("project")) and r.get("kind") != "audit"})\n',
+     '                       if (r.get("pk") or r.get("project"))})\n',
+     _STORE + "test_audit_rows_in_the_store_do_not_change_the_cost_dashboard"),
 ]

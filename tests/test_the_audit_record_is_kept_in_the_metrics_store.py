@@ -24,7 +24,8 @@ made and written off the event loop, and a cancel while it is made still leaves 
 call that named no project share the people store's `_deployment_` key and do not crowd a
 registered person out of its read (Q7). A host CLI with no store named keeps its records in
 `audit.db` beside `registry.yaml`, and the deployment's own metrics sink is still inferred `null`
-there.
+there. The cost dashboard, which reads the whole store, lists no project an audit row alone is
+under and opens on the same project, spend and autonomy block it showed before the rows landed.
 """
 
 from __future__ import annotations
@@ -743,3 +744,32 @@ async def test_audit_rows_under_the_deployment_key_do_not_hide_a_registered_pers
     assert [p.id for p in reread.people()] == ["ana@acme.example"], \
         "the audit rows scrolled the account out of the people store's read"
     assert reread.login("ana@acme.example", password), "and the password still opens a session"
+
+
+async def test_audit_rows_in_the_store_do_not_change_the_cost_dashboard(store):
+    """The dashboard reads the whole store (`metrics_view.cost_dashboard` scans every row), and
+    its project selector was every key any row was under, kind unread — with the FIRST of them
+    the project shown when none is named. An audit row is written for every call, under the
+    project the caller TYPED, registered or not, refused or not, and under `_deployment_` when it
+    named none. Measured on this branch before the fix (2026-10-21): one refused `product_status`
+    on `aaa-typo` and one unknown action made the selector `['_deployment_', 'aaa-typo', 'books']`
+    and the default view `_deployment_`'s, $0.00 spent, on a store whose only spend is `books`'
+    $0.50. Read through the real sqlite store and the dashboard's real door."""
+    from openfactory.api.metrics_view import cost_dashboard
+    from openfactory.observability.autonomy import autonomy
+    from openfactory.observability.metrics import MetricRecord
+
+    store.record(MetricRecord(project="books", ticket="#1", ts="2026-10-20T09:00:00+00:00",
+                              kind="agent_run", role="executor", cost_usd=0.5))
+    spend_only = store.scan()
+    by = actions.Actor(id="alice", via="panel")
+
+    await actions.perform("product_status", by=by, project="aaa-typo")
+    await actions.perform("no_such_action", by=by)
+
+    assert {row.get("project") for row in _audit_rows(store)} == {"aaa-typo", "_deployment_"}, \
+        "the premise: both calls left their audit row in the store the dashboard reads"
+    shown = cost_dashboard()
+    assert (shown["projects"], shown["project"], shown["totals"]["cost_usd"]) == (
+        ["books"], "books", 0.5), "an audit row moved the dashboard's selector or its default view"
+    assert shown["autonomy"] == autonomy(spend_only, "books"), "the autonomy block read audit rows"
