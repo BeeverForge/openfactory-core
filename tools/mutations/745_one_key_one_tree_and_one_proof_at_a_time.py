@@ -56,6 +56,20 @@ _SYNC_COMMENT = (
     "byte.\n"
 )
 
+_CLEANUP = (
+    "    finally:\n"
+    "        try:\n"
+    "            if workspace is not None:\n"
+    "                box.cleanup(workspace=workspace)\n"
+    "        except Exception as exc:  # noqa: BLE001 — a leaked container is a warning, not a "
+    "failure\n"
+    "            log.warning(\"the proof's box could not be cleaned up (%s)\", str(exc)[:160])\n"
+    "        finally:\n"
+    "            # after the cleanup: the lock covers the whole life of the tree, removal "
+    "included\n"
+    "            _let_go(held)\n"
+)
+
 MUTATIONS = [
     # ── 1. two keys, two branches ───────────────────────────────────────────────────────────────
     ("every proof is prepared on the one shared branch again, so two projects meet at one tree",
@@ -111,6 +125,20 @@ MUTATIONS = [
      "included\n"
      "            _let_go(held)\n",
      "        finally:\n            pass\n", TWICE),
+
+    ("the key is let go before the box is cleaned up, so a second proof is let in while the "
+     "first one's tree or container is still being removed",
+     PROVE,
+     _CLEANUP,
+     "    finally:\n"
+     "        _let_go(held)\n"
+     "        try:\n"
+     "            if workspace is not None:\n"
+     "                box.cleanup(workspace=workspace)\n"
+     "        except Exception as exc:  # noqa: BLE001 — a leaked container is a warning, not a "
+     "failure\n"
+     "            log.warning(\"the proof's box could not be cleaned up (%s)\", str(exc)[:160])\n",
+     TWICE),
 
     ("a checkout sync that raises keeps the key, so every later proof of it is refused",
      PROVE,

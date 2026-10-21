@@ -238,6 +238,37 @@ def test_a_proof_that_ended_or_raised_leaves_its_key_free(tmp_path, monkeypatch)
     assert after_a_raise is None, repr(after_a_raise)
 
 
+def test_the_key_stays_held_while_the_box_is_cleaned_up(tmp_path, monkeypatch):
+    """AC2, to the end of the box's life: the cleanup removes the tree (`worktree remove --force`,
+    `rmtree`) or the container, so a second proof let in before it ends prepares the same branch
+    at the same path and has it removed under it. Before review round 1 of #745 nothing held this
+    order: the release moved in front of `box.cleanup` left every test green."""
+    _proofs_here(tmp_path, monkeypatch)
+    seen: list = []
+
+    class _Box:
+        def prepare(self, **_kw):
+            return SimpleNamespace(path=str(tmp_path))
+
+        def cleanup(self, **_kw):
+            if not seen:
+                seen.append("asking")
+                seen.append(_on_another_thread("acme", tmp_path, sandbox="container"))
+
+        def harness_path(self, name):
+            return name
+
+    monkeypatch.setattr(sandboxes, "installed_box_traits",
+                        lambda _kind: SimpleNamespace(honours_image=True))
+    monkeypatch.setattr(sandboxes, "build_sandbox", lambda *_a, **_kw: _Box())
+    with _prove("acme", tmp_path, sandbox="container"):
+        pass
+
+    assert len(seen) == 2, f"the box was never cleaned up: {seen}"
+    assert isinstance(seen[1], box_prove.ProveBusy), (
+        f"a proof of acme started while the first one's box was being removed: {seen[1]!r}")
+
+
 def test_a_proof_whose_checkout_could_not_be_resolved_leaves_its_key_free(tmp_path, monkeypatch):
     """AC2: the lock is taken before the checkout is synced, so a sync that raises (an unreachable
     remote, a full disk) happens while the key is held. It must let the key go, or every later
