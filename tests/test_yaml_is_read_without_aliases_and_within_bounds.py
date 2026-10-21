@@ -18,15 +18,16 @@ WHAT IS HELD HERE, READ FROM THE CODE:
    the files the package ships go through the door too (a test below reads each of them).
 2. EVERY READER. The functions that read through the door are listed from the same trees, and each
    has a row in `READERS` saying how a document reaches it and how it answers a file it cannot
-   read — so a new reader is red until it has one. An aliased document, a deeply nested one and an
-   oversized one are fed to every row, and each must be refused by name, inside the reader's own
+   read — so a new reader is red until it has one. An aliased document, one long value repeated
+   by aliases, a deeply nested one and an oversized one are fed to every row, and each must be refused by name, inside the reader's own
    contract (a sentence, a finding, a refusal it raises — or its absent value, with the refusal in
    the log), in under a second. The aliased document is the same for every reader and answered two
    ways, which holds which loader each reader uses: a reader of the core's own files names the
    anchor, a reader of a compose file or a CI pipeline (formats whose specification has anchors)
    names the size its aliases come to.
 3. THE DOOR ITSELF: each bound at its limit and on either side, the sentences word for word, an
-   alias counted at the size and the depth of what it repeats, a value that contains itself.
+   alias counted at the size, the depth and the bytes of what it repeats, a value that contains
+   itself.
 4. THE WRITER: what the core writes carries no alias, so it reads back through the door.
 """
 
@@ -69,7 +70,8 @@ from openfactory.product.cards import Rubric
 from openfactory.product.evaluation.battery import BatteryRefused, load_battery
 from openfactory.product.evaluation.run import FixtureRefused, fixture_name
 from openfactory.product.loader import DOCS_MANIFEST, _read_docs_manifest, parse_docs_manifest
-from openfactory.product.sight import read_system
+from openfactory.product.role import ProductRole
+from openfactory.product.sight import look, system_or_why
 from openfactory.registry import ProjectRegistry, seed_registry
 from openfactory.util import yaml_io
 
@@ -229,6 +231,7 @@ def _every_reader() -> set[str]:
 SAID = {
     "aliased": {"own": "an anchor (`&a`, line ",
                 "counting": "values once `*"},
+    "repeated": {"own": "an anchor (`&s`, line ", "counting": "bytes of values once `*s`"},
     "deep": {"own": "nested deeper than 100 levels", "counting": "nested deeper than 100 levels"},
     "oversized": {"own": "-byte ceiling a YAML file is read to",
                   "counting": "-byte ceiling a YAML file is read to"},
@@ -238,9 +241,15 @@ SAID = {
 #: the anchor by the core's own reader and past 200,000 by the counting one
 ALIASED = ("a: &a [x, x, x, x, x, x, x, x, x]\n"
            + "".join(f"{b}: &{b} [{', '.join(['*' + a] * 9)}]\n" for a, b in zip("abcde", "bcdef", strict=True)))
+#: one value of 100,000 bytes, repeated by 120 aliases: a 100 KB file whose values come to 12 MB
+#: once walked, refused at the anchor by the core's own reader and past 10 MB by the counting one
+#: (the shape of the review of #1012, a size smaller)
+REPEATED = "s: &s " + "a" * 100_000 + "\nl: [" + ", ".join(["*s"] * 120) + "]\n"
 DEEP = "deep: " + "[" * 150 + "]" * 150 + "\n"
 OVERSIZED = 'big: "' + "a" * yaml_io.MAX_BYTES + '"\n'
-DOCUMENTS = {"aliased": ALIASED, "deep": DEEP, "oversized": OVERSIZED}
+DOCUMENTS = {"aliased": ALIASED, "repeated": REPEATED, "deep": DEEP, "oversized": OVERSIZED}
+#: what `knowledge/system/tree.read_text` says of a file past its byte ceiling, before the door
+TREE_SAID = "-byte ceiling this layer reads"
 
 #: a reader that answers with what was refused, in its own words around the door's sentence
 SAYS = object()
@@ -407,10 +416,10 @@ READERS: dict[str, Reader] = {
                                _read_docs_manifest(tmp)[1], read_docs(str(tmp))[1])[1:]),
     "openfactory/product/onboard.py::_existing":
         Reader(lambda tmp, t, mp: product_onboard._existing(_put(tmp / DOCS_MANIFEST, t)), absent={}),
-    "openfactory/product/sight.py::read_system":
-        Reader(lambda tmp, t, mp: read_system(_put(tmp / okf.OKF_DIRNAME / SYSTEM_DIRNAME
-                                               / SYSTEM_FILE, t).parent.parent.parent),
-               absent=None, ceiling=True),
+    "openfactory/product/sight.py::system_or_why":
+        Reader(lambda tmp, t, mp: system_or_why(_put(tmp / okf.OKF_DIRNAME / SYSTEM_DIRNAME
+                                                     / SYSTEM_FILE, t).parent.parent.parent)[1],
+               ceiling=True),
     "openfactory/registry.py::ProjectRegistry._load_raw":
         Reader(lambda tmp, t, mp: _raised(lambda: ProjectRegistry(_put(tmp / "p.yaml", t))._load_raw(),
                                       ValueError)),
@@ -468,7 +477,7 @@ def test_every_reader_refuses_by_name_and_in_under_a_second(name, kind, tmp_path
     reader = READERS[name]
     tmp = tmp_path / "t"
     tmp.mkdir()
-    said = SAID[kind][reader.loader]
+    said = (TREE_SAID if kind == "oversized" and reader.ceiling else SAID[kind][reader.loader])
     caplog.set_level(logging.WARNING, logger=yaml_io.log.name)
     started = time.perf_counter()
     answer = reader.drive(tmp, DOCUMENTS[kind], monkeypatch)
@@ -517,6 +526,27 @@ def test_product_yaml_is_read_to_the_depth_limit_through_both_readers(levels, tm
                              f"{yaml_io.MAX_DEPTH} levels")
 
 
+def test_an_unreadable_system_map_is_a_blind_spot_the_role_is_told(tmp_path):
+    """Read as absent, a refused map said nothing to the role: it is a named line of the turn's
+    blind spots, which is what the role reads as "where the map is thin"."""
+    _put(tmp_path / okf.OKF_DIRNAME / SYSTEM_DIRNAME / SYSTEM_FILE, "a: &a [1]\nb: *a\n")
+    sight = look(docs_root=tmp_path, root=tmp_path, mounts=[])
+    rel = f"{okf.OKF_DIRNAME}/{SYSTEM_DIRNAME}/{SYSTEM_FILE}"
+    said = (f"the system map could not be read this turn: `{rel}` is not valid YAML: an anchor "
+            f"(`&a`, line 1): this file is read without anchors or aliases — write the value out "
+            f"where it is used — nothing it maps is known")
+    assert sight.system is None
+    assert any(line.startswith(said) for line in sight.blind), sight.blind
+    briefed = ProductRole._blind_spots_section(SimpleNamespace(sight=sight))
+    assert any(line.startswith(f"- {said}") for line in briefed), briefed
+
+
+def test_a_system_map_that_is_not_published_is_no_blind_spot(tmp_path):
+    assert system_or_why(tmp_path) == (None, "")
+    sight = look(docs_root=tmp_path, root=tmp_path, mounts=[])
+    assert not any("system map could not be read" in line for line in sight.blind)
+
+
 # ── 3. the door itself ──────────────────────────────────────────────────────────────────────────
 
 
@@ -559,7 +589,9 @@ def test_the_depth_limit_holds_at_the_limit_and_on_either_side(loader):
     started = time.perf_counter()
     with pytest.raises(yaml_io.YamlRefused):
         yaml_io.load(nested(5_000), loader=loader)
-    assert time.perf_counter() - started < 1.0
+    # PyYAML's scanner looks up to 1,024 characters ahead at every unclosed bracket on a line, so
+    # this costs about 0.4 s on an idle machine; refused at level 101 either way, never recursing
+    assert time.perf_counter() - started < 2.0
 
 
 def test_an_alias_counts_at_the_depth_of_what_it_repeats():
@@ -594,6 +626,43 @@ def test_an_alias_counts_at_the_size_of_what_it_repeats(monkeypatch):
                                   "repeats (line 2): a YAML file is read to 12 values")
 
 
+#: the shape of the review of #1012, whole: one value of 900 KB, repeated by 30,000 aliases, in a
+#: file under the byte ceiling — 27 GB once walked
+LONG = "s: &s " + "a" * 900_000 + "\nl: [" + ",".join(["*s"] * 30_000) + "]\n"
+
+
+def test_a_long_value_repeated_by_aliases_is_refused_by_the_bytes_it_comes_to():
+    assert len(LONG.encode()) < yaml_io.MAX_BYTES
+    started = time.perf_counter()
+    with pytest.raises(yaml_io.YamlRefused) as refused:
+        yaml_io.load(LONG, loader=yaml_io.CountingLoader)
+    # the scanner reads the 900 KB string once; the refusal comes at the twelfth alias of 30,000
+    assert time.perf_counter() - started < 2.0
+    assert str(refused.value) == (
+        "more than 10,000,000 bytes of values once `*s` is counted at the size of what it repeats "
+        "(line 2): a YAML file is read to 10,000,000 bytes of values")
+    with pytest.raises(yaml_io.YamlRefused, match=r"^an anchor \(`&s`, line 1\)"):
+        yaml_io.load(LONG)
+
+
+def test_the_bytes_of_the_values_hold_at_the_limit_and_one_past_it(monkeypatch):
+    monkeypatch.setattr(yaml_io, "MAX_EXPANDED_BYTES", 14)
+    # `s` 1, `aaaa` 4, `l` 1, and each `*s` the 4 it repeats: 14
+    assert yaml_io.load("s: &s aaaa\nl: [*s, *s]\n", loader=yaml_io.CountingLoader) == {
+        "s": "aaaa", "l": ["aaaa", "aaaa"]}
+    with pytest.raises(yaml_io.YamlRefused) as refused:
+        yaml_io.load("s: &s aaaa\nl: [*s, *s, *s]\n", loader=yaml_io.CountingLoader)
+    assert str(refused.value) == ("more than 14 bytes of values once `*s` is counted at the size "
+                                  "of what it repeats (line 2): a YAML file is read to 14 bytes "
+                                  "of values")
+    # no alias: the text itself, counted in bytes, not characters (`é` is two)
+    assert yaml_io.load("s: aaaa\nl: [éé, éé]\n") == {"s": "aaaa", "l": ["éé", "éé"]}
+    with pytest.raises(yaml_io.YamlRefused) as refused:
+        yaml_io.load("s: aaaa\nl: [éé, éé, x]\n")
+    assert str(refused.value) == ("more than 14 bytes of values (line 2): a YAML file is read to "
+                                  "14 bytes of values")
+
+
 def test_the_byte_ceiling_holds_at_the_limit_and_one_past_it(monkeypatch):
     monkeypatch.setattr(yaml_io, "MAX_BYTES", 20)
     assert yaml_io.load("a: " + "é" * 8 + "\n") == {"a": "é" * 8}       # 3 + 16 + 1 = 20 bytes
@@ -608,6 +677,8 @@ def test_the_byte_ceiling_holds_at_the_limit_and_one_past_it(monkeypatch):
 def test_the_ceilings_admit_what_the_readers_admit_and_stay_inside_the_interpreter():
     # the system layer reads a file to its own ceiling, and the door must not refuse it for size
     assert yaml_io.MAX_BYTES >= tree.READ_CEILING
+    # a document with no alias is never longer than its own values, so this bound is the aliases'
+    assert yaml_io.MAX_EXPANDED_BYTES >= yaml_io.MAX_BYTES
     # three frames a level while composing; a reader is never 600 frames deep already
     import sys
     assert 3 * yaml_io.MAX_DEPTH + 600 < sys.getrecursionlimit()

@@ -11,6 +11,11 @@ Each row below is one way that could come undone: a call site back on `yaml.safe
 reading an anchor, a bound or a count dropped, a reader swallowing the refusal or reading with the
 other loader, the log that keeps an absent value from being silent, and the writer that keeps what
 the core writes readable through the door. The guard must go red on each.
+
+The review of #1012 added the bytes of the values (2026-10-21): an alias of one long string counted
+as one value, so a file under the byte ceiling repeated 900 KB 30,000 times. Three rows hold that
+an alias weighs the bytes of what it repeats, and one that an unreadable system map is a blind
+spot the role is told of, not an absence said only in the log.
 """
 
 TEST = "tests/test_yaml_is_read_without_aliases_and_within_bounds.py"
@@ -90,11 +95,27 @@ MUTATIONS = [
      "openfactory/knowledge/system/text.py",
      "class _Loader(yaml_io.CountingLoader):\n", "class _Loader(yaml_io.Loader):\n"),
 
+    # re-pinned 2026-10-21: the load moved into `system_or_why`, one level deeper
     ("A READER OF THE CORE'S OWN FILES COUNTS ALIASES INSTEAD OF REFUSING THEM: the published "
      "system map with an anchor is read on every product turn",
      "openfactory/product/sight.py",
-     "        data = yaml_io.load(got.text)\n",
-     "        data = yaml_io.load(got.text, loader=yaml_io.CountingLoader)\n"),
+     "            data = yaml_io.load(got.text)\n",
+     "            data = yaml_io.load(got.text, loader=yaml_io.CountingLoader)\n"),
+
+    ("AN ALIAS OF A LONG VALUE WEIGHS ONE VALUE AGAIN: 900 KB repeated 30,000 times is read",
+     _DOOR, "        self._weigh(weight, event.start_mark, alias=event.anchor)\n", "        pass\n"),
+
+    ("a value's text is not weighed, so what an alias repeats weighs nothing",
+     _DOOR,
+     '                self._weigh(len(event.value.encode("utf-8", "surrogatepass")), '
+     'event.start_mark)\n',
+     "                pass\n"),
+
+    ("the bytes of the values are not bounded",
+     _DOOR, "        if self._bytes > MAX_EXPANDED_BYTES:\n", "        if False:\n"),
+
+    ("AN UNREADABLE SYSTEM MAP IS ABSENT AGAIN: the role is not told, only the log",
+     "openfactory/product/sight.py", "    if sight.system_unreadable:\n", "    if False:\n"),
 
     ("THE WRITER WRITES ALIASES: a value met twice is written as `&id001` and `*id001`, and the "
      "file the core wrote no longer reads back through the door",

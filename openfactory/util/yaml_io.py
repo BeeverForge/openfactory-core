@@ -23,17 +23,19 @@ TWO LOADERS, BOTH BOUNDED, chosen by whose format the file is:
   files (whose specification documents fragments as `x-…: &name` with `<<: *name`), CI pipelines,
   Kubernetes manifests, OpenAPI. Refusing an anchor there would refuse a well-formed file its own
   format allows (the preview's fixture of a developer's compose file carries one). So an alias is
-  read, and COUNTED AT THE FULL SIZE AND DEPTH OF WHAT IT REPEATS: the bounds below hold for the
-  value as any walk of it will see it, not for the text. An alias inside the value it repeats is a
-  value that contains itself, which no bound can hold, and is refused.
+  read, and COUNTED AT THE FULL SIZE AND DEPTH OF WHAT IT REPEATS — its values, its levels and the
+  bytes of its text: the bounds below hold for the value as any walk of it will see it, not for the
+  text. An alias inside the value it repeats is a value that contains itself, which no bound can
+  hold, and is refused.
 
 Both refuse, before anything is built from it, a document over `MAX_BYTES`, one nested deeper than
 `MAX_DEPTH` (checked while composing, one level at a time, so the interpreter never comes near its
-own recursion limit) and one holding more than `MAX_NODES` values. The refusal is `YamlRefused`, a
-`yaml.MarkedYAMLError`: every reader that already answers "this file is not YAML" — with a
-sentence, a finding, an unreadable state or an absent value — answers this one the same way, and
-no reader needed a new branch to stay inside its own contract. It is also logged here, once, so a
-reader whose contract is "absent when unreadable" does not make it silent.
+own recursion limit), one holding more than `MAX_NODES` values and one whose values' text comes to
+more than `MAX_EXPANDED_BYTES`, every alias counted at the bytes of what it repeats. The refusal
+is `YamlRefused`, a `yaml.MarkedYAMLError`: every reader that already answers "this file is not
+YAML" — with a sentence, a finding, an unreadable state or an absent value — answers this one the
+same way, and no reader needed a new branch to stay inside its own contract. It is also logged
+here, once, so a reader whose contract is "absent when unreadable" does not make it silent.
 
 ONE DOOR, HELD BY ITS SYNTAX TREE: `tests/test_yaml_is_read_without_aliases_and_within_bounds.py`
 reads every module of `openfactory/` and fails on any use of the `yaml` module outside this file
@@ -47,7 +49,7 @@ import logging
 from typing import Any
 
 import yaml
-from yaml.events import AliasEvent
+from yaml.events import AliasEvent, ScalarEvent
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +67,13 @@ MAX_DEPTH = 100
 #: Values one document holds — scalars, sequences and mappings — with every alias counted at the
 #: size of what it repeats. A 1 MB OpenAPI file holds about 60,000.
 MAX_NODES = 200_000
+
+#: Bytes of text all of a document's values come to, keys included, with every alias counted at the
+#: bytes of what it repeats. Without an alias the values are never longer than the document, so
+#: this holds only where an alias repeats: counted as one value, an alias of one 900 KB string,
+#: written 30,000 times in a file under `MAX_BYTES`, came to 27 GB once walked (measured on review,
+#: 2026-10-21). Ten documents' worth is room for any fragment a compose file reuses.
+MAX_EXPANDED_BYTES = 10 * MAX_BYTES
 
 
 class YamlRefused(yaml.MarkedYAMLError):
@@ -122,7 +131,9 @@ class Loader(yaml.SafeLoader):
         self._depth = 0            # the depth of the value being composed (the root is 1)
         self._reach = 0            # the deepest level reached so far, aliases counted in
         self._values = 0           # values composed so far, aliases counted at full size
-        self._held: dict[yaml.Node, tuple[int, int]] = {}  # anchored node → (values, height)
+        self._bytes = 0            # bytes of the values' text so far, aliases counted at full size
+        #: anchored node → (values, height, bytes of text) — what each alias of it repeats
+        self._held: dict[yaml.Node, tuple[int, int, int]] = {}
 
     def compose_node(self, parent: yaml.Node | None, index: Any) -> yaml.Node:
         event = self.peek_event()
@@ -136,12 +147,16 @@ class Loader(yaml.SafeLoader):
         self._depth += 1
         try:
             depth, before, outer_reach = self._depth, self._values, self._reach
+            weighed = self._bytes
             self._within(depth, event.start_mark)
             self._count(1, event.start_mark)
+            if isinstance(event, ScalarEvent):
+                self._weigh(len(event.value.encode("utf-8", "surrogatepass")), event.start_mark)
             self._reach = depth
             node = super().compose_node(parent, index)
             if anchor is not None:
-                self._held[node] = (self._values - before, self._reach - depth + 1)
+                self._held[node] = (self._values - before, self._reach - depth + 1,
+                                    self._bytes - weighed)
             self._reach = max(outer_reach, self._reach)
             return node
         finally:
@@ -158,10 +173,11 @@ class Loader(yaml.SafeLoader):
             raise _refuse(f"an alias inside the value it repeats (`*{event.anchor}`, "
                           f"{_line(event.start_mark)}): a value that contains itself cannot be "
                           f"read", event.start_mark)
-        values, height = held
+        values, height, weight = held
         reach = self._depth + height
         self._within(reach, event.start_mark, alias=event.anchor)
         self._count(values, event.start_mark, alias=event.anchor)
+        self._weigh(weight, event.start_mark, alias=event.anchor)
         self._reach = max(self._reach, reach)
         return node
 
@@ -179,6 +195,14 @@ class Loader(yaml.SafeLoader):
                    if alias is not None else "")
             raise _refuse(f"more than {MAX_NODES:,} values{how} ({_line(mark)}): a YAML file is "
                           f"read to {MAX_NODES:,} values", mark)
+
+    def _weigh(self, size: int, mark: yaml.Mark, *, alias: str | None = None) -> None:
+        self._bytes += size
+        if self._bytes > MAX_EXPANDED_BYTES:
+            how = (f" once `*{alias}` is counted at the size of what it repeats"
+                   if alias is not None else "")
+            raise _refuse(f"more than {MAX_EXPANDED_BYTES:,} bytes of values{how} ({_line(mark)}): "
+                          f"a YAML file is read to {MAX_EXPANDED_BYTES:,} bytes of values", mark)
 
 
 class CountingLoader(Loader):
@@ -224,5 +248,5 @@ def dump(data: Any, stream: Any = None, **options: Any) -> Any:
     return yaml.dump(data, stream, Dumper=_NoAliases, **options)
 
 
-__all__ = ["MAX_BYTES", "MAX_DEPTH", "MAX_NODES", "CountingLoader", "Loader", "YamlRefused",
-           "dump", "load", "tokens"]
+__all__ = ["MAX_BYTES", "MAX_DEPTH", "MAX_EXPANDED_BYTES", "MAX_NODES", "CountingLoader", "Loader",
+           "YamlRefused", "dump", "load", "tokens"]
