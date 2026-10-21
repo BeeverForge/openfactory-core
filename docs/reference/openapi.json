@@ -3296,6 +3296,59 @@
         }
       }
     },
+    "/healthz": {
+      "get": {
+        "summary": "Healthz",
+        "description": "`{\"alive\": true}` while this process serves — read from nothing, so it answers while the\nevent loop does, and only then. On the loop on purpose: a sync handler would wait for a free\nthread, and a liveness probe must not fail because every thread is busy.",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "summary": "Readyz",
+        "description": "Whether this panel can work right now: 200, or 503 naming each check that failed —\n`{\"ready\": false, \"checks\": {\"engine\": {\"ok\": false, \"detail\": \"…\"}, …}, \"failing\": [...]}`.\nBounded by `health.deadline()`; each dependency is asked at most once per `health.WINDOW_S`,\none question at a time, and never on a thread of the executor the gate's verdict uses.",
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "summary": "Deployment Version",
+        "description": "Which version this deployment runs: the package, the image, the kind of address the engine\nis reached at, and every add-on installed, with its distribution, version, axis and kind.",
+        "operationId": "deployment_version_api_v1_version_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionRead"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/factory/{project}": {
       "get": {
         "summary": "Factory",
@@ -3509,6 +3562,58 @@
         "type": "array",
         "title": "ActionsRead",
         "description": "`/api/actions` — the catalogue of what this deployment can be asked to do."
+      },
+      "AddonRow": {
+        "properties": {
+          "distribution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distribution"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "axis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Axis"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "AddonRow",
+        "description": "One add-on row installed into the deployment: who ships it, and what it provides."
       },
       "AttachmentLimitsRead": {
         "properties": {
@@ -4251,6 +4356,25 @@
         "title": "DocumentsRead",
         "description": "`/api/product/{project}/documents` — `product.documents.ingest.overview`. `checked_at` is\n`None` before the first pass: nothing read yet is not nothing there."
       },
+      "EngineAddressRead": {
+        "properties": {
+          "address_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Kind"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "EngineAddressRead",
+        "description": "The kind of address the engine is reached at (`view.ADDRESS_KINDS`), never the address."
+      },
       "EngineJob": {
         "properties": {
           "workflow_id": {
@@ -4706,6 +4830,47 @@
         "additionalProperties": true,
         "type": "object",
         "title": "HowToAnswer"
+      },
+      "ImageRead": {
+        "properties": {
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "built_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Built At"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "ImageRead",
+        "description": "The image a process runs from: the digest its deployment names (`OPENFACTORY_IMAGE_DIGEST`),\nand the stamp the image wrote at build time — the hash of its code and when it was built."
       },
       "InboxItem": {
         "properties": {
@@ -6271,6 +6436,59 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VersionRead": {
+        "properties": {
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "engine": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EngineAddressRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "addons": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AddonRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Addons"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "VersionRead",
+        "description": "`/api/v1/version` — which version this deployment runs, and what is installed into it.\n`image` is null outside an image; `address_kind` is null on an install with no engine client."
       },
       "WaitingLoop": {
         "properties": {

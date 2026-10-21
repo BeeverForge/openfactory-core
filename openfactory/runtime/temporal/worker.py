@@ -112,6 +112,7 @@ from openfactory.runtime.temporal.connection import (
     namespace,
 )
 from openfactory.runtime.temporal.conversation import ConversationWorkflow
+from openfactory.runtime.temporal.interceptors import AboutItsProject
 from openfactory.runtime.temporal.poller import PollWorkflow
 from openfactory.runtime.temporal.vocabulary import WORKER_ROLE
 from openfactory.runtime.temporal.workflow import (
@@ -339,6 +340,18 @@ async def main() -> None:
                   "only the panel will listen until it is fixed", str(exc)[:200])
         projects = []
     _channels = start_channel_listeners(projects)  # noqa: F841 — held: they own the listeners
+    # WHETHER THIS WORKER IS ALIVE AND CAN WORK, asked without a credential (#681). It serves no
+    # HTTP of its own, so `OPENFACTORY_HEALTH_PORT` makes it answer `/healthz` and `/readyz` — on
+    # THIS loop, so a worker whose loop is stuck does not answer. OPENED HERE, AFTER THE STEPS
+    # ABOVE AND NOT BEFORE THEM: they run on this loop and hold it (the toolbox's first copy is
+    # ~800 MB), and a listener opened before them accepted connections and answered nothing, so a
+    # liveness probe read a booting worker as a hung one (review of #818, measured). From here on
+    # the loop awaits, so the port answers while the worker waits for its engine, and `/readyz`
+    # says whether the engine answers. A supervisor gives a first boot time to copy — the compose
+    # file's `start_period`; nothing answers on the port until then.
+    from openfactory.observability import health, logs
+
+    _health = await health.listen()  # noqa: F841 — held: it serves for as long as the worker runs
     # WAITED FOR, BOUNDED (#135): started beside its engine, this dialled before the engine had
     # bound its port, died on the refusal, and took the set down. `connect_at_birth` says why the
     # wait is the worker's and why it asks the socket rather than the client's error text.
@@ -389,6 +402,9 @@ async def main() -> None:
                    # `openfactory doctor`'s question: does this worker accept the key there?
                    GateKeyProbeWorkflow],
         activities=WORKER_ACTIVITIES,
+        # EVERY ACTIVITY WHOSE INPUT NAMES A PROJECT LOGS ABOUT IT (#681): with JSON log lines,
+        # each record a job, a check or a sweep writes says the project and its product.
+        interceptors=[AboutItsProject()],
         # Audit fix (2026-07-23): =1 serialized EVERY activity behind the hours-long run_job —
         # proven in prod: #424's deploy-watch check queued 49 MINUTES (schedule-to-start) behind
         # #425's run_job, so its Slack "deploy success" arrived ~43 min late; polls and narration
@@ -398,7 +414,10 @@ async def main() -> None:
         # notify_*, scan_*) interleave with a running job — the panel and Slack stay real-time.
         max_concurrent_activities=8,
     )
-    print(f"openfactory worker up · {address()} · ns={namespace()} · queue={TASK_QUEUE}")
+    # Printed for a person, as it always was — or, with JSON log lines, logged, so stdout carries
+    # JSON too: a container's log is stdout and stderr together (review of #818).
+    logs.announce(log, f"openfactory worker up · {address()} · ns={namespace()} · "
+                       f"queue={TASK_QUEUE}")
     await worker.run()
 
 
@@ -412,14 +431,16 @@ async def born() -> None:
     exited (1) — stopping the rest`, and the line above that one should say why.
 
     AND THE LOG IS SET UP HERE, for the same reason (#675): one format with a time, a level and a
-    name, and the platform's INFO kept, whichever way the worker was started."""
+    name, and the platform's INFO kept, whichever way the worker was started. With JSON lines,
+    any other failure that ends the start is one JSON line too, its traceback inside it:
+    `configure` hands the exception nobody catches to the log (fourth review of #818)."""
     from openfactory.observability import logs
 
     logs.configure()
     try:
         await main()
     except EngineNotListening as exc:
-        raise SystemExit(f"worker: {exc}") from None
+        raise logs.exiting(log, f"worker: {exc}") from None
 
 
 if __name__ == "__main__":

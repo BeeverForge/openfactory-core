@@ -23,7 +23,12 @@ MUTATIONS = [
     ("the worker's door does not set the log up", WORKER,
      "    logs.configure()\n    try:\n        await main()", "    try:\n        await main()"),
     ("serve does not set the log up", CLI,
-     "    logs.configure()\n    # A BOUNDED SHUTDOWN (#136).", "    # A BOUNDED SHUTDOWN (#136)."),
+     # RE-PINNED 2026-10-18 (#681): the panel's first line is announced once the log is set up,
+     # so the line after `logs.configure()` is that announcement's comment. Same cut.
+     # RE-PINNED 2026-10-19 (#681, fifth review of #818): the log is set up right after the
+     # environment loads, so the next line is the build announcement's comment. Same cut.
+     "    logs.configure()\n    # SAY WHICH BUILD SERVES THIS PAGE",
+     "    # SAY WHICH BUILD SERVES THIS PAGE"),
     ("uvicorn sets up a format of its own", CLI,
      "timeout_graceful_shutdown=5,\n                log_config=None)",
      "timeout_graceful_shutdown=5)"),

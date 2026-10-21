@@ -145,7 +145,9 @@ def forget_the_client() -> None:
 
 
 async def _client():
-    """The release path's OWN engine client — one per process, not one per approval (#201).
+    """The engine client the release path delivers on — one per process, not one per approval
+    (#201), and since #681 the process's one client, which `connection.connect()` hands to every
+    caller; this module keeps it with a lock of its own.
 
     IT WAS `connection.connect()` UNDER AN `asyncio.run`, ONCE PER CALL, and the installed
     `temporalio` (1.32.0) has nothing to close a client with. Measured on a throwaway dev server on
@@ -170,13 +172,16 @@ async def _client():
     approvals — clients opened: 7 before any fix, **13** through the pool, 2 with this. The pool
     also refuses at once while a READ is remembered as having run out of time (#159): right for a
     page that asks again in two seconds, wrong for a person's yes, which would be answered "nothing
-    went up" without the engine having been asked.
+    went up" without the engine having been asked. (Since #681 the pool's entries and this one
+    wrap the same client, which `connection.connect()` holds for every loop, so neither evicts the
+    other's any more; the refusal while a read is remembered as silent is why this stays apart.)
 
     KEPT ONLY WHILE IT IS STILL THE RIGHT ONE, by the pool's own two tests. `fingerprint()` is how
     this tree says "the same engine, as the same caller", so a rotated key or a certificate
     rewritten in place is approved with a new client, never the old credential. And the loop: the
-    standing loop is replaced if it ever ends, and a client handed to a loop that did not make it
-    is a broken call. Either one replaces the entry — a client per ROTATION, not per approval.
+    entry's lock belongs to the loop that made it, and the standing loop is replaced if it ever
+    ends, so a new loop makes a new entry — around the same client since #681, because a client
+    answers from any loop (temporalio 1.29 and later). A client per ROTATION, not per approval.
 
     A FAILED CONNECT IS NOT KEPT — the entry stays empty and the next approval tries again — and A
     CLIENT IS NOT DROPPED ON A FAILED CALL, which is the pool's rule ("the Temporal SDK reconnects

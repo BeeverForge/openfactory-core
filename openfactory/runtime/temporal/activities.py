@@ -15,6 +15,7 @@ blocking launcher call to a thread so the event loop stays free to heartbeat.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re as _re_module
 import shutil
 import subprocess
@@ -33,6 +34,7 @@ from openfactory.contracts.checks import read as read_checks
 from openfactory.contracts.refs import SPLIT_CHILD_MARK, canonical_ref, ref_label, ref_sort_key
 from openfactory.credentials import box_credential_env, box_options
 from openfactory.factory import build_runner, resolve_box_image
+from openfactory.observability import logs
 from openfactory.registry import ProjectRegistry
 from openfactory.runtime.card_repo import _checkout_key, _ref_repo, _runner_view
 from openfactory.runtime.repairable import changed_paths, log_names_the_change, what_to_repair
@@ -139,8 +141,10 @@ def engine_client():
     THE SDK ALREADY HANDS IT OVER. `activity.client()` is the client `worker.py` gave `Worker(…)`,
     made once by `connection.connect()` — so the namespace, the `pydantic_data_converter` and the
     credentials are the deployment's, exactly what each of the five was rebuilding. Nothing to
-    pool, key by loop or release, which is why this is not `view.connect()`: that pool exists
-    for a process with no worker in it.
+    pool, key by loop or release, which is why this is not `view.connect()`, the read side's door.
+    (Since #681 that door, and every other in the process, hands out this same client too:
+    `connection.connect()` holds one per process. An activity still asks the SDK for it, because
+    the SDK says which worker it is running in.)
 
     EVERY ACTIVITY ASKS HERE, and nothing else in this module spells the SDK call or a `connect`
     — `tests/test_an_activity_uses_the_client_its_worker_holds.py` parses the package for both, so
@@ -904,8 +908,9 @@ def _do_preflight(inp: PreflightInput) -> PreflightVerdict:
                  "note" if reason in _INTENTIONAL else "warning",
                  f"pre-flight did not size ({reason}) — proceeding UNSIZED")
         if reason not in _INTENTIONAL:
-            print(f"OPENFACTORY_PREFLIGHT: DEGRADED for {inp.project}#{inp.issue} — "
-                  f"{reason}", flush=True)
+            logs.announce(activity.logger, f"OPENFACTORY_PREFLIGHT: DEGRADED for "
+                                           f"{inp.project}#{inp.issue} — {reason}",
+                          logging.WARNING)
             try:
                 tracker.comment(
                     f"#{inp.issue.lstrip('#')}",
@@ -1023,8 +1028,9 @@ def _do_preflight(inp: PreflightInput) -> PreflightVerdict:
         verdict = _parse_verdict(sizer_text)
         if verdict is None:
             # Log the tail so a genuinely malformed verdict is diagnosable without a rerun.
-            print(f"OPENFACTORY_PREFLIGHT: unparseable verdict ({len(sizer_text)} chars) "
-                  f"tail={sizer_text[-300:]!r}", flush=True)
+            logs.announce(activity.logger, f"OPENFACTORY_PREFLIGHT: unparseable verdict "
+                                           f"({len(sizer_text)} chars) "
+                                           f"tail={sizer_text[-300:]!r}", logging.WARNING)
             return degrade("unparseable verdict")
     except Exception as exc:  # noqa: BLE001
         return degrade(f"sizer: {str(exc)[:120]}")
@@ -3938,8 +3944,8 @@ def _do_coordinate(item: CoordinatorItem) -> dict:
         # this the worker — which never restarts — kept one directory per PARKED DECISION forever.
         shutil.rmtree(tmp, ignore_errors=True)
     if advice is None:
-        print(f"OPENFACTORY_COORDINATOR: no parseable advice for "
-              f"{item.project}#{item.issue}", flush=True)
+        logs.announce(activity.logger, f"OPENFACTORY_COORDINATOR: no parseable advice for "
+                                       f"{item.project}#{item.issue}", logging.WARNING)
         return {}
     try:  # post the humanized take on the ticket (durable, channel-agnostic)
         tracker = _tracker_for(ProjectRegistry().get(item.project))
@@ -3995,8 +4001,8 @@ def _do_diagnose(inp: HoldSyncInput) -> bool:
     ho = diagnosis.diagnose(project, issue=inp.issue, state=inp.state, note=inp.note,
                             tracker=tracker)
     if ho is None:
-        print(f"OPENFACTORY_TECHLEAD: no parseable handoff for "
-              f"{inp.project}#{inp.issue}", flush=True)
+        logs.announce(activity.logger, f"OPENFACTORY_TECHLEAD: no parseable handoff for "
+                                       f"{inp.project}#{inp.issue}", logging.WARNING)
         return False
 
     posted = False

@@ -3380,13 +3380,21 @@ def serve(
     """Serve the web panel (observability + management) at http://host:port."""
     import uvicorn
 
-    typer.echo(f"panel: http://{host}:{port}")
     # The panel module no longer loads `.env` on import (a library must not mutate the process's
     # environment), so the entry point does it — here, where a human asked for a server.
     from openfactory.api.app import PANEL_ROLE
     from openfactory.api.app import _load_environment as _panel_env
 
     _panel_env()
+    # ONE LOG FORMAT, THE WORKER'S (#675): a time, a level and a name on every line, the platform's
+    # INFO kept, and uvicorn's own lines through the same handler (`log_config=None`) rather than a
+    # second format of uvicorn's, so a request and the warning it caused read side by side. SET UP
+    # AS SOON AS THE ENVIRONMENT IS LOADED — `.env` may be what names the format — and before
+    # anything below can log (review of #818 on 99dd77b5, measured: a build the panel could not
+    # record warned before this, through Python's last-resort handler, a bare line among JSON).
+    from openfactory.observability import logs
+
+    logs.configure()
     # SAY WHICH BUILD SERVES THIS PAGE, where the other halves can read it (#135). Symmetric with
     # the worker: whichever half was not rebuilt is the stale one, and the deployment can only name
     # it if both announce. Here rather than at import — a library that writes files when it is
@@ -3394,12 +3402,9 @@ def serve(
     from openfactory import namespace
 
     namespace.announce_build(PANEL_ROLE)
-    # ONE LOG FORMAT, THE WORKER'S (#675): a time, a level and a name on every line, the platform's
-    # INFO kept, and uvicorn's own lines through the same handler (`log_config=None`) rather than a
-    # second format of uvicorn's, so a request and the warning it caused read side by side.
-    from openfactory.observability import logs
-
-    logs.configure()
+    # Printed for a person, as it always was — or, with JSON log lines, logged, so stdout carries
+    # JSON too (#681): said once the log is set up, which is why it is no longer the first line.
+    logs.announce(log, f"panel: http://{host}:{port}")
     # A BOUNDED SHUTDOWN (#136). The engine stream is an open response for as long as a tab is, and
     # uvicorn otherwise waits for every open response before it exits — so a SIGTERM left the panel
     # running with no port and no end. Five seconds is longer than any request this panel serves

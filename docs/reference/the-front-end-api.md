@@ -162,6 +162,7 @@ means any credential the deployment issued.
 | GET | `/api/v1/product/{project}/documents` | product | the product's documents as their ingestion found them |
 | GET | `/api/v1/product/{project}/search` | product | one product's published knowledge, searched with `q` and `limit`, in the product owner's ranking — a blank `q` finds nothing, a `q` past its declared length is a 400, and a project with no product role is the same 404 an unknown project is |
 | GET | `/api/v1/temporal/jobs` | floor | the jobs, live, from the durable engine |
+| GET | `/api/v1/version` | floor | which version this deployment runs, and every add-on installed into it (below) |
 | GET | `/api/v1/whoami` | every credential | who this credential is, and which areas it may act in |
 | GET | `/api/whoami` | every credential | deprecated alias of `/api/v1/whoami` |
 <!-- routes:end -->
@@ -185,6 +186,7 @@ writes it again.
 **`/api/v1/` is the address a front end of its own builds on.** Each read that declares its model
 is served there, and its unversioned path — the one the default front end calls — answers the same
 body from the same handler: it is an **alias**, marked `deprecated: true` in the description. A
+read added since, like `/api/v1/version`, is born under `/api/v1/` and has no alias. A
 credential reaches a versioned path exactly where it reaches its alias: the area of
 `/api/v1/<rest>` is the area of `/api/<rest>`.
 
@@ -197,6 +199,61 @@ be added, and none is removed, renamed or given another type. A change that woul
 a new version, served beside the old one, and the old one then follows the same course as the
 aliases: marked `deprecated: true` in the description, announced in the release notes, and
 answered for at least one more minor release.
+
+**The version.** `GET /api/v1/version` answers which version the deployment runs, for a credential
+like any read of the floor — which add-ons a deployment carries is a fact about the deployment:
+
+```json
+{"version": "0.7.0", "image": {"digest": "sha256:…", "code": "3f9a1c0e2b7d", "built_at": "2026-10-19T08:00:00Z"},
+ "engine": {"address_kind": "remote"},
+ "addons": [{"distribution": "openfactory-acme", "version": "1.2.0", "axis": "forge", "kind": "acme"}]}
+```
+
+`image` is `null` outside an image. Its `digest` is the one the deployment names in
+`OPENFACTORY_IMAGE_DIGEST`, since an image cannot carry its own; `code` and `built_at` are the stamp
+the image wrote when it was built. `address_kind` is the kind of address the engine is reached at,
+never the address: `cloud`, `local` (this machine), `remote` (another host), `undeclared` or
+`unreadable`, and `null` on an install without the engine's client library. `addons` has one row
+per add-on row installed, read from the packages' metadata without loading them.
+
+### Outside `/api/`: what a supervisor asks
+
+Two routes answer **without a credential**, with the default front end on or off, so a container's
+healthcheck, an orchestrator's probe or a load balancer can ask them. The panel serves both on its
+own port; the worker, which serves no other HTTP, answers both on `OPENFACTORY_HEALTH_PORT` when it
+is set, on `OPENFACTORY_HEALTH_HOST` (this machine's loopback unless the deployment says otherwise),
+once its boot's own steps are done (the compose file sets the port, and its healthchecks ask both
+processes from inside their containers through
+`python -m openfactory.observability.health --port <port>`).
+
+<!-- probes:start -->
+| method | path | answers |
+|---|---|---|
+| GET | `/healthz` | `200 {"alive": true}` while the process serves. It reads nothing, so it never fails for somebody else's outage |
+| GET | `/readyz` | `200` when the durable engine answers, the registry reads and the identity provider can admit; otherwise `503`, naming each check that failed |
+<!-- probes:end -->
+
+A `503` from `/readyz` names each failing check and says one sentence about it; the cause is in the
+process's log, never in the body, because nobody identified the caller:
+
+```json
+{"ready": false,
+ "checks": {"engine": {"ok": false, "detail": "the durable engine did not answer"},
+            "registry": {"ok": true}, "identity": {"ok": true}},
+ "failing": ["engine"]}
+```
+
+It answers within a bounded time whatever a check is waiting on — twice the engine's read deadline
+(`OPENFACTORY_ENGINE_DEADLINE`, three seconds by default) and a second more, seven seconds by
+default — and a late check is named, never the one beside it. Each dependency is asked at most once
+every five seconds, by one question at a time, however many supervisors ask, and never on a thread
+the authenticated routes need: readiness is not load on a dependency that is already struggling,
+and asking it cannot slow anybody else down.
+
+Each ask is a request like any other, so the panel's log has a line for it: with the compose
+file's healthchecks, one `uvicorn.access` line per probe, every 15 seconds, in either log format.
+The worker's log says once where it answers, and readiness logs one `NOT_READY` warning when a
+check starts failing and one line when it answers again.
 
 ## 4. Streams
 

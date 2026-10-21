@@ -27,8 +27,9 @@ SETTING = "OPENFACTORY_DEFAULT_FRONT_END"
 PAGES = ("/", "/p/acme", "/p/acme/board", "/p/acme/card/7", "/p/acme/pr/3", "/p/acme/preview/7",
          "/logs", "/logs/acme", "/logs/acme/7", "/product/acme")
 
-#: Not pages: the API, the sign-in and the API's own description answer the same either way.
-NOT_PAGES = ("/api/whoami", "/api/actions", "/auth/login", "/openapi.json")
+#: Not pages: the API, the sign-in, the API's own description and what a supervisor asks (#681)
+#: answer the same either way.
+NOT_PAGES = ("/api/whoami", "/api/actions", "/auth/login", "/openapi.json", "/healthz", "/readyz")
 
 
 @pytest.fixture
@@ -97,17 +98,19 @@ def test_the_same_unreadable_value_is_said_once_not_on_every_page(client, monkey
 
 
 def test_every_page_route_asks_the_setting(client, monkeypatch):
-    """A PAGE ADDED LATER CANNOT SKIP THE QUESTION. Every GET route outside the API, the sign-in
-    and the API's own description is walked, with its parameters filled, and must answer 404 with
-    the setting off — so a new page that returns `panel.html` by itself fails here by name."""
+    """A PAGE ADDED LATER CANNOT SKIP THE QUESTION. Every GET route outside the API, the sign-in,
+    the API's own description and the probes a supervisor asks (`health.PATHS`, #681) is walked,
+    with its parameters filled, and must answer 404 with the setting off — so a new page that
+    returns `panel.html` by itself fails here by name."""
     from openfactory.api.app import app
+    from openfactory.observability import health
 
     monkeypatch.setenv(SETTING, "off")
     walked = []
     for route in app.routes:
         if not isinstance(route, APIRoute) or "GET" not in (route.methods or set()):
             continue
-        if route.path.startswith(("/api", "/auth")):
+        if route.path.startswith(("/api", "/auth")) or route.path in health.PATHS:
             continue
         path = re.sub(r"\{[^}]+\}", "7", route.path)
         walked.append(path)

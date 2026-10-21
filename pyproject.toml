@@ -66,7 +66,11 @@ dependencies = [
 # package (contracts, adapters, orchestrator, CLI) stays importable without it;
 # only the worker host needs `pip install -e '.[runtime]'`.
 runtime = [
-    "temporalio>=1.7",
+    # 1.29 OR LATER (#681): a process holds ONE engine client and hands it to every caller, on
+    # any loop and any thread (`runtime/temporal/connection.py::connect`). Up to 1.28 every call
+    # took an `asyncio.Lock` bound to the first loop that contended for it; 1.29 skips it once
+    # the client is connected (sdk-python #1606).
+    "temporalio>=1.29",
 ]
 # READING A PRODUCT'S PDFS (#269 slice 1). One library, pure Python, no dependencies of its own,
 # BSD-licensed and maintained by the py-pdf organisation: it reads a PDF's text layer and never
@@ -120,7 +124,8 @@ dev = [
     # tests are in `tests/`, so its SDK stays. And without pytest-randomly, "run the suite in
     # both orders" was a silent no-op on a fresh install: no plugin, no random order,
     # `-p no:randomly` disabling nothing.
-    "temporalio>=1.7",
+    # 1.29 or later, as `runtime` says why: the one engine client is shared across loops.
+    "temporalio>=1.29",
     "pytest-randomly>=3.15",
     # The suite runs 6,300 tests in ~85s with `-n auto` and 5:15 without it (measured 2026-08-17,
     # 8 cores). Every gate run uses it; a fresh install without the plugin silently pays 3.7x the

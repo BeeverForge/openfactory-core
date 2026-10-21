@@ -154,6 +154,10 @@ def test_the_declared_exemptions_still_exist():
 #: Every module-level dict that gets written by key, and what bounds it. A cache with no bound in
 #: a process that never restarts is a slow leak; a cache bounded "by nature" must say by what.
 _CACHES = {
+    # #681 — each readiness check's last verdict, so the log says a change once, not every poll
+    ("openfactory/observability/health.py", "_LAST"):
+        "one per check in `health.CHECKS` — the engine, the registry and the identity provider; "
+        "bounded by the code, never by traffic",
     # review of #611 — the unreadable values of OPENFACTORY_DEFAULT_FRONT_END this process has said,
     # so a typo is one warning, not one per page request
     ("openfactory/api/app.py", "_SAID_NEITHER"):
@@ -205,6 +209,16 @@ _CACHES = {
     # for the life of the process. `view.connect()` now empties the pool before inserting, so at
     # most one entry exists at any time; `test_the_panel_holds_one_engine_client.py` drives that
     # against this object for each of the three ways a target can change.
+    # #681 (sixth review of #818) — the one engine client the process holds, and the connect in
+    # flight for it
+    ("openfactory/runtime/temporal/connection.py", "_HELD"):
+        "one entry in total: a target that changes replaces it (`_connect_for` clears it first)",
+    ("openfactory/runtime/temporal/connection.py", "_IN_FLIGHT"):
+        "one connect per target in flight, removed the moment it lands or fails",
+    # #681 (review requesting changes on 3cd816ac) — the target resting after a failed attempt
+    ("openfactory/runtime/temporal/connection.py", "_RESTING"):
+        "one entry in total: a new rest replaces it (`_rest_after` clears it first), and a client "
+        "that lands empties it",
     ("openfactory/runtime/temporal/view.py", "_CLIENTS"):
         "exactly one entry — the engine target this process is configured for right now, emptied "
         "and re-filled when that target changes; the environment, not traffic",

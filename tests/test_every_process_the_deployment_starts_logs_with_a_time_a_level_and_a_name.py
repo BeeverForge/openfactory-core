@@ -27,6 +27,9 @@ import json
 import logging
 import re
 import shlex
+import sys
+import threading
+import warnings
 from pathlib import Path
 
 import pytest
@@ -93,10 +96,15 @@ def _a_fresh_process():
     """The root logger as a process starts with it: no handler, WARNING; put back on the way out.
 
     INSIDE THE TEST, NOT IN A FIXTURE: pytest hangs its own capture handler on the root logger at
-    the start of each phase, so one emptied during setup is no longer empty when the test runs."""
+    the start of each phase, so one emptied during setup is no longer empty when the test runs.
+
+    PYTHON'S OWN HOOKS ARE PUT BACK TOO: with JSON lines `configure` hands the warnings, the
+    exception nobody caught and the unraisable one to the log (#681), and a case must not leave
+    the next one's warnings and threads reporting to a handler that is gone."""
     root = logging.getLogger()
     kept = (root.handlers[:], root.level,
             {name: logging.getLogger(name).level for name in (*logs.OURS, "temporalio")})
+    hooks = (sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning)
     root.handlers.clear()
     root.setLevel(logging.WARNING)
     for name in kept[2]:
@@ -104,6 +112,8 @@ def _a_fresh_process():
     try:
         yield
     finally:
+        logging.captureWarnings(False)
+        sys.excepthook, threading.excepthook, sys.unraisablehook, warnings.showwarning = hooks
         root.handlers[:] = kept[0]
         root.setLevel(kept[1])
         for name, level in kept[2].items():

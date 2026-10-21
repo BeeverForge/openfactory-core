@@ -34,8 +34,12 @@ MUTATIONS = [
      "seconds)",
      "        answer = await coro"),
 
+    # RE-PINNED 2026-10-21 (#681, review requesting changes on 3cd816ac): the read side's wait is
+    # now the attempt's own bound and a second more, so the attempt ends itself and rests its
+    # target. Same cut: the connect leaves the read side's bound.
     ("the connect is unbounded again — the 40 s hang its own docstring records", VIEW,
-     '                entry.client = await _within("a connection", _connect())',
+     '                entry.client = await _within("a connection", _connect(),\n'
+     "                                             seconds=read_deadline() + CONNECT_BACKSTOP_S)",
      "                entry.client = await _connect()"),
 
     ("silence is not remembered, so every request pays the deadline again", VIEW,
@@ -54,7 +58,10 @@ MUTATIONS = [
      "async def start_job(client: Client, params: JobParams) -> str:",
      '@_bounded_read("a start")\nasync def start_job(client: Client, params: JobParams) -> str:'),
 
-    ("the deadline is not the deployment's to set", VIEW,
+    # RE-POINTED 2026-10-19: #681 moved `read_deadline` and `_seconds` out of `view.py` into
+    # `deadlines.py`, so the healthcheck reads the same number without the engine's client. `view`
+    # names them as before; the cut and what it proves are unchanged.
+    ("the deadline is not the deployment's to set", "openfactory/runtime/temporal/deadlines.py",
      '    return _seconds("OPENFACTORY_ENGINE_DEADLINE", 3.0)',
      "    return 3.0"),
 ]

@@ -16,19 +16,30 @@ MUTATIONS = [
      '        wanted = float(os.environ.get(_STARTS_IN_VAR, "") or _STARTS_IN_S)',
      "        wanted = _STARTS_IN_S"),
 
+    # RE-PINNED 2026-10-19 (#681, seventh review of #818): the one connect is handed the birth's
+    # own wait as its bound. Same cuts.
+    # RE-PINNED 2026-10-20 (#681, delta review of #818): the connect sits in a `try` that turns
+    # its timeout into a sentence. Same cut.
     ("a refusal that is an ANSWER is waited out and dialled again", CONN,
-     "        await asyncio.sleep(every)\n    return await connect()",
-     "        await asyncio.sleep(every)\n"
-     "    for _ in range(3):\n"
-     "        try:\n"
-     "            return await connect()\n"
-     "        except RuntimeError:\n"
-     "            await asyncio.sleep(every)\n"
-     "    return await connect()"),
+     "        return await connect(within=within)\n",
+     "        for _ in range(3):\n"
+     "            try:\n"
+     "                return await connect(within=within)\n"
+     "            except RuntimeError:\n"
+     "                await asyncio.sleep(every)\n"
+     "        return await connect(within=within)\n"),
+
+    # #681, delta review of #818: the birth connect's own bound, and the sentence it ends in.
+    ("the birth connect is given a read's few seconds, not the start-up wait", CONN,
+     "    within = max(deadline - time.monotonic(), read_deadline())\n",
+     "    within = read_deadline()\n"),
+    ("a birth connect that never answers ends in the read deadline's words", CONN,
+     "    except TimeoutError:\n        # SAID AS THE OTHER TIMING FAILURE IS",
+     "    except ArithmeticError:\n        # SAID AS THE OTHER TIMING FAILURE IS"),
 
     ("the probe blocks the loop, so the wait cannot be interrupted", CONN,
-     "        await asyncio.sleep(every)\n    return await connect()",
-     "        time.sleep(every * 8)\n    return await connect()"),
+     "        await asyncio.sleep(every)\n    # ITS OWN WAIT IS THE CONNECT'S BOUND",
+     "        time.sleep(every * 8)\n    # ITS OWN WAIT IS THE CONNECT'S BOUND"),
 
     ("the sentence stops naming the address it waited on", CONN,
      '                f"the durable engine at {where} accepted no connection in {bound:.0f}s',
@@ -40,7 +51,10 @@ MUTATIONS = [
      "    client = await connect()"),
 
     ("the refusal reaches the person as a traceback again", WORKER,
-     "    except EngineNotListening as exc:\n        raise SystemExit(f\"worker: {exc}\") from None",
+     # RE-PINNED 2026-10-18 (#681): the sentence is raised through `logs.exiting`, which logs it
+     # as a JSON line when the log is JSON and is the same `SystemExit` otherwise. Same cut.
+     "    except EngineNotListening as exc:\n"
+     "        raise logs.exiting(log, f\"worker: {exc}\") from None",
      "    except EngineNotListening:\n        raise"),
 
     ("`openfactory worker` keeps the old door", CLI,

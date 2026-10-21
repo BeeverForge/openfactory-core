@@ -5,9 +5,9 @@ WHO HAS NO LOOP OF THEIR OWN. `techlead/conversation.py::gather_jobs` is synchro
 clones a repository, shells out and runs an agent process. To read the engine from there it opened
 a loop of its own — `asyncio.run(_run())`, once per QUESTION.
 
-WHY THAT WAS A LEAK AND NOT JUST A COST. `view.connect()` pools the read side's client keyed by the
-loop that made it, and that part is right: a client handed to a loop that did not make it is a
-broken read. So a fresh loop per question was a fresh client per question — and the installed
+WHY THAT WAS A LEAK AND NOT JUST A COST. `view.connect()` pooled the read side's client keyed by
+the loop that made it, on the belief that a client handed to another loop is a broken read. So a
+fresh loop per question was a fresh client per question — and the installed
 `temporalio` (1.32.0, re-checked 2026-09-18: `Client`, `ServiceClient` and the bridge client under
 them expose no `close`, `aclose`, `shutdown`, `__aexit__` or `__del__`) has nothing to release one
 with. Measured on a throwaway dev server, counting the process's established connections to the
@@ -16,30 +16,37 @@ engine's port after each `gather_jobs`:
     before:  1, 2, 3, 4, 5, 6
     after:   1, 1, 1, 1, 1, 1
 
-It is #134 one layer down, on a human-scale clock instead of a poll tick.
+It is #134 one layer down, on a human-scale clock instead of a poll tick. (Since #681 the belief
+is measured false on temporalio 1.29 and later, and `connection.connect()` holds the process's one
+client for every loop, so a loop per question would no longer cost a client. The standing loop
+stays: it is still one loop rather than one per question.)
 
 SO THE LOOP OUTLIVES THE QUESTION, and the pool is left exactly as it is. A caller with no loop
 runs its reads HERE, on one loop the process keeps, which makes the pool's key the same from one
 question to the next. The other shape the issue names — the worker lends the gatherer its own
 client — would thread a client through `answer()` and every front end that calls it, and would
-hand the read side a client made by `connection.connect()`, the one-shot door `view.connect()`'s
-docstring keeps apart from the pool on purpose.
+hand the read side a client made by `connection.connect()`, which was then a one-shot door. (It
+is no longer: since #681 that door holds the one client every caller is handed.)
 
 NO ENGINE IMPORT HERE, deliberately: this file knows about loops and threads, not about Temporal,
 so importing it costs a caller nothing it does not already have.
 
-WHAT SHARES THE POOL WITH IT. In the worker, nothing: the worker's own loop connects through
-`connection.connect()` and never reads through `view.connect()`. The panel reads through the pool
-on its one loop and never runs the tech-lead (`actions/catalog.py::_ask` dispatches the question to
-the worker). A process that read the engine from BOTH its own loop and this one would see the two
-take turns emptying the pool — it holds one entry, total — and no process in this tree does.
+WHAT SHARES THE POOL WITH IT. In the worker, its readiness check (#681), on the worker's own loop:
+the two take turns at the pool's one entry, but since #681 every entry wraps the process's one
+client (`connection.connect()` holds it, for every loop), so taking turns costs a dict entry and
+never a connection. The panel reads through the pool on its one loop and never runs the
+tech-lead (`actions/catalog.py::_ask` dispatches the question to the worker). Before #681, a process
+that read the engine from both loops saw the two take turns emptying the pool and each drop a
+client — the worker came to, through readiness — which is why the client is now held one door
+down instead.
 
 AND ONE CALLER THAT IS NOT A READ (#201). `product/release.py::release` delivers a client's
 production approval from a thread, in the worker AND in the panel, and it runs here for the reason
-the gatherer does: it was a loop and a client per approval. It does NOT take the pool's client, and
-the paragraph above is why — in the panel that would be exactly the process that reads from both
-loops. Measured on a dev server, six approvals with the panel's loop re-reading after each: 13
-clients opened through the pool, 2 with a client the release path keeps for itself.
+the gatherer does: it was a loop and a client per approval. It did not take the pool's client,
+because in the panel that was exactly the process that reads from both loops (measured on a dev
+server, six approvals with the panel's loop re-reading after each: 13 clients opened through the
+pool, 2 with a client the release path kept for itself). Since #681 it takes the process's one
+client from `connection.connect()`, as every caller does.
 """
 
 from __future__ import annotations

@@ -52,6 +52,7 @@ from openfactory.adapters.sandbox.base import (
     Workspace,
     run_and_stream,
 )
+from openfactory.observability import logs
 
 log = logging.getLogger("openfactory.sandbox.container")
 
@@ -519,14 +520,14 @@ class ContainerSandbox(SandboxAdapter):
         # remove it, out loud.
         probe_rc, _ = _host(["docker", "inspect", "--format", "{{.Id}}", cname])
         if probe_rc == 0:
-            print(f"OPENFACTORY: removing the leftover box {cname!r} from an interrupted "
-                  f"attempt before starting fresh", flush=True)
+            logs.announce(log, f"OPENFACTORY: removing the leftover box {cname!r} from an "
+                               f"interrupted attempt before starting fresh", logging.WARNING)
             rm_rc, rm_out = _host(["docker", "rm", "-f", cname])
             if rm_rc != 0:
                 # An unremovable corpse still refuses below with the daemon's own words — this
                 # only adds WHY to the trail instead of letting the collision masquerade as new.
-                print(f"OPENFACTORY: could not remove the leftover box {cname!r} "
-                      f"({rm_out.strip()[:200]})", flush=True)
+                logs.announce(log, f"OPENFACTORY: could not remove the leftover box {cname!r} "
+                                   f"({rm_out.strip()[:200]})", logging.WARNING)
         run_cmd = [
             "docker", "run", "-d", "--name", cname,
             "--cpus", self.cpus, "--memory", self.memory,

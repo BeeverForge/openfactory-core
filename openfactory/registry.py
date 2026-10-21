@@ -391,6 +391,25 @@ class ProjectRegistry:
         self._warn_if_spanning(out)
         return [_without_foreign_tokens(p, out) for p in out]
 
+    def each_that_builds(self) -> dict[str, Project]:
+        """Every entry that builds, by the name it is registered under — read QUIETLY: no word
+        about its keys, and no refusal of the whole file for a neighbour that does not build.
+
+        For a reader that runs often and needs a fact about each project, and is not where an
+        operator learns what is wrong with the file: the product each JSON log line names
+        (`observability/logs.py`), read again every few seconds while lines are written. `list`
+        says what is wrong on every load, and `get` for the one project it reads; a third reader
+        saying it every five seconds would bury both."""
+        built: dict[str, Project] = {}
+        for name, raw in self._load_raw().items():
+            if not isinstance(raw, dict):
+                continue
+            try:
+                built[str(name)] = Project(**raw)
+            except (ValidationError, TypeError):
+                continue  # said by `list`, by name, on every load
+        return built
+
     def _warn_if_spanning(self, projects: list[Project]) -> None:
         """Say it loudly on every load — but do NOT raise (#64).
 
