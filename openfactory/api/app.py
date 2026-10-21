@@ -3522,8 +3522,9 @@ def product_system(project: str) -> dict:
     READ, NEVER DERIVED. Deriving checks out every source the product declares; this reads the map
     the refresh published (`render.read_published`), from the context repository's checkout the
     product's own reads use (`load_product_context`, the product page's status read included) — so
-    what a client is shown is what the product role finds in its view. Nothing is written: no
-    repository, no impediment (the module's `context()` would file one), no index.
+    what a client is shown is what the product role finds in its view. Nothing is written but that
+    checkout, which every product read brings up to date: no repository is pushed to, no
+    impediment is filed (the module's `context()` would file one), no index is opened.
 
     EVERY ENTRY CITED, NAMES ONLY. Each entry carries where it came from — the repository, the file,
     the commit, a line where the format has one — and no field holds the value of a variable: the
@@ -3559,7 +3560,7 @@ def product_system(project: str) -> dict:
         proj, token=forge_token_for(proj) or deployment_forge_token(proj) or "")
     if not ctx.docs_path:
         found = Published(UNREADABLE, f"the system map cannot be read: the context repository "
-                                      f"is not reachable — {ctx.reason}")
+                                      f"is not reachable — {ctx.reason or 'no reason was given'}")
         read_from = None
     else:
         found = read_published(ctx.docs_path, where)
