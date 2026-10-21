@@ -108,6 +108,47 @@ def test_a_refused_ref_proof_leaves_the_running_proofs_checkout_alone(tmp_path, 
         "the refused --ref proof removed the running proof's checkout before it was refused")
 
 
+
+
+def test_a_refused_ref_proof_of_another_repository_leaves_its_checkout_alone(tmp_path, monkeypatch):
+    """`openfactory box prove acme --repo org/web --ref feat` while that repository's `--ref` proof
+    runs. The key the command takes before the checkout is the REPOSITORY's (`proof_key`), the one
+    the checkout `<key>@<ref>` and `box_probes` use, not the project's name. Review round 2 of #745
+    (2026-10-21): with the hold taken on `name`, the command locked `acme`, removed and re-added
+    `<cache>/worktrees/acme--org--web@feat` under the running proof, and only then was refused by
+    `box_probes`; the one `--ref` test ran without `--repo`, so nothing noticed."""
+    import subprocess
+
+    from openfactory import factory, loader
+    from openfactory.runtime import card_repo
+
+    monkeypatch.setattr(box_prove, "PROOF_DIR", tmp_path / "proofs")
+    monkeypatch.setenv("OPENFACTORY_REPO_CACHE", str(tmp_path / "cache"))
+    repo = _repository(tmp_path / "web")
+    subprocess.run(["git", "-C", str(repo), "branch", "feat"], check=True, capture_output=True)
+    first = factory._worktree_at(repo, "feat", "acme--org--web@feat")
+    sentinel = first / "the-first-proof-reads-here"
+    sentinel.write_text("live\n")
+    holder = _another_process_holding("acme--org--web", tmp_path / "proofs")
+    view = SimpleNamespace(name="acme", repo_path=str(repo), box=None)
+    monkeypatch.setattr(cli, "_get_project", lambda _n: SimpleNamespace(name="acme", box=None))
+    monkeypatch.setattr(card_repo, "_runner_view", lambda _p, _r: (view, "acme--org--web"))
+    monkeypatch.setattr(cli, "resolve_box_image", lambda *_a, **_kw: "img")
+    monkeypatch.setattr(cli, "_box_kind", lambda _explicit: "container")
+    monkeypatch.setattr(loader, "load_manifest", lambda *_a, **_kw: SimpleNamespace(
+        base_branch="main", setup=[], validation={}))
+    try:
+        result = CliRunner().invoke(
+            cli.app, ["box", "prove", "acme", "--repo", "org/web", "--ref", "feat"])
+    finally:
+        holder.kill()
+        holder.wait()
+
+    assert "already running" in result.output, result.output
+    assert sentinel.exists(), (
+        "the refused --ref proof of org/web removed the running proof's checkout before it was refused")
+
+
 def test_box_answer_says_the_proof_is_running(monkeypatch):
     """`openfactory box answer acme` while acme is being proven: one sentence, and no spend
     recorded for a call nobody made."""
