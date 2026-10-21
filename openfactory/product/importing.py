@@ -446,14 +446,24 @@ def _brought(name: str, entries: dict[str, bytes], left_out: list[tuple[str, str
 
 def _manifest(data: bytes, left_out: list[tuple[str, str]]) -> dict:
     """The folder's own account of itself, read leniently — a field of the wrong shape is
-    dropped, never guessed at; a file that is not YAML is said."""
+    dropped, never guessed at; a file that is not YAML is said.
+
+    READ THROUGH THE CORE'S OWN READER OF A DECLARATION (`loader._safe_load`), never a YAML load of
+    its own: one document, every top-level key a string, no tag that builds an object — and
+    whatever bound the core's reader holds tomorrow, this file is held to it too (#1005). A key
+    that is not a string is a manifest this cannot read, said like one that is not YAML."""
     import yaml
 
+    from openfactory.product.loader import _safe_load
+
     try:
-        raw = yaml.safe_load(data.decode("utf-8", "replace")) or {}
+        raw, refused = _safe_load(data.decode("utf-8", "replace"))
     except yaml.YAMLError:
+        raw, refused = None, "not YAML"
+    if refused:
         left_out.append((MANIFEST, "unreadable_manifest"))
         return {}
+    raw = raw or {}
     if not isinstance(raw, dict):
         left_out.append((MANIFEST, "unreadable_manifest"))
         return {}

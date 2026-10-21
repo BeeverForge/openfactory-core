@@ -106,6 +106,12 @@ MUTATIONS = [
      "        self.take(0)\n        left_out.append((_said_path(path), why))",
      "        left_out.append((_said_path(path), why))"),
 
+    # ── 2f. the manifest through the core's reader (#1005, 2026-10-21) ──────────────────────────
+    ("the manifest is read with a YAML load of the import's own, so a key the core's reader "
+     "refuses is taken", IMPORTING,
+     "        raw, refused = _safe_load(data.decode(\"utf-8\", \"replace\"))",
+     "        raw, refused = yaml.safe_load(data.decode(\"utf-8\", \"replace\")), \"\""),
+
     ("a member's name is said whole, however long the archive made it", IMPORTING,
      "    return text if len(text) <= MAX_PATH_CHARS else text[:MAX_PATH_CHARS - 1] + \"…\"",
      "    return text"),

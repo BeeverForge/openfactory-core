@@ -779,6 +779,24 @@ def test_a_link_in_the_folder_is_left_out_and_never_followed(tmp_path):
     assert list(brought.documents) == ["design/flow.md"]
 
 
+@pytest.mark.parametrize("text", [
+    "origin: [unclosed\n", "origin: one\n---\norigin: two\n", "1: x\norigin: round two\n",
+    "on: push\n", "- a list\n", "just a sentence\n", "!!python/object:os.system x\n"],
+    ids=["not YAML", "two documents", "a number as a key", "YAML 1.1's true as a key", "a list",
+         "a scalar", "a tag that builds an object"])
+def test_a_manifest_the_cores_reader_cannot_read_is_said_and_the_rest_is_read(tmp_path, text):
+    """The manifest is read by the core's own reader of a declaration (`loader._safe_load`): what
+    it refuses — not YAML, several documents, a key that is not a string, a tag that would build an
+    object — and a manifest that is not a mapping, is one row left out; the folder is read whole."""
+    folder = _tree(tmp_path / "folder", {importing.MANIFEST: text,
+                                         "design/flow.md": "the flow\n"})
+
+    brought = importing.read(folder)
+
+    assert (importing.MANIFEST, "unreadable_manifest") in brought.left_out, brought.left_out
+    assert brought.manifest == {} and list(brought.documents) == ["design/flow.md"]
+
+
 def _archive(folder: Path, kind: str, tmp_path: Path) -> Path:
     out = tmp_path / f"bundle{kind}"
     files = sorted(p for p in folder.rglob("*") if p.is_file())
