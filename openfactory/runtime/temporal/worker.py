@@ -87,6 +87,7 @@ from openfactory.runtime.temporal.activities import (
     record_job_metrics,
     record_outcome,
     refresh_knowledge,
+    refresh_product_knowledge,
     release_prod,
     repair_ci,
     review_pr,
@@ -130,6 +131,7 @@ from openfactory.runtime.temporal.workflow import (
     ProductBaselineWorkflow,
     ProductBreakdownWorkflow,
     ProductCardWorkflow,
+    ProductKnowledgeRefreshWorkflow,
     ProductNeedsActionWorkflow,
     ProductQueueWorkflow,
     ProductSayWorkflow,
@@ -184,6 +186,8 @@ WORKER_ACTIVITIES = [
     # #269 — the product's documents, read on the knowledge refresh's own tick, and its quiet
     # conversations distilled just before them (slice 3)
     ingest_documents, distil_conversations,
+    # #1004 — a product's knowledge brought up to date when somebody asks, not only on the tick
+    refresh_product_knowledge,
     # the tech-lead's chat runs WHERE AGENTS AUTHENTICATE — the panel dispatches here
     techlead_ask,
     # …and so does the product role's drafting, for the same reason and by the same route (#98).
@@ -397,6 +401,8 @@ async def main() -> None:
                    ProductBaselineWorkflow, ProductAnswerWorkflow,
                    PreviewReapWorkflow, PreviewWorkflow,
                    KnowledgeRefreshWorkflow,
+                   # an asked refresh of a product's knowledge, one flight per product (#1004)
+                   ProductKnowledgeRefreshWorkflow,
                    # one per conversation with the product role (#266 slice 3)
                    ConversationWorkflow,
                    # `openfactory doctor`'s question: does this worker accept the key there?

@@ -345,7 +345,10 @@ OWNED = {
                      "product_baseline/product_answer/"
                      # #269 — reading the product's documents builds the module for its checkout
                      # of the context repository, the same seam as every row above
-                     "product_ingest",
+                     "product_ingest/"
+                     # #1004 — bringing its knowledge up to date resolves the product role through
+                     # the same seam before it starts the pass on the worker
+                     "product_refresh",
     # `release` owns the PEN, not the judgement: `product.release.release` re-asks the engine
     # whether the job is still parked before signalling, and `_product_release` is the only
     # caller outside the Slack package. A front end that called it directly would be releasing

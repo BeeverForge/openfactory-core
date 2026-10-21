@@ -150,7 +150,17 @@ and SVG, `.eml`, a PDF's text layer (the `ingest` extra), OCR for a scanned PDF 
 `pdftoppm`, when installed), and a model describing an image — whose record says its content came
 from an image. A file is read on the knowledge pipeline's schedule when it changed, or at once
 through `openfactory act product_ingest --param project=<name> --param path=<file>`; a version
-already recorded is never read again. The records are derived: they live under the product's
+already recorded is never read again. **The product's whole knowledge is brought up to date at once
+through `openfactory act product_refresh --param project=<name>`** (`POST /api/act/product_refresh`,
+#1004): what changed in the context repository is read as the schedule reads it, and the product's
+search index is brought up to it, to the requirements and to the board of every registry project of
+the product. It answers immediately — `refresh` is `started`, or `joined` when a pass is already
+running for the product, so two asks never run two passes — and the pass runs on the worker, bounded
+like the schedule's. `product_status` answers `knowledge`: when the index was last brought up to date
+(`refreshed_at`), how the last pass ended (`outcome`: `refreshed`, `degraded`, `failed` or
+`no-context`) and whether the schedule or a person ran it (`by`), what it brought the index up to
+(`sources`), each thing it did not bring up, in a sentence (`degraded`), and since when a pass is
+running (`running_since`); a pass whose worker stopped is said to have never finished. The records are derived: they live under the product's
 state directory and are rebuilt from the repository when deleted. A file that **cannot** be
 read — a protected PDF, a format nothing reads, a file over the size limit, a link out of the
 repository — is recorded with why, listed under *Documents* on the product page, and named in

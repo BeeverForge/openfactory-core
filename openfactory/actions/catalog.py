@@ -2274,10 +2274,18 @@ async def _product_status(*, project: str, by: Actor) -> Outcome:
     promises = list(getattr(corpus, "promises", lambda: ())() or ()) if corpus is not None else []
     if not available:
         log.warning("[%s] the product corpus is unreadable: %s", proj.name, str(health)[:400])
+    # WHEN THE PRODUCT'S KNOWLEDGE WAS LAST BROUGHT UP TO DATE, AND HOW (#1004): the record every
+    # pass leaves — the schedule's and an asked one's (`product_refresh`) — read as it stands. A
+    # client that asked for a refresh reads here when it finished, whether it degraded and why,
+    # and whether one is running now; a pass that failed or stopped is said, never left out.
+    from openfactory.product import refresh as knowledge
+
+    refreshed = await asyncio.to_thread(knowledge.state, proj)
     return done(corpus_state(available=bool(available), requirements=len(requirements),
                              promises=len(promises), language=getattr(proj, "language", None)),
                 project=proj.name, available=bool(available),
                 requirements=len(requirements), accepted=len(promises),
+                knowledge=refreshed,
                 # THE OPERATOR'S LINE IS NOT LOST — it travels for a surface whose reader has a
                 # checkout, and a client-safe sentence that discarded the diagnosis would trade
                 # one bad outcome for nobody able to fix the thing.
@@ -2389,6 +2397,60 @@ async def _product_ingest(*, project: str, by: Actor, path: str = "") -> Outcome
                 refused=[{"path": p, "reason": why} for p, why in report.refused],
                 left=report.left)
 
+
+
+async def _product_refresh(*, project: str, by: Actor) -> Outcome:
+    """Bring the product's knowledge up to date NOW (#1004): its documents read as the scheduled
+    pass reads them, and its search index brought up to them, to its requirements and to the board
+    of every registry project of the product (`product/refresh.py`) — so the next read of the
+    product's knowledge searches today's, without waiting for the schedule's tick.
+
+    IT ANSWERS AT ONCE, AND THE WORK RUNS ON THE WORKER. `product_ingest` reads inside the request
+    for up to `PRODUCT_INGEST_SECONDS`, and a caller whose own call is bounded tighter than that is
+    told the core is unreachable while the pass goes on. This row STARTS
+    `ProductKnowledgeRefreshWorkflow` and never awaits it: the answer says whether it started a pass
+    or joined one, and `product_status` says afterwards when it finished, how, and what it did not
+    bring up. `product_ingest` keeps its answer — a named file, read now and reported on, is what
+    its callers read it for.
+
+    ONE FLIGHT PER PRODUCT. The workflow's id is the product's (`refresh.workflow_id`), so the
+    engine refuses a second start while one runs, whichever registry project of the product it is
+    asked through, and this row answers that the ask joined it. One that has finished is started
+    afresh.
+
+    ADMIN ONLY, like `product_ingest`: a pass writes the product's derived records and may spend a
+    model's tokens on a summary. With no durable engine it is refused as unavailable — nothing was
+    started, so it is safe to ask again."""
+    import asyncio
+
+    module, proj, bad = _product_module(project, by=by)
+    if bad:
+        return bad
+    del module  # the pass runs on the worker; this resolved the project and its product role
+    client, bad_engine = await _connected()
+    if bad_engine:
+        return bad_engine
+    from openfactory.product import refresh as knowledge
+    from openfactory.runtime.temporal import TASK_QUEUE
+    from openfactory.runtime.temporal.io import KnowledgeRefreshInput
+
+    try:
+        await client.start_workflow(
+            "ProductKnowledgeRefreshWorkflow", KnowledgeRefreshInput(project=proj.name),
+            id=knowledge.workflow_id(proj), task_queue=TASK_QUEUE,
+            execution_timeout=knowledge.FLIGHT_CEILING)
+        flight = knowledge.STARTED
+    except Exception as exc:  # noqa: BLE001 — a start the engine refused is said, never raised
+        if "AlreadyStarted" not in type(exc).__name__:
+            # THE REFERENCE IS IN THE LINE AND IN THE ANSWER (#908), as `perform`'s RAISED arm
+            reference = failure_reference()
+            log.exception("the knowledge refresh of %s could not be started reference=%s (%s)",
+                          proj.name, reference, exc)
+            return refused(FAILED, "the knowledge refresh could not be started just now.",
+                           project=proj.name, reference=reference)
+        flight = knowledge.JOINED
+    return done(knowledge.sentence_for(proj.name, flight), project=proj.name, refresh=flight,
+                knowledge=await asyncio.to_thread(knowledge.state, proj))
 
 async def _product_pending(*, project: str, by: Actor) -> Outcome:
     """What the product role has STAGED and is waiting on a person for.
@@ -7375,6 +7437,16 @@ CATALOG: dict[str, ActionSpec] = {
             optional=("path",),
             params={"path": "a file in the context repository, relative to its root (several "
                             "separated by commas) — or nothing, for whatever changed"},
+        ),
+        ActionSpec(
+            name="product_refresh",
+            scope=PRODUCT,
+            summary="bring the product's knowledge up to date now — its documents, and its search "
+                    "index over them, its requirements and its board — answering at once while "
+                    "the pass runs on the worker; product_status says when it finished",
+            run=_product_refresh,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            required=("project",),
         ),
         ActionSpec(
             name="product_triage",
