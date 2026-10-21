@@ -72,6 +72,7 @@ from openfactory.product.evaluation.run import FixtureRefused, fixture_name
 from openfactory.product.loader import DOCS_MANIFEST, _read_docs_manifest, parse_docs_manifest
 from openfactory.product.role import ProductRole
 from openfactory.product.sight import look, system_or_why
+from openfactory.product.template import TEMPLATE_FILE, load_template
 from openfactory.registry import ProjectRegistry, seed_registry
 from openfactory.util import yaml_io
 
@@ -420,6 +421,9 @@ READERS: dict[str, Reader] = {
         Reader(lambda tmp, t, mp: system_or_why(_put(tmp / okf.OKF_DIRNAME / SYSTEM_DIRNAME
                                                      / SYSTEM_FILE, t).parent.parent.parent)[1],
                ceiling=True),
+    # a product's requirement template, read from the requirements directory it sits in (#1001)
+    "openfactory/product/template.py::read_template":
+        Reader(lambda tmp, t, mp: load_template(_put(tmp / TEMPLATE_FILE, t).parent)[1]),
     "openfactory/registry.py::ProjectRegistry._load_raw":
         Reader(lambda tmp, t, mp: _raised(lambda: ProjectRegistry(_put(tmp / "p.yaml", t))._load_raw(),
                                       ValueError)),
