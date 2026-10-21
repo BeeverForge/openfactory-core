@@ -154,7 +154,9 @@ already recorded is never read again. **The product's whole knowledge is brought
 through `openfactory act product_refresh --param project=<name>`** (`POST /api/act/product_refresh`,
 #1004): what changed in the context repository is read as the schedule reads it, and the product's
 search index is brought up to it, to the requirements and to the board of every registry project of
-the product. It answers immediately — `refresh` is `started`, or `joined` when a pass is already
+the product. A product that started before its code is refreshed too — its documents and
+requirements live in its context — and the board of a project with no code repository yet is not
+read: `degraded` says it waits for its code repository. It answers immediately — `refresh` is `started`, or `joined` when a pass is already
 running for the product, so two asks never run two passes — and the pass runs on the worker, bounded
 like the schedule's. `product_status` answers `knowledge`: when the index was last brought up to date
 (`refreshed_at`), how the last pass ended (`outcome`: `refreshed`, `degraded`, `failed` or

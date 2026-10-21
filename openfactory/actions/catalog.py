@@ -7447,6 +7447,10 @@ CATALOG: dict[str, ActionSpec] = {
             run=_product_refresh,
             refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
             required=("project",),
+            # WHAT IT BRINGS UP LIVES IN THE CONTEXT (#992), like `product_ingest`'s: the documents
+            # and the requirements are there before any code is. The one source that needs the
+            # code — a project's board — is the pass's to skip, by name (`refresh._boards`)
+            needs_code=False,
         ),
         ActionSpec(
             name="product_triage",

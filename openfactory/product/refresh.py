@@ -191,13 +191,22 @@ def _run(project, done: Refreshed, *, budget_seconds: float, boards: bool) -> No
 def _boards(project, module, done: Refreshed) -> dict[str, tuple[object, list]]:
     """`{registry project: (project, cards)}` — the board of every registry project of the
     product, as the role sees it. A board that cannot be read is said, and the index keeps the
-    cards it had of it: a board unread is never a board emptied."""
+    cards it had of it: a board unread is never a board emptied.
+
+    A REGISTRY PROJECT BEFORE ITS CODE (#992) HAS NO BOARD TO READ: its board waits for its first
+    source, as the `product_board` row does. It is skipped and said by name, never read — a read
+    would fail on a tracker that names no repository and open an impediment over a state."""
+    from openfactory.contracts.project import before_its_code
     from openfactory.product.model import members
     from openfactory.product.module import ProductModule
 
     read: dict[str, tuple[object, list]] = {}
     for member in members(project):
         name = str(getattr(member, "name", "") or "")
+        if before_its_code(member):
+            done.degraded.append(f"the board of {name} waits for its code repository — its "
+                                 f"product started before its code, so it has no cards yet")
+            continue
         try:
             reader = module if name == getattr(project, "name", None) else ProductModule(
                 member, via="api")

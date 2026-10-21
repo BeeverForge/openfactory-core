@@ -399,6 +399,33 @@ async def test_product_ingest_still_answers_what_it_read_inside_the_request(prod
     assert out.data["ingested"] == ["notes/2020-02-10-kickoff.md"]
 
 
+def test_a_product_before_its_code_is_refreshed_and_only_its_board_waits(product, engine,
+                                                                         monkeypatch):
+    """A product that started before its code (#992) has its documents and requirements in its
+    context, so the row runs for it rather than being refused for the code; the pass brings those
+    up and never reads the board of a project with no code repository — it says that board waits."""
+    from openfactory.actions.base import NO_CODE_YET
+    from openfactory.product.module import ProductModule
+
+    product.project = _before_its_code(product.project)
+    out = asyncio.run(actions.perform("product_refresh", by=_admin(), project="tidewater"))
+
+    assert out.ok and out.data.get("reason") != NO_CODE_YET, out.message
+    assert [s["id"] for s in engine.started] == [knowledge.workflow_id(product.project)]
+
+    read: list[str] = []
+    monkeypatch.setattr(ProductModule, "_board_cards",
+                        lambda self: read.append(self.project.name) or [])
+    acts._do_refresh_product_knowledge(_inp(product))
+    seen = knowledge.state(product.project)
+
+    assert read == [], "the board of a project with no code repository was read"
+    assert {"documents", "requirements"} <= set(seen["sources"]), seen
+    assert not [s for s in seen["sources"] if s.startswith("board:")], seen["sources"]
+    assert any("the board of tidewater waits for its code repository" in d
+               for d in seen["degraded"]), seen["degraded"]
+
+
 # ── bounded, and heartbeating ───────────────────────────────────────────────────────────────────
 
 def test_the_pass_is_bounded_inside_its_flight():
@@ -590,6 +617,23 @@ def _a_stop(world, monkeypatch):
     return {}
 
 
+def _before_its_code(project):
+    """`project` re-registered as a product that started before its code holds it (#992): its
+    context repository and no code repository — the one field `before_its_code` reads."""
+    from openfactory.registry import ProjectRegistry
+
+    registry = ProjectRegistry()
+    registry.remove(project.name)
+    codeless = project.model_copy(update={"repo_path": ""})
+    registry.add(codeless)
+    return codeless
+
+
+def _a_project_before_its_code(world, monkeypatch):
+    world.project = _before_its_code(world.project)
+    return {}
+
+
 #: EVERY SENTENCE A PASS CAN SAY OF WHAT IT DID NOT BRING UP, made to be said: the words each case
 #: must find in `degraded`, how the pass ends, and how the case is made. Held to the code below —
 #: every `done.degraded.append` in `refresh.py` is one of these, and each of these is one of them.
@@ -598,6 +642,8 @@ _DEGRADATIONS = {
     "were being read by another pass": (knowledge.DEGRADED, _a_document_busy_with_another_pass),
     "the requirements could not be read": (knowledge.DEGRADED, _requirements_unread),
     "the board of tidewater could not be read": (knowledge.DEGRADED, _a_board_unread),
+    "the board of tidewater waits for its code repository": (knowledge.DEGRADED,
+                                                             _a_project_before_its_code),
     "the index could not be brought up to date": (knowledge.DEGRADED, _an_index_that_breaks),
     "another sync of this product held the index": (knowledge.DEGRADED, _an_index_held_elsewhere),
     "the document records could not be read by the index": (knowledge.DEGRADED,

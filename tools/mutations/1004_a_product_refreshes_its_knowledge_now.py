@@ -18,6 +18,9 @@ FIVE CLAIMS, each cut here and each required to go red:
      the index.
   5. **Admin only**, like `product_ingest`.
 
+And, since #992: a product that started before its code is refreshed — the row needs no code — and
+the board of a project with no code repository is never read, only said to wait.
+
 The guard under test: `tests/test_a_product_refreshes_its_knowledge_now.py`.
 """
 
@@ -124,6 +127,16 @@ MUTATIONS = [
 
     ("an index another sync held is said to have been brought up", REFRESH,
      "        if one.busy:\n",
+     "        if False:\n"),
+
+    # ── 4b. a product before its code (#992) ──────────────────────────────────────────────────────
+    ("the row waits for the code it does not need", CATALOG,
+     "by name (`refresh._boards`)\n"
+     "            needs_code=False,\n",
+     "by name (`refresh._boards`)\n"),
+
+    ("the board of a project before its code is read, not said to wait", REFRESH,
+     "        if before_its_code(member):\n",
      "        if False:\n"),
 
     # ── 5. admin only ─────────────────────────────────────────────────────────────────────────────
