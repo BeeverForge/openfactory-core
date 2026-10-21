@@ -22,6 +22,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from openfactory.product.template import (
+    EMPTY,
+    TEMPLATE_FILE,
+    RequirementTemplate,
+    load_template,
+)
+
 #: `0001-slug.md` — the number is the identity, and it comes from the FILENAME rather than the
 #: heading so that two files can never claim the same id while looking different on disk.
 _FILE_RE = re.compile(r"^(?P<num>\d{4})-(?P<slug>[a-z0-9][a-z0-9-]*)\.md$")
@@ -32,7 +39,11 @@ _TITLE_RE = re.compile(r"^#\s+REQ-(?P<num>\d{4})\s*[—–-]\s*(?P<title>.+?)\s*
 #: `- **Status:** accepted` — tolerant of the bold markers being dropped, because a human editing
 #: a markdown file by hand should not lose a requirement's status to a missing asterisk.
 def _field_re(name: str) -> re.Pattern[str]:
-    return re.compile(rf"^\s*[-*]\s*\**{name}:?\**\s*:?\s*(?P<value>.*?)\s*$",
+    # THE NAME ENDS WHERE THE LABEL ENDS (#1001): at a colon, or at the bold marker that closes it.
+    # It used to end nowhere, so `- **Date of go-live:** 2027-03-01` above `- **Date:**` was read as
+    # the date "of go-live:** 2027-03-01" — the first line that BEGAN with the word won. A label
+    # with no colon and no bold is no label.
+    return re.compile(rf"^\s*[-*]\s*\**{re.escape(name)}(?:\**\s*:|\*\*)\**\s*(?P<value>.*?)\s*$",
                       re.MULTILINE | re.IGNORECASE)
 
 
@@ -60,6 +71,7 @@ _OBSERVED_AT_RE = _field_re("Observed at commit")
 #: The first section heading. Everything above it is where a requirement states its own fields —
 #: the writers', the template's and a hand-edited file's alike — and everything below is its text.
 _FIRST_SECTION_RE = re.compile(r"^#{2,}\s", re.MULTILINE)
+_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 
 #: the number in `superseded-by 0007`
 _SUPERSEDED_BY_RE = re.compile(r"superseded[-\s]?by\s*:?\s*(?:REQ-)?(\d{4})", re.IGNORECASE)
@@ -151,6 +163,11 @@ class Requirement(BaseModel):
     #: loop, and the single measurable signal that the corpus is still alive
     has_decisions: bool = False
     body: str = ""
+    #: the product's own header fields (`requirements/template.yaml`, ADR-0058), by name, as
+    #: written — `""` for a field the file does not carry. Empty when the product has no template.
+    fields: dict[str, str] = Field(default_factory=dict)
+    #: the product's own sections, by name, with their text — only those the file carries
+    sections: dict[str, str] = Field(default_factory=dict)
 
     #: how strongly the behaviour is evidenced, for a reverse-engineered entry: `asked` (a human
     #: asked for it in an issue or PR — real provenance), `tested` (a test asserts it, so somebody
@@ -217,6 +234,8 @@ class Corpus(BaseModel):
 
     requirements: list[Requirement] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
+    #: the product's own template, when it has one that could be used (ADR-0058)
+    template: RequirementTemplate | None = None
 
     def by_number(self, number: int) -> Requirement | None:
         return next((r for r in self.requirements if r.number == number), None)
@@ -299,9 +318,15 @@ def _bullets(block: str) -> list[str]:
     return out
 
 
-def parse_requirement(path: Path, text: str) -> tuple[Requirement | None, list[Finding]]:
+def parse_requirement(
+    path: Path, text: str, template: RequirementTemplate | None = None
+) -> tuple[Requirement | None, list[Finding]]:
     """One requirement file. Returns `(None, findings)` only when the FILENAME is unusable — the
-    number is the identity, so without it there is nothing to record the problem against."""
+    number is the identity, so without it there is nothing to record the problem against.
+
+    With the product's `template` (ADR-0058), the file's own fields and sections are read as well,
+    and what it does not meet is a `warn` finding — never an error: a requirement that predates the
+    template is still a requirement."""
     name = path.name
     fm = _FILE_RE.match(name)
     if not fm:
@@ -349,6 +374,18 @@ def parse_requirement(path: Path, text: str) -> tuple[Requirement | None, list[F
         observed_at=_recorded(observed_at.group("value") if observed_at else ""),
         provenance_line=bool(observed_at or _EVIDENCE_RE.search(head)),
     )
+    if template is not None:
+        for f in template.fields:
+            m = _field_re(f.name).search(head)
+            req.fields[f.name] = _clean(m.group("value") if m else "")
+            if req.fields[f.name] == EMPTY:
+                req.fields[f.name] = ""
+        for sec in template.sections:
+            if (body := _section(text, sec.name)):
+                req.sections[sec.name] = body
+        present = {m.group(1).strip().lower() for m in _HEADING_RE.finditer(text)}
+        for code, sentence in template.problems_of(req.fields, present):
+            findings.append(Finding(level="warn", code=code, path=name, message=sentence))
 
     # Provenance is not decoration: a requirement nobody can trace back to a person and a date is
     # one nobody can question later. Only warn — a requirement without it is still a requirement.
@@ -456,6 +493,12 @@ def load_corpus(requirements_dir: str | Path) -> Corpus:
     reqs: list[Requirement] = []
     findings: list[Finding] = []
     seen: dict[int, str] = {}
+    # THE PRODUCT'S OWN TEMPLATE sits beside the requirements it describes (ADR-0058). One that
+    # cannot be used is a finding naming why, and the core's own shape applies.
+    template, why = load_template(root)
+    if why:
+        findings.append(Finding(level="warn", code="template-refused", path=TEMPLATE_FILE,
+                                message=why))
 
     for path in sorted(root.iterdir()):
         if not path.is_file() or path.suffix != ".md":
@@ -466,7 +509,7 @@ def load_corpus(requirements_dir: str | Path) -> Corpus:
             findings.append(Finding(level="error", code="unreadable", path=path.name,
                                     message=f"could not be read: {exc}"))
             continue
-        req, file_findings = parse_requirement(path, text)
+        req, file_findings = parse_requirement(path, text, template)
         findings += file_findings
         if req is None:
             continue
@@ -482,7 +525,7 @@ def load_corpus(requirements_dir: str | Path) -> Corpus:
         reqs.append(req)
 
     findings += _cross_check(reqs)
-    return Corpus(requirements=reqs, findings=findings)
+    return Corpus(requirements=reqs, findings=findings, template=template)
 
 
 def _by_slug(reqs: list[Requirement]) -> dict[str, list[Requirement]]:

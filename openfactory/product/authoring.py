@@ -47,6 +47,7 @@ from openfactory.product.corpus import (
     find_decisions_table,
 )
 from openfactory.product.role import IssueDraft, RequirementDraft
+from openfactory.product.template import EMPTY, RequirementTemplate, load_template
 
 log = logging.getLogger("openfactory.product")
 
@@ -197,10 +198,15 @@ def slugify(title: str, *, limit: int = 48) -> str:
 
 def render_requirement(
     draft: RequirementDraft, *, number: int, asked_by: str = "", date: str = "",
-    source: str = "",
+    source: str = "", template: RequirementTemplate | None = None,
 ) -> str:
     """The requirement as it will live in the repository — the same shape as the template, because
-    a document a human cannot edit by hand is not a document, it is a database with extra steps."""
+    a document a human cannot edit by hand is not a document, it is a database with extra steps.
+
+    With the product's own `template` (ADR-0058) its fields are written as header lines after the
+    core's own, and its sections after the core's, before the decision register. A field the draft
+    has no value for is written as `—` and a section as `(not stated)`, so the file says what is
+    missing and the reader reports it; nothing is invented."""
     status = "proposed"
     lines = [
         f"# REQ-{number:04d} — {draft.title}",
@@ -212,6 +218,10 @@ def render_requirement(
     ]
     if source:
         lines.append(f"- **Source:** {source}")
+    if template is not None:
+        for f in template.fields:
+            value = " ".join(draft.fields.get(f.name, "").split()) or EMPTY
+            lines.append(f"- **{f.name}:** {value}")
     lines += ["", "## Why", "", draft.why.strip() or "(not stated)", ""]
 
     lines += ["## What must be true", ""]
@@ -240,6 +250,11 @@ def render_requirement(
         lines += ["## Open questions", ""]
         lines += [f"- {q}" for q in draft.questions]
         lines += [""]
+
+    if template is not None:
+        for sec in template.sections:
+            text = draft.sections.get(sec.name, "").strip() or "(not stated)"
+            lines += [f"## {sec.name}", "", text, ""]
 
     lines += [
         f"## {DECISIONS_HEADING}",
@@ -586,6 +601,13 @@ def propose_requirement(
             return WriteResult(ok=False, refusal=NOT_REFUSED,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
 
+        # THE PRODUCT'S OWN TEMPLATE IS READ FROM THE CLONE, the base this write lands on
+        # (ADR-0058): what is written is what the corpus will read back. One that cannot be used
+        # was already reported by the corpus read, and the core's own shape is written.
+        template, _ = load_template(tmp / requirements_dir)
+        body_text = render_requirement(draft, number=number, asked_by=asked_by, date=date,
+                                       source=source, template=template)
+
         # THE NUMBER IS MINTED FROM THE BASE THIS CLONE HOLDS (#266 slice 3). `number` arrives from
         # the corpus the caller read, and the caller read it before the product's semaphore was
         # its: a requirement written by another conversation in between is in this clone and not
@@ -601,7 +623,7 @@ def propose_requirement(
                         docs_repo, number, fresh - 1, minted)
             number = minted
             body_text = render_requirement(draft, number=number, asked_by=asked_by, date=date,
-                                           source=source)
+                                           source=source, template=template)
             branch = branch_for(number, draft.title)
             path = f"{requirements_dir.rstrip('/')}/{number:04d}-{slugify(draft.title)}.md"
 
@@ -657,7 +679,7 @@ def propose_requirement(
                         ", ".join(f"{n:04d}" for n in unagreed), merged)
             draft = draft.model_copy(update={"supersedes": merged})
             body_text = render_requirement(draft, number=number, asked_by=asked_by, date=date,
-                                           source=source)
+                                           source=source, template=template)
 
         target = tmp / path
         target.parent.mkdir(parents=True, exist_ok=True)
