@@ -257,8 +257,10 @@ starts a job (a durable `start`, a local `start`, and each card a `scan` starts,
 skipped) appends one line to its journal: `kind` `note`, `message` `started`, and `data`
 holding `by` (who asked) and `correlation_id`, the id that action's audit record carries (§5), so
 the job's events read back to the click, the command or the scan that caused them. It is a `note`
-and not a `state`, so it is never read as how the job ended. The action's process writes it, not
-the job: the workflow is not told the id. On a deployment whose jobs run on a remote box that
+and not a `state`, so it is never read as how the job ended or as the job's state, and the
+outcome aggregates (`openfactory certify deployment`) do not count it as a line of the job: the
+time from pickup to `pr_open` still starts at the job's own first line. The action's process
+writes it, not the job: the workflow is not told the id. On a deployment whose jobs run on a remote box that
 process is the panel's host, so the line sits in the panel's copy of the journal and the panel
 reads the box's journal after it, never instead of it. A journal that cannot be written is logged
 as `OPENFACTORY_START_NOT_JOURNALLED project=… issue=…`, naming the cause, and the start stands.

@@ -196,3 +196,27 @@ def test_the_live_feed_reads_the_remote_box_past_a_start_noted_on_the_panels_hos
 
     assert [(e.get("kind"), e.get("message")) for e in sent] == \
         [("note", "started"), ("state", "implementing")], frames
+
+
+def test_the_job_grid_shows_the_jobs_own_state_when_its_start_is_noted_after_it(project):
+    """#694: a durable `start` writes its `started` note after `tv.start_job` returns, so it can
+    land after the box's first line. `/api/jobs` reads a job's state as its journal's last `state`
+    line (`list_jobs`), so the note must stay a `note`: as a `state` the grid would show the job
+    `started` while its box says `implementing`. Green on this branch; red when `START_NOTE` is
+    spelled as a `state` (`tools/mutations/694_one_correlation_id_ties_a_request_to_what_it_caused.py`)."""
+    import json
+
+    from openfactory.api import app as api
+    from openfactory.observability.job_record import record_started
+    from openfactory.paths import events_file
+
+    path = events_file(project, "1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"ts": "2026-10-21T10:00:00+00:00", "job_id": "#1",
+                                "ticket_id": "#1", "kind": "state",
+                                "message": "implementing"}) + "\n")
+    record_started(project, "1", by="alice", correlation="c0ffee")
+
+    [row] = api.list_jobs()
+
+    assert row["state"] == "implementing", row

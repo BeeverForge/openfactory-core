@@ -223,8 +223,11 @@ def _jobs_in(path: Path, project: str) -> list[_Job]:
     recorded: one running now, one the attended driver ran before #551 (it journalled no ending),
     or one whose ending was lost. Consecutive jobs with no ending between them read as one.
 
-    A line that is not JSON, or has no time, is skipped, as the panel skips it."""
+    A line that is not JSON, or has no time, is skipped, as the panel skips it. So is the start an
+    action notes (`job_record.is_start_note`): the job's lines say when it began, not the
+    request."""
     from openfactory.contracts.refs import canonical_ref
+    from openfactory.observability.job_record import is_start_note
 
     jobs: list[_Job] = []
     current: _Job | None = None
@@ -234,6 +237,13 @@ def _jobs_in(path: Path, project: str) -> list[_Job]:
         except ValueError:
             continue
         if not isinstance(event, dict):
+            continue
+        # THE START AN ACTION NOTED IS NOT A LINE THE JOB WROTE (#694). A local start and a scan
+        # write it before the job's first line, so as a line it moved every job's start back to
+        # the request and grew `pickup_to_pr_open_seconds` by that wait (measured: 3600 s for a
+        # job whose box opened its PR 3000 s after its first line); on a remote deployment the
+        # panel host's journal holds it alone, and it made a job there of nothing.
+        if is_start_note(event):
             continue
         when = _moment(event.get("ts"))
         if when is None:

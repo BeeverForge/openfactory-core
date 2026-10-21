@@ -164,8 +164,9 @@ def record_started(project, issue: str, *, by: object, correlation: str) -> None
     the id (no `JobParams` field, so no replay versioning), so the process that started the job
     writes the line, as `stop` writes a stopped job's ending from the action process.
 
-    A `note`, NEVER A `state`: `query.outcomes` reads `state` lines that carry a `by` as endings,
-    and a start is not one.
+    A `note`, NEVER A `state`: `/api/jobs` shows a job's last `state` line as its state, and a
+    durable start's note can land after the box's first line. `query.outcomes` skips it
+    (`is_start_note`): the job's own lines say when it began, not the request.
 
     WRITTEN WHERE THE ACTION RAN. On a remote deployment that is the panel's host, and the job's
     journal is on the worker's disk: the panel reads the box's tail after this line, not instead

@@ -18,7 +18,11 @@ The claims, each a group of rows (`ai/tasks/todo.md` tasks 26-30):
      `note` line;
   F. a journal that cannot be written is logged by name and the start stands, on every path;
   G. on a remote-box deployment the start note on the panel's host is followed by the box's
-     journal, in `_events` and in the live feed, and never read as an ending or a job.
+     journal, in `_events` and in the live feed, and the job grid shows the job's own state, not
+     the note;
+  H. the outcome aggregates do not read the start note as a line of the job
+     (`query._jobs_in`): the pickup measure starts at the job's own first line, and a journal
+     holding the note alone, or the note before a stop's ending, holds no job.
 
 Every row names the one test (or test file) that holds its claim.
 
@@ -28,6 +32,10 @@ cut applied): the local start and the scan were held to log and keep the start, 
 path only to write the note. `test_a_durable_start_whose_journal_cannot_be_written_still_starts_
 and_says_so` is green on the code and red under the row (`Outcome(ok=False, "could not start:
 unknown event sink 'no-such-sink' …")`). First full run: 29/29 red.
+
+TASK 32 (2026-10-21) moved two rows: `query._jobs_in` now skips the start note, so the cut on
+`_an_ending` cannot reach it (retired, measured 30 passed under it) and the `state` spelling of
+`START_NOTE` is held by the job grid instead of the outcomes (re-aimed); row H is new. 29/29 red.
 """
 
 TEST = "tests/test_one_correlation_id_ties_a_request_to_what_it_caused.py"
@@ -42,8 +50,7 @@ _QUERY = "openfactory/observability/query.py"
 
 _T = TEST + "::"
 _PANEL_READS = "tests/test_panel_reads_events_without_aws.py::"
-_OUTCOMES = ("tests/test_the_outcomes_are_read_never_inferred.py::"
-             "test_a_start_note_is_a_line_of_the_job_it_started_never_an_ending_or_a_job_of_its_own")
+_OUTCOMES = "tests/test_the_outcomes_are_read_never_inferred.py"
 
 MUTATIONS = [
     # ── A. the panel ───────────────────────────────────────────────────────────────────────────
@@ -182,12 +189,20 @@ MUTATIONS = [
      "    return bool(list(events))\n",
      _PANEL_READS + ("test_the_live_feed_reads_the_remote_box_past_a_start_noted_on_the_panels_hos"
                      "t")),
-    ("the start note is written as a state line, which query reads as an ending", _JOB_RECORD,
+    # RE-AIMED 2026-10-21: this row named the outcomes file, and `query._jobs_in` now skips the
+    # note by `is_start_note`, which follows the constant: 30 passed under it there. The kind still
+    # matters to `/api/jobs`, which shows a job's last `state` line.
+    ("the start note is written as a state line, which the job grid reads as the job's state",
+     _JOB_RECORD,
      'START_NOTE = ("note", "started")\n',
      'START_NOTE = ("state", "started")\n',
-     _OUTCOMES),
-    ("query reads any line carrying a `by` as an ending, the start note included", _QUERY,
-     '    return event.get("kind") == "state" and isinstance(event.get("data"), dict) \\\n',
-     '    return isinstance(event.get("data"), dict) \\\n',
+     _PANEL_READS + "test_the_job_grid_shows_the_jobs_own_state_when_its_start_is_noted_after_it"),
+    # RETIRED 2026-10-21: "query reads any line carrying a `by` as an ending, the start note
+    # included" (`_an_ending` without its `kind` check). `_jobs_in` now skips the start note before
+    # it asks `_an_ending`, so the note cannot reach it and the cut ran green; row H holds the note.
+    # ── H. the outcome aggregates ──────────────────────────────────────────────────────────────
+    ("query reads the start note as a line of the job", _QUERY,
+     "        if is_start_note(event):\n            continue\n",
+     "",
      _OUTCOMES),
 ]

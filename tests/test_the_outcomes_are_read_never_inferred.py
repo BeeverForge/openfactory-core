@@ -173,13 +173,14 @@ def test_a_stop_is_an_ending_and_an_ending_nobody_defined_names_no_word_of_its_o
     assert out["ended"]["unrecognised"] == 1 and "castello was here" not in json.dumps(out)
 
 
-def test_a_start_note_is_a_line_of_the_job_it_started_never_an_ending_or_a_job_of_its_own(
+def test_a_start_noted_after_the_jobs_first_line_is_never_an_ending_or_a_job_of_its_own(
         d, monkeypatch):
     """#694: `start` writes a `note` line, `started`, into the card's journal from the action
-    process, so on a durable start it can land after the workflow's first line. It must read as a
-    line of that job: as an ending (a `by` on a `state` line) it would end the job `started` and
-    open a second one with the rest; as a job of its own the card would count two. Written by the
-    one writer, `job_record.record_started`, at a moment this test chooses."""
+    process, so on a durable start it can land after the workflow's first line. It is not one of
+    the job's lines (`query._jobs_in` skips it): as an ending (a `by` on a `state` line) it would
+    end the job `started` and open a second one with the rest; as a job of its own the card would
+    count two. Written by the one writer, `job_record.record_started`, at a moment this test
+    chooses."""
     from openfactory.observability import events
     from openfactory.observability.job_record import record_started
     from openfactory.registry import ProjectRegistry
@@ -199,6 +200,61 @@ def test_a_start_note_is_a_line_of_the_job_it_started_never_an_ending_or_a_job_o
 
     assert out["jobs"] == 1
     assert out["ended"]["merged"] == 1 and out["without_a_recorded_ending"] == 0
+
+
+def _noted(d, monkeypatch, ref: str, when: datetime) -> None:
+    """The start an action notes in the card's journal (`job_record.record_started`, #694), at a
+    moment the test chooses — the one writer, never a hand-built copy of its line."""
+    from openfactory.observability import events
+    from openfactory.observability.job_record import record_started
+    from openfactory.registry import ProjectRegistry
+
+    monkeypatch.setattr(events, "now_iso", lambda: when.isoformat())
+    record_started(ProjectRegistry().get("acme"), ref, by="alice", correlation="c0ffee")
+
+
+def test_pickup_to_pull_request_starts_at_the_jobs_own_first_line_not_at_the_start_it_was_asked(
+        d, monkeypatch):
+    """#694: a local `start` and each card a `scan` starts note the start BEFORE the job writes
+    its first line (`catalog._start` writes it before `Popen`), so the note became the job's first
+    line and the measure grew by the time between the request and the box's first line. Before
+    the start note the measure began at the job's own first line, and it still does. Measured on
+    this branch before the fix: 3600.0 s for a job whose box opened its pull request 3000 s after
+    its first line."""
+    start = at(5)
+    _noted(d, monkeypatch, "1", start - timedelta(minutes=10))
+    d.journal("acme", "1", d.box("spec_validation", start),
+              d.box("pr_open", start + timedelta(minutes=50)),
+              d.ending("merged", start + timedelta(hours=2)))
+
+    assert d.outcomes()["pickup_to_pr_open_seconds"] == {"median": 3000.0, "jobs": 1}
+
+
+def test_a_journal_holding_only_the_start_an_action_noted_holds_no_job(d, monkeypatch):
+    """#694: on a remote deployment the action writes its start note on the panel's host and the
+    job writes its journal on the box, so the panel's copy holds the note alone; a local start
+    whose `openfactory run` never wrote a line leaves the same. Read as a job, every card started
+    there counted one job without a recorded ending, where before the note it counted none
+    (measured on this branch before the fix: `without_a_recorded_ending == 1`)."""
+    _noted(d, monkeypatch, "1", at(5))
+
+    out = d.outcomes()
+
+    assert out["jobs"] == 0 and out["without_a_recorded_ending"] == 0
+
+
+def test_a_start_noted_beside_a_stop_on_the_panels_host_is_not_a_job(d, monkeypatch):
+    """#694: a remote job stopped from the panel has its ending written on the panel's host
+    (`catalog._journal_the_stop`), and an ending with no line of the job before it is not a job
+    (`query._jobs_in`). The start note before that ending must not make one: measured on this
+    branch before the fix, the panel host's journal counted 1 job, `skipped`, where it counted 0."""
+    _noted(d, monkeypatch, "1", at(5))
+    # The stop's own ending: `skipped`, signed by whoever stopped it (`_journal_the_stop`).
+    d.journal("acme", "1", d.ending("skipped", at(5) + timedelta(hours=1), by="alice"))
+
+    out = d.outcomes()
+
+    assert out["jobs"] == 0 and out["ended"]["skipped"] == 0
 
 
 def test_a_job_is_in_the_window_where_it_ended(d):
