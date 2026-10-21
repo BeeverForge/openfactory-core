@@ -1,4 +1,4 @@
-"""The platform's own column vocabulary — six names, six neutral keys, one board order.
+"""The platform's own column vocabulary — seven names, seven neutral keys, one board order.
 
 WHY THIS FILE EXISTS, AND WHY IT IS NOT IN A VENDOR'S MODULE. The six names were written down
 three times and compared in four more, and every copy lived at a GitHub address:
@@ -34,6 +34,11 @@ CANONICAL_COLUMNS: dict[str, str] = {
     "todo": "TO-DO",
     "in_progress": "In progress",
     "in_review": "In review",
+    # A pull request waiting on a PERSON'S REVIEW: a column of its own, apart from the parks (#753).
+    # It shared `needs_action` with a failing gate and a card with no criteria, so the triager
+    # could not tell a reviewer's wait from a stuck card. A deployment that maps nothing for it
+    # falls back to `needs_action`'s column (`tracker/base.py::FALLS_BACK_TO`).
+    "needs_review": "Needs Review",
     # Parked waiting on a HUMAN → a column of its own, never Backlog: a ticket that needs you must
     # not hide among the ones nobody has started.
     "needs_action": "Needs Action",
@@ -45,13 +50,15 @@ CANONICAL_COLUMNS: dict[str, str] = {
 #: Kept as its own tuple, and asserted to cover the map exactly, because the two answers rotted
 #: apart once already: the creating act listed six names in order and the runtime map five plus a
 #: sixth appended after it, so a reader comparing them saw two different vocabularies.
+#: `needs_review` sits between the factory's review and the parks (#753): a pull request a person
+#: must review is past the factory's own review and is not stuck.
 BOARD_ORDER: tuple[str, ...] = (
-    "backlog", "todo", "in_progress", "in_review", "needs_action", "done",
+    "backlog", "todo", "in_progress", "in_review", "needs_review", "needs_action", "done",
 )
 
 
 def column_names() -> tuple[str, ...]:
-    """The six names in board order — what a creating act writes onto a new board.
+    """The seven names in board order — what a creating act writes onto a new board.
 
     A FUNCTION RATHER THAN A SECOND CONSTANT, so there is exactly one place the order and the
     names meet and no copy of the answer can drift from the map above."""
@@ -67,8 +74,9 @@ def column_names() -> tuple[str, ...]:
 #: instead (`product/queue.py`, `product/triage.py`), which is how the queue came to call ready
 #: what the spec gate refuses.
 #:
-#: `todo` AND `backlog` ARE THE OPERATOR'S; the other four are the factory's own writing. A card in
-#: `in_progress`, `in_review`, `needs_action` or `done` is there because `set_state` put it there.
+#: `todo` AND `backlog` ARE THE OPERATOR'S; the other five are the factory's own writing. A card in
+#: `in_progress`, `in_review`, `needs_review`, `needs_action` or `done` is there because `set_state`
+#: put it there.
 BEFORE_THE_FACTORY: tuple[str, ...] = ("backlog", "todo")
 
 #: The keys a card sits in once the factory has FINISHED with it (#162).
@@ -94,6 +102,11 @@ BEFORE_THE_FACTORY: tuple[str, ...] = ("backlog", "todo")
 #: RETURNS `SKIPPED` (`_lifecycle`), and an elapsed impediment deadline returns the park untouched
 #: and completes. So the close asks the ENGINE whether a job is really on the card
 #: (`actions/catalog.py::_job_on_the_card`), and this table keeps answering only what it can know.
+#:
+#: `needs_review` IS NOT HERE EITHER (#753), and `may_be_running` must answer True for it: the
+#: pull request is open and `runtime/temporal/workflow.py::_watch_to_merge` holds the floor until
+#: it merges or `merge_deadline_days` runs out, so a close from that column takes the card from
+#: under a live job. Nothing shipped yet, so a close there is never DELIVERED.
 AFTER_THE_FACTORY: tuple[str, ...] = ("done",)
 
 
@@ -165,7 +178,7 @@ def name_for(key: str, *, renamed: dict[str, str] | None = None) -> str:
     takes it: a client whose board says `A Fazer` declared `{"todo": "A Fazer"}`, and the product
     role then asked its board for `TO-DO` by name — on Jira the site's workflow offers no such
     transition, so every queueing and every filing was refused. The deployment's word wins and the
-    platform's six still answer under it, exactly as `key_for` merges them, so a row that declared
+    platform's seven still answer under it, exactly as `key_for` merges them, so a row that declared
     only half its workflow is read the same way in both directions."""
     said = str((renamed or {}).get((key or "").strip().lower()) or "").strip()
     if said:
