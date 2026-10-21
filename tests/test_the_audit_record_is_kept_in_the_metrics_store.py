@@ -801,13 +801,22 @@ async def test_audit_rows_in_the_store_do_not_change_the_cost_dashboard(store):
     ("product_status", {"project": "nosuch\ud800"}),
     ("teleport\ud800", {}),
 ], ids=["in_the_project", "in_the_action"])
-async def test_a_lone_surrogate_in_the_rows_key_still_leaves_the_record(store, name, params):
+async def test_a_lone_surrogate_in_the_rows_key_still_leaves_the_record(store, name, params,
+                                                                        caplog):
     """Criterion 2, "every call leaves a record": a JSON body or a path may carry a lone surrogate,
     and the project and the action are the row's key (`pk`, `sk`), which sqlite binds as strict
     UTF-8. On cd7dbcd3 the store refused the row (`'utf-8' codec can't encode character '\\ud800'
     … surrogates not allowed`), `perform` logged one WARNING and the call had 0 records — measured
     by the branch review on a real `openfactory serve`, `POST /api/act/product_status` with
-    `{"project":"nosuch\\ud800"}`: 404 and no line in `openfactory audit`. Now it is recorded."""
+    `{"project":"nosuch\\ud800"}`: 404 and no line in `openfactory audit`. Now it is recorded.
+
+    Nothing below CRITICAL is captured: should the row's key regress, the store's WARNING holds the
+    raw `\\ud800`, and under xdist a captured log a worker cannot encode ended the run in
+    `INTERNALERROR … DumpError: strings must be utf-8 encodable`, exit 3, the shard's report lost
+    (branch review round 2, `_storable` cut to the identity, `-n 4`)."""
+    import logging
+
+    caplog.set_level(logging.CRITICAL)
     await actions.perform(name, by=actions.Actor(id="eve", via="panel"), **params)
 
     rows = _audit_rows(store)
