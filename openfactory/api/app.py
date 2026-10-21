@@ -3756,7 +3756,9 @@ async def act(name: str, body: ActRequest, request: Request) -> JSONResponse:
     Returns the Outcome verbatim — `ok`, `message`, `code`, `data` — with the HTTP status mapped
     from `code`, and `detail` mirroring `message` so the panel's existing error handling (which
     reads `d.detail`, the FastAPI convention) works unchanged."""
-    outcome = await actions.perform(name, by=_actor(request), **(body.params or {}))
+    # ONE MAPPING, NOT SPREAD: a body naming `by` or `name` collided with `perform`'s own
+    # arguments and answered 500 with no record (PR #1039 review N1).
+    outcome = await actions.perform(name, by=_actor(request), params=body.params or {})
     payload: dict[str, object] = {"ok": outcome.ok, "message": outcome.message,
                                   "code": outcome.code, "data": dict(outcome.data)}
     if not outcome.ok:

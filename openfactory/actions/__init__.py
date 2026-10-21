@@ -45,6 +45,7 @@ import asyncio
 import dataclasses
 import logging
 import re
+from collections.abc import Mapping
 
 from openfactory.actions.base import (
     AROUND_EVERY_ROW,
@@ -270,8 +271,17 @@ def proposable(by: Actor) -> tuple[str, ...]:
     return tuple(out)
 
 
-async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
+async def perform(name: str, /, *, by: Actor, params: Mapping[str, object] | None = None,
+                  **named: object) -> Outcome:
     """Run one action and answer with an `Outcome`; what it raises is said below.
+
+    THE PARAMETERS COME AS `params=` FROM A DOOR, as keywords from code. A door hands on what a
+    caller sent as one mapping, so a name the caller chose never meets this function's own: when
+    both doors spread a body into `**params`, a parameter named `by` or `name` raised `TypeError`
+    before anything here ran — a 500 at `POST /api/act/*`, a traceback at `openfactory act`, and
+    no record (PR #1039 review N1, measured on c310ba28). Now the row refuses it as any name it
+    does not take. `name` is positional-only for the same reason. Keywords and `params` merge,
+    the keywords winning.
 
     THE SIX THINGS THAT HAPPEN HERE RATHER THAN IN THREE FRONT ENDS:
 
@@ -317,6 +327,7 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
     `first_message` walks the chain, because an error crossing a Temporal activity boundary
     otherwise arrives as the fixed string "Activity task failed" (#66).
     """
+    params = {**(params or {}), **named}
     key = (name or "").strip().lower()
     if not by.correlation:
         # ONE ID PER REQUEST, MINTED BEFORE THE ROW RUNS (#694): a caller that carried none (the

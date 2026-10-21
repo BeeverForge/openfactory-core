@@ -3834,8 +3834,10 @@ def act_cmd(
         # audit line, not the authority. Named rather than a catch-all, so this stays a defined
         # branch instead of a swallow (`tests/test_no_silent_failures.py`).
         who = "unknown"
+    # ONE MAPPING, NOT SPREAD: `-P by=…` or `-P name=…` met `perform`'s own arguments and
+    # ended in a TypeError with no record (PR #1039 review N1).
     outcome = asyncio.run(act_layer.perform(
-        name, by=_cli_actor(who), **params))
+        name, by=_cli_actor(who), params=params))
     if as_json:
         typer.echo(_json.dumps({"ok": outcome.ok, "code": outcome.code,
                                 "message": outcome.message, "data": dict(outcome.data)}, indent=2))
