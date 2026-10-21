@@ -39,6 +39,14 @@ class ReadModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class Refusal(ReadModel):
+    """What a read answers when it refuses: ONE SENTENCE in `detail` — the shape every refusal of
+    this API has (`docs/reference/the-front-end-api.md`, *Refusals*), declared for the statuses a
+    read names (`app._read`'s `refusals`) so its description says them beside the body."""
+
+    detail: str | None = None
+
+
 # ── the floor ───────────────────────────────────────────────────────────────────────────────────
 
 class FloorRead(ReadModel):
@@ -363,6 +371,38 @@ class DocumentsRead(ReadModel):
     internal_withheld: int | None = None
     unreadable_internal: list[UnreadableDocument] | None = None
     documents_internal: list[ProductDocument] | None = None
+
+
+class ProductSearchHit(ReadModel):
+    """One item a search of the product's published knowledge found. `kind` is `requirement`,
+    `decision`, `document` or `card`; `source` is where it is — a document's path or a card's ref;
+    `rank` is its place in this product's results, best first (`1` is the best). There is no raw
+    score: a score is the index's own and is not comparable across products."""
+
+    kind: str | None = None
+    source: str | None = None
+    product: str | None = None
+    title: str | None = None
+    snippet: str | None = None
+    locator: str | None = None
+    date: str | None = None
+    rank: int | None = None
+
+
+class ProductSearchRead(ReadModel):
+    """`/api/product/{project}/search` — one product's published knowledge (its requirements, the
+    decisions recorded in its documents, the documents and its board's cards), searched with `q`
+    and a `limit`, in the product owner's own ranking. `degraded` says why the semantic stage did
+    not run or ran on part of the index — or that the deployment turned the search off and nothing
+    was searched — and is `""` when it ran whole; never silence. A blank `q` finds nothing. A line
+    of a conversation and a conversation's distillate are never returned."""
+
+    project: str | None = None
+    product: str | None = None
+    query: str | None = None
+    degraded: str | None = None
+    searched: int | None = None
+    hits: list[ProductSearchHit] | None = None
 
 
 # ── the metrics ─────────────────────────────────────────────────────────────────────────────────

@@ -187,6 +187,17 @@ EXCLUDED: tuple[Exclusion, ...] = (
             "file whole. Whether a card can be looked at before it merges is the card's, on the "
             "panel; the role says nothing about a preview it cannot see.",
         paths=("/api/preview/{project}/{unit}:*",)),
+    Exclusion(
+        what="a client's search of the product's knowledge — the hits a `q` returns, each a ranked "
+             "slice of a requirement, a decision, a document or a card",
+        why="#988: the search is a client's tool over the SAME index the role searches on every "
+            "turn — not a fact surfaced only on the panel. The role does not consume the panel's "
+            "ad-hoc search results; it runs its own searches, written as `found/` files, and a "
+            "single turn's pack is not every ranked slice the index could return. So nothing here "
+            "is held to the pack: what it returns is the product's own published knowledge, which "
+            "the role reads from its index, and never a conversation line the search already "
+            "leaves out.",
+        paths=("/api/product/{project}/search:*",)),
 )
 
 

@@ -342,8 +342,7 @@ MUTATIONS = [
      "    pass", STEP),
 
     ("the switch turns nothing off", RETRIEVAL,
-     "    return (os.environ.get(SWITCH_ENV) or \"\").strip().lower() not in (\"off\", \"0\", "
-     "\"false\", \"no\")",
+     "    return (os.environ.get(SWITCH_ENV) or \"\").strip().lower() not in SWITCHED_OFF",
      "    return True", STEP),
 
     ("the scheduled pass leaves the index behind its documents", ACTIVITIES,

@@ -47,6 +47,7 @@ from openfactory.product.index.items import (
     DOCUMENT,
     DROPPED,
     OPEN,
+    PUBLISHED_KINDS,
     REQUIREMENT,
     TURN,
     UNREADABLE,
@@ -80,8 +81,13 @@ SEARCHES_FILE = "searches.jsonl"
 RECORD_WAIT_SECONDS = 10.0
 
 
+#: What `SWITCH_ENV` is set to, in any case, when a deployment turned the step off — one tuple the
+#: switch reads and the client's read is tested over, so a spelling added here is covered there.
+SWITCHED_OFF = ("off", "0", "false", "no")
+
+
 def enabled() -> bool:
-    return (os.environ.get(SWITCH_ENV) or "").strip().lower() not in ("off", "0", "false", "no")
+    return (os.environ.get(SWITCH_ENV) or "").strip().lower() not in SWITCHED_OFF
 
 
 def embedder():
@@ -159,6 +165,58 @@ def run(project, query: Query, *, by: str, conversation: str, round_: int = 0) -
     found = search(Index(key), query, embedder=row, degraded=why)
     record(key, by=by, found=found, conversation=conversation, round_=round_)
     return found
+
+
+#: How many hits a client's read of a product's knowledge returns by default, and the most it ever
+#: will (#988): a limit a caller may raise, clamped so one read cannot ask the index to rank
+#: everything it holds.
+KNOWLEDGE_LIMIT = 8
+KNOWLEDGE_MAX = 50
+
+#: What a client's read answers in `degraded` when the deployment turned the step off (#988,
+#: review): nothing was searched, and the answer says so — an empty list alone reads as "the product
+#: holds nothing about this", which is not what happened.
+KNOWLEDGE_OFF = (f"the product's search is turned off on this deployment ({SWITCH_ENV}) — nothing "
+                 f"was searched, so what the product holds about this is unknown, not absent")
+
+
+def search_knowledge(project, *, text: str, limit: int = KNOWLEDGE_LIMIT,
+                     audience: str = INTERNAL) -> Found:
+    """Search one product's PUBLISHED knowledge for a client's read (#988) — the kinds a product
+    publishes in its context repository and on its board (`items.PUBLISHED_KINDS`: documents, the
+    decisions a model read in them, the requirements corpus and the board's cards). A line of a
+    conversation and a model's distillate of one are never a hit: they are a conversation's, private
+    or not, and the `kinds` filter leaves them out before anything is ranked.
+
+    THE SAME PIPELINE AND THE SAME ORDER A TURN'S SEARCH USES (`search.search`). The engine's search
+    before a turn, the role's `[[BUSCA: …]]` and this client read ask the one function, so a search
+    box on the panel and the product owner are answered in one ranking — lexical then semantic, an
+    exact-term tier first — narrowed by `kinds` to what is published. A RANK IS WITHIN ONE PRODUCT
+    (ADR-0053): the hits come back best first; the raw fused score is the index's own and is not
+    comparable across products, so the read renders the position, not the score.
+
+    A READ, NOT A TURN. Recorded nowhere — the search record is a conversation's, forgotten with its
+    transcript, and this read belongs to no conversation (it does not call `record`) — and under no
+    product semaphore: `search` refuses to run while one is held (its semantic stage is a model, and
+    the lock is for a comparison and a write), and this read holds none. A product whose semantic
+    stage is degraded says so in `Found.degraded`, never silently; a slow search is logged by
+    `search` itself (`OPENFACTORY_PRODUCT_INDEX_SLOW`).
+
+    THE PRODUCT OWNER'S OWN GUARDS, BEFORE ANYTHING IS OPENED (`product/module.py`, the search
+    before a turn and "done before?"): a deployment that turned the step off (`enabled()`) is
+    searched for nobody — the index it would read is no longer kept up to date for the role — and
+    the answer says so in `degraded` (`KNOWLEDGE_OFF`); a blank `text` asks nothing, and finds
+    nothing, without the embedder or the index being asked."""
+    from openfactory.product.key import product_key
+
+    query = Query(text=text, audience=audience, limit=limit, kinds=PUBLISHED_KINDS)
+    if not enabled():
+        return Found(query=query, hits=[], degraded=KNOWLEDGE_OFF)
+    if not str(text or "").strip():
+        return Found(query=query, hits=[])
+    key = product_key(project)
+    row, why = embedder()
+    return search(Index(key), query, embedder=row, degraded=why)
 
 
 def before_the_turn(project, *, question: str, said: str = "", audience: str = INTERNAL,
@@ -512,7 +570,8 @@ def recorded(key: str) -> list[dict]:
 
 
 __all__ = [
-    "BEFORE", "DONE_BEFORE", "ENGINE", "FOUND_DIR", "ROLE", "SWITCH_ENV", "before_the_turn",
+    "BEFORE", "DONE_BEFORE", "ENGINE", "FOUND_DIR", "KNOWLEDGE_LIMIT", "KNOWLEDGE_MAX",
+    "KNOWLEDGE_OFF", "QUERY_CHARS", "ROLE", "SWITCHED_OFF", "SWITCH_ENV", "before_the_turn",
     "done_before", "embedder", "enabled", "for_the_role", "forget_conversations", "query_of",
-    "record", "recorded", "refresh", "render", "run", "said_of",
+    "record", "recorded", "refresh", "render", "run", "said_of", "search_knowledge",
 ]

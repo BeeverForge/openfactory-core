@@ -2135,6 +2135,177 @@
         }
       }
     },
+    "/api/v1/product/{project}/search": {
+      "get": {
+        "summary": "Product Search",
+        "description": "Search one product's KNOWLEDGE — its requirements, the decisions recorded in its documents,\nthe documents themselves and its board's cards — and nothing a conversation said (#988).\n\n`q` is the query and `limit` how many hits, both declared parameters of the query string, each\ndescribed with its bounds. Each hit carries its `kind` (requirement, decision, document or\ncard), its `source` (a document's path or a card's ref), its `product`, a `snippet`, where it is\n(`locator`), the date it carries, and its `rank` within this product's results, best first.\n\nTHE PRODUCT OWNER'S OWN SEARCH, FOR ANY CLIENT. The ranking is the one a turn is answered in —\nthe same hybrid pipeline, lexical then semantic, an exact-term tier first\n(`product/index/search.py`) — so a search box on the panel and the product owner's turns agree.\nUnder `/api/product/`, so a product credential may read it; who may read it is the deployment's\npolicy, as for any read, and the product's own people read everything it exposes (the product\nowner's decision of 2026-09-25, as the documents screen reads them), internal documents\nincluded.\n\nWHAT IT NEVER RETURNS: a line of a conversation or a model's distillate of one, private or not —\n`retrieval.search_knowledge` narrows the read to the kinds a product publishes\n(`index.items.PUBLISHED_KINDS`). A product whose semantic stage is degraded says so in\n`degraded`, never silently; the search runs under no product semaphore, and a slow one is\nlogged.\n\nTHE OWNER'S GUARDS, AND THE READ'S OWN (review of #989). A blank `q` finds nothing and asks\nneither the embedder nor the index; a deployment that turned retrieval off says so in\n`degraded` and searches nothing (`retrieval.search_knowledge`). A `q` longer than\n`retrieval.QUERY_CHARS` — the most of a query the found file repeats — is refused before the\nembedder sees it or the lexical stage turns it into a disjunction of every token. And a project\nwith no product role is refused before its index is opened — opening it creates the index's\ndirectory, or drops and rebuilds a corrupt file, for a project the role never reads — and in\nthe very body an unknown project is (`_no_such_project`): which projects a deployment runs\noutside the product area is not a product credential's to learn, as at the gate's board\nread.",
+        "operationId": "product_search_api_v1_product__project__search_get",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "what to look for, at most 300 characters — a longer one is refused (400); a blank one finds nothing and asks nothing",
+              "maxLength": 300,
+              "default": "",
+              "title": "Q"
+            },
+            "description": "what to look for, at most 300 characters — a longer one is refused (400); a blank one finds nothing and asks nothing"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "how many hits, best first: 8 when absent, and clamped to 1…50 — a limit past either end is read as that end, never refused",
+              "default": 8,
+              "title": "Limit"
+            },
+            "description": "how many hits, best first: 8 when absent, and clamped to 1…50 — a limit past either end is read as that end, never refused"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSearchRead"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`q` is longer than 300 characters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment — one with no product role is answered alike",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/product/{project}/search": {
+      "get": {
+        "summary": "Product Search",
+        "description": "Search one product's KNOWLEDGE — its requirements, the decisions recorded in its documents,\nthe documents themselves and its board's cards — and nothing a conversation said (#988).\n\n`q` is the query and `limit` how many hits, both declared parameters of the query string, each\ndescribed with its bounds. Each hit carries its `kind` (requirement, decision, document or\ncard), its `source` (a document's path or a card's ref), its `product`, a `snippet`, where it is\n(`locator`), the date it carries, and its `rank` within this product's results, best first.\n\nTHE PRODUCT OWNER'S OWN SEARCH, FOR ANY CLIENT. The ranking is the one a turn is answered in —\nthe same hybrid pipeline, lexical then semantic, an exact-term tier first\n(`product/index/search.py`) — so a search box on the panel and the product owner's turns agree.\nUnder `/api/product/`, so a product credential may read it; who may read it is the deployment's\npolicy, as for any read, and the product's own people read everything it exposes (the product\nowner's decision of 2026-09-25, as the documents screen reads them), internal documents\nincluded.\n\nWHAT IT NEVER RETURNS: a line of a conversation or a model's distillate of one, private or not —\n`retrieval.search_knowledge` narrows the read to the kinds a product publishes\n(`index.items.PUBLISHED_KINDS`). A product whose semantic stage is degraded says so in\n`degraded`, never silently; the search runs under no product semaphore, and a slow one is\nlogged.\n\nTHE OWNER'S GUARDS, AND THE READ'S OWN (review of #989). A blank `q` finds nothing and asks\nneither the embedder nor the index; a deployment that turned retrieval off says so in\n`degraded` and searches nothing (`retrieval.search_knowledge`). A `q` longer than\n`retrieval.QUERY_CHARS` — the most of a query the found file repeats — is refused before the\nembedder sees it or the lexical stage turns it into a disjunction of every token. And a project\nwith no product role is refused before its index is opened — opening it creates the index's\ndirectory, or drops and rebuilds a corrupt file, for a project the role never reads — and in\nthe very body an unknown project is (`_no_such_project`): which projects a deployment runs\noutside the product area is not a product credential's to learn, as at the gate's board\nread.",
+        "operationId": "product_search_api_product__project__search_get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "what to look for, at most 300 characters — a longer one is refused (400); a blank one finds nothing and asks nothing",
+              "maxLength": 300,
+              "default": "",
+              "title": "Q"
+            },
+            "description": "what to look for, at most 300 characters — a longer one is refused (400); a blank one finds nothing and asks nothing"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "how many hits, best first: 8 when absent, and clamped to 1…50 — a limit past either end is read as that end, never refused",
+              "default": 8,
+              "title": "Limit"
+            },
+            "description": "how many hits, best first: 8 when absent, and clamped to 1…50 — a limit past either end is read as that end, never refused"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSearchRead"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`q` is longer than 300 characters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment — one with no product role is answered alike",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/whoami": {
       "get": {
         "summary": "Whoami",
@@ -5505,6 +5676,179 @@
         "title": "ProductProjectsRead",
         "description": "`/api/product/projects` — the projects that have a product role, by name and nothing else."
       },
+      "ProductSearchHit": {
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snippet"
+          },
+          "locator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locator"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "ProductSearchHit",
+        "description": "One item a search of the product's published knowledge found. `kind` is `requirement`,\n`decision`, `document` or `card`; `source` is where it is — a document's path or a card's ref;\n`rank` is its place in this product's results, best first (`1` is the best). There is no raw\nscore: a score is the index's own and is not comparable across products."
+      },
+      "ProductSearchRead": {
+        "properties": {
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "degraded": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degraded"
+          },
+          "searched": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Searched"
+          },
+          "hits": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProductSearchHit"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hits"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "ProductSearchRead",
+        "description": "`/api/product/{project}/search` — one product's published knowledge (its requirements, the\ndecisions recorded in its documents, the documents and its board's cards), searched with `q`\nand a `limit`, in the product owner's own ranking. `degraded` says why the semantic stage did\nnot run or ran on part of the index — or that the deployment turned the search off and nothing\nwas searched — and is `\"\"` when it ran whole; never silence. A blank `q` finds nothing. A line\nof a conversation and a conversation's distillate are never returned."
+      },
       "PromoteBody": {
         "properties": {
           "approver": {
@@ -5632,6 +5976,25 @@
         "type": "object",
         "title": "PullRequestDetail",
         "description": "The pull request a person opened (`app._pr_detail`). `events: None` could not be read."
+      },
+      "Refusal": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "Refusal",
+        "description": "What a read answers when it refuses: ONE SENTENCE in `detail` — the shape every refusal of\nthis API has (`docs/reference/the-front-end-api.md`, *Refusals*), declared for the statuses a\nread names (`app._read`'s `refusals`) so its description says them beside the body."
       },
       "SentFile": {
         "properties": {
