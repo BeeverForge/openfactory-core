@@ -14,8 +14,10 @@ agents' memory depend on without ever saying so, and none of them is a property 
     a write failure never fails a job   telemetry is additive
 
 The overwrite is a promise for a retried write, and a hazard for a row that must never be replaced:
-an action's audit row (kind `audit`, #694) is keyed by its own record id (`audit.metric_of`), so
-no second write, in this store or any other keyed by `dynamo_key`, can meet its key and replace it.
+an action's audit row (kind `audit`, #694) is keyed by its own record id (`audit.metric_of`), and
+this store writes it with a plain `INSERT` (`WRITTEN_ONCE`) and refuses an `UPDATE` of it (a
+trigger), so a second write under its key is refused rather than replacing it. That is not
+evidence against someone who can write the file: they can drop the trigger.
 
 The TTL one is the trap. Nothing raises and nothing logs if it is missed: the deployment simply
 keeps client messages for ever while its own ADR says otherwise, and the first person to find out
@@ -63,7 +65,16 @@ CREATE TABLE IF NOT EXISTS metrics (
 CREATE INDEX IF NOT EXISTS metrics_by_kind ON metrics (pk, kind, ts);
 CREATE INDEX IF NOT EXISTS metrics_by_ticket_key ON metrics (pk, kind, ticket, sk);
 CREATE INDEX IF NOT EXISTS metrics_expiry  ON metrics (expires_at);
+-- AN AUDIT ROW IS NEVER REWRITTEN (#694): who did what is not an estimate a retry refines.
+CREATE TRIGGER IF NOT EXISTS audit_rows_are_never_rewritten BEFORE UPDATE ON metrics
+    WHEN OLD.kind = 'audit' BEGIN SELECT RAISE(ABORT, 'an audit row is never rewritten'); END;
 """
+
+#: The kinds a write never replaces: a plain `INSERT`, so a second row under one's key is refused
+#: and the first stands (`record`). On the #694 branch an `approve_prod` record by alice was
+#: replaced by a second `record()` saying mallory, which answered True (PR #1039 review,
+#: hermesfelipe, 2026-10-21); the trigger above refuses an `UPDATE` of one.
+WRITTEN_ONCE = frozenset({"audit"})
 
 
 #: The files whose schema this process has already made sure of, for READS (#137). A write applies
@@ -162,9 +173,10 @@ class SqliteMetricsSink:
         try:
             key = rec.dynamo_key()
             payload = {**rec.model_dump(), **key}
+            verb = "INSERT" if rec.kind in WRITTEN_ONCE else "INSERT OR REPLACE"
             with self._connect(write=True) as conn:
                 conn.execute(
-                    "INSERT OR REPLACE INTO metrics"
+                    f"{verb} INTO metrics"
                     " (pk, sk, kind, ts, ticket, expires_at, data) VALUES (?,?,?,?,?,?,?)",
                     (key["pk"], key["sk"], rec.kind, rec.ts, rec.ticket, rec.expires_at,
                      json.dumps(payload, default=str)),
