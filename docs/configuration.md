@@ -505,6 +505,13 @@ TEMPORAL_API_KEY=<from $SSM_PREFIX/temporal-api-key>
 The panel's **Engine ↗** deep-links resolve automatically: a `*.tmprl.cloud` endpoint →
 the Cloud console; anything else → the local dev-server UI.
 
+**The deployment's name.** Every action's audit record names the deployment that wrote it. Unset,
+that name is `TEMPORAL_NAMESPACE`'s value (`default` when that is unset too). Two deployments
+that share one Temporal namespace name themselves apart:
+```
+OPENFACTORY_DEPLOYMENT=<a name for this deployment>
+```
+
 **The gate key.** The panel seals every answer to a human gate (the production approval, the
 merge gate) and the worker acts only on a sealed one, so a signal sent to the engine by anybody
 else approves and merges nothing. The panel and the worker must hold the same key. On one machine,

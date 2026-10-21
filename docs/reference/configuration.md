@@ -403,6 +403,7 @@ Secrets and deployment coordinates. The ones you will actually set:
 | `OPENFACTORY_REGISTRY` · `OPENFACTORY_REGISTRY_SEED` | where the registry is read and what seeds it on first boot |
 | `OPENFACTORY_TOOLBOX` · `OPENFACTORY_TOOLBOX_VOLUME` | the harness toolbox: where the worker keeps it, and the docker volume name it mounts into boxes |
 | `TEMPORAL_ADDRESS` · `TEMPORAL_NAMESPACE` | the durable engine. Compose sets these to its own container |
+| `OPENFACTORY_DEPLOYMENT` | the name every action's audit record gives the deployment that wrote it, so two deployments writing to one store are told apart. Unset → `TEMPORAL_NAMESPACE`'s value (`default` when that is unset too) |
 | `OPENFACTORY_MAX_CONCURRENT_JOBS` · `OPENFACTORY_MAX_TURNS` · `OPENFACTORY_AGENT_TIMEOUT` | the throttles |
 | `OPENFACTORY_PREVIEW_RUNTIME` | which runtime runs a preview: `compose` \| `none` \| the kind an installed add-on registers. Unset → `none`; the compose stack's file sets `compose`. The deployment's to name, never a repository's ([setup/previews.md](../setup/previews.md)) |
 | `OPENFACTORY_PREVIEW_REACH` · `OPENFACTORY_PANEL_CONTAINER` · `OPENFACTORY_PREVIEW_PORTS` | how the panel reaches a preview: `network` (unset means this) — the worker joins the panel's container, `openfactory-panel` on the compose stack, to each preview's own network — or `loopback`, one machine: exposed services on 127.0.0.1 at ports within `lo-hi` |

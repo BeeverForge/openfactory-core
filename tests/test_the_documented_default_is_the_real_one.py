@@ -198,3 +198,27 @@ def test_the_configuration_reference_documents_the_sources_defaults_the_code_has
         f"the reference tells an operator {name} unset means {said!r} and the code answers "
         f"{real!r}")
     assert not conditioned
+
+
+# ── the deployment an audit record names (#694) ──────────────────────────────────────────────────
+
+#: How the reference states that an unnamed deployment takes another variable's value.
+FALLS_BACK_TO = re.compile(r"Unset → `([A-Z_]+)`'s value")
+
+
+def test_the_reference_says_which_variable_names_a_deployment_nobody_named(monkeypatch):
+    """The row for `OPENFACTORY_DEPLOYMENT` exists, and the variable it says an unnamed deployment
+    falls back to is the one the code reads: set that variable alone, and the record's deployment
+    is its value."""
+    from openfactory.observability import audit
+
+    cell = env_row(REFERENCE.read_text(), "OPENFACTORY_DEPLOYMENT")
+
+    assert cell is not None, "docs/reference/configuration.md has no row for OPENFACTORY_DEPLOYMENT"
+    said = FALLS_BACK_TO.search(cell)
+    assert said, f"the row does not say what an unnamed deployment is called: {cell!r}"
+    monkeypatch.delenv("OPENFACTORY_DEPLOYMENT", raising=False)
+    monkeypatch.setenv(said.group(1), "told-apart")
+    assert audit.deployment() == "told-apart", (
+        f"the reference says an unnamed deployment takes {said.group(1)}'s value, and the code "
+        f"answers {audit.deployment()!r}")

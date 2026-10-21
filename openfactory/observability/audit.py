@@ -20,6 +20,7 @@ client.py`), so nothing here imports `temporalio` or `openfactory.runtime` at mo
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -46,6 +47,23 @@ MASK = "***"
 #: no product" (`""`) and "the registry did not answer" never share a value
 #: (`docs/engineering-lessons.md` §2). No `product_key` can spell it: those carry `repo:`.
 PRODUCT_UNREAD = "unread"
+
+#: The variable an operator names a deployment by, for the records it writes.
+DEPLOYMENT_ENV = "OPENFACTORY_DEPLOYMENT"
+
+
+def deployment() -> str:
+    """Which deployment this process is: `OPENFACTORY_DEPLOYMENT` when set, else the Temporal
+    namespace the engine connection uses (`TEMPORAL_NAMESPACE`, `default` when unset).
+
+    No deployment identifier existed before #694 (`OPENFACTORY_PLATFORM_NAME` is branding, not an
+    identity), and the namespace is the one name two deployments sharing a Temporal account cannot
+    share. It is read from the environment exactly as `runtime.temporal.connection.namespace()`
+    reads it rather than by calling it: that module imports `temporalio` at its top, and the panel
+    makes a record on every action without the `runtime` extra. The two are held equal by
+    `tests/test_every_action_leaves_one_audit_record.py`."""
+    named = os.environ.get(DEPLOYMENT_ENV, "").strip()
+    return named or os.environ.get("TEMPORAL_NAMESPACE", "default")
 
 
 def redact(params: Mapping[str, object]) -> dict[str, object]:
@@ -113,7 +131,8 @@ class AuditRecord:
     #: The id that ties this call to the request that caused it and to what it caused
     #: (`Actor.correlation`); `""` when the transport carried none.
     correlation_id: str
-    #: Which deployment wrote the record; `""` while no deployment identifier is resolved.
+    #: Which deployment wrote the record (`deployment()`): the operator's name for it, else the
+    #: engine's namespace.
     deployment: str
     #: The `project` parameter as passed (`""` when the action takes none), and its product.
     project: str
@@ -143,7 +162,7 @@ class AuditRecord:
             code=outcome.code,
             reason=str(outcome.data.get("reason", "") or ""),
             correlation_id=by.correlation,
-            deployment="",
+            deployment=deployment(),
             project=project,
             product=product_of(project),
         )

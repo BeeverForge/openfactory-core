@@ -164,3 +164,55 @@ def test_the_command_line_records_the_shell_login_as_its_own_provider(registry, 
     assert result.exit_code == 1, result.output  # the project is unknown: a refusal, recorded
     [record] = recorded
     assert (record.via, record.provider, record.actor_id) == ("cli", "cli", "carol"), record
+
+
+# ── which deployment wrote the record ───────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def unnamed(monkeypatch):
+    """A deployment that names itself nowhere: neither variable set."""
+    for name in ("OPENFACTORY_DEPLOYMENT", "TEMPORAL_NAMESPACE"):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def test_the_record_names_the_deployment_its_operator_named(unnamed):
+    """Criterion 1, "deployment": an operator who runs more than one deployment against one store
+    names each, and the record carries that name. Before #694 no deployment identifier existed in
+    the tree, and the record wrote `deployment=""` for every call."""
+    unnamed.setenv("OPENFACTORY_DEPLOYMENT", "acme-prod")
+    unnamed.setenv("TEMPORAL_NAMESPACE", "acme.abc12")
+
+    assert _record().deployment == "acme-prod"
+
+
+def test_a_deployment_nobody_named_is_named_by_its_engine_namespace(unnamed):
+    """Criterion 1, "deployment", with no name given: the record carries the namespace the engine
+    connection uses (`runtime.temporal.connection.namespace()`, read here off the function itself),
+    so two deployments on one Temporal account are still told apart — and with neither variable set
+    it is that function's own default, never `""`. Before #694 it was `""` either way."""
+    from openfactory.runtime.temporal import connection
+
+    unnamed.setenv("TEMPORAL_NAMESPACE", "acme.abc12")
+    assert _record().deployment == connection.namespace() == "acme.abc12"
+
+    unnamed.delenv("TEMPORAL_NAMESPACE")
+    assert _record().deployment == connection.namespace() != ""
+
+
+def test_naming_the_deployment_does_not_import_the_engines_client():
+    """The panel serves without the `runtime` extra (`tests/test_the_panel_serves_without_the_
+    engines_client.py`) and makes a record on every action, so naming the deployment must not
+    import `temporalio` — which `runtime.temporal.connection` does at its top. Run in a fresh
+    interpreter: this one has imported the client already."""
+    import subprocess
+    import sys
+
+    script = ("import sys; from openfactory.observability import audit; audit.deployment(); "
+              "print(sorted(m for m in sys.modules if m.split('.')[0] == 'temporalio'))")
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                          timeout=60, check=False)
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "[]", done.stdout
