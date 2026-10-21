@@ -15,28 +15,29 @@ THE CLAIMS, each with a red twin below:
      (AC2[row]); row 18 derives Azure's `needs_review` from the Resolved category, `in_review`'s;
      row 19 reads "mapped" on GitHub off the deployment's dict instead of the board's Status
      options; row 20 puts the Jira board's second instance of the defect back (`needs_person`
-     dropped).
-  3. **The platform names the key and reads it back.** Row 21 drops it from `CANONICAL_COLUMNS`
-     (#258's blocking defect), row 22 from `BOARD_ORDER`; rows 23-24 put it before or after the
+     dropped); row 21 hands GitHub's `set_column` the FIRST name when the board has neither option,
+     so a pull request on a board without Needs Action moves nowhere instead of to Backlog.
+  3. **The platform names the key and reads it back.** Row 22 drops it from `CANONICAL_COLUMNS`
+     (#258's blocking defect), row 23 from `BOARD_ORDER`; rows 24-25 put it before or after the
      factory, which `has_started`/`may_be_running`/`has_finished` and the door refuse.
   4. **The door reads a card there as waiting on a person (AC5) and asks the engine before queueing
-     it (AC6).** Row 25 removes its `BY_COLUMN` row, row 26 reads it as `running`; row 27 puts
-     `card_move`'s check back to `needs_action` alone; row 28 shrinks `WAITING_ON_A_PERSON_KEYS`.
-  5. **The readers beyond the plan's list.** Rows 29-30: triage's waiting-too-long reads only the
-     park again (the default, and the comparison); row 31 lets the product role's parked review
+     it (AC6).** Row 26 removes its `BY_COLUMN` row, row 27 reads it as `running`; row 28 puts
+     `card_move`'s check back to `needs_action` alone; row 29 shrinks `WAITING_ON_A_PERSON_KEYS`.
+  5. **The readers beyond the plan's list.** Rows 30-31: triage's waiting-too-long reads only the
+     park again (the default, and the comparison); row 32 lets the product role's parked review
      list a card in Needs Review (ADR-0019 §6: it holds what needs a decision).
-  6. **The panel describes the column.** Row 32 removes its `_BCOL` row.
+  6. **The panel describes the column.** Row 33 removes its `_BCOL` row.
   7. **A status two keys share reads back as `in_review`** (the reporter's board maps both to "In
-     Review"), **and a status the deployment gave a key keeps that key.** Row 33 makes `key_for`
+     Review"), **and a status the deployment gave a key keeps that key.** Row 34 makes `key_for`
      ignore which key the deployment renamed, so a park a deployment already called "Needs Review"
      reads as `needs_review` and the product role's parked review goes empty (the review's point
-     1); row 34 makes it answer the LAST key that spells a name, so the shared status reads as
+     1); row 35 makes it answer the LAST key that spells a name, so the shared status reads as
      `needs_review` and the door would queue a card the factory may still be reviewing.
   8. **A re-run of `project init` gives an existing local board its review column, in board order
-     (Q1, answer B).** Row 35 puts back `init`'s skip of `create` on an attached board; row 36 takes
-     the local row's say-so away; row 37 leaves the existing rows' positions as they were, so the
-     new row ties with Needs Action and sorts after it; row 38 restores the platform's names on a
-     re-run; row 39 back-fills the parked cards into the new column; rows 40-41 make the re-run
+     (Q1, answer B).** Row 36 puts back `init`'s skip of `create` on an attached board; row 37 takes
+     the local row's say-so away; row 38 leaves the existing rows' positions as they were, so the
+     new row ties with Needs Action and sorts after it; row 39 restores the platform's names on a
+     re-run; row 40 back-fills the parked cards into the new column; rows 41-42 make the re-run
      silent about what it added, and loud about what it did not.
 """
 
@@ -175,6 +176,11 @@ MUTATIONS = [
      "        keys = column_keys(state, needs_person=needs_person)",
      "        keys = column_keys(state)",
      _ac3("Jira board")),
+
+    ("GitHub hands `set_column` the first name when the board has neither option", GHP,
+     "        name = next((n for n in names if n in self._option_ids), names[-1])",
+     "        name = next((n for n in names if n in self._option_ids), names[0])",
+     f"{AC3}::test_a_github_board_with_neither_column_still_sends_the_pull_request_to_backlog"),
 
     # ── 3. the vocabulary ───────────────────────────────────────────────────────────────────────
     ("#258'S DEFECT: `needs_review` is not in `CANONICAL_COLUMNS`", COLUMNS,
