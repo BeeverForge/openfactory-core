@@ -9,7 +9,11 @@ JIRA = "openfactory/adapters/tracker/jira.py"
 NEUTRAL = "tests/test_tracker_is_vendor_neutral.py"
 
 MUTATIONS = [
+    # re-pinned 2026-10-21: the human gate answers `needs_review` on the line above the `_REVIEW`
+    # branch (#753), so cutting that branch alone no longer reached `pr_open` (it survived); the
+    # cut now takes both, which is the gate going back to the review column
     ("the human gate goes back to the review column", BASE,
+     '    if needs_person and state is JobState.PR_OPEN:\n        return "needs_review"\n'
      '    if needs_person and state in _REVIEW:\n        return "needs_action"',
      "    pass"),
 
@@ -45,14 +49,19 @@ MUTATIONS = [
      "            moved = self.board.set_status(\n                needs_person=needs_person,",
      "            moved = self.board.set_status("),
 
+    # re-pinned 2026-10-21: the row tries `column_keys` in order, the resolver's key and then its
+    # fallback (#753); the cut still swaps the resolver for the bare table
     ("the GitHub board reads the table around the resolver", GHP,
-     "        from openfactory.adapters.tracker.base import column_key\n\n"
-     "        key = column_key(state, needs_person=needs_person)",
+     "        from openfactory.adapters.tracker.base import column_keys\n\n"
+     "        names = [name for name in (self._columns.get(key, \"\")\n"
+     "                                   for key in column_keys(state, needs_person=needs_person))",
      "        from openfactory.adapters.tracker.base import STATE_KEYS\n\n"
-     "        key = STATE_KEYS.get(state)"),
+     "        names = [name for name in (self._columns.get(key, \"\")\n"
+     "                                   for key in (STATE_KEYS.get(state) or \"\",))"),
 
+    # re-pinned 2026-10-21: `_column_keys`, the resolver's key then its fallback (#753)
     ("Jira does", JIRA,
-     "        key = _column_key(state, needs_person=needs_person)",
-     "        from openfactory.adapters.tracker.base import STATE_KEYS\n\n"
-     "        key = STATE_KEYS.get(state)", NEUTRAL),
+     "            keys = _column_keys(state, needs_person=needs_person)",
+     "            from openfactory.adapters.tracker.base import STATE_KEYS\n\n"
+     "            keys = (STATE_KEYS.get(state),)", NEUTRAL),
 ]

@@ -57,17 +57,18 @@ MUTATIONS = [
      "a board is CREATED with and what the poller then looks for", HOME,
      '    "todo": "TO-DO",', '    "todo": "To Do",', COLUMNS),
 
-    ("the board order silently drops a column, so a created board has five and the sixth is a "
+    # re-pinned 2026-10-21: the order holds `needs_review` between the review and the parks (#753)
+    ("the board order silently drops a column, so a created board lacks one and it is a "
      "column `set_column` can never find", HOME,
-     '    "backlog", "todo", "in_progress", "in_review", "needs_action", "done",',
-     '    "todo", "in_progress", "in_review", "needs_action", "done",', COLUMNS),
+     '    "backlog", "todo", "in_progress", "in_review", "needs_review", "needs_action", "done",',
+     '    "todo", "in_progress", "in_review", "needs_review", "needs_action", "done",', COLUMNS),
 
     ("the order and the map disagree — the exact rot the two tables had before the move, a key "
      "in the order that the map cannot name", HOME,
      'BOARD_ORDER: tuple[str, ...] = (\n    "backlog", "todo", "in_progress", "in_review", '
-     '"needs_action", "done",\n)',
+     '"needs_review", "needs_action", "done",\n)',
      'BOARD_ORDER: tuple[str, ...] = (\n    "backlog", "todo", "in_progress", "in_review", '
-     '"needs_action", "done", "sprint",\n)', COLUMNS),
+     '"needs_review", "needs_action", "done", "sprint",\n)', COLUMNS),
 
     ("`name_for` raises on a key the platform does not know, instead of answering `\"\"` — a "
      "board without the column becomes a crashed job", HOME,

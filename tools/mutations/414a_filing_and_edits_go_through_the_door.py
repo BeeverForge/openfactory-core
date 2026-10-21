@@ -83,8 +83,10 @@ MUTATIONS = [
      '    if key in ("backlog", "todo"):\n        return key, None',
      "    if key:\n        return key, None"),
 
+    # re-pinned 2026-10-21: the check reads `WAITING_ON_A_PERSON_KEYS`, the parks and Needs
+    # Review (#753)
     ("a parked card is queued by hand under a job still waiting on it", CATALOG,
-     '    parked = event is CardEvent.PROMOTED and stage.key == "needs_action"',
+     "    parked = event is CardEvent.PROMOTED and stage.key in WAITING_ON_A_PERSON_KEYS",
      "    parked = False"),
 
     # re-pinned 2026-10-04: filing goes through the door (#458) with the board's name (#505)
