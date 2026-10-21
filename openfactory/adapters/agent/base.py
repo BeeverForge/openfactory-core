@@ -538,8 +538,8 @@ def result_event(out: str) -> dict | None:
     are tolerated as they are there.
 
     Not used by `ClaudeCodeAdapter._parse_stream` or `final_text`: the first also gathers actions
-    and the session id from the same pass (and is being changed by #750), the second skips a
-    result whose text is empty by design."""
+    and the session id from the same pass (and reads a stream with no result event for what the
+    CLI itself said, #750), the second skips a result whose text is empty by design."""
     found = None
     for obj in json_objects(out):
         if obj.get("type") == "result":
