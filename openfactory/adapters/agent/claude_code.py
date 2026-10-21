@@ -1067,8 +1067,9 @@ def _pause_from(out: str) -> tuple[str | None, str | None]:
     repository whose domain is throttling (ARNs, `429` handlers, comments about quotas) parked its
     own killed runs as rate limited, with a resume timer, on an account nobody had limited — and
     so did any killed run whose stream held a `rate_limit_event`, matched on the event's NAME
-    whatever its status said. A rate limit wins over an auth stop, as it does across a lap
-    (`_invoke`): it is the one a later run can resume."""
+    whatever its status said. So each signal reads the CLI's own events by their fields, a
+    `system` event only as `api_retry`. A rate limit wins over an auth stop, as it does across a
+    lap (`_invoke`): it is the one a later run can resume."""
     events = []
     for line in (out or "").splitlines():
         try:
@@ -1110,27 +1111,45 @@ def _api_error_message(out: str, events: list[dict]) -> tuple[str | None, str | 
 
 
 def _rejected_rate_limit(out: str, events: list[dict]) -> tuple[str | None, str | None]:
-    """A `rate_limit_event` whose `rate_limit_info.status` is `rejected`: the CLI declaring the
-    account limited, with `resetsAt` in epoch seconds as the reset (the shape the pinned binary
-    declares, `tests/claude_cli_output.py::rate_limit_event`). `allowed` and `allowed_warning` say
-    the account still works, and are no pause."""
+    """The stream's LAST `rate_limit_event`, when its `rate_limit_info.status` is `rejected` and
+    the plan is not running on extra usage: the CLI declaring the account limited, with `resetsAt`
+    in epoch seconds as the reset (`tests/claude_cli_output.py::rate_limit_event`).
+
+    THE LAST, because the CLI emits one whenever the limit state changes: a `rejected` followed by
+    `allowed` is an account that works again (review of #1019). AND NOT ON EXTRA USAGE: the pinned
+    binary (2.1.219, read in its own code on the review of #1019) keeps `status: "rejected"` with
+    `isUsingOverage: true` once the plan is spent and extra usage pays, and shows no error for it.
+    `allowed` and `allowed_warning` say the account still works, and are no pause."""
     from datetime import UTC, datetime
 
-    for evt in events:
-        info = evt.get("rate_limit_info") if evt.get("type") == "rate_limit_event" else None
-        if not (isinstance(info, dict) and info.get("status") == "rejected"):
-            continue
-        at = info.get("resetsAt")
-        when = (datetime.fromtimestamp(at, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-                if isinstance(at, int | float) and not isinstance(at, bool) else None)
-        return "rate_limit", when
+    infos = [evt.get("rate_limit_info") for evt in events if evt.get("type") == "rate_limit_event"]
+    info = infos[-1] if infos else None
+    if not (isinstance(info, dict) and info.get("status") == "rejected"):
+        return None, None
+    if info.get("isUsingOverage") is True:
+        return None, None  # over the plan, running on extra usage: the CLI itself shows no error
+    at = info.get("resetsAt")
+    when = (datetime.fromtimestamp(at, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if isinstance(at, int | float) and not isinstance(at, bool) else None)
+    return "rate_limit", when
+
+
+def _retrying_a_rate_limit(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """The CLI died while it was retrying a 429: its LAST event is `system/api_retry` with
+    `error: "rate_limit"` or `error_status: 429` (2.1.219 emits one per attempt, and retries every
+    429; read in its code on the review of #1019). Only while it is the last event: a 429 the CLI
+    got past is followed by the run's own events, and is no pause."""
+    last = events[-1] if events else {}
+    if (last.get("type") == "system" and last.get("subtype") == "api_retry"
+            and (last.get("error") == "rate_limit" or last.get("error_status") == 429)):
+        return "rate_limit", None
     return None, None
 
 
 #: Everything a stream with no result event is read for a pause from: the CLI's own words, and
 #: nothing the run read or wrote. A new signal is a row here, and the family guard in
 #: `tests/test_a_pause_is_read_from_what_the_cli_said.py` asks for a case of each.
-_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit)
+_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit, _retrying_a_rate_limit)
 
 
 def _parse_stream(

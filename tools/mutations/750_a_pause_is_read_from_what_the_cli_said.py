@@ -33,8 +33,25 @@ MUTATIONS = [
      '        if evt.get("type") != "assistant":\n'),
 
     ("750: a rate_limit_event is a pause whatever its status says", CLAUDE,
-     '        if not (isinstance(info, dict) and info.get("status") == "rejected"):\n',
-     '        if not isinstance(info, dict):\n'),
+     '    if not (isinstance(info, dict) and info.get("status") == "rejected"):\n',
+     '    if not isinstance(info, dict):\n'),
+
+    ("750: a rejected status is read as a limit even while extra usage pays (review of #1019)",
+     CLAUDE, '    if info.get("isUsingOverage") is True:\n', '    if False:\n'),
+
+    ("750: the first rate_limit_event decides, though a later one says the account works again",
+     CLAUDE, "    info = infos[-1] if infos else None\n", "    info = infos[0] if infos else None\n"),
+
+    ("750: the CLI's error code is not read, only its sentence (review of #1019)", CLAUDE,
+     '        words = [str(evt.get("error") or "")] + [\n', '        words = [] + [\n'),
+
+    ("750: the first API error message decides, whatever it says", CLAUDE,
+     '        found = _detect_pause(" · ".join(words))\n        if found[0]:\n            return found\n',
+     '        found = _detect_pause(" · ".join(words))\n        return found\n'),
+
+    ("750: a 429 the CLI retried past still parks the run", CLAUDE,
+     "    last = events[-1] if events else {}\n",
+     '    last = next((e for e in events if e.get("subtype") == "api_retry"), {})\n'),
 
     # the same rule, every harness in the registry (C-38 fixed these three; the family holds them)
     ("750: codex classifies its whole stream, item outputs included", "openfactory/adapters/agent/"
@@ -48,20 +65,24 @@ MUTATIONS = [
 
     # ── 2. each of the CLI's own signals still does ────────────────────────────────────────────
     ("750: what the CLI printed outside the stream is no longer read", CLAUDE,
-     "_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit)\n",
-     "_CLI_SIGNALS = (_api_error_message, _rejected_rate_limit)\n"),
+     "_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit, _retrying_a_rate_limit)\n",
+     "_CLI_SIGNALS = (_api_error_message, _rejected_rate_limit, _retrying_a_rate_limit)\n"),
 
     ("750: the message the CLI writes in the model's place is no longer read", CLAUDE,
-     "_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit)\n",
-     "_CLI_SIGNALS = (_stderr, _rejected_rate_limit)\n"),
+     "_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit, _retrying_a_rate_limit)\n",
+     "_CLI_SIGNALS = (_stderr, _rejected_rate_limit, _retrying_a_rate_limit)\n"),
 
     ("750: a rejected rate_limit_event is no longer read", CLAUDE,
-     "_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit)\n",
-     "_CLI_SIGNALS = (_stderr, _api_error_message)\n"),
+     "_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit, _retrying_a_rate_limit)\n",
+     "_CLI_SIGNALS = (_stderr, _api_error_message, _retrying_a_rate_limit)\n"),
+
+    ("750: the CLI dying while it retries a 429 is no longer read (review of #1019)", CLAUDE,
+     "_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit, _retrying_a_rate_limit)\n",
+     "_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit)\n"),
 
     ("750: a rejected rate_limit_event's reset is dropped", CLAUDE,
-     '        return "rate_limit", when\n',
-     '        return "rate_limit", None\n'),
+     '    return "rate_limit", when\n',
+     '    return "rate_limit", None\n'),
 
     ("750: an auth stop seen first wins over a rate limit in the same stream, so a resumable "
      "pause becomes a hold", CLAUDE,

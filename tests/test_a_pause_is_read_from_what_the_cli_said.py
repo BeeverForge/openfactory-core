@@ -148,6 +148,13 @@ def _synthetic(text: str, error: str) -> dict:
     return {**measured, "message": message, "error": error}
 
 
+#: The CLI retrying a 429, as 2.1.219 emits it per attempt (`system/api_retry`; read in its code on
+#: the review of #1019).
+RETRY = {"type": "system", "subtype": "api_retry", "attempt": 3, "max_retries": 10,
+         "retry_delay_ms": 32000, "error_status": 429, "error": "rate_limit",
+         "session_id": cli.init_event()["session_id"],
+         "uuid": "4c1d2b7a-0e55-4f0a-9d3e-6b8f1a2c3d4e"}
+
 #: One case per signal in `claude_code._CLI_SIGNALS`: (output of a run killed before its result
 #: event, the pause it is). Each output also carries repository text, so the pause is the signal's.
 CLAUDE_SIGNALS = {
@@ -162,11 +169,27 @@ CLAUDE_SIGNALS = {
                  _synthetic("You've hit your session limit · resets 10:30pm (UTC)", "rate_limit")),
          ("rate_limit", "10:30pm")),
         (_stream(*cli.measured("stream-json-verbose.stdout.jsonl")[:2]), ("auth", None)),
+        # 2.1.219 writes this when the model is switched off: only the CLI's code says "limit"
+        (_stream(cli.tool_result_event("ok"),
+                 _synthetic("claude-opus-4-1 is currently unavailable.", "rate_limit")),
+         ("rate_limit", None)),
+        # an error message that is no limit does not hide a later one that is
+        (_stream(_synthetic("API Error: 500 Internal server error", "server_error"),
+                 _synthetic("You've hit your session limit · resets 10:30pm (UTC)", "rate_limit")),
+         ("rate_limit", "10:30pm")),
     ],
     "_rejected_rate_limit": [
         (_stream(cli.tool_result_event("ok"),
                  cli.rate_limit_event(status="rejected", resets_at=1_792_454_400)),
          ("rate_limit", "2026-10-20T00:00:00Z")),
+        # the LAST event says how the account stands: limited again after it worked
+        (_stream(cli.rate_limit_event(status="allowed"),
+                 cli.rate_limit_event(status="rejected", resets_at=1_792_454_400)),
+         ("rate_limit", "2026-10-20T00:00:00Z")),
+    ],
+    "_retrying_a_rate_limit": [
+        (_stream(cli.tool_result_event("ok"), RETRY), ("rate_limit", None)),
+        (_stream(cli.tool_result_event("ok"), {**RETRY, "error": "unknown"}), ("rate_limit", None)),
     ],
 }
 
@@ -209,3 +232,23 @@ def test_the_signal_kinds_are_the_ones_the_detectors_read():
     error = {"type": "error", "error": {"name": "APIError",
                                         "data": {"statusCode": 429, "message": "slow down"}}}
     assert _pause("opencode", _stream(error))[0] == "rate_limit"
+
+
+def test_a_rejected_plan_running_on_extra_usage_is_no_pause():
+    """2.1.219 keeps `status: rejected` with `isUsingOverage: true` when the plan is spent and
+    extra usage pays; the CLI shows no error for it, and the account works (review of #1019)."""
+    over = cli.rate_limit_event(status="rejected", resets_at=1_792_454_400)
+    over["rate_limit_info"].update(isUsingOverage=True, overageStatus="allowed")
+    res = claude_code._parse_stream(137, _stream(cli.init_event(), over,
+                                                 cli.tool_result_event("ok")))
+    assert (res.pause_reason, res.retry_at) == (None, None)
+
+
+def test_a_limit_the_account_got_past_is_no_pause():
+    """The CLI emits a `rate_limit_event` whenever the state changes, so the last one is how the
+    account stands; and a 429 the CLI retried past is followed by the run's own events."""
+    back = _stream(cli.rate_limit_event(status="rejected", resets_at=1_792_454_400),
+                   cli.rate_limit_event(status="allowed"), cli.tool_result_event("ok"))
+    assert claude_code._parse_stream(137, back).pause_reason is None
+    past = _stream(RETRY, cli.assistant_event("done"), cli.tool_result_event("ok"))
+    assert claude_code._parse_stream(137, past).pause_reason is None
