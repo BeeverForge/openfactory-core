@@ -42,7 +42,8 @@ def test_the_local_board_says_which_column_it_fell_back_from(tmp_path, monkeypat
     has no Needs Review row and that the card went to Needs Action instead, which is what a
     deployment opting in looks for. The warning names both keys. On this branch at 70cfff7c,
     cutting `if key != keys[0]` to `if False` in `LocalBoard.set_status` survived every test and
-    plan 753 (#753's review, cuts table); this holds it."""
+    plan 753 (#753's review, cuts table); this holds it. It also names the remedy, the re-run of
+    `project init` that adds the missing row (PR #1040's review)."""
     import logging
 
     from tests.a_pull_request_awaiting_review_on_each_row import local_board
@@ -55,6 +56,7 @@ def test_the_local_board_says_which_column_it_fell_back_from(tmp_path, monkeypat
     assert where.landed == where.needs_action
     assert len(fell_back) == 1 and "'needs_action'" in fell_back[0], [
         r.getMessage() for r in caplog.records]
+    assert "openfactory project init acme" in fell_back[0], fell_back
 
 
 def test_a_github_board_with_neither_column_still_sends_the_pull_request_to_backlog(monkeypatch):
@@ -99,3 +101,31 @@ def test_a_github_board_whose_review_column_is_called_needs_review_parks_the_pul
     assert moved and sent == ["OPT_ACTION"], (moved, [named.get(o) for o in sent])
     assert board.stage_key(named[sent[0]]) == "needs_action"
 
+
+
+def test_the_local_board_says_it_once_and_not_on_every_move(tmp_path, monkeypatch, caplog):
+    """A board made before 0.7 has no Needs Review row until `project init` is re-run, and every
+    pull request waiting on a person falls back on it: the warning that says so is said once per
+    board in a process, not on every move. The second pull request still lands in Needs Action.
+
+    RED ON 374ef5cd (PR #1040's review, @hermesfelipe, 2026-10-21: "warns on every move for any
+    pre-0.7 board until init is re-run"): two moves on one board logged the warning twice."""
+    import logging
+
+    from openfactory.adapters.board.local import LocalBoard
+    from openfactory.adapters.tracker.local import LocalTracker
+    from openfactory.contracts import JobState
+    from tests.a_pull_request_awaiting_review_on_each_row import local_board
+
+    with caplog.at_level(logging.WARNING, logger="openfactory"):
+        local_board(False, tmp_path, monkeypatch)
+        tracker = LocalTracker("acme", db_path=tmp_path / "board.db")
+        second = tracker.create_ticket(title="Import", body="")
+        LocalBoard(tracker).set_status(issue=second, issue_url="", state=JobState.PR_OPEN,
+                                       needs_person=True)
+
+    fell_back = [r.getMessage() for r in caplog.records
+                 if r.levelno == logging.WARNING and "'needs_review'" in r.getMessage()]
+    landed = LocalBoard(LocalTracker("acme", db_path=tmp_path / "board.db")).columns() or {}
+    assert landed.get(str(second).lstrip("#")) == "Needs Action", landed
+    assert len(fell_back) == 1, fell_back

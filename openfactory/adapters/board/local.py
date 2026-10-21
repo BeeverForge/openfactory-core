@@ -29,6 +29,10 @@ from openfactory.contracts.refs import canonical_ref
 
 log = logging.getLogger("openfactory.board.local")
 
+#: The boards whose missing column `set_status` has already warned about in this process, by
+#: (board file, project, key): said once, then at debug level.
+_FELL_BACK_SAID: set[tuple[str, str, str]] = set()
+
 
 class LocalBoard:
     """The seven columns and where each card sits, for one project."""
@@ -317,8 +321,15 @@ class LocalBoard:
                             self.project, keys[-1], canonical_ref(issue))
                 return False
             if key != keys[0]:
-                log.warning("%s's board declares no %r column — %s goes to %r instead",
-                            self.project, keys[0], canonical_ref(issue), key)
+                # ONCE PER BOARD IN A PROCESS: every board 0.6 wrote lacks the row until `project
+                # init` is re-run, and a warning on every move of every person-gated pull request
+                # is noise that buries the one that matters (PR #1040's review, 2026-10-21).
+                said = (str(self._db()), self.project, keys[0])
+                (log.debug if said in _FELL_BACK_SAID else log.warning)(
+                    "%s's board declares no %r column — %s goes to %r instead; re-run "
+                    "`openfactory project init %s` to add it", self.project, keys[0],
+                    canonical_ref(issue), key, self.project)
+                _FELL_BACK_SAID.add(said)
             moved = conn.execute(
                 "UPDATE cards SET column_key = ?, updated_at = ? WHERE project = ? AND ref = ?",
                 (key, now_iso(), self.project, int(canonical_ref(issue) or 0))).rowcount
