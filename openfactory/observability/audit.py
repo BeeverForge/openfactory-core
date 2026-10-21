@@ -29,6 +29,7 @@ import dataclasses
 import hashlib
 import logging
 import os
+import re
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -98,6 +99,28 @@ def deployment() -> str:
     `tests/test_every_action_leaves_one_audit_record.py`."""
     named = os.environ.get(DEPLOYMENT_ENV, "").strip()
     return named or os.environ.get("TEMPORAL_NAMESPACE", "default")
+
+
+#: What a correlation id a transport was handed may look like to be kept as sent (#694 Q4): the
+#: characters a request id from nginx (`$request_id`, 32 hex), a load balancer or a UUID is made
+#: of, and at most 128 of them. Anything else — a newline that would split the INFO line, a space,
+#: a header the size of a document — is replaced, never cut down, because a record kept for a
+#: year must not carry what a caller wrote into it.
+_CORRELATION = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+
+
+def new_correlation_id() -> str:
+    """A fresh correlation id: `uuid4().hex`, 32 lower-case hex digits — the shape nginx's own
+    `$request_id` has, so a minted id and a proxy's read alike in a record."""
+    return uuid.uuid4().hex
+
+
+def correlation_or_new(value: object) -> str:
+    """`value` when it is a correlation id (`_CORRELATION`), else a new one — none of `value` is
+    kept, so a header that was not an id never reaches the record, even in part."""
+    if isinstance(value, str) and _CORRELATION.fullmatch(value):
+        return value
+    return new_correlation_id()
 
 
 def redact(params: Mapping[str, object]) -> dict[str, object]:
@@ -194,7 +217,8 @@ class AuditRecord:
     code: str
     reason: str
     #: The id that ties this call to the request that caused it and to what it caused
-    #: (`Actor.correlation`); `""` when the transport carried none.
+    #: (`Actor.correlation`): the panel's `X-Request-ID` when it was an id, the CLI's own per call,
+    #: else the one `perform` minted for the call before its row ran — never `""` from `perform`.
     correlation_id: str
     #: Which deployment wrote the record (`deployment()`): the operator's name for it, else the
     #: engine's namespace.
@@ -212,8 +236,11 @@ class AuditRecord:
         from openfactory.actions.base import SYSTEM
 
         # ADR-0057 D1 names the factory's own actor `system`; it acts on nobody's behalf, so it
-        # carries no subject and the name is written here rather than invented on `Actor`.
-        provider = "system" if by is SYSTEM else (by.subject.via if by.subject else "")
+        # carries no subject and the name is written here rather than invented on `Actor`. Asked
+        # with its id aside, not `by is SYSTEM`: `perform` hands the row a copy of `SYSTEM` that
+        # carries the call's correlation id, and that copy is still the factory.
+        system = by is SYSTEM or dataclasses.replace(by, correlation="") == SYSTEM
+        provider = "system" if system else (by.subject.via if by.subject else "")
         project = str(params.get("project") or "")
         action = (name or "").strip().lower() or name
         return cls(

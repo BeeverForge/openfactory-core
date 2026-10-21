@@ -42,6 +42,7 @@ implemented by none of them.**
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import re
 
@@ -291,7 +292,9 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
        `action=… by=… ok=… code=… params=…`, now on every way out including the refusals, and one
        `observability.audit.AuditRecord` handed to `audit.write` — who asked (the `Subject` and
        the provider that named them), what, with which parameters (`SECRET` values masked, by the
-       same `audit.redact` the line uses), the answer, the deployment and the product. A call
+       same `audit.redact` the line uses), the answer, the deployment, the product, and the
+       correlation id that ties it to the request that caused it — `by.correlation`, or one minted
+       here before the row runs when the caller carried none, so a relayed call shares it. A call
        cancelled before it answered is recorded as `failed`/`cancelled`. Who asked for a thing is
        the question an enterprise security review opens with. Whether the record is kept is
        `audit.write`'s to answer, not this function's: it writes the record as a row of kind
@@ -313,6 +316,13 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
     otherwise arrives as the fixed string "Activity task failed" (#66).
     """
     key = (name or "").strip().lower()
+    if not by.correlation:
+        # ONE ID PER REQUEST, MINTED BEFORE THE ROW RUNS (#694): a caller that carried none (the
+        # factory's own `SYSTEM`, the product socket, the Slack add-on) is given one here, on the
+        # `by` the row receives, so a row that relays to another `perform` (`ask` → `run_staged`)
+        # hands it the same id and the two records read as one request. Minted when the record
+        # is written instead, the yes and the skip it caused would carry two unrelated ids.
+        by = dataclasses.replace(by, correlation=audit.new_correlation_id())
     outcome: Outcome | None = None
     try:
         outcome = await _decide(name, key, by, params)

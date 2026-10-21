@@ -187,7 +187,9 @@ class Actor:
     #: asked*, which is all ADR-0039 §2 says an `Actor` is — it sits here because the `Actor` is the
     #: one value that already travels into the `perform` calls a row relays (`merge` → `approve`,
     #: the product rows that act on the floor), so a relayed call keeps its caller's id without
-    #: every row passing a second argument. `""` while the transport carries none.
+    #: every row passing a second argument. The panel fills it from `X-Request-ID`
+    #: (`api/app.py::_correlation_of`), the CLI mints one per command (`cli.py::_cli_actor`), and
+    #: `perform` gives a call that arrives with `""` one of its own before the row runs.
     correlation: str = ""
 
     def may_enter(self, scope: str) -> bool:

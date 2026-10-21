@@ -174,6 +174,21 @@ async def test_a_caller_that_carries_none_still_gets_one(caller, registry, store
     assert MINTED.fullmatch(row.extra["correlation_id"]), row.extra["correlation_id"]
 
 
+async def test_the_factorys_own_call_is_still_recorded_as_the_system_once_it_carries_an_id(
+        registry, stored):
+    """ADR-0057 D1 with criterion 5: giving `SYSTEM`'s call an id must not make it somebody else.
+    The record names the factory's own actor `system` by recognising `actions.SYSTEM`, and the id
+    `perform` mints rides on a copy of the actor (`dataclasses.replace`) — a copy that is not
+    `SYSTEM` by identity. Before this commit no copy was made and the record said `system`; a
+    `perform` that minted the id and a record that asked `by is SYSTEM` would write `""` for every
+    call the factory made on its own, the one caller a record has to be able to single out."""
+    await actions.perform("product_status", by=actions.SYSTEM, project="nosuch")
+
+    [row] = _audit_rows(stored)
+    assert (row.extra["provider"], row.extra["actor_id"]) == ("system", "system"), row.extra
+    assert MINTED.fullmatch(row.extra["correlation_id"]), row.extra["correlation_id"]
+
+
 async def test_a_relayed_call_shares_the_id_perform_minted_for_its_caller(registry, stored,
                                                                           monkeypatch):
     """Criterion 5 with criterion 2's relays: when `perform` mints the id for a caller that carried

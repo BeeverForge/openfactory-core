@@ -66,14 +66,15 @@ MUTATIONS = [
      '    await audit.write(audit.AuditRecord.of(name, by, params, refused(FAILED, "twice",'
      ' reason=RAISED)))\n',
      _ONE_EACH),
-    # 3. an early return ahead of the record
+    # 3. an early return ahead of the record. Re-pinned 2026-10-20: `perform` now mints the
+    # call's correlation id right after the name is resolved (#694, task 26).
     ("the unknown-action refusal returns from perform before the record is made", _ACTIONS,
-     '    key = (name or "").strip().lower()\n    outcome: Outcome | None = None\n',
+     '    key = (name or "").strip().lower()\n    if not by.correlation:\n',
      '    key = (name or "").strip().lower()\n'
      '    if _catalog().get(key) is None:\n'
      '        return refused(NOT_FOUND, f"there is no action called {name!r}",'
      ' reason=UNKNOWN_ACTION)\n'
-     '    outcome: Outcome | None = None\n',
+     '    if not by.correlation:\n',
      _ONE_EACH + "[unknown_action]"),
     # 18. the record only on a return
     ("the finally is gone: a call that raises (a cancel) leaves no record", _ACTIONS,
@@ -273,14 +274,15 @@ MUTATIONS = [
      '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", key, by,\n',
      "tests/test_the_action_layer.py::test_a_password_never_reaches_a_log_line"),
 
-    # 16. which identity provider named the caller
+    # 16. which identity provider named the caller. Re-pinned 2026-10-20: both actors now also
+    # carry the call's correlation id on the next line (#694, task 26).
     ("the panel's actor carries no subject", _APP,
-     '                         label="" if known else label, subject=subject)\n',
-     '                         label="" if known else label)\n',
+     '                         label="" if known else label, subject=subject,\n',
+     '                         label="" if known else label,\n',
      _EVERY + "test_the_panel_records_which_identity_provider_named_the_caller"),
     ("the command line's subject says host, not cli", _CLI,
-     '                           subject=Subject(id=who, display=who, via="cli"))\n',
-     '                           subject=Subject(id=who, display=who, via="host"))\n',
+     '                           subject=Subject(id=who, display=who, via="cli"),\n',
+     '                           subject=Subject(id=who, display=who, via="host"),\n',
      _EVERY + "test_the_command_line_records_the_shell_login_as_its_own_provider"),
 
     # 19-20. where a host CLI keeps them, and the inference left alone

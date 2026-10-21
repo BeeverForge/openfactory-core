@@ -4008,12 +4008,17 @@ def _cli_actor(who: str):
     hand, so they cannot drift apart.
 
     `admin=True` for the reason `openfactory act` gives: a shell where the factory runs already
-    outranks every gate in this layer."""
+    outranks every gate in this layer.
+
+    Each call mints its own correlation id (`audit.new_correlation_id`, #694): one command is one
+    request, and the records it causes — a relayed row's included — carry it."""
     from openfactory import actions as act_layer
     from openfactory.identity.base import Subject
+    from openfactory.observability.audit import new_correlation_id
 
     return act_layer.Actor(id=who, display=who, via="cli", admin=True,
-                           subject=Subject(id=who, display=who, via="cli"))
+                           subject=Subject(id=who, display=who, via="cli"),
+                           correlation=new_correlation_id())
 
 
 def _perform(name: str, **params: object):

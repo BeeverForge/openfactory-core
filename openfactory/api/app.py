@@ -1205,6 +1205,20 @@ def _label_of(request) -> str:
     return (request.headers.get("x-openfactory-actor") or "").strip()[:_LABEL_MAX]
 
 
+def _correlation_of(request) -> str:
+    """The correlation id of this request: its `X-Request-ID` when that is an id, else a new one
+    (`audit.correlation_or_new`).
+
+    `X-Request-ID` because it is what nginx (`$request_id`), most proxies and load balancers in
+    front of the panel already set (#694 Q4), so a record lines up with the proxy's access log with
+    no setting. A header that is not an id — a newline, a space, more than 128 characters — is
+    replaced whole and never kept, even in part. Read for the record only: the response does not
+    echo it, and nothing decides on it."""
+    from openfactory.observability.audit import correlation_or_new
+
+    return correlation_or_new(request.headers.get("x-request-id"))
+
+
 def _subject_of(credential: str):
     """WHO one credential names, or `UNKNOWN` — the provider's answer, asked the one way.
 
@@ -1247,10 +1261,11 @@ def _actor(request: Request) -> actions.Actor:
     A CALLER NOBODY NAMED MAY LABEL ITSELF, and the label is carried as `Actor.label` — beside the
     actor, never in its id or its display (`_label_of`). A person the provider named carries none:
     they must not be able to rename themselves in the audit trail."""
-    return _actor_of(request, _subject(request), label=_label_of(request))
+    return _actor_of(request, _subject(request), label=_label_of(request),
+                     correlation=_correlation_of(request))
 
 
-def _actor_of(connection, subject, *, label: str = "") -> actions.Actor:
+def _actor_of(connection, subject, *, label: str = "", correlation: str = "") -> actions.Actor:
     """`_actor`, for a subject already resolved — a request's, or a socket's (`HTTPConnection`
     either way, so the conversation is keyed off the same cookies).
 
@@ -1264,14 +1279,18 @@ def _actor_of(connection, subject, *, label: str = "") -> actions.Actor:
 
     The subject itself rides on the actor (ADR-0057 D1), anonymous or not, so the audit record
     names the provider that resolved the caller (`local`, `oidc`, `anonymous`) — before #694 it
-    was dropped here, and a record could not tell a token row from the shared token."""
+    was dropped here, and a record could not tell a token row from the shared token.
+
+    `correlation` is the request's id (`_correlation_of`). The product socket passes none — a
+    browser cannot set a header on a socket — and `perform` mints one for each of its calls."""
     scopes = _scopes_of(subject)
     known = getattr(subject, "known", False)
     return actions.Actor(id=(subject.id or "") if known else "",
                          display=subject.display or subject.id or "panel",
                          via="panel", admin=True, scopes=scopes,
                          conversation=_conversation_of(connection, subject),
-                         label="" if known else label, subject=subject)
+                         label="" if known else label, subject=subject,
+                         correlation=correlation)
 
 
 #: The cookie a browser nobody has identified carries, so that ITS conversation with the product
