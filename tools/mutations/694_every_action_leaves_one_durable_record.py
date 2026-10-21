@@ -196,14 +196,15 @@ MUTATIONS = [
      "    if False:\n",
      _STORE + "test_a_store_that_refuses_the_write_is_said_and_the_outcome_stands"),
     ("a store that raised is said without naming the store", _AUDIT,
-     '        log.warning("audit: the record of %s by %s was not kept: %s raised (%s)", '
-     "record.action,\n                    record.actor_id, _named(store), exc)\n"
+     '        log.warning("audit: the record of %s by %s was not kept: %s raised (%s)",\n'
+     "                    printable(record.action), printable(record.actor_id), _named(store), "
+     "exc)\n"
      '        _KEEPING.lost(f"{_named(store)} raised ({exc})")\n        return False\n',
      "        raise\n",
      _STORE + "test_a_store_that_refuses_the_write_is_said_and_the_outcome_stands"),
     ("a record that could not be made, or no store built, is not said", _ACTIONS,
-     '        log.warning("audit: the record of %s by %s was not kept (%s)", key or name, by, '
-     "exc)\n",
+     '        log.warning("audit: the record of %s by %s was not kept (%s)",\n'
+     "                    audit.printable(audit._scrub(key or name)), audit.printable(by), exc)\n",
      "        pass\n",
      _STORE + "test_a_sink_that_cannot_be_built_is_said_and_the_outcome_stands"),
 
@@ -267,8 +268,8 @@ MUTATIONS = [
      "        yield from sorted(store.scan(), key=when,\n",
      _LIST + "::test_a_store_that_cannot_ask_by_kind_is_still_listed_through_its_scan"),
     ("a caller with no id leaves an empty column, not a dash", _CLI,
-     "{r.get('actor_id') or '-'}",
-     "{r.get('actor_id')}",
+     'r.get("actor_id") or "-", r.get("action"),',
+     'r.get("actor_id"), r.get("action"),',
      _LIST + "::test_a_caller_the_panel_could_not_name_is_listed_as_a_dash_keeping_each_line_in_"
      "columns"),
     # 14. three answers, never one
@@ -296,12 +297,12 @@ MUTATIONS = [
 
     # 15. the line beside the record
     ("the INFO line is not written", _ACTIONS,
-     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
-     '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
+     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit.printable(audit._scrub(key)),\n',
+     '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", audit.printable(audit._scrub(key)),\n',
      _STORE + "test_the_info_line_is_still_written_beside_the_record"),
     ("the INFO line is not written (the line's own password guard)", _ACTIONS,
-     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
-     '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
+     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit.printable(audit._scrub(key)),\n',
+     '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", audit.printable(audit._scrub(key)),\n',
      "tests/test_the_action_layer.py::test_a_password_never_reaches_a_log_line"),
     # 15, the human's decision of 2026-10-21: the line prints what the record keeps, made once.
     ("the INFO line logs redact(params): a person's words in full", _ACTIONS,
@@ -440,9 +441,9 @@ MUTATIONS = [
      "        pass\n",
      _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
     ("the parameters left out are not said at INFO", _AUDIT,
-     '        log.info("audit: %s was passed %d parameters; the record keeps %d", action, '
-     'len(names),\n'
-     "                 PARAMS_KEPT)\n",
+     '        log.info("audit: %s was passed %d parameters; the record keeps %d", '
+     'printable(action),\n'
+     "                 len(names), PARAMS_KEPT)\n",
      "        pass\n",
      _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
     ("a long parameter name is cut without the note", _AUDIT,

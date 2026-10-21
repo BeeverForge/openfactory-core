@@ -372,7 +372,8 @@ async def _decide(name: str, key: str, by: Actor, params: dict[str, object]) -> 
     # requirement is the most consequential act there — and must still be refused `merge` outright.
     # Asking `admin` first would let that credential through on every row it happens to satisfy.
     if not by.may_enter(found.scope):
-        log.warning("DENIED_SCOPE %s (%s) by %s (%s)", key, found.scope, by, _loggable(params))
+        log.warning("DENIED_SCOPE %s (%s) by %s (%s)", key, found.scope, audit.printable(by),
+                    _loggable(params))
         return refused(
             DENIED,
             f"this credential is scoped to {', '.join(sorted(by.scopes or ())) or 'nothing'} and "
@@ -382,7 +383,7 @@ async def _decide(name: str, key: str, by: Actor, params: dict[str, object]) -> 
         )
 
     if found.needs_admin and not by.admin:
-        log.warning("DENIED %s by %s (%s)", key, by, _loggable(params))
+        log.warning("DENIED %s by %s (%s)", key, audit.printable(by), _loggable(params))
         return refused(
             DENIED,
             f"{by} is not allowed to {key} — ask somebody listed as an admin for this project.",
@@ -455,9 +456,11 @@ async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object
     except Exception as exc:  # noqa: BLE001 — the line is written on every way out
         kept, unread = None, exc
         shown = f"<not shown: they could not be read ({exc})>"
-    # THE ACTION AS THE RECORD KEEPS IT TOO: an unknown one is whatever a caller typed, a token
-    # included (PR #1039 review, 2026-10-21).
-    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,
+    # THE ACTION AS THE RECORD KEEPS IT TOO, AND ON ONE LINE: an unknown one is whatever a caller
+    # typed, a token or a newline included — on c310ba28 `teleport\nINFO … action=approve_prod …`
+    # was one record of two lines (PR #1039 reviews, 2026-10-21). The params are a `repr`.
+    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit.printable(audit._scrub(key)),
+             audit.printable(by),
              f" label={label!r}" if label else "", outcome.ok, outcome.code or "-",
              shown)
     try:
@@ -472,7 +475,8 @@ async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object
                                          kept=kept)
         await audit.write(record)
     except Exception as exc:  # noqa: BLE001 — the record must never take the call down
-        log.warning("audit: the record of %s by %s was not kept (%s)", key or name, by, exc)
+        log.warning("audit: the record of %s by %s was not kept (%s)",
+                    audit.printable(audit._scrub(key or name)), audit.printable(by), exc)
         audit.lost(f"the record could not be made or no store could be built ({exc})")
 
 

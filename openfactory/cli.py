@@ -4007,9 +4007,12 @@ def audit_cmd(
         # A caller the panel could not name has an empty `actor_id`; printed bare it left an empty
         # column and `split()` read the action as who asked (by hand on 2026-10-21, one curl to
         # `openfactory serve`). `-` holds the place, as for a record with no project.
-        typer.echo(f"{_audit_when(r['ts']).isoformat()}  {r.get('actor_id') or '-'}"
-                   f"  {r.get('action')}"
-                   f"  {r.get('project') or '-'}  {said}")
+        # EACH COLUMN ESCAPED (`audit.printable`): `action` and `project` are whatever a caller
+        # sent, and printed as stored three calls became six lines on c310ba28, one reading as
+        # Alice approving a release (PR #1039 review B1). `--json` keeps them as they were kept.
+        shown = (_audit_when(r["ts"]).isoformat(), r.get("actor_id") or "-", r.get("action"),
+                 r.get("project") or "-", said)
+        typer.echo("  ".join(audit.printable(column) for column in shown))
     if cut:
         typer.echo(f"audit: only the {limit} most recent matching records are listed — "
                    f"raise --limit to see more", err=True)

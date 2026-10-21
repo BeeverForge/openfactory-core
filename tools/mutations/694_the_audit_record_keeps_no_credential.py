@@ -74,8 +74,8 @@ MUTATIONS = [
      '        asked = (name or "").strip().lower() or name\n',
      _T + "test_a_token_typed_as_the_action_is_withheld_from_the_record_and_the_line"),
     ("the line's action is not scrubbed", _ACTIONS,
-     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
-     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,\n',
+     "audit.printable(audit._scrub(key)),\n",
+     "audit.printable(key),\n",
      _T + "test_a_token_typed_as_the_action_is_withheld_from_the_record_and_the_line"),
     # 3. nested values
     ("a nested mapping's names are not read", _AUDIT,

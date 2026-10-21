@@ -41,6 +41,7 @@ import logging
 import os
 import re
 import threading
+import unicodedata
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -239,6 +240,39 @@ def _clean(value: object, *, depth: int, words: bool) -> object:
     return _scrub(str(value))
 
 
+#: The three control characters a reader knows by name, written as Python writes them.
+_NAMED_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+
+def printable(text: object) -> str:
+    """`text` as one line a person reads: each control or other non-printing character (a
+    `unicodedata` category starting with `C`: a newline, a carriage return, an escape, a lone
+    surrogate) written as its escape — `\\n`, `\\r`, `\\t`, else `\\xNN`, `\\uNNNN` or
+    `\\UNNNNNNNN`; every other character as it is. For what is SHOWN — the `openfactory audit`
+    listing, the action's log lines — never for what is kept: the record keeps what was sent, and
+    `--json` escapes it on its own.
+
+    WHY. A record's `action` and `project` are whatever a caller sent, and on c310ba28 the listing
+    printed them as stored: three `POST /api/act/*` calls by an anonymous caller became six lines,
+    one reading `… alice  approve_prod  books  ok`, and `\\x1b[2K\\r` erased its own line on a
+    terminal; the unknown-action INFO line was one log record of two lines (PR #1039 review
+    B1, 2026-10-21)."""
+    text = str(text)
+    if text.isprintable():
+        return text
+    shown = []
+    for char in text:
+        if char in _NAMED_ESCAPES:
+            shown.append(_NAMED_ESCAPES[char])
+        elif unicodedata.category(char).startswith("C"):
+            code = ord(char)
+            shown.append(f"\\x{code:02x}" if code < 0x100 else
+                         f"\\u{code:04x}" if code < 0x10000 else f"\\U{code:08x}")
+        else:
+            shown.append(char)
+    return "".join(shown)
+
+
 def redact(params: Mapping[str, object]) -> dict[str, object]:
     """`params` with the value of every secret's name (`is_secret`) replaced by `MASK`, at every
     depth, and every string scrubbed (`_clean`); the names stay, so the line and the record still
@@ -298,12 +332,13 @@ def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
             kept[shown] = clean
             continue
         kept[shown] = _cut(text)
-        log.info("audit: %s's %s was %d characters; the record keeps the first %d", action, shown,
+        log.info("audit: %s's %s was %d characters; the record keeps the first %d",
+                 printable(action), printable(shown),
                  len(text), VALUE_CHARS)
     if len(names) > PARAMS_KEPT:
         kept["…"] = f"{len(names) - PARAMS_KEPT} more parameters not kept"
-        log.info("audit: %s was passed %d parameters; the record keeps %d", action, len(names),
-                 PARAMS_KEPT)
+        log.info("audit: %s was passed %d parameters; the record keeps %d", printable(action),
+                 len(names), PARAMS_KEPT)
     return kept
 
 
@@ -625,8 +660,8 @@ def _keep(record: AuditRecord) -> bool:
     try:
         landed = bool(store.record(row))
     except Exception as exc:  # noqa: BLE001 — said below and answered False; the call stands
-        log.warning("audit: the record of %s by %s was not kept: %s raised (%s)", record.action,
-                    record.actor_id, _named(store), exc)
+        log.warning("audit: the record of %s by %s was not kept: %s raised (%s)",
+                    printable(record.action), printable(record.actor_id), _named(store), exc)
         _KEEPING.lost(f"{_named(store)} raised ({exc})")
         return False
     if not landed:
@@ -635,7 +670,7 @@ def _keep(record: AuditRecord) -> bool:
         # record id — not the action, not that it was the audit trail (#694: before this, that
         # answer was dropped and the action layer said nothing).
         log.warning("audit: the record of %s by %s was not kept: %s did not take it",
-                    record.action, record.actor_id, _named(store))
+                    printable(record.action), printable(record.actor_id), _named(store))
         _KEEPING.lost(f"{_named(store)} did not take it")
         return False
     _KEEPING.kept()
