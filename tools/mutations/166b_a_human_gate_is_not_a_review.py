@@ -51,13 +51,15 @@ MUTATIONS = [
 
     # re-pinned 2026-10-21: the row tries `column_keys` in order, the resolver's key and then its
     # fallback (#753); the cut still swaps the resolver for the bare table
+    # re-pinned 2026-10-21: `set_status` asks `yields_its_name` of each candidate (PR #1040's
+    # review), so the list it builds moved; the cut still puts the table in place of the resolver
     ("the GitHub board reads the table around the resolver", GHP,
      "        from openfactory.adapters.tracker.base import column_keys\n\n"
-     "        names = [name for name in (self._columns.get(key, \"\")\n"
-     "                                   for key in column_keys(state, needs_person=needs_person))",
+     "        # `_columns` merges the defaults",
      "        from openfactory.adapters.tracker.base import STATE_KEYS\n\n"
-     "        names = [name for name in (self._columns.get(key, \"\")\n"
-     "                                   for key in (STATE_KEYS.get(state) or \"\",))"),
+     "        def column_keys(state, needs_person=None):\n"
+     "            return (STATE_KEYS.get(state) or \"\",)\n\n"
+     "        # `_columns` merges the defaults"),
 
     # re-pinned 2026-10-21: `_column_keys`, the resolver's key then its fallback (#753)
     ("Jira does", JIRA,
