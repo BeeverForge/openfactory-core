@@ -3210,20 +3210,28 @@ async def _product_agenda(*, project: str, by: Actor) -> Outcome:
     module, proj, bad = _product_module(project, by=by)
     if bad:
         return bad
-    del module
     from openfactory.memory import store as loop_store
     from openfactory.product import agenda, events
 
     viewer = agenda.Viewer(own=getattr(by, "conversation", "") or "", person=by.id,
                            may_read_room=by.may_enter(PRODUCT))
     rows = await asyncio.to_thread(loop_store.read, proj.name)
+    # AND WHAT THE NEWEST IMPORT LEFT OPEN (#994), read from its record and the corpus as they are
+    # now: an item to ask each, the room's — never stored, so nothing here can go stale
+    try:
+        review = await asyncio.to_thread(module.import_under_review)
+    except Exception:  # noqa: BLE001 — the ledger's items stand without it, and the log says why
+        log.warning("the newest import of %s could not be read for its agenda", proj.name,
+                    exc_info=True)
+        review = None
     # IN THE PROJECT'S LANGUAGE, AND SAYING WHAT IT IS (#401): a pt-BR product's person read
     # "tell you when the problem reported is fixed · owed · you" under a tab nothing explained.
     # `about` and `empty` are the panel's to draw; its own English is only the fallback.
     from openfactory.product.voice import agenda_about, agenda_empty
 
     language = getattr(proj, "language", None)
-    found = agenda.pending(rows, viewer, room=events.room_of(proj), language=language)
+    found = [*agenda.pending(rows, viewer, room=events.room_of(proj), language=language),
+             *agenda.from_the_import(review, viewer, language=language)]
     agent = getattr(getattr(proj, "product", None), "agent_name", "") or ""
     return done(agenda.render(found, language=language), project=proj.name,
                 measured_on=_measured_on(by), items=[item.as_dict() for item in found],

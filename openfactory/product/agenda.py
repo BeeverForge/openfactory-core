@@ -234,6 +234,45 @@ def items(rows: list[Loop], viewer: Viewer, *, room: str,
     return out
 
 
+#: The kind of an item an import left open (#994) — not a loop of the ledger: what is open is read
+#: from the import's record and the corpus as they are now, and the corpus moving is what closes it.
+IMPORT = "import"
+_IMPORT_KEYS = {"question": "import_question", "decision": "import_decision",
+                "change": "import_change"}
+
+
+def from_the_import(review, viewer: Viewer, *, language: str | None = None) -> list[Item]:
+    """What the newest import left open, as `viewer` may see it (#994): every item is the ROOM'S —
+    an import is told there, and its review is the product's people's together — each an item to
+    ask. When the record says who should answer, the item is "yours" to that person alone; to
+    everybody else it is the room's, and the person is named to nobody.
+
+    AT MOST `importing.MAX_OPEN` ITEMS (review of PR #1000): what an import left open is the
+    folder's word, and a folder of a thousand questions is not a Pending tab of a thousand — the
+    review carries the first ones, a yes to change an agreed requirement first, and the next come
+    up as these are answered."""
+    from openfactory.product.importing import MAX_OPEN
+    from openfactory.product.voice import agenda_chip, agenda_said, agenda_when
+
+    if review is None or not viewer.may_read_room:
+        return []
+    out: list[Item] = []
+    for item in review.open[:MAX_OPEN]:
+        yours = bool(item.ask) and bool(viewer.person) and \
+            _sealed(viewer.person) == _sealed(item.ask)
+        number = f"{item.requirement:04d}" if item.requirement else ""
+        out.append(Item(kind=IMPORT, subject=f"REQ-{number}" if number else review.id,
+                        direction=AWAITED,
+                        said=agenda_said(_IMPORT_KEYS[item.kind], yours=yours, subject=number,
+                                         origin=review.origin, language=language),
+                        what=item.text.strip()[:_WHAT_CHARS], since=review.landed_at, chased="",
+                        yours=yours, to="you" if yours else "the room",
+                        chip=agenda_chip(AWAITED, yours=yours, language=language),
+                        when=agenda_when(review.landed_at, language=language),
+                        card="", opens="conversation"))
+    return out
+
+
 def _answered_at(loop: Loop) -> tuple[str, str]:
     """`(the card the item is about, where it is answered)`. A question on a card is answered ON
     the card — the requester's comment closes it (ADR-0048); everything else the role waits for is
@@ -286,5 +325,5 @@ def render(found: list[Item], *, language: str | None = None) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["AWAITED", "OWED", "Audience", "Item", "Viewer", "audience", "items", "owed_on",
-           "pending", "render", "sees", "visible"]
+__all__ = ["AWAITED", "IMPORT", "OWED", "Audience", "Item", "Viewer", "audience",
+           "from_the_import", "items", "owed_on", "pending", "render", "sees", "visible"]

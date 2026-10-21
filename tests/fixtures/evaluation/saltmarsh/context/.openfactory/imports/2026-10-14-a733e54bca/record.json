@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "id": "2026-10-14-a733e54bca",
+  "origin": "the second prototyping round",
+  "requirements": [
+    {
+      "kind": "new",
+      "source": 1,
+      "slug": "weekly-order-cut-off",
+      "title": "Weekly order cut-off",
+      "number": 2,
+      "status": "proposed",
+      "replaces": [],
+      "rows": 0,
+      "path": "requirements/0002-weekly-order-cut-off.md"
+    },
+    {
+      "kind": "new",
+      "source": 2,
+      "slug": "allergen-labels",
+      "title": "Allergen labels on every dish",
+      "number": 3,
+      "status": "proposed",
+      "replaces": [],
+      "rows": 0,
+      "path": "requirements/0003-allergen-labels.md"
+    }
+  ],
+  "facts": [],
+  "documents": [
+    {
+      "kind": "new",
+      "name": "design/order-flow.md",
+      "path": "imported/design/order-flow.md",
+      "beside": ""
+    }
+  ],
+  "left_out": [],
+  "renumbered": {
+    "1": 2,
+    "2": 3
+  },
+  "order": [
+    3,
+    2
+  ],
+  "design": "imported/design/order-flow.md",
+  "questions": [
+    {
+      "text": "Does the cut-off move when a public holiday falls on a Thursday?",
+      "requirement": 2,
+      "ask": "joana"
+    }
+  ],
+  "counts": {
+    "new": 2,
+    "same": 0,
+    "revision": 0,
+    "beside": 0,
+    "history": 0
+  },
+  "brought": "second-prototyping-round",
+  "by": "joana",
+  "landed_at": "2026-10-14T10:00:00+00:00",
+  "token": "3b3a99217fa6a99e",
+  "landed": [
+    "requirements/0002-weekly-order-cut-off.md",
+    "requirements/0003-allergen-labels.md",
+    "imported/design/order-flow.md"
+  ]
+}

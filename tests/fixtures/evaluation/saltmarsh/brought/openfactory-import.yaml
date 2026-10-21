@@ -1,0 +1,7 @@
+origin: the second prototyping round
+order: [2, 1]
+design: design/order-flow.md
+questions:
+  - text: Does the cut-off move when a public holiday falls on a Thursday?
+    requirement: 1
+    ask: joana

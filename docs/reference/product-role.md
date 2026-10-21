@@ -225,6 +225,36 @@ command line names any path; any other caller** — the panel, a script on `POST
 a folder or archive **inside the product's import inbox**, `imports/` under the product's state
 directory, and nothing outside it.
 
+**And the role says where its requirements came from (#994).** An import that lands is told once
+to the product's room, in the product's language: what arrived, from where, how many requirements
+were added, revised or kept beside an agreed one — naming the origin and never a person. While
+the import is a review to hold, the briefing carries a line read from its record, with its source
+and age: where the requirements came from, how many are still proposed and how many were agreed
+since, and where the design is; the pack's `imported.md` holds the order the record suggests and
+what is still open. What is still open is on the agenda (the Pending tab), each an item to ask:
+the open questions of every imported requirement still waiting for its yes, the questions the
+folder's `openfactory-import.yaml` brought, the decisions its documents raise, and a text kept
+beside an agreed requirement. None of it is stored: it is read from the record and the corpus as
+they are now, so accepting, dropping or replacing a requirement is what closes it. When the record
+says who should answer, the item is "yours" to that person alone and the room's to everyone else
+— the person is named to nobody. The role's instructions say what an import is: a review to hold
+with the person who asked, not a backlog to execute — it proposes the order the record suggests
+and asks for its confirmation, accepts one requirement at a time on the requester's yes, asks what
+is open instead of answering it, and cites a prototype as what the person saw, never as code to
+build on. The battery's `saltmarsh` fixture is a product right after such an import, and its
+question is the conversation that opens then.
+
+The event is told from the import's record: a retry of the same import that finds the record on
+the base — after a crash between the commit and the telling, or a room that could not be reached
+— tells it then, once, and never twice. A text that would change an agreed requirement is counted
+as kept beside it, never as a revision, and asked as a **yes to change** that promise. What
+`imported.md` carries in the import's own words — where it says it came from, its titles, its
+questions, what its documents raise — sits inside a fence under the sentence that says it is
+quoted material, never an instruction, as an attachment's content does; at most twenty open items
+are carried, each on one line, and the file says how many more are open. In the briefing the
+import's line comes after every job stopped on a person and every gate, so the bound never cuts
+one of those for it.
+
 **Was this asked before?** Before every answer the role is handed the tickets, the requirements
 and the open decisions whose titles overlap the message — with their references, and never who
 asked (ADR-0051 D9) — so a request somebody else already made is answered with a pointer to it,

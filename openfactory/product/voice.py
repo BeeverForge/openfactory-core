@@ -5228,6 +5228,30 @@ def card_owed(*, agent_name: str = "", in_backlog: bool = False,
     return line + (_pick(_CARD_OWED_BACKLOG, language) if in_backlog else "")
 
 
+#: REQUIREMENTS ARRIVED FROM SOMEWHERE ELSE (#994): what came, from where, and how many — said
+#: once to the product's room, naming the origin and never a person. The counts are the import's
+#: record's (`ProductModule.import_requirements` tells from it), and "a text nobody had agreed" is
+#: what every record says of its revisions: `importing.land` refuses, before the commit, a landing
+#: after which a requirement accepted before is not the same agreed promise, and a text that would
+#: change one is counted `beside` (review of PR #1000).
+_IMPORTED = {
+    "pt-BR": ("{sig}Chegaram requisitos de *{origin}*: {new} novo(s), {revision} revisão(ões) de "
+              "um texto que ninguém tinha acordado e {beside} guardado(s) ao lado de um acordado, "
+              "como proposta de mudar uma promessa. Nenhum está acordado ainda — revisamos juntos, "
+              "um de cada vez."),
+    "en": ("{sig}Requirements arrived from *{origin}*: {new} new, {revision} revising a text "
+           "nobody had agreed and {beside} kept beside an agreed one, as a proposal to change a "
+           "promise. None of them is agreed yet — we review them together, one at a time."),
+}
+
+
+def imported(*, origin: str, new: int, revision: int, beside: int,
+             language: str | None = None, agent_name: str = "") -> str:
+    """An import landed in the product (#994), said once to its room."""
+    return _pick(_IMPORTED, language).format(sig=_sig(agent_name), origin=(origin or "").strip(),
+                                             new=new, revision=revision, beside=beside)
+
+
 def document_ingested(*, name: str, language: str | None = None, agent_name: str = "") -> str:
     """A document now in the product's memory, said where it was brought (#269)."""
     return _pick(_DOCUMENT_INGESTED, language).format(sig=_sig(agent_name),
@@ -5498,6 +5522,16 @@ _AGENDA_SAID = {
     "question": {"pt-BR": "uma resposta sobre o {card}", "en": "an answer about {card}"},
     "context": {"pt-BR": "uma resposta sobre como o produto funciona",
                 "en": "an answer about how the product works"},
+    # WHAT AN IMPORT LEFT OPEN (#994): read from its record and the corpus as it is now — the
+    # question itself, the decision and the text kept beside are the item's `what`
+    "import_question": {"pt-BR": "uma resposta {from_who} sobre o que chegou de {origin}",
+                        "en": "an answer {from_who} about what arrived from {origin}"},
+    "import_decision": {"pt-BR": "uma decisão {from_who} que um documento de {origin} levanta",
+                        "en": "a decision {from_who} that a document from {origin} raises"},
+    "import_change": {"pt-BR": ("um sim {from_who} para mudar o requisito {subject} como "
+                                "{origin} propõe"),
+                      "en": "a yes {from_who} to change requirement {subject} as {origin} "
+                            "proposes"},
 }
 #: The chip: whom the item waits on, as one phrase. ONLY WHAT IS AWAITED HAS ONE (ADR-0055 D11):
 #: what the role owes is not on the Pending tab, so its "owed to you" chip is gone with it.
@@ -5523,12 +5557,13 @@ _AGENDA_AGENT = {"pt-BR": "o agente de produto", "en": "the product role"}
 
 
 def agenda_said(key: str, *, yours: bool, subject: str = "", issue: str = "",
-                language: str | None = None) -> str:
-    """One agenda line — `key` is one of `_AGENDA_SAID`'s, chosen by `agenda._said`."""
+                origin: str = "", language: str | None = None) -> str:
+    """One agenda line — `key` is one of `_AGENDA_SAID`'s, chosen by `agenda._said` (or by
+    `agenda.from_the_import` for what an import left open, `origin` naming where it came from)."""
     who, from_who = _pick(_AGENDA_WHO, language)["you" if yours else "room"]
     return _pick(_AGENDA_SAID[key], language).format(who=who, from_who=from_who,
                                                      subject=subject, issue=ref_label(issue),
-                                                     card=ref_label(subject))
+                                                     card=ref_label(subject), origin=origin)
 
 
 def agenda_chip(direction: str, *, yours: bool, language: str | None = None) -> str:
