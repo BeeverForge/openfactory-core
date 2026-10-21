@@ -602,6 +602,148 @@ def test_a_file_held_value_is_withheld_whichever_store_the_deployment_declares(t
         "the key is held-in-a-file-only-q7"), "with no directory, nothing is known to withhold"
 
 
+def test_an_installed_store_that_cannot_be_built_does_not_take_the_facts_down(monkeypatch):
+    from openfactory.adapters.credential_store import registry as store
+    from openfactory.certify import pack
+
+    def cannot_be_built():
+        raise RuntimeError("vaultx: VAULT_ADDR is not set")
+
+    monkeypatch.setitem(store.STORES, "vaultx", cannot_be_built)
+    monkeypatch.delenv(store.STORE_VAR, raising=False)
+    monkeypatch.setenv("OPENFACTORY_TRACKER_TOKEN", "fictitious-env-value-822f")
+    assert (read_model.scrub_credentials("the key is fictitious-env-value-822f")
+            == f"the key is {read_model.WITHHELD_CREDENTIAL}")
+    assert pack._held_values(set()) == set()
+
+
+#: A value held only in an add-on's store, with no token's shape: only knowing it withholds it.
+VAULTED = "held-in-a-vault-only-822f"
+
+
+class _Vault:
+    """An add-on store that answers by name and cannot say what it holds: no `names()`."""
+
+    def __init__(self, held: dict[str, str]) -> None:
+        self.held = held
+
+    def resolve(self, name):
+        return self.held.get(name)
+
+    def describe(self, name):
+        return f"the vault entry `{name}`"
+
+
+def test_a_declared_store_that_cannot_list_is_asked_every_credential_the_core_reads(monkeypatch):
+    """A declared store with no `names()` cannot say what it holds, so the scrub asks it for every
+    credential the core reads by name (review of bd178211, X1): a tracker token held only there is
+    withheld from the facts and from the pack."""
+    from openfactory.adapters.credential_store import registry as store
+    from openfactory.certify import pack
+
+    monkeypatch.setitem(store.STORES, "vaultx",
+                        lambda: _Vault({"OPENFACTORY_TRACKER_TOKEN": VAULTED}))
+    monkeypatch.setenv(store.STORE_VAR, "vaultx")
+    monkeypatch.delenv("OPENFACTORY_TRACKER_TOKEN", raising=False)
+    assert (read_model.scrub_credentials(f"the key is {VAULTED}")
+            == f"the key is {read_model.WITHHELD_CREDENTIAL}")
+    assert VAULTED in pack._held_values(set())
+
+
+def test_a_reference_the_registry_names_is_withheld_from_a_store_that_cannot_list(monkeypatch):
+    """`token_env: vaultx:acme-jira` names an entry no core name asks for, in a store that cannot
+    list, so only the reference reaches it (review of bd178211, X2): the pack hands the registry's
+    references to `held_values`, which asks each — whether the store is declared or merely
+    installed."""
+    from types import SimpleNamespace
+
+    from openfactory.adapters.credential_store import registry as store
+    from openfactory.certify import pack
+
+    monkeypatch.setitem(store.STORES, "vaultx", lambda: _Vault({"acme-jira": VAULTED}))
+    row = SimpleNamespace(tracker=SimpleNamespace(options={"token_env": "vaultx:acme-jira"}),
+                          forge=None, ci=None, channel_options={})
+    for declared in ("vaultx", None):
+        if declared:
+            monkeypatch.setenv(store.STORE_VAR, declared)
+        else:
+            monkeypatch.delenv(store.STORE_VAR, raising=False)
+        assert VAULTED in pack._secret_values([row], {}), declared
+        assert VAULTED not in pack._held_values(set()), "reached by its reference, nothing else"
+
+
+def test_a_scrub_says_nothing_with_no_directory_or_over_a_refused_file(tmp_path, monkeypatch,
+                                                                         caplog):
+    """`held_values` reads quietly (review of bd178211, X3 and X4), and a scrub runs for every
+    facts file and every briefing line: with no credential directory the file store is not asked
+    to list one, and a file the store refuses is one value fewer to withhold, never a warning."""
+    import logging
+
+    from openfactory.adapters.credential_store.file import DIR_VAR
+    from openfactory.adapters.credential_store.registry import STORE_VAR
+
+    monkeypatch.delenv(DIR_VAR, raising=False)
+    with caplog.at_level(logging.WARNING):
+        for declared in ("file", None):
+            if declared:
+                monkeypatch.setenv(STORE_VAR, declared)
+            else:
+                monkeypatch.delenv(STORE_VAR, raising=False)
+            assert read_model.scrub_credentials("nothing to withhold") == "nothing to withhold"
+    assert not caplog.records, [r.getMessage() for r in caplog.records]
+
+    directory = tmp_path / "secrets"
+    directory.mkdir()
+    directory.chmod(0o700)
+    (directory / "acme-jira").write_text("fictitious-refused-822f\n")
+    (directory / "acme-jira").chmod(0o664)  # writable by its group, on a writable mount: refused
+    monkeypatch.setenv(DIR_VAR, str(directory))
+    with caplog.at_level(logging.WARNING):
+        for declared in ("file", None):
+            if declared:
+                monkeypatch.setenv(STORE_VAR, declared)
+            else:
+                monkeypatch.delenv(STORE_VAR, raising=False)
+            assert read_model.scrub_credentials("nothing to withhold") == "nothing to withhold"
+    assert not caplog.records, [r.getMessage() for r in caplog.records]
+
+
+class _FailingVault:
+    """An add-on store that lists what it holds and fails reading each of them."""
+
+    def names(self):
+        return ["acme-forge", "acme-jira"]
+
+    def resolve(self, name):
+        raise TimeoutError("the vault did not answer")
+
+    def describe(self, name):
+        return f"the vault entry `{name}`"
+
+
+def test_a_scrub_over_a_store_that_fails_says_so_at_debug_never_as_a_warning(monkeypatch, caplog):
+    """A quiet read of a store whose `resolve` fails is said at DEBUG, without a traceback (review
+    of bd178211): it wrote a warning with a traceback per entry per scrub. A reader that uses the
+    credential is still told at WARNING, traceback and all — the failure is never silent."""
+    import logging
+
+    from openfactory.adapters.credential_store import registry as store
+
+    monkeypatch.setitem(store.STORES, "vaultx", _FailingVault)
+    monkeypatch.delenv(store.STORE_VAR, raising=False)
+    with caplog.at_level(logging.DEBUG, logger=store.log.name):
+        for _ in range(3):
+            assert read_model.scrub_credentials("nothing to withhold") == "nothing to withhold"
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], caplog.text
+    said = [r for r in caplog.records if "vaultx" in r.getMessage()]
+    assert said and not any(r.exc_info for r in said), "said at DEBUG, with no traceback"
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=store.log.name):
+        assert store.resolve("vaultx:acme-jira") is None
+    assert any(r.levelno == logging.WARNING and r.exc_info for r in caplog.records), caplog.text
+
+
 # ── what could not be read is said ──────────────────────────────────────────────────────────────
 
 def test_an_engine_that_does_not_answer_is_a_gap_never_an_idle_floor(made, tmp_path,

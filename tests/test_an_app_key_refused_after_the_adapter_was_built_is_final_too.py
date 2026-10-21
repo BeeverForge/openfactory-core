@@ -1,10 +1,12 @@
 """A GitHub App key refused after the adapter was built is as final as one refused before (#742).
 
-The refusal a GitHub adapter is handed is the store's answer at construction. The key a mint reads
-is read at each mint, so it can be refused later — a file whose mode changed, a directory that
-became shared — and the provider then answers nothing, with nothing refused on the adapter.
-`credential_of` asks the key's refusal again then, so `gh` still never runs on the machine's own
-login in its place (review of 256c5b0).
+The refusal a GitHub adapter is handed is the store's answer at construction. The shipped App mint
+holds the key it was built with, read while it was trusted, and mints or raises: a key file whose
+mode changed afterwards changes nothing it mints. A provider that answers NOTHING — an add-on
+credential row's — leaves the adapter with no token and nothing refused on it, and the key may be
+refused by then (a file whose mode changed, a directory that became shared). `credential_of` asks
+the key's refusal again then, so `gh` still never runs on the machine's own login in its place
+(review of 256c5b0; reworded on the review of bd178211).
 """
 
 from __future__ import annotations

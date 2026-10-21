@@ -36,7 +36,8 @@ answer, say where a secret is and whether it is there. A value leaves only throu
 
 THE AXIS. `credential_store.<kind>` in the `openfactory.adapters` entry-point group names a
 zero-argument builder returning a `CredentialStore`. A built-in wins a collision and an unknown
-kind refuses naming what is installed, as on every axis.
+kind refuses naming what is installed, as on every axis; a builder that raises is a store that
+cannot be built, and refuses the same way (`build_store`).
 """
 
 from __future__ import annotations
@@ -87,13 +88,28 @@ def known() -> list[str]:
 
 
 def build_store(kind: str) -> CredentialStore:
-    """The store for `kind`. Raises on a kind nobody installed, naming the ones that are."""
+    """The store for `kind`. Raises `ValueError` on a kind nobody installed, naming the ones that
+    are, and on one whose builder fails, naming the kind and what it raised.
+
+    `ValueError` IS THE ONLY WAY A STORE CANNOT BE BUILT (review of bd178211 for #822). Every
+    reader here catches it: a reference to such a store is refused by name, and a reader that walks
+    every installed store (`held_values`, under the product's facts and the certify pack) passes it
+    over. An add-on's builder reads its own settings and may raise anything on a deployment that
+    installed it and never set it up — `RuntimeError("VAULT_ADDR is not set")` — and that stopped
+    every product turn, from a store nobody declared or named. A store that cannot be built hands
+    no value to anyone, so passing it over hides nothing."""
     key = (kind or "").strip().lower()
     builder = STORES.get(key) or plugins.builder(AXIS, key, builtin=STORES)
     if builder is None:
         raise ValueError(f"unknown credential store {key!r} — known: {', '.join(known())}"
                          f"{plugins.install_hint(AXIS, key)}")
-    return builder()
+    try:
+        return builder()
+    except ValueError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — an add-on's store may not take a reader down
+        raise ValueError(f"the {key} credential store could not be built "
+                         f"({type(exc).__name__}) — see the settings its add-on reads") from exc
 
 
 def parse(reference: object) -> tuple[str, str]:
@@ -132,7 +148,8 @@ NOTHING = Answer()
 def _ask(kind: str, name: str, *, quiet: bool = False) -> Answer:
     """What the store `kind` answers for `name`. Never raises: an unknown kind and a store that
     refuses or fails are an `Answer` that says why, by reference, and holds nothing. `quiet` is
-    for a reader that asks only WHETHER it refuses (the doctor) and says so itself."""
+    for a reader that asks only WHETHER it refuses (the doctor) and says so itself, or that uses
+    nothing it reads (a scrub): what it is told goes to DEBUG, never to a warning."""
     reference = f"{kind}:{name}"
     try:
         store = build_store(kind)
@@ -149,8 +166,13 @@ def _ask(kind: str, name: str, *, quiet: bool = False) -> Answer:
                         reference, exc)
         return Answer(reference=reference, refused=str(exc))
     except Exception as exc:  # noqa: BLE001 — an add-on's store may not take a credential path down
-        log.warning("the %s credential store failed reading `%s`; it is treated as a refusal and "
-                    "nothing is used in its place", kind, name, exc_info=True)
+        # QUIET IS SAID AT DEBUG, never not at all (review of bd178211): a scrub reads every entry
+        # of every store at each call, and a store that fails wrote one warning with a traceback
+        # per entry per scrub, each about a credential nobody was about to use. A reader that
+        # uses the credential asks loudly and says it at WARNING, with the traceback.
+        log.log(logging.DEBUG if quiet else logging.WARNING,
+                "the %s credential store failed reading `%s`; it is treated as a refusal and "
+                "nothing is used in its place", kind, name, exc_info=not quiet)
         return Answer(reference=reference,
                       refused=f"the {kind} store failed reading `{name}` ({type(exc).__name__})")
     return Answer(reference=reference, value=value) if value else NOTHING

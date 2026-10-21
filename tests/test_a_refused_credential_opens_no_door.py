@@ -344,6 +344,16 @@ def _addon_fails(b: Bench, name: str) -> None:
     b.monkeypatch.setenv(STORE_VAR, "acme")
 
 
+def _addon_cannot_be_built(b: Bench, name: str) -> None:
+    """An add-on whose builder raises, as one does on a deployment that installed it and never
+    set it up (review of bd178211): a store that cannot be built is a refusal, by name."""
+    def cannot_be_built():
+        raise RuntimeError("acme vault: VAULT_ADDR is not set")
+
+    b.monkeypatch.setitem(STORES, "acme", cannot_be_built)
+    b.monkeypatch.setenv(STORE_VAR, "acme")
+
+
 #: label → how the store is made to refuse the deployment credential `name`. The file store's
 #: entries are held to `file.py` by the guard below; the others are the registry's own refusals.
 REFUSALS = {
@@ -378,6 +388,7 @@ REFUSALS = {
     "a file this user cannot open": _unreadable,
     "an add-on store that refuses": _addon_refuses,
     "an add-on store that fails": _addon_fails,
+    "an add-on store that cannot be built": _addon_cannot_be_built,
 }
 
 #: The file store's refusals no deployment credential can be given, and why.
@@ -391,7 +402,7 @@ NOT_A_DEPLOYMENT_CASE = {
 
 #: The cases that are the registry's refusals, not the file store's.
 NOT_THE_FILE_STORE = ("a declared store nobody installed", "an add-on store that refuses",
-                      "an add-on store that fails")
+                      "an add-on store that fails", "an add-on store that cannot be built")
 
 
 def test_every_refusal_the_file_store_can_give_is_a_case(tmp_path):
