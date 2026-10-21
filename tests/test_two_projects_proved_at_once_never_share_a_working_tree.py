@@ -121,11 +121,12 @@ def test_two_repositories_of_one_project_are_proven_on_two_branches(tmp_path, mo
 def test_keys_a_branch_name_cannot_spell_still_get_a_branch_each_and_git_accepts_it(
         tmp_path, monkeypatch):
     """AC1, for registry names that are free text: a space, a slash, the `_checkout_key` shape
-    (`owner--org--name`), and a letter outside ASCII. Slugged alike, `acme web` and `acme/web`
+    (`owner--org--name`), a letter outside ASCII, and `..`, the one run of kept characters a ref
+    refuses. Slugged alike, `acme web` and `acme/web`
     would share a branch again; unslugged, git would refuse the name. Git itself is asked."""
     _proofs_here(tmp_path, monkeypatch)
     branches = _recording_box(monkeypatch, tmp_path)
-    keys = ("acme web", "acme/web", "acme-web", "acme--org--web", "ação")
+    keys = ("acme web", "acme/web", "acme-web", "acme--org--web", "ação", "acme..web")
 
     for key in keys:
         with _prove(key, tmp_path, sandbox="container"):

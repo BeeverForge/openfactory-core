@@ -93,6 +93,11 @@ MUTATIONS = [
      "    subject = key or project.name\n",
      "    subject = project.name\n", APART),
 
+    ("the slug keeps `..`, so git refuses the branch of a key such as `acme..web`",
+     PROVE,
+     '    readable = re.sub(r"\\.{2,}", ".", readable)\n',
+     "", APART),
+
     # ── 2. one key at a time, and only that key, from any process ──────────────────────────────
     ("every key locks one file, so proving one project refuses every other",
      PROVE,
