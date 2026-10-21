@@ -695,20 +695,22 @@ WORKER_DOORS = {
 @pytest.mark.parametrize("door", sorted(WORKER_DOORS))
 def test_a_start_that_fails_for_any_other_reason_ends_as_one_json_line(door):
     """`born` says an engine that never listened as a sentence; any other failure of the start —
-    here the app key the boot writes first — escapes it. With JSON lines it must still end as
-    one line, its traceback inside it, and exit 1, through either door."""
+    here the registry's seed, the boot's first step since it writes no App key (#742) — escapes
+    it. With JSON lines it must still end as one line, its traceback inside it, and exit 1,
+    through either door."""
     ran = _a_process_of_its_own(
         "import dotenv\n"
         "dotenv.load_dotenv = lambda *_a, **_k: False\n"
-        "from openfactory.runtime import boxed_job\n"
+        "from openfactory import registry\n"
         "def _cannot(*_a, **_k):\n"
-        "    raise RuntimeError('the app key could not be written')\n"
-        "boxed_job.materialize_app_key = _cannot\n" + WORKER_DOORS[door], asked="json")
+        "    raise RuntimeError('the registry seed could not be copied')\n"
+        "registry.seed_registry = _cannot\n" + WORKER_DOORS[door], asked="json")
 
     lines = _every_line_is_json(ran)
     ended = [line for line in lines if line["level"] in ("ERROR", "CRITICAL")]
     assert len(ended) == 1 and ended[0]["logger"] == logs.UNCAUGHT_LOGGER, lines
-    assert "RuntimeError: the app key could not be written" in ended[0]["exception"], ended[0]
+    assert "RuntimeError: the registry seed could not be copied" in ended[0]["exception"], \
+        ended[0]
     assert ran.returncode == 1, ran.returncode
 
 
