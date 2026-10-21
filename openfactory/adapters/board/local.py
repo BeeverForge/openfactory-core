@@ -31,7 +31,7 @@ log = logging.getLogger("openfactory.board.local")
 
 
 class LocalBoard:
-    """The six columns and where each card sits, for one project."""
+    """The seven columns and where each card sits, for one project."""
 
     def __init__(self, tracker, *, queue: str = "") -> None:
         #: The tracker this board is the face of. Held rather than re-derived, for the reason the
@@ -113,7 +113,7 @@ class LocalBoard:
         OFF THE BOARD'S OWN ROWS, not off the registry, and that is this row's whole advantage:
         the key and the name sit in the same table, so a column renamed after `project init` is
         mapped without anybody writing a second copy of the map into the registry. `key_for` does
-        the matching, once, for the same reason the hosted rows call it — the platform's own six
+        the matching, once, for the same reason the hosted rows call it — the platform's own seven
         names answer under whatever this board renamed.
 
         ONLY THE PLATFORM'S OWN KEYS ARE ANSWERED WITH. This table can hold a column a deployment

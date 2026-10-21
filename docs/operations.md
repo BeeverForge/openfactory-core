@@ -157,7 +157,8 @@ here, but a project may set e.g. Jira tracker + GitLab forge in its registry ent
 
 The framework moves a card by matching `STATUS_MAP` to the board's Status **option
 names, case-sensitively** (`openfactory/adapters/tracker/github_project.py`). A GitHub Projects
-board driven by the framework needs these six single-select Status options:
+board driven by the framework needs these six single-select Status options, and takes a seventh,
+*Needs Review*, when it has one:
 
 | Column | What it means | Who acts |
 |---|---|---|
@@ -165,10 +166,11 @@ board driven by the framework needs these six single-select Status options:
 | **TO-DO** | Queued — the poller picks these up (one at a time). | the framework |
 | **In progress** | Running (or a rate-limit **pause**, which auto-resumes). | the framework |
 | **In review** | PR open / merged / promoting — being overseen. | the framework |
+| **Needs Review** *(optional)* | PR open, **waiting only for a person to review it** — nothing is wrong with it. | **you** (review) |
 | **Needs Action** | **Parked, waiting on YOUR decision** — the ticket comment says what. | **you** |
 | **Done** | Completed. | — |
 
-**`Needs Action` is required.** `openfactory project init` creates a NEW board with all six
+**`Needs Action` is required.** `openfactory project init` creates a NEW board with all seven
 options; on an **existing** board add it **by hand in the GitHub UI** — the API mutation that
 edits a Status field (`updateProjectV2Field`) re-mints every option id and drops every card's
 Status assignment, which is worse than the click it saves. Name it exactly `Needs Action` (a
@@ -176,6 +178,17 @@ red colour, placed after *In progress*, reads best). It's where `needs_refinemen
 `failed` land, so a ticket that needs you never hides among the un-started Backlog items.
 Until the column exists, those states **fall back to Backlog** (safe, old behaviour) — so a
 missing column degrades, it never breaks; but you lose the at-a-glance "these need me".
+
+**`Needs Review` is optional.** It keeps a pull request that only waits for a reviewer apart from
+the cards that are stuck. A board without the option puts those pull requests in `Needs Action`,
+as before; add it by hand, the same way, between *In review* and *Needs Action*, to opt in — an
+option of exactly that name is used without a `columns:` entry. The platform's own board (no
+GitHub) gets it when you re-run `openfactory project init`, which adds the missing column in
+place and renames nothing; on Jira and Azure Boards the factory moves cards there only when
+`status_map` (Jira) or `columns` and `state_map` (Azure) name it for the `needs_review` key.
+Triage's *waiting too long* finding covers a pull request left there as it covers a park; the
+product role's review of parked cards does not list it, because it has nothing to diagnose
+(ADR-0019 §6).
 
 ## Bot identity & credentials (provider-agnostic)
 
@@ -444,7 +457,8 @@ openfactory run myapp 142 --sandbox container      # drive issue #142 end-to-end
 ```
 
 **Board setup (one-time, per project's GitHub Projects board):** the Status field must have
-the six options above — `openfactory project init` creates a new board with all of them; on an
+the six options above (and *Needs Review* if you want it) — `openfactory project init` creates a
+new board with all seven; on an
 existing board **add `Needs Action` by hand** (editing the Status field by API re-mints every
 option id and wipes assignments; exact name, red, after *In progress*). Record the board in the
 registry entry (`board_owner` + `board_number`). Without the column the framework still runs;

@@ -22,7 +22,7 @@ reaching into one option name it hoped every tracker spelled alike.
 WHAT IS DRIVEN HERE IS THE REAL `card_edit` AND `card_close`, over the real `JiraTracker` and the
 real `JiraProjectBoard`, against a fake at the ONE place the adapter touches the network
 (`urllib.request.urlopen`) — the shape #203's guard established. The site is a small Portuguese
-Jira: its statuses are its own words, and the platform's six names appear nowhere on it.
+Jira: its statuses are its own words, and the platform's seven names appear nowhere on it.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ REF = "DAR-7"
 TODO, RUNNING, DONE = "A Fazer", "Em andamento", "Concluído"
 DONE_ID = "31"
 #: A status this site really has and nobody maps — not in `status_map`, not one of the platform's
-#: six names. Its refusal is a REAL answer and must survive the fix.
+#: seven names. Its refusal is a REAL answer and must survive the fix.
 UNMAPPED = "Aguardando cliente"
 
 
@@ -390,7 +390,7 @@ def test_a_row_that_answers_with_something_that_is_not_a_name_is_not_believed(ca
 
 def test_every_shipped_board_row_answers_for_its_own_columns():
     """Not a `hasattr` sweep for its own sake: each of the four holds the deployment's names in a
-    different place, and a row that forgot to answer degrades SILENTLY to the platform's six."""
+    different place, and a row that forgot to answer degrades SILENTLY to the platform's seven."""
     from openfactory.adapters.board.azure_devops import AzureBoardsBoard
     from openfactory.adapters.board.jira import JiraProjectBoard
     from openfactory.adapters.board.local import LocalBoard
@@ -484,7 +484,7 @@ def test_a_local_column_that_is_not_one_of_the_platforms_STAGES_is_refused_as_un
     factory has taken it up*, so an edit would be refused with a sentence about a job that does
     not exist.
 
-    AND IT IS NOT A ROW MISBEHAVING. The seam refuses a key that is not one of the platform's six
+    AND IT IS NOT A ROW MISBEHAVING. The seam refuses a key that is not one of the platform's seven
     whoever answers it, but that refusal is a WARNING naming the row — said of every card in a
     perfectly ordinary local column it would be noise, and noise in that channel is how a real
     misbehaving add-on goes unread. The row answers `""` itself."""

@@ -296,9 +296,10 @@ factory still works, you just name tickets directly. On **Azure DevOps**, regist
 Boards ships with the project, so there is no board to create:
 [docs/setup/azure-devops.md](setup/azure-devops.md) §5 is that step.)
 
-**The board's columns are the platform's vocabulary**: six on GitHub Projects
-(`Backlog · TO-DO · In progress · In review · Needs Action · Done` — created for you, in that
-order, by the command above), five states on Azure Boards (the guide's §3 table). Already have
+**The board's columns are the platform's vocabulary**: seven on GitHub Projects
+(`Backlog · TO-DO · In progress · In review · Needs Review · Needs Action · Done` — created for
+you, in that order, by the command above; *Needs Review* is optional on a board you built
+yourself), five states on Azure Boards (the guide's §3 table). Already have
 a board, or want to build one by hand? [docs/setup/github.md](setup/github.md) §7.
 
 **The forge credential.** The first real ticket (§8) needs the factory to write to your

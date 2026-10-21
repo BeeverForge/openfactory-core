@@ -212,17 +212,21 @@ the table covers it.)
 
 `openfactory project init <name>` creates the board with the right columns, and that is the
 path ONBOARDING §2 walks. Build it by hand only when the board already exists, or when you want
-it somewhere `init` would not put it. GitHub Projects v2, **six columns, named exactly** — this
+it somewhere `init` would not put it. GitHub Projects v2, **seven columns, named exactly** — this
 is also the order `init` creates them in:
 
 ```
-Backlog · TO-DO · In progress · In review · Needs Action · Done
+Backlog · TO-DO · In progress · In review · Needs Review · Needs Action · Done
 ```
 
 - **Backlog** — parked or sequencing
 - **TO-DO** — the drop zone; a card here gets picked up
 - **In progress** — a job is running it
 - **In review** — PR open
+- **Needs Review** — PR open and waiting only for a person to review it. Optional: a board without
+  this option puts those pull requests in Needs Action, as boards made before it did. A board
+  that has an option of this name uses it, with or without a `columns:` entry for `needs_review`;
+  on an existing board, add it by hand in the GitHub UI, between In review and Needs Action
 - **Needs Action** — parked, waiting for a person, with the reason on the ticket
 - **Done** — merged
 

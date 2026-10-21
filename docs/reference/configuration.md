@@ -161,8 +161,14 @@ its administrator named — and localised — everything in it:
 ```
 
 `status_map` says which status each lifecycle key (`todo`, `in_progress`, `in_review`,
-`needs_action`, `done`, `backlog`) means; an unmapped key leaves the card where it is, with a
-warning. It is also what the platform READS the board back with — a Jira project's statuses ARE
+`needs_review`, `needs_action`, `done`, `backlog`) means; an unmapped key leaves the card where it
+is, with a warning — except `needs_review`, which is optional: it is where a pull request waiting
+only for a person's review goes, and while the map does not name it that pull request goes to
+`needs_action`'s status, as it did before the key existed. A site status already called
+`Needs Review` is read back as that key, but the factory moves a card there only when
+`status_map` names it. Two keys mapped to one status (`"in_review"` and `"needs_review"` both
+`"In Review"`) are read back as `in_review`, the factory's own review: a shared status cannot tell
+the two apart, so give the wait a status of its own to have it read as a wait. It is also what the platform READS the board back with — a Jira project's statuses ARE
 its columns, so `status_map` is how it knows a card in `Concluído` is delivered work and one in
 `A Fazer` has not been picked up yet. A status it names nowhere is reported as such, by name, when
 somebody tries to edit or close that card. **`columns` is not read on a Jira row**: it is the

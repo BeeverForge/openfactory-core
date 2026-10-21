@@ -132,7 +132,7 @@ class Staged(Protocol):
 
     OPTIONAL, AND A SILENT ROW STILL WORKS. `stage_key` is reached through the module function
     below, never by `isinstance` (a mock satisfies a `runtime_checkable` protocol by having
-    attributes), and a row that does not implement it is read by the platform's own six names —
+    attributes), and a row that does not implement it is read by the platform's own seven names —
     which is exactly right for a board this platform created and honestly degraded for one that
     renamed its columns.
     """
@@ -282,7 +282,7 @@ def stage_key(board, column: str) -> str:
     """Which neutral stage `column` is on `board` — the ONE place generic code asks (#231).
 
     THROUGH THE ROW, NEVER THROUGH AN OPTION NAME. See `Staged` for what reading one option name
-    out of generic code cost. The fallback is the platform's own six names and nothing else: a
+    out of generic code cost. The fallback is the platform's own seven names and nothing else: a
     board that says nothing is a board this platform created, or an add-on written before the verb
     existed, and the canonical vocabulary reads both correctly.
 
@@ -309,7 +309,7 @@ def stage_key(board, column: str) -> str:
                         name, type(board).__name__, str(exc)[:200])
         else:
             # A KEY, OR NOTHING. `""` is the row saying *I do not map this one*, which is a real
-            # answer the gate needs. Anything else has to be one of the platform's six, because
+            # answer the gate needs. Anything else has to be one of the platform's seven, because
             # `has_started`/`has_finished` compare against exactly those: a row answering with its
             # own private key (a board may carry columns this platform knows nothing about) would
             # be read as "the factory has taken it up" and refuse a card nobody is working on.
