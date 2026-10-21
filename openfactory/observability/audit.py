@@ -41,6 +41,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from openfactory.observability.events import now_iso
+from openfactory.observability.logs import DEPLOYMENT_VARIABLE
 
 if TYPE_CHECKING:
     from openfactory.actions.base import Actor, Outcome
@@ -68,8 +69,10 @@ PRODUCT_UNREAD = "unread"
 #: re-raises the `CancelledError` — so it is the record's word alone, and no row declares it.
 CANCELLED = "cancelled"
 
-#: The variable an operator names a deployment by, for the records it writes.
-DEPLOYMENT_ENV = "OPENFACTORY_DEPLOYMENT"
+#: The variable an operator names a deployment by, for the records it writes. The JSON log line
+#: reads the same one (#681), so it is that module's constant rather than a second spelling that
+#: could drift from it; only the unset case differs (`deployment`'s docstring).
+DEPLOYMENT_ENV = DEPLOYMENT_VARIABLE
 
 #: The most characters of one parameter's value a record keeps (#694 Q11). A value is whatever the
 #: caller sent, and a refused call is recorded as faithfully as a kept one, so without a bound one
@@ -103,11 +106,13 @@ def deployment() -> str:
     """Which deployment this process is: `OPENFACTORY_DEPLOYMENT` when set, else the Temporal
     namespace the engine connection uses (`TEMPORAL_NAMESPACE`, `default` when unset).
 
-    No deployment identifier existed before #694 (`OPENFACTORY_PLATFORM_NAME` is branding, not an
-    identity), and the namespace is the one name two deployments sharing a Temporal account cannot
-    share. It is read from the environment exactly as `runtime.temporal.connection.namespace()`
-    reads it rather than by calling it: that module imports `temporalio` at its top, and the panel
-    makes a record on every action without the `runtime` extra. The two are held equal by
+    The JSON log line reads the same variable (`logs.DEPLOYMENT_VARIABLE`, #681) and leaves its
+    `deployment` key out when it is unset; a record always names a deployment, so it falls back
+    to the namespace, the one name two deployments sharing a Temporal account cannot share
+    (`OPENFACTORY_PLATFORM_NAME` is branding, not an identity). It is read from the environment
+    exactly as `runtime.temporal.connection.namespace()` reads it rather than by calling it: that
+    module imports `temporalio` at its top, and the panel makes a record on every action without
+    the `runtime` extra. The two are held equal by
     `tests/test_every_action_leaves_one_audit_record.py`."""
     named = os.environ.get(DEPLOYMENT_ENV, "").strip()
     return named or os.environ.get("TEMPORAL_NAMESPACE", "default")

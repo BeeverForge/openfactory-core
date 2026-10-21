@@ -282,6 +282,16 @@ def _engine_down():
     return EngineUnreachable("the engine did not answer")
 
 
+def _before_its_code(name: str) -> Project:
+    """A project whose product started before its code (#992): a context repository and no code
+    repository, the one state in which `perform` refuses a row that needs the code."""
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import ProviderRef
+
+    return Project(name=name, repo_path="", tracker=ProviderRef(kind="github", repo=None),
+                   product=ProductConfig(docs_repo=f"acme/{name}-context"))
+
+
 #: A row's own refusal, as opposed to one `perform` makes around it.
 ROWS_OWN = "a_rows_own_refusal"
 
@@ -299,6 +309,8 @@ WAYS_OUT = {
                            {"project": "demo"}, None),
     actions.NOT_ADMIN: ("skip", actions.Actor(id="U9", via="slack"),
                         {"project": "demo", "issue": "1"}, None),
+    # `early` is registered before its code (`_before_its_code`, below), so `skip` waits for it.
+    actions.NO_CODE_YET: ("skip", _ADMIN, {"project": "early", "issue": "1"}, None),
     actions.ENGINE_UNREACHABLE: ("skip", _ADMIN, {"project": "demo", "issue": "1"}, _engine_down),
     actions.RAISED: ("skip", _ADMIN, {"project": "demo", "issue": "1"},
                      lambda: RuntimeError("nope")),
@@ -312,15 +324,19 @@ WAYS_OUT = {
 async def test_each_way_out_of_perform_leaves_one_record_and_only_one(way_out, registry, stored,
                                                                       monkeypatch):
     """Criterion 2: every call leaves exactly one record, on every path — the early refusals, both
-    denials, the three ways a row can fail around its runner, a row's own refusal, and success —
-    and the record says what the caller was told (`ok`, `code`, `reason` equal the `Outcome`'s).
+    denials, a row that waits for the code (#992), the three ways a row can fail around its
+    runner, a row's own refusal, and success — and the record says what the caller was told
+    (`ok`, `code`, `reason` equal the `Outcome`'s).
 
     Before #694 `perform` wrote nothing durable on any path: the store received 0 records of kind
-    `audit` for each of these ten calls, and the only trace was one INFO line written on two of
-    them (a row's answer, a row's refusal) — the other eight left at most a WARNING."""
+    `audit` for each of the ten calls it could then take (#992 added the eleventh), and the only
+    trace was one INFO line written on two of them (a row's answer, a row's refusal) — the other
+    eight left at most a WARNING."""
     from openfactory.actions import catalog
 
     name, by, params, runner = WAYS_OUT[way_out]
+    if way_out == actions.NO_CODE_YET:
+        registry.add(_before_its_code("early"))
     if runner is not None:
         monkeypatch.setitem(catalog.CATALOG, name,
                             dataclasses.replace(catalog.CATALOG[name], run=_runs(runner())))
