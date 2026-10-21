@@ -18,7 +18,8 @@ Claims:
     a bare `Bearer` value only when it is 16 token68
     characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN_2` stays prose;
   - a `Digest` or SigV4 header withholds its `response=` / `Signature=` only, and keeps the rest
-    of its parameter list as written (never the marker on the first parameter's name);
+    of its parameter list as written (never the marker on the first parameter's name), and a
+    SHA-256 response (64 hex) whole, not its first 32;
   - the userinfo pattern needs its `@`, so a URL with no userinfo keeps its host, and a userinfo of
     exactly `git` (an SSH remote's user) is no credential;
   - the platform's `_redact` regex (https userinfo only) is no substitute;
@@ -126,6 +127,8 @@ MUTATIONS = [
     ("AWS4-HMAC-SHA256's Signature is quoted", MODEL,
      '\\bSignature[',
      '\\bSignature_never['),
+    # review on 34209477: RFC 7616's SHA-256 response is 64 hex
+    ("a Digest response is read to 32 hex only", MODEL, '\\"?)[0-9a-f]{32,}"', '\\"?)[0-9a-f]{32}"'),
     ("Digest is read in one case only", MODEL, '[0-9a-f]{64}", re.IGNORECASE)', '[0-9a-f]{64}")'),
     ("Digest is read as a one-token scheme, its first parameter's name withheld", MODEL,
      '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',

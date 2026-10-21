@@ -72,6 +72,8 @@ SPNEGO = "YIIB" + "hwYGKwYBBQUCoIIBezCCAXeg"
 NTLM_MESSAGE = "TlRMTVNT" + "UAABAAAAB4IIog=="
 #: A Digest `response=` (an MD5 hex) and an AWS SigV4 `Signature=` (a SHA-256 hex).
 DIGEST_RESPONSE = "6629fae4" + "9393a053" + "97450978" + "507c4ef1"
+#: A Digest `response=` under RFC 7616's SHA-256: 64 hex (review on 34209477).
+DIGEST_SHA256 = "9b1e44c0" * 2 + "e7d3f6a8" * 6
 AWS_SIGNATURE = "5d672d79" + "c15b1316" + "2d9279b0" + "855cfba6" * 2 + "789a8edb" * 3
 DB_PASSWORD = "q7" + "hunter" * 3
 OPAQUE = "q7" + "OPAQUE" * 5
@@ -169,7 +171,12 @@ def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_
     (f"{SENTINEL}: it sent Authorization: AWS4-HMAC-SHA256 SignedHeaders=host;x-amz-date, "
      f"Credential=AKIDEXAMPLE/20261021/us-east-1/s3/aws4_request, Signature={AWS_SIGNATURE}",
      AWS_SIGNATURE, "AWS4-HMAC-SHA256 SignedHeaders=host;x-amz-date"),
-], ids=["digest", "aws4-hmac-sha256", "digest-lowercase", "aws4-signedheaders-first"])
+    # review on 34209477: a SHA-256 response. The secret asserted absent is the half a 32-hex
+    # bound would leave after the marker (`response="[credential withheld]<the last 32 hex>"`).
+    (f'{SENTINEL}: it sent Authorization: Digest username="ann", algorithm=SHA-256, '
+     f'response="{DIGEST_SHA256}"', DIGEST_SHA256[32:], "algorithm=SHA-256"),
+], ids=["digest", "aws4-hmac-sha256", "digest-lowercase", "aws4-signedheaders-first",
+        "digest-sha256"])
 def test_a_signed_header_withholds_its_secret_parameter_and_keeps_the_rest(
         repo: Path, tmp_path: Path, said: str, secret: str, kept: str):
     """Review on 5fe330d2, decision 3: a `Digest` or SigV4 header is a parameter list. At d892b0a3
