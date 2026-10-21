@@ -1383,6 +1383,10 @@ NOT_A_CONSUMER: dict[str, str] = {
     "openfactory/runtime/temporal/activities.py": "it verifies a seal through "
                                                   "`gate_seal.refusal`, which says a refused key "
                                                   "as the reason an answer is refused",
+    "openfactory/preflight.py": "it reads which store the deployment declares, a selector, and "
+                                "names that store in a missing credential's remedy (#904): it "
+                                "runs before the stack, builds, lists and asks no store, and "
+                                "reads no credential through one",
 }
 
 
