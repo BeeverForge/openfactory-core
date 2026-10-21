@@ -3845,6 +3845,131 @@ def act_cmd(
         raise typer.Exit(1)
 
 
+def _audit_day(flag: str, text: str | None):
+    """`--since`/`--until` as a UTC date, or None when not given; anything but `YYYY-MM-DD` is
+    refused by name with exit 2 rather than read as "no bound" and listing the whole year."""
+    from datetime import date
+
+    if text is None:
+        return None
+    try:
+        return date.fromisoformat(text.strip())
+    except ValueError:
+        typer.echo(f"audit: {flag} takes a UTC date, YYYY-MM-DD; {text!r} is not one", err=True)
+        raise typer.Exit(2) from None
+
+
+def _audit_when(ts: str):
+    """A record's `ts` as an aware datetime; a time written without a zone is read as UTC, the zone
+    `now_iso` writes in."""
+    from datetime import UTC, datetime
+
+    when = datetime.fromisoformat(ts)
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
+
+
+@app.command("audit")
+def audit_cmd(
+    actor: str = typer.Option(None, "--actor", help="Only what this person asked for (their id)"),
+    action: str = typer.Option(None, "--action", help="Only this action (`openfactory actions`)"),
+    project: str = typer.Option(None, "--project", "-p", help="Only what was done on this project"),
+    outcome: str = typer.Option(
+        None, "--outcome",
+        help="ok, refused, or a refusal's code or reason (denied, not_found, not_admin, …)"),
+    since: str = typer.Option(None, "--since", help="From this UTC date on, YYYY-MM-DD, inclusive"),
+    until: str = typer.Option(None, "--until", help="Up to this UTC date, YYYY-MM-DD, inclusive"),
+    limit: int = typer.Option(500, "--limit", min=1,
+                              help="List at most this many, the most recent; a cut list says so"),
+    as_json: bool = typer.Option(False, "--json", help="Print each record's own fields as JSON"),
+) -> None:
+    """List who asked the factory to do what, on which project, what came of it and when.
+
+    One line per record, oldest first, in UTC: the time, who asked, the action, the project
+    (`-` when none) and `ok`, or `refused` with its code and reason. Reads the store every action
+    writes its record to. Exits 2 naming the store when it cannot be read, or when this
+    deployment's metrics sink keeps nothing that can be read back."""
+    import json as _json
+    from datetime import UTC, datetime, time, timedelta
+
+    from openfactory.observability import audit
+    from openfactory.observability.metrics import ReadableSink
+    from openfactory.observability.registry import metrics_sink_kind
+
+    # NOT A CATALOG ROW, AND NO ROUTE (#694 Q2). Every capability is reachable from both
+    # transports (ADR-0039 §3) — this one deliberately is not: who may read the audit trail is the
+    # authorisation decision ADR-0057 leaves to its own issues, and a catalog row would be served
+    # by `POST /api/act/*` the moment it existed. A shell where the factory runs already holds the
+    # store's file.
+    lo, hi = _audit_day("--since", since), _audit_day("--until", until)
+    start = datetime.combine(lo, time(), UTC) if lo else None
+    end = datetime.combine(hi + timedelta(days=1), time(), UTC) if hi else None
+    kind = metrics_sink_kind()
+
+    # READ THROUGH `audit.sink()`, NOT `query.records_of_kind`. That reader resolves the
+    # deployment's sink (`metrics_view._configured_sink`), which answers [] for `null` — and on a
+    # host CLI with no store named, `null` is exactly where `audit.write` keeps its records in
+    # `audit.db` instead. Reading apart from the writer would list nothing about rows on disk.
+    try:
+        store = audit.sink()
+    except Exception as exc:  # noqa: BLE001 — an add-on's builder raises its own errors; said below
+        typer.echo(f"audit: the metrics sink {kind!r} (OPENFACTORY_METRICS_SINK) could not be "
+                   f"built, so no record can be read — {exc}", err=True)
+        raise typer.Exit(2) from None
+    if not isinstance(store, ReadableSink):
+        typer.echo(f"audit: this deployment's metrics sink {kind!r} keeps no record that can be "
+                   f"read back, so there is nothing this command can list — set "
+                   f"OPENFACTORY_METRICS_SINK to a store that reads (sqlite)", err=True)
+        raise typer.Exit(2)
+    # ONE SCAN, FILTERED HERE, even with --project: `records_of_kind` keeps the most recent
+    # `limit` rows BEFORE --actor, --outcome or the period are applied, so a bound there would
+    # drop records that match and call rows that do not "cut". Rows of any other kind are skipped.
+    try:
+        rows = [r for r in store.scan() if r.get("kind") == "audit"]
+    except Exception as exc:  # noqa: BLE001 — StoreUnreadable, or an add-on's vendor error
+        typer.echo(f"audit: {audit._named(store)} cannot be read, so this cannot say who did "
+                   f"what — {exc}", err=True)
+        raise typer.Exit(2) from None
+
+    def matches(r: dict) -> bool:
+        if actor is not None and r.get("actor_id") != actor:
+            return False
+        if action is not None and r.get("action") != action.strip().lower():
+            return False
+        if project is not None and r.get("project") != project:
+            return False
+        if outcome == "ok" and not r.get("ok"):
+            return False
+        if outcome == "refused" and r.get("ok"):
+            return False
+        if outcome not in (None, "ok", "refused") and (
+                r.get("ok") or outcome not in (r.get("code"), r.get("reason"))):
+            return False
+        when = _audit_when(r["ts"])
+        return (start is None or when >= start) and (end is None or when < end)
+
+    found = sorted((r for r in (row.get("extra") or {} for row in rows) if r.get("ts")
+                    and matches(r)), key=lambda r: (_audit_when(r["ts"]), r.get("record_id", "")))
+    cut = len(found) > limit
+    if cut:
+        found = found[-limit:]   # the most recent: a trail cut to its oldest says nothing of now
+    if as_json:
+        typer.echo(_json.dumps({"store": audit._named(store), "limit": limit, "cut": cut,
+                                "records": found}, indent=2, default=str))
+    elif not rows:
+        typer.echo(f"audit: {audit._named(store)} holds no audit record yet", err=True)
+    elif not found:
+        typer.echo(f"audit: no audit record in {audit._named(store)} matches what was asked",
+                   err=True)
+    for r in [] if as_json else found:
+        said = "ok" if r.get("ok") else " ".join(
+            w for w in ("refused", r.get("code") or "", r.get("reason") or "") if w)
+        typer.echo(f"{_audit_when(r['ts']).isoformat()}  {r.get('actor_id')}  {r.get('action')}"
+                   f"  {r.get('project') or '-'}  {said}")
+    if cut:
+        typer.echo(f"audit: only the {limit} most recent matching records are listed — "
+                   f"raise --limit to see more", err=True)
+
+
 
 
 # ── `openfactory env` — the environment round (#99)
