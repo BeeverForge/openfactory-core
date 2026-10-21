@@ -425,6 +425,25 @@ async def test_a_start_whose_journal_cannot_be_written_still_starts_and_says_so(
     assert len(_not_journalled(caplog, "7")) == 1, [r.getMessage() for r in caplog.records]
 
 
+async def test_a_durable_start_whose_journal_cannot_be_written_still_starts_and_says_so(
+        start_project, stored, monkeypatch, caplog):
+    """The same, on the durable engine: the engine took the job before the note is written, so a
+    journal that cannot be built must leave the start `ok` — a refusal there would tell the person
+    no job runs while one does — and log one WARNING naming the job and the cause. Written with
+    the mutation plan (2026-10-21): the durable call site was held only for writing the note, and a
+    note written there outside `_journal_the_start`'s guard turned the started job into a failure
+    with every other test green."""
+    client = _engine(monkeypatch)
+    monkeypatch.setenv("OPENFACTORY_EVENT_SINK", UNBUILDABLE_SINK)
+    caplog.set_level("WARNING")
+
+    out = await actions.perform("start", by=actions.SYSTEM, project="demo", issue="7",
+                                durable=True, sandbox="container")
+
+    assert out.ok and len(client.launched) == 1, out
+    assert len(_not_journalled(caplog, "7")) == 1, [r.getMessage() for r in caplog.records]
+
+
 async def test_a_scan_whose_journals_cannot_be_written_still_starts_every_card(
         scan_project, stored, monkeypatch, caplog):
     """`scan` writes one journal per card it started, inside its loop: a journal that cannot be
