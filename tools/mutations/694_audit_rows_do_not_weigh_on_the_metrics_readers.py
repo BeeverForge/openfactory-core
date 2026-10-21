@@ -21,6 +21,11 @@ MUTATIONS = [
      "        return sink.scan_except(list(SCANNED_APART))\n",
      "        return sink.scan()\n",
      _T + "test_the_cost_dashboard_parses_no_audit_row"),
+    ("a store that can leave the audit rows out is scanned whole (the dashboard's selector)", _MV,
+     "        return sink.scan_except(list(SCANNED_APART))\n",
+     "        return sink.scan()\n",
+     "tests/test_the_audit_record_is_kept_in_the_metrics_store.py::"
+     "test_audit_rows_in_the_store_do_not_change_the_cost_dashboard"),
     ("a store that can only scan hands its audit rows on", _MV,
      '    return [r for r in sink.scan() if r.get("kind") not in SCANNED_APART]\n',
      "    return sink.scan()\n",

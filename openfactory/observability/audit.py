@@ -342,6 +342,28 @@ def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
     return kept
 
 
+def _frozen(value: object) -> object:
+    """`value` read-only all the way down: a mapping as a read-only mapping, a list or tuple as a
+    tuple, each of their values frozen in turn — so a record's parameters cannot be edited below
+    the top level either (PR #1039 review, robertocsp: on ecde14fc a nested dict and list were
+    plain). The depth is `_clean`'s, `NESTED_DEPTH` at most."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({k: _frozen(v) for k, v in value.items()})
+    if isinstance(value, list | tuple):
+        return tuple(_frozen(v) for v in value)
+    return value
+
+
+def _thawed(value: object) -> object:
+    """`_frozen` undone, for a store that serialises a dict and a list, not their read-only
+    views (`metric_of`)."""
+    if isinstance(value, Mapping):
+        return {k: _thawed(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return [_thawed(v) for v in value]
+    return value
+
+
 def _storable(text: str) -> str:
     """`text` as a store can key a row by: each lone surrogate written as its escape (`\\ud800`),
     every other character as it is — sqlite binds a key column as strict UTF-8 and refuses one."""
@@ -403,7 +425,8 @@ class AuditRecord:
     #: What was passed, as `_kept` keeps it: every secret's name (`is_secret`) masked at every
     #: depth, a person's words (`actions.base.FREE_TEXT`) as `{"chars", "sha256"}`, every string
     #: scrubbed of credentials, other values cut to `VALUE_CHARS`; at most `PARAMS_KEPT` of them,
-    #: `project` first, each name cut to `NAME_CHARS`, nothing past `NESTED_DEPTH`. Read-only.
+    #: `project` first, each name cut to `NAME_CHARS`, nothing past `NESTED_DEPTH`. Read-only all
+    #: the way down (`_frozen`).
     params: Mapping[str, object]
     ok: bool
     #: `Outcome.code` (one of `actions.CODES`), and the refusal's `reason` (`""` when it worked).
@@ -466,7 +489,7 @@ class AuditRecord:
             provider=provider,
             via=by.via,
             action=action,
-            params=MappingProxyType(view),
+            params=_frozen(view),
             ok=outcome.ok,
             code=outcome.code,
             reason=str(outcome.data.get("reason", "") or ""),
@@ -566,7 +589,7 @@ def metric_of(record: AuditRecord) -> MetricRecord:
     from openfactory.observability.metrics import MetricRecord
 
     extra = {f.name: getattr(record, f.name) for f in dataclasses.fields(record)}
-    extra["params"] = dict(record.params)  # a store serialises a dict, not a read-only view
+    extra["params"] = _thawed(record.params)  # a store serialises a dict, not a read-only view
     return MetricRecord(kind="audit", project=record.project or DEPLOYMENT_KEY,
                         ticket=record.record_id, ts=record.ts, role=record.action,
                         expires_at=int(datetime.fromisoformat(record.ts).timestamp())

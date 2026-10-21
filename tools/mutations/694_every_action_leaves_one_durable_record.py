@@ -57,7 +57,6 @@ _APP = "openfactory/api/app.py"
 _FORGET = "openfactory/product/forget.py"
 _REGISTRY = "openfactory/observability/registry.py"
 _SQLITE = "openfactory/observability/sqlite_metrics.py"
-_DASHBOARD = "openfactory/api/metrics_view.py"
 
 _STORE = "tests/test_the_audit_record_is_kept_in_the_metrics_store.py::"
 _LIST = "tests/test_openfactory_audit_lists_who_did_what.py"
@@ -136,10 +135,19 @@ MUTATIONS = [
      "@dataclass\nclass AuditRecord:",
      _EVERY + "test_an_audit_record_cannot_be_changed_once_it_is_made"),
     # Re-pinned 2026-10-21: the record takes the view `perform` already made for its line.
+    # Re-pinned 2026-10-21: the parameters are frozen all the way down (PR #1039 review).
     ("the record's params are a plain dict, not a read-only mapping", _AUDIT,
-     "            params=MappingProxyType(view),\n",
+     "            params=_frozen(view),\n",
      "            params=view,\n",
      _EVERY + "test_an_audit_record_cannot_be_changed_once_it_is_made"),
+    ("a nested mapping in the record's params can be edited", _AUDIT,
+     "        return MappingProxyType({k: _frozen(v) for k, v in value.items()})\n",
+     "        return {k: _frozen(v) for k, v in value.items()}\n",
+     _EVERY + "test_a_value_nested_in_the_records_parameters_cannot_be_changed_either"),
+    ("a nested list in the record's params can be edited", _AUDIT,
+     "        return tuple(_frozen(v) for v in value)\n",
+     "        return [_frozen(v) for v in value]\n",
+     _EVERY + "test_a_value_nested_in_the_records_parameters_cannot_be_changed_either"),
 
     # 7-9. the row
     ("the row is of kind agent_run, not audit", _AUDIT,
@@ -382,10 +390,10 @@ MUTATIONS = [
      _STORE + "test_audit_rows_under_the_deployment_key_do_not_hide_a_registered_person"),
 
     # the dashboard reads the whole store, and its selector is built from the rows' keys
-    ("the dashboard's selector lists the keys of audit rows", _DASHBOARD,
-     '                       if (r.get("pk") or r.get("project")) and r.get("kind") != "audit"})\n',
-     '                       if (r.get("pk") or r.get("project"))})\n',
-     _STORE + "test_audit_rows_in_the_store_do_not_change_the_cost_dashboard"),
+    # RETIRED 2026-10-21: `dashboard` no longer filters audit rows — its one caller reads through
+    # `metrics_view._scanned`, which leaves them out, so the filter was dead and its cut survived
+    # (78/79). That claim is `694_audit_rows_do_not_weigh_on_the_metrics_readers.py`'s now, and
+    # `test_audit_rows_in_the_store_do_not_change_the_cost_dashboard` is red under its first cut.
 
     # the row's key is a value the caller sent: storable, and bounded (branch review round 1,
     # 2026-10-21 — a lone surrogate in it left no record; a million characters of it were kept)

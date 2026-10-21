@@ -80,6 +80,27 @@ def test_an_audit_record_cannot_be_changed_once_it_is_made():
         record.params["x"] = 1  # type: ignore[index]
 
 
+def test_a_value_nested_in_the_records_parameters_cannot_be_changed_either():
+    """Criterion 1 below the top level (PR #1039 review, robertocsp, the immutability note): a
+    mapping or a list inside a parameter is read-only in the record too, a mapping as a read-only
+    mapping and a list as a tuple, so no later step can edit what the call was given. The row it
+    becomes still holds the same values. On ecde14fc the nested values were a plain dict and list.
+    """
+    from openfactory.observability.audit import metric_of
+
+    record = _record({"project": "x", "attachments": {"files": ["a.pdf", {"page": "1"}]}})
+    nested = record.params["attachments"]
+
+    with pytest.raises(TypeError):
+        nested["files"] = []  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        nested["files"].append("b.pdf")  # type: ignore[union-attr]
+    with pytest.raises(TypeError):
+        nested["files"][1]["page"] = "2"  # type: ignore[index]
+    assert metric_of(record).extra["params"]["attachments"] == {
+        "files": ["a.pdf", {"page": "1"}]}
+
+
 def test_a_project_with_a_product_names_it_and_one_without_leaves_it_empty(registry):
     """Criterion 1, "product when there is one": a registry project linked to a context repository
     is recorded under its product (`product_key`, ADR-0051 — the key its conversations and memory

@@ -255,18 +255,16 @@ def _delta(arms: dict) -> dict | None:
 
 
 def dashboard(records: list[dict], project: str | None = None) -> dict:
-    """The panel's dashboard payload. `projects` lists every project a row other than an audit
-    record is under (for the selector); everything else is scoped to `project` (or the first
-    project if none given). Cost breakdowns come from `agent_run` items (model/harness/role +
-    cost); the per-task table joins each ticket's agent_runs (cost/turns/models/harnesses) with
-    its `job` record (wall-clock, state)."""
-    # NOT FROM AUDIT ROWS (#694): one is written for every call into the action layer, under the
-    # project name the caller typed — registered or not, refused or not — or `_deployment_` when
-    # it named none. Read here, one refused call on `aaa-typo` made the selector
-    # `['_deployment_', 'aaa-typo', 'books']` and the default view `_deployment_`'s, $0 spent,
-    # on a store whose only spend was `books`' (measured 2026-10-21). Nothing below reads them.
+    """The panel's dashboard payload. `projects` lists every project seen (for the selector);
+    everything else is scoped to `project` (or the first project if none given). Cost breakdowns
+    come from `agent_run` items (model/harness/role + cost); the per-task table joins each
+    ticket's agent_runs (cost/turns/models/harnesses) with its `job` record (wall-clock, state).
+
+    NO AUDIT ROW REACHES HERE (#694): `cost_dashboard` reads through `_scanned`, which leaves them
+    out. Read here, one refused call on `aaa-typo` made the selector `['_deployment_', 'aaa-typo',
+    'books']` and the default view `_deployment_`'s, $0 spent (measured 2026-10-21)."""
     projects = sorted({str(r.get("pk") or r.get("project") or "") for r in records
-                       if (r.get("pk") or r.get("project")) and r.get("kind") != "audit"})
+                       if (r.get("pk") or r.get("project"))})
     project = project or (projects[0] if projects else "")
 
     scoped = [r for r in records if str(r.get("pk") or r.get("project") or "") == project]

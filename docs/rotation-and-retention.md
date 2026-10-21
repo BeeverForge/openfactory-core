@@ -356,7 +356,7 @@ record id).
 **On a sqlite store, the period is a read and not yet a deletion.** A row past its `expires_at` is
 never read again, but its bytes stay in the file until `SqliteMetricsSink.purge_expired` runs, and
 nothing in this tree runs it yet — the same is true of every other row the sqlite store keeps for a
-period (a follow-up of #694). A store that deletes by a TTL on `expires_at` deletes the bytes too.
+period (#1027). A store that deletes by a TTL on `expires_at` deletes the bytes too.
 
 **Read it back** with `openfactory audit`, which lists the records by actor, action, project,
 outcome and period ([the command reference](reference/cli.md#the-rest)).
