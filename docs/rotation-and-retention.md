@@ -297,12 +297,15 @@ call shares its caller's id, and a job the call starts carries it in its journal
 | one record per call | **365 days** (`audit.AUDIT_KEPT_DAYS = 365`), carried by each row as `expires_at` | the metrics store, as rows of kind `audit` |
 
 **Where the rows go.** The deployment's metrics store (`OPENFACTORY_METRICS_SINK`) when it declares
-one. A deployment that declares none (`null`, a host CLI with no compose environment) keeps them in
-a sqlite file instead: `OPENFACTORY_METRICS_DB` when set, else `audit.db` beside `registry.yaml` —
+one that keeps a row. A deployment that declares none (`null`, a host CLI with no compose
+environment), or declares `memory` — which keeps a row no longer than the call that wrote it, said
+once per process at WARNING — keeps them in a sqlite file instead: `OPENFACTORY_METRICS_DB` when set, else `audit.db` beside `registry.yaml` —
 never a file relative to wherever the shell stood. That file is created readable by its owner alone
 (`0600`, its `-wal` and `-shm` with it), and one an earlier version left wider is made `0600` by
 the next record, said once at INFO. A store that refuses a row is said in one
-WARNING naming the action and the store; the action's outcome stands.
+WARNING naming the action and the store, and makes the process's `/readyz` fail its `audit` check
+until a record lands ([the front end's API](reference/the-front-end-api.md)); the action's outcome
+stands.
 
 **Two command lines, two places.** `openfactory` run on the host, outside the compose environment,
 declares no store, so its records — and what `openfactory audit` there reads back — are in

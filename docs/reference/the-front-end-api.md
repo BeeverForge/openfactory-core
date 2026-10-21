@@ -239,7 +239,7 @@ processes from inside their containers through
 | method | path | answers |
 |---|---|---|
 | GET | `/healthz` | `200 {"alive": true}` while the process serves. It reads nothing, so it never fails for somebody else's outage |
-| GET | `/readyz` | `200` when the durable engine answers, the registry reads and the identity provider can admit; otherwise `503`, naming each check that failed |
+| GET | `/readyz` | `200` when the durable engine answers, the registry reads, the identity provider can admit and the last action's audit record was kept; otherwise `503`, naming each check that failed |
 <!-- probes:end -->
 
 A `503` from `/readyz` names each failing check and says one sentence about it; the cause is in the
@@ -248,9 +248,14 @@ process's log, never in the body, because nobody identified the caller:
 ```json
 {"ready": false,
  "checks": {"engine": {"ok": false, "detail": "the durable engine did not answer"},
-            "registry": {"ok": true}, "identity": {"ok": true}},
+            "registry": {"ok": true}, "identity": {"ok": true}, "audit": {"ok": true}},
  "failing": ["engine"]}
 ```
+
+The `audit` check fails while the last record of an action this process wrote was not kept — a
+store that refused it, raised, or could not be built — and passes again once one is; its logged
+cause counts the records not kept since the process started. It asks no store itself, so a process
+no action reaches stays unready until one does, or until it restarts.
 
 It answers within a bounded time whatever a check is waiting on — twice the engine's read deadline
 (`OPENFACTORY_ENGINE_DEADLINE`, three seconds by default) and a second more, seven seconds by

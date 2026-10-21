@@ -40,6 +40,7 @@ import hashlib
 import logging
 import os
 import re
+import threading
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -453,23 +454,37 @@ def audit_path() -> Path:
     return ProjectRegistry().path.parent / AUDIT_FILE
 
 
+#: The metrics sinks that keep no audit record: `null` keeps nothing, and `memory` keeps a row only
+#: as long as the object it was handed to — the shipped builder makes a new one per call, so on
+#: c310ba28 a `memory` deployment's store said True and the record was gone when the call
+#: returned (PR #1039 review, 2026-10-21). Their records go to the fallback file (`sink`).
+KEEPS_NO_RECORD = frozenset({"null", "memory"})
+
+
 def sink() -> MetricsSink:
     """The store the records are written to and `openfactory audit` reads: ONE definition for
     both, because a writer and a reader that resolved their file apart is how a deployment came to
     write rows its own readers could not open (`registry.metrics_db_path`'s docstring).
 
-    The deployment's metrics sink (`deployment_metrics_sink`) when it declares one; when it is
-    `null` — a host CLI with no compose environment, the transport ADR-0039 §2 says outranks every
-    gate — a sqlite file at `audit_path()`, so every call still leaves a record. Built at each call,
+    The deployment's metrics sink (`deployment_metrics_sink`) when it declares one that keeps a
+    record; when it is `null` — a host CLI with no compose environment, the transport ADR-0039 §2
+    says outranks every gate — or `memory`, a sqlite file at `audit_path()`, so every call still
+    leaves a record. `memory` is said once per process at WARNING: an operator who chose it chose a
+    store that keeps nothing, and learns here where the trail went instead. Built at each call,
     not at import, so the store the environment names now is the one written. `metrics_sink_kind`'s
     own inference is not changed: it decides where a deployment's cost dashboard reads."""
     from openfactory.observability.registry import deployment_metrics_sink, metrics_sink_kind
 
-    if metrics_sink_kind() != "null":
+    kind = metrics_sink_kind()
+    if kind not in KEEPS_NO_RECORD:
         return deployment_metrics_sink()
     from openfactory.observability.sqlite_metrics import SqliteMetricsSink
 
-    return SqliteMetricsSink(_private(audit_path()))
+    where = _private(audit_path())
+    if kind != "null" and _KEEPING.first_fallback(kind):
+        log.warning("audit: OPENFACTORY_METRICS_SINK=%s keeps no audit record past the call that "
+                    "wrote it, so this process keeps them in %s", kind, where)
+    return SqliteMetricsSink(where)
 
 
 def _private(path: Path) -> Path:
@@ -533,9 +548,78 @@ def _named(store: object) -> str:
     return type(store).__name__
 
 
+class _Keeping:
+    """What this process's audit writes came to, for readiness (`health`'s `audit` check): how
+    many records were not kept since the process started, and why the last write did not land —
+    `""` once one lands. Two numbers and a sentence, not a list: bounded whatever the traffic.
+
+    WHY READINESS. On c310ba28 a record not kept was one WARNING line, and nothing a supervisor
+    reads could tell a panel whose every action went unrecorded from one whose trail was whole
+    (PR #1039 review, 2026-10-21). The deployment exposes no metrics endpoint, and a metric written
+    to the store that just refused the record would be lost with it; `/readyz` is what the compose
+    file's healthcheck asks every fifteen seconds and what `docker ps` shows as `unhealthy`. THE
+    LAST WRITE, NOT EVERY WRITE SINCE START: a repaired store's next record makes the check pass
+    again — a process no action reaches stays unready until one does, or it restarts.
+
+    Written from worker threads (`write` runs `_keep` in `asyncio.to_thread`), so under a lock."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.not_kept = 0
+        self.why = ""
+        self._fell_back: set[str] = set()
+
+    def kept(self) -> None:
+        with self._lock:
+            self.why = ""
+
+    def lost(self, why: str) -> None:
+        with self._lock:
+            self.not_kept += 1
+            self.why = why
+
+    def read(self) -> tuple[int, str]:
+        with self._lock:
+            return self.not_kept, self.why
+
+    def first_fallback(self, kind: str) -> bool:
+        """True the first time this process sends `kind`'s records to the fallback file: at most
+        one entry per sink kind in `KEEPS_NO_RECORD`."""
+        with self._lock:
+            if kind in self._fell_back:
+                return False
+            self._fell_back.add(kind)
+            return True
+
+    def forget(self) -> None:
+        with self._lock:
+            self.not_kept, self.why = 0, ""
+            self._fell_back.clear()
+
+
+_KEEPING = _Keeping()
+
+
+def not_kept() -> tuple[int, str]:
+    """`(records not kept since this process started, why the last write did not land)`; the
+    second is `""` while the last write landed, or none was made."""
+    return _KEEPING.read()
+
+
+def lost(why: str) -> None:
+    """Count one record not kept, and why — for `perform`, when no store could be built."""
+    _KEEPING.lost(why)
+
+
+def forget() -> None:
+    """Drop what this process's writes came to. A seam for the suite."""
+    _KEEPING.forget()
+
+
 def _keep(record: AuditRecord) -> bool:
     """`write`'s body, on a worker thread: True only when the store took the row; a store that
-    answered False or raised is said here, once, naming the action and the store."""
+    answered False or raised is said here, once, naming the action and the store, and counted
+    (`not_kept`)."""
     row = metric_of(record)
     store = sink()
     try:
@@ -543,6 +627,7 @@ def _keep(record: AuditRecord) -> bool:
     except Exception as exc:  # noqa: BLE001 — said below and answered False; the call stands
         log.warning("audit: the record of %s by %s was not kept: %s raised (%s)", record.action,
                     record.actor_id, _named(store), exc)
+        _KEEPING.lost(f"{_named(store)} raised ({exc})")
         return False
     if not landed:
         # A STORE'S False IS A WRITE THAT DID NOT LAND. The sqlite sink catches its own failures
@@ -551,7 +636,10 @@ def _keep(record: AuditRecord) -> bool:
         # answer was dropped and the action layer said nothing).
         log.warning("audit: the record of %s by %s was not kept: %s did not take it",
                     record.action, record.actor_id, _named(store))
-    return landed
+        _KEEPING.lost(f"{_named(store)} did not take it")
+        return False
+    _KEEPING.kept()
+    return True
 
 
 async def write(record: AuditRecord) -> bool:
@@ -562,5 +650,6 @@ async def write(record: AuditRecord) -> bool:
     waits on the file's lock for up to its busy timeout — every other request would wait with it
     (the #748 lesson). A store that answers False or raises is said here at WARNING, naming the
     action and the store, and answered False; what fails before a store is reached (the sink
-    cannot be built) is raised, and `perform` says it at WARNING. Either way the outcome stands."""
+    cannot be built) is raised, and `perform` says it at WARNING. Either way the outcome stands,
+    and the record not kept is counted for readiness (`not_kept`)."""
     return await asyncio.to_thread(_keep, record)

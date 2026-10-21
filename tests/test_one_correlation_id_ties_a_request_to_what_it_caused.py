@@ -48,15 +48,16 @@ def registry(tmp_path, monkeypatch) -> ProjectRegistry:
 
 @pytest.fixture
 def stored(monkeypatch):
-    """The deployment's store, read back: the `memory` metrics sink named as an operator names one,
-    its builder pinned to ONE instance so what `perform` wrote is still there when the test reads
-    it (the shipped builder makes a fresh, empty store per call)."""
+    """The deployment's store, read back: an in-memory sink registered as a kind of its own,
+    `kept`, named as an operator names one, its builder pinned to ONE instance so what `perform`
+    wrote is still there when the test reads it. Not the shipped `memory` kind, whose records
+    `audit.sink()` sends to the fallback file (PR #1039 review)."""
     from openfactory.observability import registry as sinks
     from openfactory.observability.metrics import InMemoryMetricsSink
 
     sink = InMemoryMetricsSink()
-    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "memory")
-    monkeypatch.setitem(sinks.METRICS_SINKS, "memory", lambda **_kw: sink)
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "kept")
+    monkeypatch.setitem(sinks.METRICS_SINKS, "kept", lambda **_kw: sink)
     return sink
 
 

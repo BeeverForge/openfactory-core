@@ -234,13 +234,14 @@ def test_a_store_that_cannot_be_read_exits_2_naming_it(tmp_path, monkeypatch, wh
     assert result.stdout == "", result.stdout
 
 
-@pytest.mark.parametrize("kind", ["memory", "write_only"])
+@pytest.mark.parametrize("kind", ["write_only"])
 def test_a_deployment_that_keeps_nothing_says_so_rather_than_listing_nothing(tmp_path, monkeypatch,
                                                                             kind):
-    """A deployment whose metrics sink records and cannot be read back — `memory`, which keeps a
-    row only in the process that wrote it, or an add-on's sink without `scan` — has nothing this
-    command can read. It exits 2 naming the sink and the variable that chooses it, rather than
-    printing an empty list about records it never looked for."""
+    """A deployment whose metrics sink records and cannot be read back — an add-on's sink without
+    `scan` — has nothing this command can read. It exits 2 naming the sink and the variable that
+    chooses it, rather than printing an empty list about records it never looked for. (`memory`
+    was the other case until the PR #1039 review: its records now go to the fallback file, which
+    this command reads — `test_an_audit_record_that_is_not_kept_is_seen.py`.)"""
     from openfactory.observability import registry as sinks
 
     class _WriteOnly:

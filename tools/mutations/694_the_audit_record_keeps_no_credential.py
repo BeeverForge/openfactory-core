@@ -111,8 +111,8 @@ MUTATIONS = [
      _T + "test_the_denial_warning_masks_what_the_record_masks"),
     # 5. the file
     ("the fallback file is created as the umask leaves it", _AUDIT,
-     "    return SqliteMetricsSink(_private(audit_path()))\n",
-     "    return SqliteMetricsSink(audit_path())\n",
+     "    where = _private(audit_path())\n",
+     "    where = audit_path()\n",
      _T + "test_the_fallback_audit_file_is_created_readable_by_its_owner_alone"),
     ("a fallback file found wider is left as it is", _AUDIT,
      "        if had & 0o077:\n",

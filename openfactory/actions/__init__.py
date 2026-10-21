@@ -473,6 +473,7 @@ async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object
         await audit.write(record)
     except Exception as exc:  # noqa: BLE001 — the record must never take the call down
         log.warning("audit: the record of %s by %s was not kept (%s)", key or name, by, exc)
+        audit.lost(f"the record could not be made or no store could be built ({exc})")
 
 
 #: The catalog's own secret names, `audit.SECRET`, which `_ADDRESSABLE` is held apart from. What

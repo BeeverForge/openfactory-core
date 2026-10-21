@@ -244,10 +244,12 @@ def test_naming_the_deployment_does_not_import_the_engines_client():
 
 @pytest.fixture
 def stored(monkeypatch):
-    """The store this deployment writes its records to, read back: the `memory` metrics sink,
-    named by `OPENFACTORY_METRICS_SINK` as an operator names one, with its builder pinned to ONE
-    instance so what `perform` wrote is still there when the test reads it (the shipped builder
-    makes a fresh, empty store per call).
+    """The store this deployment writes its records to, read back: an in-memory sink registered
+    as a metrics sink kind of its own, `kept`, and named by `OPENFACTORY_METRICS_SINK` as an
+    operator names one, its builder pinned to ONE instance so what `perform` wrote is still there
+    when the test reads it. Not the shipped `memory` kind: `audit.sink()` sends that kind's records
+    to the fallback file, because its builder makes a fresh, empty store per call (PR #1039
+    review).
 
     Read through the registry rather than a spy on `perform`, because the claim is that the record
     REACHES the store — a spy that built the record itself (as `recorded` does above) would be
@@ -256,8 +258,8 @@ def stored(monkeypatch):
     from openfactory.observability.metrics import InMemoryMetricsSink
 
     sink = InMemoryMetricsSink()
-    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "memory")
-    monkeypatch.setitem(sinks.METRICS_SINKS, "memory", lambda **_kw: sink)
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "kept")
+    monkeypatch.setitem(sinks.METRICS_SINKS, "kept", lambda **_kw: sink)
     return sink
 
 

@@ -198,7 +198,7 @@ MUTATIONS = [
     ("a store that raised is said without naming the store", _AUDIT,
      '        log.warning("audit: the record of %s by %s was not kept: %s raised (%s)", '
      "record.action,\n                    record.actor_id, _named(store), exc)\n"
-     "        return False\n",
+     '        _KEEPING.lost(f"{_named(store)} raised ({exc})")\n        return False\n',
      "        raise\n",
      _STORE + "test_a_store_that_refuses_the_write_is_said_and_the_outcome_stands"),
     ("a record that could not be made, or no store built, is not said", _ACTIONS,
@@ -329,8 +329,10 @@ MUTATIONS = [
      "    return ProjectRegistry().path.parent / AUDIT_FILE\n",
      "    return Path(AUDIT_FILE)\n",
      _STORE + "test_a_host_cli_with_no_store_configured_still_keeps_the_record"),
+    # Re-pinned 2026-10-21: `sink` reads the kind once and falls back for `memory` too (PR #1039
+    # review).
     ("sink() never replaces a null store", _AUDIT,
-     '    if metrics_sink_kind() != "null":\n',
+     "    if kind not in KEEPS_NO_RECORD:\n",
      "    if True:\n",
      _STORE + "test_a_host_cli_with_no_store_configured_still_keeps_the_record"),
     ("metrics_sink_kind() answers sqlite when nothing is set", _REGISTRY,
