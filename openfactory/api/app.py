@@ -17,11 +17,20 @@ import time
 from dataclasses import dataclass
 from html import escape as _h
 from pathlib import Path, PurePosixPath
-from typing import NamedTuple
+from typing import Annotated, NamedTuple
 from urllib.parse import parse_qsl, quote, urlencode
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -1078,14 +1087,22 @@ def _reads(model: type[BaseModel]) -> dict:
 API_V1 = "/api/v1"
 
 
-def _read(path: str, model: type[BaseModel]):
+def _read(path: str, model: type[BaseModel], *, refusals: dict[int, str] | None = None):
     """Serve a typed read at `/api/v1/…` and at `path`, its unversioned alias, marked deprecated in
     the API's description. ONE HANDLER, ONE MODEL, both addresses: the default front end calls the
     alias and is answered the body the versioned read answers. The alias period and what ends it
-    are in `docs/reference/the-front-end-api.md`."""
+    are in `docs/reference/the-front-end-api.md`.
+
+    `refusals` are the statuses the read itself refuses with, each with when — described on both
+    addresses in the core's one refusal shape (`read_models.Refusal`), so a client of the
+    description reads them beside the body."""
+    described = {status: {"model": read_models.Refusal, "description": when}
+                 for status, when in (refusals or {}).items()}
+    extra = {"responses": described} if described else {}
+
     def register(handler):
-        app.get(API_V1 + path.removeprefix("/api"), **_reads(model))(handler)
-        app.get(path, deprecated=True, **_reads(model))(handler)
+        app.get(API_V1 + path.removeprefix("/api"), **_reads(model), **extra)(handler)
+        app.get(path, deprecated=True, **_reads(model), **extra)(handler)
         _VERSIONED_READS.append(compile_path(API_V1 + path.removeprefix("/api"))[0])
         return handler
     return register
@@ -1943,8 +1960,15 @@ def _project_or_404(project: str) -> Project:
     try:
         return ProjectRegistry().get(project)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"no project named {project!r} in this deployment") from None
+        raise _no_such_project(project) from None
+
+
+def _no_such_project(project: str) -> HTTPException:
+    """The house 404 for `project`, in its one sentence — also what a product read answers for a
+    project with no product role (#988), so a product credential cannot tell a registered project
+    the product area does not reach from one nobody registered (the gate's rule for the board,
+    `_the_product_owners_board`)."""
+    return HTTPException(status_code=404, detail=f"no project named {project!r} in this deployment")
 
 
 #: HOW MUCH DELIVERED WORK THE BOARD SHOWS IN DONE (#500): the cards closed as delivered in the last
@@ -3506,15 +3530,38 @@ def product_documents(project: str, request: Request) -> dict:
                                                     "not none. Try again in a moment.") from exc
 
 
-@_read("/api/product/{project}/search", read_models.ProductSearchRead)
-def product_search(project: str, request: Request) -> dict:
+#: WHAT THE DESCRIPTION SAYS OF A SEARCH'S `q` AND `limit` (#988, review): the index's own bounds —
+#: `retrieval.QUERY_CHARS`, `retrieval.KNOWLEDGE_LIMIT` and `retrieval.KNOWLEDGE_MAX` — spelled here
+#: because a declaration is read when this module is imported, and the product package only when a
+#: route asks for it (every import of it in this file is lazy). The route ENFORCES the index's own
+#: constants, never these; `tests/test_the_product_search_read_model.py` is red the day the two
+#: differ, so the description cannot drift from what the read does.
+_SEARCH_QUERY_CHARS = 300
+_SEARCH_LIMIT = 8
+_SEARCH_MAX = 50
+
+
+@_read("/api/product/{project}/search", read_models.ProductSearchRead, refusals={
+    400: f"`q` is longer than {_SEARCH_QUERY_CHARS} characters",
+    404: "no project of that name in this deployment — one with no product role is answered "
+         "alike"})
+def product_search(
+        project: str,
+        q: Annotated[str, Query(
+            description=f"what to look for, at most {_SEARCH_QUERY_CHARS} characters — a longer "
+                        f"one is refused (400); a blank one finds nothing and asks nothing",
+            json_schema_extra={"maxLength": _SEARCH_QUERY_CHARS})] = "",
+        limit: Annotated[int, Query(
+            description=f"how many hits, best first: {_SEARCH_LIMIT} when absent, and clamped to "
+                        f"1…{_SEARCH_MAX} — a limit past either end is read as that end, never "
+                        f"refused")] = _SEARCH_LIMIT) -> dict:
     """Search one product's KNOWLEDGE — its requirements, the decisions recorded in its documents,
     the documents themselves and its board's cards — and nothing a conversation said (#988).
 
-    `q` is the query and `limit` how many hits (1…50, 8 by default); both are read from the query
-    string. Each hit carries its `kind` (requirement, decision, document or card), its `source` (a
-    document's path or a card's ref), its `product`, a `snippet`, where it is (`locator`), the date
-    it carries, and its `rank` within this product's results, best first.
+    `q` is the query and `limit` how many hits, both declared parameters of the query string, each
+    described with its bounds. Each hit carries its `kind` (requirement, decision, document or
+    card), its `source` (a document's path or a card's ref), its `product`, a `snippet`, where it is
+    (`locator`), the date it carries, and its `rank` within this product's results, best first.
 
     THE PRODUCT OWNER'S OWN SEARCH, FOR ANY CLIENT. The ranking is the one a turn is answered in —
     the same hybrid pipeline, lexical then semantic, an exact-term tier first
@@ -3528,19 +3575,34 @@ def product_search(project: str, request: Request) -> dict:
     `retrieval.search_knowledge` narrows the read to the kinds a product publishes
     (`index.items.PUBLISHED_KINDS`). A product whose semantic stage is degraded says so in
     `degraded`, never silently; the search runs under no product semaphore, and a slow one is
-    logged."""
+    logged.
+
+    THE OWNER'S GUARDS, AND THE READ'S OWN (review of #989). A blank `q` finds nothing and asks
+    neither the embedder nor the index; a deployment that turned retrieval off says so in
+    `degraded` and searches nothing (`retrieval.search_knowledge`). A `q` longer than
+    `retrieval.QUERY_CHARS` — the most of a query the found file repeats — is refused before the
+    embedder sees it or the lexical stage turns it into a disjunction of every token. And a project
+    with no product role is refused before its index is opened — opening it creates the index's
+    directory, or drops and rebuilds a corrupt file, for a project the role never reads — and in
+    the very body an unknown project is (`_no_such_project`): which projects a deployment runs
+    outside the product area is not a product credential's to learn, as at the gate's board
+    read."""
     from openfactory.product.index import retrieval
     from openfactory.product.key import product_key
 
     proj = _project_or_404(project)
-    text = str(request.query_params.get("q", "") or "")
-    limit = _search_limit(request.query_params.get("limit"))
-    found = retrieval.search_knowledge(proj, text=text, limit=limit)
+    if not _has_product_role(proj):
+        raise _no_such_project(project)
+    if len(q) > retrieval.QUERY_CHARS:
+        raise HTTPException(status_code=400, detail=f"a search is at most {retrieval.QUERY_CHARS} "
+                                                    f"characters, and this one is {len(q)} — ask "
+                                                    f"with fewer words")
+    found = retrieval.search_knowledge(proj, text=q, limit=_search_limit(limit))
     product = product_key(proj)
     return {
         "project": proj.name,
         "product": product,
-        "query": text,
+        "query": q,
         "degraded": found.degraded,
         "searched": found.searched,
         "hits": [{"kind": hit.kind, "source": hit.source, "product": product,
@@ -3550,16 +3612,12 @@ def product_search(project: str, request: Request) -> dict:
     }
 
 
-def _search_limit(raw: str | None) -> int:
-    """The `limit` a knowledge search asks for, read from the query string: the default when it is
-    absent or not a number, and clamped to `1…KNOWLEDGE_MAX` so one read cannot ask the index to
-    rank everything it holds."""
+def _search_limit(asked: int) -> int:
+    """The `limit` a knowledge search asks for, clamped to `1…KNOWLEDGE_MAX` so one read cannot ask
+    the index to rank everything it holds. Not a number is the framework's to refuse: `limit` is a
+    declared integer."""
     from openfactory.product.index import retrieval
 
-    try:
-        asked = int(raw) if raw not in (None, "") else retrieval.KNOWLEDGE_LIMIT
-    except (TypeError, ValueError):
-        asked = retrieval.KNOWLEDGE_LIMIT
     return max(1, min(retrieval.KNOWLEDGE_MAX, asked))
 
 

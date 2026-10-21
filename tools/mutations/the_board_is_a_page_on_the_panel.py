@@ -66,10 +66,9 @@ MUTATIONS = [
     ("a project this deployment does not have is a 500 that reads as 'the panel is broken', for "
      "what is only a stale bookmark", APP,
      # RE-PINNED 2026-09-19 (#204): the board's own try/except became `_project_or_404`, the one
-     # helper every `{project}` route asks — same claim, the line moved there.
-     "        raise HTTPException(\n"
-     '            status_code=404, detail=f"no project named {project!r} in this deployment") '
-     "from None",
+     # helper every `{project}` route asks — same claim, the line moved there. RE-PINNED again
+     # 2026-10-21 (#988): its 404 is `_no_such_project`'s now.
+     "        raise _no_such_project(project) from None",
      "        raise", SLICE),
 
     ("the card detail is read for every card on every board open — one request becomes one per "

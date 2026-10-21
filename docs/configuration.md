@@ -893,7 +893,7 @@ answers by exact words, metadata and date, and every search says so.
 | `OPENFACTORY_EMBED` | `local` | the row that embeds: `local` (a model on this machine), `none` (turn search by meaning off), or a kind an add-on registers (`embed.<kind>`) |
 | `OPENFACTORY_EMBED_MODEL` | *(unset)* | the absolute path of the folder holding the local model — nothing is ever downloaded; the recommended one is `minishlab/potion-multilingual-128M` at revision `73908c3438cf03b6a01bcb9611d62b23d0726f08` |
 | `OPENFACTORY_EMBED_MODEL_SHA256` | *(unset)* | the SHA-256 of `model.safetensors` of a model the platform does not pin, to accept it; an unpinned model is refused otherwise |
-| `OPENFACTORY_PRODUCT_RETRIEVAL` | *(on)* | `off` turns the retrieval step off — no search before the answer and no `[[BUSCA]]` — so the evaluation battery can measure the answer with it and without it |
+| `OPENFACTORY_PRODUCT_RETRIEVAL` | *(on)* | `off` turns the retrieval step off — no search before the answer and no `[[BUSCA]]` — so the evaluation battery can measure the answer with it and without it; the front end's search of a product (`/api/v1/product/{project}/search`) then searches nothing and says so in `degraded` |
 
 ### Harness
 

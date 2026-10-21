@@ -4,9 +4,9 @@ TEST = "tests/test_a_project_nobody_registered_is_never_a_500.py"
 APP = "openfactory/api/app.py"
 CATALOG = "openfactory/actions/catalog.py"
 
-_REFUSAL = ("        raise HTTPException(\n"
-            '            status_code=404, detail=f"no project named {project!r} in this deployment") '
-            "from None")
+# RE-PINNED 2026-10-21 (#988): the helper's 404 became `_no_such_project`, the one sentence a
+# product read also answers a project with no product role in — same claims, the lines moved there.
+_REFUSAL = "        raise _no_such_project(project) from None"
 
 MUTATIONS = [
     # ── the defect ───────────────────────────────────────────────────────────────────────────────
@@ -20,14 +20,14 @@ MUTATIONS = [
      "        raise"),
 
     ("the helper answers in one of the old spellings", APP,
-     'detail=f"no project named {project!r} in this deployment") from None',
-     'detail=f"no project called {project!r}") from None'),
+     'detail=f"no project named {project!r} in this deployment")',
+     'detail=f"no project called {project!r}")'),
 
     ("the helper refuses everybody — a registered project is a 404 too", APP,
      "    try:\n        return ProjectRegistry().get(project)\n    except KeyError:\n"
-     "        raise HTTPException(\n            status_code=404,",
+     "        raise _no_such_project(project) from None",
      "    try:\n        ProjectRegistry().get(project)\n        raise KeyError(project)\n"
-     "    except KeyError:\n        raise HTTPException(\n            status_code=404,"),
+     "    except KeyError:\n        raise _no_such_project(project) from None"),
 
     # ── the four routes that spelled it by hand: each one forgets ────────────────────────────────
     ("the board looks the project up by hand again, and forgets the refusal", APP,

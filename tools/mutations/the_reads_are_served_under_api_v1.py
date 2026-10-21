@@ -16,13 +16,13 @@ APP = "openfactory/api/app.py"
 MUTATIONS = [
     # 1. the versioned address
     ("a typed read is served only at its unversioned path", APP,
-     '        app.get(API_V1 + path.removeprefix("/api"), **_reads(model))(handler)\n',
+     '        app.get(API_V1 + path.removeprefix("/api"), **_reads(model), **extra)(handler)\n',
      ""),
 
     # 2. the alias, deprecated
     ("the alias is not marked deprecated", APP,
-     "        app.get(path, deprecated=True, **_reads(model))(handler)",
-     "        app.get(path, **_reads(model))(handler)"),
+     "        app.get(path, deprecated=True, **_reads(model), **extra)(handler)",
+     "        app.get(path, **_reads(model), **extra)(handler)"),
 
     # 3. the gate
     ("the gate reads a versioned path as the floor's", APP,

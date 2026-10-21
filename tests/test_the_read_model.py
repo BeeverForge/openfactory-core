@@ -77,6 +77,15 @@ def _fill(name: str, member: str) -> list[str]:
         return [ref for ref, *_ in bed.CARDS[member]]
     if name == "pr":
         return [bed.PR_141] if member == "acme-web" else [""]
+    if name == "q":
+        # THE PRODUCT'S SEARCH (#988) asked for what the member's own board holds — its first
+        # card's title — so the read runs its pipeline, not the blank query's empty answer
+        return [bed.CARDS[member][0][1]]
+    if name == "limit":
+        # as many hits as the search ever answers, so every one it could show is read
+        from openfactory.product.index.retrieval import KNOWLEDGE_MAX
+
+        return [str(KNOWLEDGE_MAX)]
     raise LookupError(f"the bed cannot fill the query parameter {name!r}")
 
 

@@ -39,6 +39,14 @@ class ReadModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class Refusal(ReadModel):
+    """What a read answers when it refuses: ONE SENTENCE in `detail` — the shape every refusal of
+    this API has (`docs/reference/the-front-end-api.md`, *Refusals*), declared for the statuses a
+    read names (`app._read`'s `refusals`) so its description says them beside the body."""
+
+    detail: str | None = None
+
+
 # ── the floor ───────────────────────────────────────────────────────────────────────────────────
 
 class FloorRead(ReadModel):
@@ -385,8 +393,9 @@ class ProductSearchRead(ReadModel):
     """`/api/product/{project}/search` — one product's published knowledge (its requirements, the
     decisions recorded in its documents, the documents and its board's cards), searched with `q`
     and a `limit`, in the product owner's own ranking. `degraded` says why the semantic stage did
-    not run or ran on part of the index, and is `""` when it ran whole — never silence. A line of a
-    conversation and a conversation's distillate are never returned."""
+    not run or ran on part of the index — or that the deployment turned the search off and nothing
+    was searched — and is `""` when it ran whole; never silence. A blank `q` finds nothing. A line
+    of a conversation and a conversation's distillate are never returned."""
 
     project: str | None = None
     product: str | None = None
