@@ -316,7 +316,9 @@ comment, an instruction, an answer) is kept as its length and its sha256 (ADR-00
 proves a known text, and it reveals a short one: it is not salted, so a six-digit code, a "yes" or
 an "approve" is read back by trying the candidates (a six-digit message took 0.22 s of plain
 Python, measured 2026-10-21). Passwords, tokens and keys are masked, and any other
-value is cut at 2,000 characters, the cut said in the value. The action's INFO line prints the
+value is cut at 2,000 characters, the cut said in the value. A record keeps at most 32 parameters,
+the project first, and 64 characters of each one's name; what is left out is counted in the
+record. The action's INFO line prints the
 parameters exactly as the record keeps them, so a person's words reach neither.
 
 **`openfactory project forget` keeps the records.** An audit trail that forgetting a project erases

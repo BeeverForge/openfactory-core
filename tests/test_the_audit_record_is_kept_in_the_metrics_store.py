@@ -27,7 +27,8 @@ registered person out of its read (Q7). A host CLI with no store named keeps its
 `audit.db` beside `registry.yaml`, or in the file `OPENFACTORY_METRICS_DB` names, and the
 deployment's own metrics sink is still inferred `null` there. The project and the action a caller
 sent are the row's key: a lone surrogate in either still leaves the record, and a million
-characters of either are kept to `VALUE_CHARS`. The cost dashboard, which reads the whole store, lists no project an audit row alone is
+characters of either are kept to `VALUE_CHARS`; the parameters too are kept to a bound however
+many a caller sends and however long their names, the project kept first. The cost dashboard, which reads the whole store, lists no project an audit row alone is
 under and opens on the same project, spend and autonomy block it showed before the rows landed.
 """
 
@@ -842,3 +843,25 @@ async def test_the_action_name_a_caller_typed_is_kept_to_the_bound_like_any_valu
     assert len(row["sk"]) <= VALUE_CHARS + 128, f"the row's key is {len(row['sk'])} characters"
     assert len(row["extra"]["action"]) <= VALUE_CHARS, (
         f"the record's action is {len(row['extra']['action'])} characters")
+
+
+@pytest.mark.parametrize("params", [
+    {"project": "nosuch", "k" * 1_000_000: "v"},
+    {**{f"p{i}": "v" * 2_000 for i in range(5_000)}, "project": "nosuch"},
+], ids=["one_name_of_a_million_characters", "five_thousand_parameters"])
+async def test_the_parameters_a_caller_sent_are_kept_to_a_bound_however_many_and_however_named(
+        store, params):
+    """Q11's reason, "without a bound one caller could write a row of any size per call into a
+    store kept for a year", holds for the names and the number of parameters as for each value:
+    the panel hands `perform` every name a body holds. On bc41a86f one `POST /api/act/
+    product_status` with 5,000 parameters of 2,000 characters wrote a 10,065,008-character row
+    and a 10 MB `audit.db` (review round 2, a real `openfactory serve`)."""
+    from openfactory.observability.audit import VALUE_CHARS
+
+    await actions.perform("product_status", by=actions.Actor(id="eve", via="panel"), **params)
+
+    [row] = _audit_rows(store)
+    kept = row["extra"]["params"]
+    assert row["extra"]["project"] == "nosuch", "the caller's extra names pushed the project out"
+    size = sum(len(str(k)) + len(str(v)) for k, v in kept.items())
+    assert size <= 64 * VALUE_CHARS, f"the record keeps {size} characters of parameters"

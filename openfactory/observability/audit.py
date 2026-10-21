@@ -77,6 +77,14 @@ DEPLOYMENT_ENV = "OPENFACTORY_DEPLOYMENT"
 #: every URL, ref and name the catalog takes; what is cut is said in the value and in the log.
 VALUE_CHARS = 2_000
 
+#: The most parameters one record keeps, and the most characters of a parameter's name it keeps:
+#: the catalog's widest row takes 4 and its longest name has 10, but the panel hands `perform`
+#: every name a request body holds. With `VALUE_CHARS` alone, one refused `POST /api/act/
+#: product_status` with 5,000 parameters of 2,000 characters wrote a 10,065,008-character row
+#: and a 10 MB `audit.db` (branch review round 2, 2026-10-21, a real `openfactory serve`).
+PARAMS_KEPT = 32
+NAME_CHARS = 64
+
 #: How long a record is read, in days (#694 Q3): who did what, when, and on which deployment is
 #: a question a security review asks of the last year, not forever — the precedent of the board's
 #: own audit line, `adapters/tracker/local.py` `_REMOVED_KEPT_DAYS` (365, #384). Carried by each
@@ -149,14 +157,22 @@ def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
     """`params` as a record keeps them, and as `perform`'s INFO line prints them: `SECRET` values
     masked (`redact`), each `FREE_TEXT` value as its length and digest, and every other value cut
     to `VALUE_CHARS` with the cut said — in the value, and in one INFO line naming the action and
-    the parameter. Called once per call, so that INFO line is written once."""
+    the parameter. At most `PARAMS_KEPT` parameters are kept, `project` first, each name cut to
+    `NAME_CHARS`; the parameters not kept are counted under the name `…` and said in one INFO
+    line. Called once per call, so each INFO line is written once."""
     from openfactory.actions.base import FREE_TEXT
 
     kept: dict[str, object] = {}
-    for name, value in redact(params).items():
+    given = redact(params)
+    # `project` first: it is the row's key, and a caller's extra names must not push it out.
+    names = sorted(given, key=lambda n: n != "project")
+    for name in names[:PARAMS_KEPT]:
+        value = given[name]
         if name in FREE_TEXT and name not in SECRET and value is not None:
             kept[name] = _words(value)
             continue
+        if len(name) > NAME_CHARS:
+            name = f"{name[:NAME_CHARS]}… [{len(name) - NAME_CHARS} more characters not kept]"
         text = value if isinstance(value, str) else str(value)
         if len(text) <= VALUE_CHARS:
             kept[name] = value
@@ -165,6 +181,10 @@ def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
         kept[name] = f"{text[:VALUE_CHARS]}… [{cut} more characters not kept]"
         log.info("audit: %s's %s was %d characters; the record keeps the first %d", action, name,
                  len(text), VALUE_CHARS)
+    if len(names) > PARAMS_KEPT:
+        kept["…"] = f"{len(names) - PARAMS_KEPT} more parameters not kept"
+        log.info("audit: %s was passed %d parameters; the record keeps %d", action, len(names),
+                 PARAMS_KEPT)
     return kept
 
 
@@ -226,8 +246,8 @@ class AuditRecord:
     #: it — cut to `VALUE_CHARS`, a lone surrogate written as its escape (it is in the row's key).
     action: str
     #: What was passed, as `_kept` keeps it: every `SECRET` value masked by `redact`, a person's
-    #: words (`actions.base.FREE_TEXT`) as `{"chars", "sha256"}`, other values cut to `VALUE_CHARS`.
-    #: Read-only.
+    #: words (`actions.base.FREE_TEXT`) as `{"chars", "sha256"}`, other values cut to `VALUE_CHARS`;
+    #: at most `PARAMS_KEPT` of them, `project` first, each name cut to `NAME_CHARS`. Read-only.
     params: Mapping[str, object]
     ok: bool
     #: `Outcome.code` (one of `actions.CODES`), and the refusal's `reason` (`""` when it worked).

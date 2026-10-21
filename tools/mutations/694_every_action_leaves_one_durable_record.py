@@ -28,7 +28,8 @@ The claims, each a group of rows (the numbers are the plan's, `ai/tasks/todo.md`
   and a caller the panel could not name listed as `-` rather than an empty column (found running
   `openfactory serve` and a curl by hand, 2026-10-21); and the row's key, the project and the
   action a caller sent, kept storable (a lone surrogate written as its escape) and bounded to
-  `VALUE_CHARS` (branch review round 1, 2026-10-21); and four documented behaviours the same
+  `VALUE_CHARS` (branch review round 1, 2026-10-21), and the parameters bounded in number
+  and by name (round 2); and four documented behaviours the same
   review's cuts showed no test held — the fallback file `OPENFACTORY_METRICS_DB` names, the action
   recorded and filtered by its resolved name, and an unreadable registry's product.
 
@@ -103,10 +104,11 @@ MUTATIONS = [
      "            outcome = Outcome(ok=False, code=FAILED, data={\"reason\": RAISED},\n",
      _EVERY + "test_a_call_that_raises_outside_the_rows_guard_leaves_one_record_and_raises"),
 
-    # 4. the secret reaches the record
+    # 4. the secret reaches the record. Re-pinned 2026-10-21: `_kept` now orders the names before
+    # it bounds how many it keeps (branch review round 2).
     ("the record keeps the parameters unmasked: dict(params), not redact(params)", _AUDIT,
-     "    for name, value in redact(params).items():\n",
-     "    for name, value in dict(params).items():\n",
+     "    given = redact(params)\n",
+     "    given = dict(params)\n",
      _STORE + "test_a_password_reaches_neither_the_record_nor_the_store_file"),
     # 17. a person's words, and the bound
     ("a free-text parameter is stored as its text", _AUDIT,
@@ -393,6 +395,18 @@ MUTATIONS = [
      "        action = _storable(asked)[:VALUE_CHARS]\n",
      "        action = _storable(asked)\n",
      _STORE + "test_the_action_name_a_caller_typed_is_kept_to_the_bound_like_any_value"),
+    # the number of parameters and their names are a caller's too (branch review round 2,
+    # 2026-10-21 — 5,000 parameters in one refused request wrote a 10 MB row)
+    ("every parameter a caller sent is kept, however many", _AUDIT,
+     "    for name in names[:PARAMS_KEPT]:\n",
+     "    for name in names:\n",
+     _STORE + "test_the_parameters_a_caller_sent_are_kept_to_a_bound_however_many_and_however_"
+              "named[five_thousand_parameters]"),
+    ("a parameter's name is kept whole, however long", _AUDIT,
+     "        if len(name) > NAME_CHARS:\n",
+     "        if False:\n",
+     _STORE + "test_the_parameters_a_caller_sent_are_kept_to_a_bound_however_many_and_however_"
+              "named[one_name_of_a_million_characters]"),
 
     # documented behaviours no test held: each survived the branch review's own cut (round 1,
     # 2026-10-21, 133 passed under each), and each has a guard of its own now
