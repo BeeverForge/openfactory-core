@@ -5055,6 +5055,18 @@ async def refresh_knowledge(inp: KnowledgeRefreshInput) -> str:
 DOCUMENT_PASS_SECONDS = 7 * 60
 
 
+def _a_product_of(inp: KnowledgeRefreshInput):
+    """The registry project `inp` names, when it has a product role — else None."""
+    try:
+        project = ProjectRegistry().get(inp.project)
+    except KeyError:
+        return None
+    cfg = getattr(project, "product", None)
+    if cfg is None or not getattr(cfg, "enabled", True):
+        return None
+    return project
+
+
 def _do_ingest_documents(inp: KnowledgeRefreshInput) -> str:
     """The product's context repository, read on the knowledge pipeline's schedule (#269 slice 1):
     every document added or changed since the last pass becomes a record, alone, and every one
@@ -5063,42 +5075,28 @@ def _do_ingest_documents(inp: KnowledgeRefreshInput) -> str:
     THROUGH THE PRODUCT ROLE'S OWN CHECKOUT (`ProductModule.context`): the same documentation
     repository, at the same branch, with the same credential, that a turn reads — so what the role
     was handed and what was ingested are one tree. Returns the pass's sentence, or a word:
-    "off" (no product role), "no-context" (no checkout of its context repository)."""
-    from openfactory.product.documents.ingest import ingest
-    from openfactory.product.module import ProductModule
+    "off" (no product role), "no-context" (no checkout of its context repository).
 
-    try:
-        project = ProjectRegistry().get(inp.project)
-    except KeyError:
+    AND THE PRODUCT'S INDEX BROUGHT UP TO THEM (#269 slice 2), with every vector the turns left to
+    make: what was just read is searchable at the next turn, by its words and its meaning, without
+    that turn paying for it. Best-effort — a turn syncs what it needs anyway.
+
+    THE PASS ITSELF IS `product/refresh.py`'s (#1004), the one an asked refresh runs too
+    (`refresh_product_knowledge`), so what the schedule hands the index an asked pass hands it as
+    well; it records how it went, which `product_status` reads."""
+    from openfactory.product import refresh as knowledge
+
+    project = _a_product_of(inp)
+    if project is None:
         return "off"
-    cfg = getattr(project, "product", None)
-    if cfg is None or not getattr(cfg, "enabled", True):
-        return "off"
-    try:
-        ctx = ProductModule(project, via="api").context()
-        if not ctx.docs_path:
-            return "no-context"
-        terms = [fact.term for fact in ctx.domain.live()]
-        report = ingest(project, root=Path(ctx.docs_path), commit=ctx.docs_commit, terms=terms,
-                        budget_seconds=DOCUMENT_PASS_SECONDS)
-    except Exception:  # noqa: BLE001 — a pass that failed is read again at the next tick
-        activity.logger.warning("the documents of %s could not be ingested", inp.project,
-                                exc_info=True)
+    done = knowledge.documents_and_index(project, by=knowledge.SCHEDULE,
+                                         budget_seconds=DOCUMENT_PASS_SECONDS)
+    if done.outcome == knowledge.NO_CONTEXT:
+        return "no-context"
+    if done.outcome == knowledge.FAILED:
         return "failed"
-    # AND THE PRODUCT'S INDEX BROUGHT UP TO THEM (#269 slice 2), with every vector the turns left
-    # to make: what was just read is searchable at the next turn, by its words and its meaning,
-    # without that turn paying for it. Best-effort — a turn syncs what it needs anyway.
-    try:
-        from openfactory.product.index.retrieval import refresh
-
-        synced = refresh(project, corpus=getattr(ctx, "corpus", None),
-                         requirements_dir=getattr(ctx, "requirements_dir", "requirements"),
-                         embed_limit=None)
-        activity.logger.info("the index of %s: %s", inp.project, synced.sentence())
-    except Exception:  # noqa: BLE001 — the records are written; the index catches up at a turn
-        activity.logger.warning("the index of %s could not be brought up to its documents",
-                                inp.project, exc_info=True)
-    return report.sentence()
+    activity.logger.info("the index of %s: %s", inp.project, done.index or "; ".join(done.degraded))
+    return done.documents
 
 
 @activity.defn
@@ -5106,6 +5104,32 @@ async def ingest_documents(inp: KnowledgeRefreshInput) -> str:
     """#269 — the product's documents, read after the module map on the same schedule. Bounded
     and best-effort: a pass that fails or runs out of time is continued by the next one."""
     return await asyncio.to_thread(lambda: _do_ingest_documents(inp))
+
+
+def _do_refresh_product_knowledge(inp: KnowledgeRefreshInput) -> str:
+    """The product's knowledge brought up to date NOW, because somebody asked (`product_refresh`,
+    #1004): the scheduled pass's documents and index, and the board of every registry project of
+    the product besides (`product/refresh.py`). Returns the pass's sentence, or "off" when the
+    project lost its product role between the ask and the pass."""
+    from openfactory.product import refresh as knowledge
+
+    project = _a_product_of(inp)
+    if project is None:
+        activity.logger.warning("a knowledge refresh was asked of %s, which has no product role "
+                                "now — nothing was read", inp.project)
+        return "off"
+    return knowledge.documents_and_index(project, by=knowledge.ASKED,
+                                         budget_seconds=DOCUMENT_PASS_SECONDS,
+                                         boards=True).sentence()
+
+
+@activity.defn
+async def refresh_product_knowledge(inp: KnowledgeRefreshInput) -> str:
+    """#1004 — an asked refresh of a product's knowledge, on the worker. It reads documents, and a
+    document's summary is a model's, so it HEARTBEATS while it runs (`_turning`): a worker that dies
+    mid-pass is noticed within `refresh.PASS_HEARTBEAT`, not at the pass's ceiling."""
+    return await _turning(lambda _abandoned: _do_refresh_product_knowledge(inp),
+                          f"refreshing the knowledge of {inp.project}")
 
 
 #: How long one scheduled pass distils conversations for — each is a model call, so a few, and the

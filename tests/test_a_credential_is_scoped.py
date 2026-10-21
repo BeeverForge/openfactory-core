@@ -60,6 +60,8 @@ PRODUCT_ROWS = ("product_status", "product_requirements", "product_propose",
                 "product_confirm_capability",
                 # #269 — the event "this document changed, read it now"
                 "product_ingest",
+                # #1004 — and the product's whole knowledge brought up to date now, on the worker
+                "product_refresh",
                 # #384 — the cards on the product view, and the close and removal on a card
                 "product_board", "product_withdraw_card",
                 # #448 — another pass on a card's change, from the card itself, and its other

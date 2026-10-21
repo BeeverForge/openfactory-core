@@ -430,8 +430,10 @@ MUTATIONS = [
      "    distil_conversations,\n",
      EVENTS),
 
+    # re-pinned 2026-10-21: the scheduled pass's body moved to `product/refresh.py` (#1004), which
+    # an asked refresh runs too — the same `ingest` call, the same claim
     ("the scheduled pass forgets the commit the role's checkout is at",
-     "openfactory/runtime/temporal/activities.py",
+     "openfactory/product/refresh.py",
      "        report = ingest(project, root=Path(ctx.docs_path), commit=ctx.docs_commit, "
      "terms=terms,",
      "        report = ingest(project, root=Path(ctx.docs_path), commit=\"\", terms=terms,",
