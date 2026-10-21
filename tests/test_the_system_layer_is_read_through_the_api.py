@@ -32,9 +32,9 @@ from __future__ import annotations
 import base64
 import importlib
 import json
+import os
 import shutil
 import subprocess
-import time
 import typing
 from pathlib import Path
 
@@ -50,6 +50,7 @@ from openfactory.knowledge.system import refresh
 from openfactory.knowledge.system.contracts import SOURCE_UNREADABLE, SystemMap
 from openfactory.util import yaml_io
 from tests.test_the_system_layer_is_published import FIXTURE, SOURCES, _git, _remote
+from tests.test_yaml_is_read_without_aliases_and_within_bounds import _processor_seconds
 
 # THE MODULES, NOT THE NAMES THE PACKAGE RE-EXPORTS: `openfactory.knowledge.system` exports the
 # functions `derive` and `render`, which shadow the modules of the same name as its attributes.
@@ -642,36 +643,39 @@ def test_the_refused_texts_are_refused_for_what_they_are_named_and_the_aliased_o
     assert len(read.model_dump_json()) > _LONG * _TIMES
 
 
+@pytest.mark.alone  # it times the read in processor time, which neighbours on its cores inflate
 @pytest.mark.parametrize("name", sorted(render.LAYOUT))
 def test_each_file_of_the_map_with_an_anchor_is_unreadable_and_says_the_loader_s_sentence(
         tmp_path, name):
     render.write_system(_quayside(tmp_path), tmp_path / "ctx" / ".okf" / "system")
     (tmp_path / "ctx" / ".okf" / "system" / name).write_text(_aliased(name))
-    started = time.perf_counter()
+    started = os.times()
     found = render.read_published(tmp_path / "ctx", ".okf/system")
-    assert time.perf_counter() - started < 1.0
+    assert _processor_seconds(started) < 1.0
     assert found.state == render.UNREADABLE and found.system is None, found
     assert found.why == (f"the system map at `.okf/system` cannot be read: `{name}` is refused — "
                          f"{_refusal(_aliased(name))}")
 
 
+@pytest.mark.alone
 def test_a_published_part_with_anchors_or_aliases_or_too_deep_is_unreadable_fast_on_both_addresses(
         product, client, monkeypatch):
     """Each refused `system.yaml` pushed to the context repository, then read through both
     addresses: `unreadable`, the loader's own sentence in `why`, nothing of the map, an answer of a
-    few hundred bytes — and the route's read of the published files in under a second (the
-    checkout's fetch before it is not what is timed)."""
+    few hundred bytes — and the route's read of the published files in under a second of processor
+    time (the checkout's fetch before it is not what is timed). The processor time, never the clock
+    on the wall, which a busy machine stretches over the same work; and so the test runs `alone`."""
     project, remotes, tmp = product
     _publish(project, tmp)
     took: list[float] = []
     real = render.read_published
 
     def timed(*args, **kwargs):
-        started = time.perf_counter()
+        started = os.times()
         try:
             return real(*args, **kwargs)
         finally:
-            took.append(time.perf_counter() - started)
+            took.append(_processor_seconds(started))
 
     monkeypatch.setattr(render, "read_published", timed)
     where = refresh.system_subpath().as_posix()

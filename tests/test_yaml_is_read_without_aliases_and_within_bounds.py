@@ -19,23 +19,30 @@ WHAT IS HELD HERE, READ FROM THE CODE:
 2. EVERY READER. The functions that read through the door are listed from the same trees, and each
    has a row in `READERS` saying how a document reaches it and how it answers a file it cannot
    read — so a new reader is red until it has one. An aliased document, one long value repeated
-   by aliases, a deeply nested one and an oversized one are fed to every row, and each must be refused by name, inside the reader's own
-   contract (a sentence, a finding, a refusal it raises — or its absent value, with the refusal in
-   the log), in under a second. The aliased document is the same for every reader and answered two
-   ways, which holds which loader each reader uses: a reader of the core's own files names the
-   anchor, a reader of a compose file or a CI pipeline (formats whose specification has anchors)
-   names the size its aliases come to.
+   by aliases, a deeply nested one and an oversized one are fed to every row, and each must be
+   refused by name, inside the reader's own contract (a sentence, a finding, a refusal it raises —
+   or its absent value, with the refusal in the log), in under a second of processor time. The
+   aliased document is the same for every reader and answered two ways, which holds which loader
+   each reader uses: a reader of the core's own files names the anchor, a reader of a compose file
+   or a CI pipeline (formats whose specification has anchors) names the size its aliases come to.
 3. THE DOOR ITSELF: each bound at its limit and on either side, the sentences word for word, an
    alias counted at the size, the depth and the bytes of what it repeats, a value that contains
    itself.
 4. THE WRITER: what the core writes carries no alias, so it reads back through the door.
+
+WHAT A BOUND IN TIME HERE TIMES IS THE WORK, in processor time (`_processor_seconds`), never the
+clock on the wall: a full run beside other suites took the depth case past a second by the wall,
+while it passes alone — the machine was busy, the refusal was not slow. Each test that reads the
+processor time is marked `alone`, which the suite requires of every test that asserts its own
+processor time (`tests/test_ci_runs_every_test_exactly_once.py`): neighbours on the same cores
+inflate even that, if far less than the wall.
 """
 
 from __future__ import annotations
 
 import ast
 import logging
-import time
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -488,6 +495,16 @@ def _text(answer: object) -> tuple[str, ...]:
     return tuple(str(a) for a in answer) if isinstance(answer, tuple) else (str(answer),)
 
 
+def _processor_seconds(since: os.times_result) -> float:
+    """The processor time spent since `since`, a reading of `os.times()`: this process's and that
+    of the children it waited for, user and system — what the work costs, which a busy machine
+    does not stretch as it stretches the clock on the wall."""
+    now = os.times()
+    return (now.user + now.system + now.children_user + now.children_system
+            - since.user - since.system - since.children_user - since.children_system)
+
+
+@pytest.mark.alone
 @pytest.mark.parametrize("kind", DOCUMENTS)
 @pytest.mark.parametrize("name", sorted(READERS))
 def test_every_reader_refuses_by_name_and_in_under_a_second(name, kind, tmp_path, monkeypatch,
@@ -497,10 +514,10 @@ def test_every_reader_refuses_by_name_and_in_under_a_second(name, kind, tmp_path
     tmp.mkdir()
     said = (TREE_SAID if kind == "oversized" and reader.ceiling else SAID[kind][reader.loader])
     caplog.set_level(logging.WARNING, logger=yaml_io.log.name)
-    started = time.perf_counter()
+    started = os.times()
     answer = reader.drive(tmp, DOCUMENTS[kind], monkeypatch)
-    took = time.perf_counter() - started
-    assert took < 1.0, f"{name} took {took:.2f} s over a {kind} document"
+    took = _processor_seconds(started)
+    assert took < 1.0, f"{name} took {took:.2f} s of processor time over a {kind} document"
     if reader.absent is SAYS:
         if kind == "oversized" and reader.ceiling:
             said = CEILING_SAID
@@ -596,6 +613,7 @@ def test_an_alias_inside_the_value_it_repeats_is_refused():
                                   "that contains itself cannot be read")
 
 
+@pytest.mark.alone
 @pytest.mark.parametrize("loader", [yaml_io.Loader, yaml_io.CountingLoader])
 def test_the_depth_limit_holds_at_the_limit_and_on_either_side(loader):
     def nested(levels: int) -> str:
@@ -606,12 +624,13 @@ def test_the_depth_limit_holds_at_the_limit_and_on_either_side(loader):
         yaml_io.load(nested(yaml_io.MAX_DEPTH + 1), loader=loader)
     assert str(refused.value) == (f"nested deeper than {yaml_io.MAX_DEPTH} levels (line 1): a "
                                   f"YAML file is read to {yaml_io.MAX_DEPTH} levels")
-    started = time.perf_counter()
+    started = os.times()
     with pytest.raises(yaml_io.YamlRefused):
         yaml_io.load(nested(1_000), loader=loader)
     # about 0.1 s on an idle machine: PyYAML's scanner looks up to 1,024 characters ahead at every
-    # unclosed bracket on a line, and the composer stops at level 101
-    assert time.perf_counter() - started < 1.0
+    # unclosed bracket on a line, and the composer stops at level 101. On a laptop at a load of 139
+    # on eight cores it took 0.38 s of processor time and 1.5 s by the wall (2026-10-21)
+    assert _processor_seconds(started) < 1.0
     with pytest.raises(yaml_io.YamlRefused):  # refused, never `RecursionError`
         yaml_io.load(nested(5_000), loader=loader)
 
@@ -653,13 +672,14 @@ def test_an_alias_counts_at_the_size_of_what_it_repeats(monkeypatch):
 LONG = "s: &s " + "a" * 900_000 + "\nl: [" + ",".join(["*s"] * 30_000) + "]\n"
 
 
+@pytest.mark.alone
 def test_a_long_value_repeated_by_aliases_is_refused_by_the_bytes_it_comes_to():
     assert len(LONG.encode()) < yaml_io.MAX_BYTES
-    started = time.perf_counter()
+    started = os.times()
     with pytest.raises(yaml_io.YamlRefused) as refused:
         yaml_io.load(LONG, loader=yaml_io.CountingLoader)
     # the scanner reads the 900 KB string once; the refusal comes at the twelfth alias of 30,000
-    assert time.perf_counter() - started < 2.0
+    assert _processor_seconds(started) < 2.0
     assert str(refused.value) == (
         "more than 10,000,000 bytes of values once `*s` is counted at the size of what it repeats "
         "(line 2): a YAML file is read to 10,000,000 bytes of values")
