@@ -53,7 +53,12 @@ from openfactory.cli import _builds_from_this_checkout
 from openfactory.knowledge import bundle, okf
 from openfactory.knowledge.flows import FLOWS_FILE, read_flows
 from openfactory.knowledge.system import tree
-from openfactory.knowledge.system.render import SYSTEM_DIRNAME, SYSTEM_FILE, read_derived_key
+from openfactory.knowledge.system.render import (
+    SYSTEM_DIRNAME,
+    SYSTEM_FILE,
+    read_derived_key,
+    read_published,
+)
 from openfactory.knowledge.system.text import load_yaml
 from openfactory.loader import load_manifest
 from openfactory.onboarding import preview_infer, preview_propose
@@ -255,6 +260,9 @@ TREE_SAID = "-byte ceiling this layer reads"
 #: a reader that answers with what was refused, in its own words around the door's sentence
 SAYS = object()
 
+#: what `tree.read_text` says of a file past its byte ceiling, which it refuses before the door
+CEILING_SAID = f"over the {tree.READ_CEILING}-byte ceiling this layer reads"
+
 
 @dataclass(frozen=True)
 class Reader:
@@ -264,7 +272,8 @@ class Reader:
     strings) it says for a SAYS reader, the value itself otherwise. `absent` is SAYS, or the value
     the reader answers for a file it treats as absent — then the door's log names the refusal.
     `ceiling` is set where the reader reads through `knowledge/system/tree.read_text`, whose own
-    byte ceiling refuses an oversized file before the door sees it."""
+    byte ceiling refuses an oversized file before the door sees it — a reader that says why then
+    says the tree's sentence (`CEILING_SAID`)."""
 
     drive: Callable[[Path, str, pytest.MonkeyPatch], object]
     absent: object = SAYS
@@ -352,6 +361,11 @@ READERS: dict[str, Reader] = {
         Reader(lambda tmp, t, mp: okf.parse_concept(_fenced(t)), absent=None),
     "openfactory/knowledge/okf.py::parse_manifest":
         Reader(lambda tmp, t, mp: okf.parse_manifest(t), absent=None),
+    # the published map is the core's own file, read with the refusing loader: the counting one
+    # `text.load_yaml` holds for the formats the layer derives from would read its aliases (#1002)
+    "openfactory/knowledge/system/render.py::read_published":
+        Reader(lambda tmp, t, mp: read_published(_put(tmp / SYSTEM_FILE, t).parent, ".").why,
+               ceiling=True),
     "openfactory/knowledge/system/render.py::read_derived_key":
         Reader(lambda tmp, t, mp: read_derived_key(_put(tmp / SYSTEM_FILE, t).parent, SYSTEM_FILE),
                absent="", ceiling=True),
@@ -488,6 +502,8 @@ def test_every_reader_refuses_by_name_and_in_under_a_second(name, kind, tmp_path
     took = time.perf_counter() - started
     assert took < 1.0, f"{name} took {took:.2f} s over a {kind} document"
     if reader.absent is SAYS:
+        if kind == "oversized" and reader.ceiling:
+            said = CEILING_SAID
         for text in _text(answer):
             assert said in text, f"{name} answered {text[:300]!r} for a {kind} document"
         return

@@ -180,6 +180,17 @@ EXCLUDED: tuple[Exclusion, ...] = (
                "/api/product/{project}/attachments/{ident}:*",
                "/api/product/{project}/documents/file/{path:path}:*")),
     Exclusion(
+        what="the product's system layer — its components, the links between them, its "
+             "interfaces, databases, queues, infrastructure and decision records, each cited, and "
+             "what could not be derived",
+        why="#1002: the map is the context repository's own files at `.okf/system/`, which the "
+            "role reads where they are — its view is told where the map is (`mounted()['system']`) "
+            "and its door, `index.md`, puts what could not be derived first; what the map could "
+            "not derive is in every turn's blind spots (`sight.read_system`). The panel's read is "
+            "those files read back for a client, not a fact surfaced only on the panel, and a "
+            "pack copy of every entry would be a second map to drift from the first.",
+        paths=("/api/product/{project}/system:*",)),
+    Exclusion(
         what="a card's preview — whether one is running, why one can or cannot start, and a link "
              "to each service it exposes",
         why="#265: every link carries a key minted for the person who opened the card, a "

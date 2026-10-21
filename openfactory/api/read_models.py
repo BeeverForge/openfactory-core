@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 #: A count or an amount, sent as the route computed it — see the module's last paragraph.
 Number = int | float
@@ -431,6 +431,219 @@ class MetricsRead(ReadModel):
     tasks: list[dict[str, Any]] | None = None
     totals: MetricsTotals | None = None
     autonomy: dict[str, Any] | None = None
+
+
+# ── the product's system layer ──────────────────────────────────────────────────────────────────
+#
+# THE MAP'S OWN SHAPE, DESCRIBED HERE (#1002). Each model below declares the fields of its namesake
+# in `openfactory/knowledge/system/contracts.py` — the map the route reads back through those
+# models — and nothing else; the suite walks the two side by side, at every depth, so a field the
+# map grows is described here before the suite passes. Declared here rather than imported, so the
+# front end's import does not pay for the knowledge package. Every field holds a NAME or a
+# citation, never the value of a variable: the map holds none (the contracts' module docstring).
+
+class SystemCite(ReadModel):
+    """Where an entry came from: the repository, the path in it, the commit it was read at, and a
+    1-based line where the format has a statement to point at (`0` is the file as a whole)."""
+
+    repo: str | None = None
+    path: str | None = None
+    commit: str | None = None
+    line: int | None = None
+
+
+class SystemNotDerived(ReadModel):
+    """One thing the map could not establish, with why. `kind` is one word of a closed
+    vocabulary — `source-unreadable`, `unknown-format`, `parse-error`, `not-declared`,
+    `not-followed`, `not-read`, `at-run-time`, `too-large`, `ambiguous`, `truncated` — and
+    `repo`/`path` say where."""
+
+    kind: str | None = None
+    detail: str | None = None
+    repo: str | None = None
+    path: str | None = None
+
+
+class SystemSource(ReadModel):
+    """One source the product declares: read at `commit` (`files` declaration files), or not read
+    and `missing` says why. `left_out` names the directories of weight its checkout did not
+    bring."""
+
+    repo: str | None = None
+    commit: str | None = None
+    files: int | None = None
+    left_out: list[str] | None = None
+    missing: str | None = None
+
+
+class SystemComponent(ReadModel):
+    """One part of the product that runs, named where it is deployed. `env` holds the NAMES of the
+    variables it is given, never a value."""
+
+    name: str | None = None
+    kind: str | None = None
+    repo: str | None = None
+    code: str | None = None
+    code_by: str | None = None
+    image: str | None = None
+    depends_on: list[str] | None = None
+    env: list[str] | None = None
+    declared_by: list[SystemCite] | None = None
+
+
+class SystemLink(ReadModel):
+    """One declared interface: `from` talks to `to` over `kind`, as `via` declares it by name
+    (`env ORDERS_URL`, `channel order.placed`)."""
+
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+    kind: str | None = None
+    via: str | None = None
+    sources: list[SystemCite] | None = None
+
+
+class SystemOperation(ReadModel):
+    method: str | None = None
+    path: str | None = None
+    operation_id: str | None = None
+    summary: str | None = None
+
+
+class SystemHttpApi(ReadModel):
+    """An HTTP API, the component it belongs to (`owner_by`: the rule that placed it), its
+    operations and the components declared to call it."""
+
+    component: str | None = None
+    owner_by: str | None = None
+    title: str | None = None
+    version: str | None = None
+    operations: list[SystemOperation] | None = None
+    callers: list[str] | None = None
+    source: SystemCite | None = None
+
+
+class SystemRpc(ReadModel):
+    name: str | None = None
+    request: str | None = None
+    response: str | None = None
+    line: int | None = None
+
+
+class SystemGrpcService(ReadModel):
+    component: str | None = None
+    owner_by: str | None = None
+    package: str | None = None
+    service: str | None = None
+    rpcs: list[SystemRpc] | None = None
+    callers: list[str] | None = None
+    source: SystemCite | None = None
+
+
+class SystemEventEnd(ReadModel):
+    component: str | None = None
+    owner_by: str | None = None
+    message: str | None = None
+    source: SystemCite | None = None
+
+
+class SystemEvent(ReadModel):
+    """A channel, and who is declared to send and to receive on it."""
+
+    channel: str | None = None
+    protocol: str | None = None
+    broker: str | None = None
+    producers: list[SystemEventEnd] | None = None
+    consumers: list[SystemEventEnd] | None = None
+
+
+class SystemColumn(ReadModel):
+    name: str | None = None
+    type: str | None = None
+
+
+class SystemTable(ReadModel):
+    """One table as the migrations leave it: the statement that created it, and every later one
+    that changed it."""
+
+    name: str | None = None
+    columns: list[SystemColumn] | None = None
+    references: list[str] | None = None
+    source: SystemCite | None = None
+    altered_in: list[SystemCite] | None = None
+
+
+class SystemDatabase(ReadModel):
+    """A database: its schema, the components whose migrations define it (`owners`) and the others
+    declared to connect to it (`users`)."""
+
+    name: str | None = None
+    engine: str | None = None
+    owners: list[str] | None = None
+    users: list[str] | None = None
+    tool: str | None = None
+    tables: list[SystemTable] | None = None
+    migrations: list[SystemCite] | None = None
+    declared_by: list[SystemCite] | None = None
+
+
+class SystemQueue(ReadModel):
+    name: str | None = None
+    kind: str | None = None
+    producers: list[str] | None = None
+    consumers: list[str] | None = None
+    source: SystemCite | None = None
+
+
+class SystemInfrastructure(ReadModel):
+    address: str | None = None
+    kind: str | None = None
+    name: str | None = None
+    engine: str | None = None
+    source: SystemCite | None = None
+
+
+class SystemAdr(ReadModel):
+    repo: str | None = None
+    number: str | None = None
+    title: str | None = None
+    status: str | None = None
+    date: str | None = None
+    component: str | None = None
+    source: SystemCite | None = None
+
+
+class SystemRead(ReadModel):
+    """`/api/product/{project}/system` — one product's system layer as its context repository
+    publishes it at `.okf/system/`: the sources read, the components, the links between them, the
+    HTTP and gRPC interfaces and the events, the databases, the queues, the infrastructure, the
+    decision records, and every thing it could not derive — each entry with where it came from.
+
+    `state` is `published` (the map was read whole; an empty list is a kind the product declares
+    none of), `not-published` (no map yet) or `unreadable` (a map is there and a file of it cannot
+    be read), and `why` says it in a sentence; the map's fields are `None` unless it was read —
+    never an empty map in place of one that is not known. `read_from` is where it was read: the
+    context repository, the directory, and the commit the read found."""
+
+    project: str | None = None
+    product: str | None = None
+    state: str | None = None
+    why: str | None = None
+    read_from: SystemCite | None = None
+    version: str | None = None
+    derived_key: str | None = None
+    generated_at: str | None = None
+    scope_limit: str | None = None
+    sources: list[SystemSource] | None = None
+    components: list[SystemComponent] | None = None
+    links: list[SystemLink] | None = None
+    http: list[SystemHttpApi] | None = None
+    grpc: list[SystemGrpcService] | None = None
+    events: list[SystemEvent] | None = None
+    databases: list[SystemDatabase] | None = None
+    queues: list[SystemQueue] | None = None
+    infrastructure: list[SystemInfrastructure] | None = None
+    adrs: list[SystemAdr] | None = None
+    not_derived: list[SystemNotDerived] | None = None
 
 
 # ── who is asking, and what may be asked ────────────────────────────────────────────────────────

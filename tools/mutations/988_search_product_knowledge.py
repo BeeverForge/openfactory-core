@@ -85,21 +85,28 @@ MUTATIONS = [
      '    extra = {"responses": described} if described else {}',
      "    extra = {}"),
 
+    # RE-PINNED 2026-10-21 (#1002): the system read asks the same two lines, so each anchor of the
+    # three rows below carries the search's own next line — same claims, the same lines cut.
     ("review of #989: an unknown project is a 500 instead of the house 404",
      APP,
-     "    proj = _project_or_404(project)\n    if not _has_product_role(proj):",
-     "    proj = ProjectRegistry().get(project)\n    if not _has_product_role(proj):"),
+     "    proj = _project_or_404(project)\n    if not _has_product_role(proj):\n"
+     "        raise _no_such_project(project)\n    if len(q) > retrieval.QUERY_CHARS:",
+     "    proj = ProjectRegistry().get(project)\n    if not _has_product_role(proj):\n"
+     "        raise _no_such_project(project)\n    if len(q) > retrieval.QUERY_CHARS:"),
 
     ("review of #989: a project with no product role has its index opened, made or rebuilt",
      APP,
-     "    if not _has_product_role(proj):",
-     "    if False:"),
+     "    if not _has_product_role(proj):\n        raise _no_such_project(project)\n"
+     "    if len(q) > retrieval.QUERY_CHARS:",
+     "    if False:\n        raise _no_such_project(project)\n"
+     "    if len(q) > retrieval.QUERY_CHARS:"),
 
     ("review of #989: a project with no product role is refused in words that say it is registered",
      APP,
-     "    if not _has_product_role(proj):\n        raise _no_such_project(project)",
+     "    if not _has_product_role(proj):\n        raise _no_such_project(project)\n"
+     "    if len(q) > retrieval.QUERY_CHARS:",
      "    if not _has_product_role(proj):\n        raise HTTPException(status_code=404, "
-     "detail=f\"{proj.name} has no product role\")"),
+     "detail=f\"{proj.name} has no product role\")\n    if len(q) > retrieval.QUERY_CHARS:"),
 
     ("review of #989: the gate lets the search through without a credential",
      APP,

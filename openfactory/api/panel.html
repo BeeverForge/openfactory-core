@@ -2036,7 +2036,8 @@ let _prod={project:"",status:null,reqs:null,reqMessage:"",reqFindings:[],busy:fa
 //: server keeps.
 let _pv={sessions:null,roomLast:null,sessMsg:"",side:true,tab:"reqs",menu:null,editing:null,
          files:[],limits:null,thumbs:{},here:[],docQ:"",
-         board:undefined,boardMsg:"",card:null,ask:null,said:null,adjusting:null};
+         board:undefined,boardMsg:"",card:null,ask:null,said:null,adjusting:null,
+         system:undefined,systemMsg:""};
 
 //: The floor's own chrome — its status, its costs, its board pill — off a page that reads none of
 //: it (#562): left on, its banner says "reading the floor…" for ever.
@@ -2119,6 +2120,8 @@ async function bootProduct(){
   // and catches up from the transcript.
   renderProduct(_prod.project);
   if(_prod.project){paintScope();loadProductStatus();loadRequirements();loadAgenda();loadDocuments();pvBoardLoad()}
+  // THE SYSTEM MAP IS READ WHEN ITS TAB IS OPEN (#1002) — the one the person left open included
+  if(_prod.project&&_pv.tab==="system")pvSystemLoad();
   if(_prod.project)loadSessions();
   // …AND WHAT THE LINK NAMES: the preview, walked into with a key minted for this person now (the
   // same call the floor makes), or the card on the Board tab (#384's own view of it).
@@ -2277,7 +2280,7 @@ function renderProduct(name){
         </div></div>
       </main>
       <aside class="pv-side" id="pvSide">
-        <div class="pv-tabs">${tab("reqs","Requirements","prodCount")}${tab("agenda","Pending","prodAgendaCount")}${tab("docs","Documents","prodDocCount")}${tab("board","Board","")}</div>
+        <div class="pv-tabs">${tab("reqs","Requirements","prodCount")}${tab("agenda","Pending","prodAgendaCount")}${tab("docs","Documents","prodDocCount")}${tab("board","Board","")}${tab("system","System","")}</div>
         ${pane("reqs",`<div class="pv-status" id="prodHead"></div><div id="prodReqs"></div>`)}
         ${pane("agenda",`<div class="pv-about" id="prodAgendaAbout">What <span class="pv-agentname">${esc(pvAgent())}</span> is waiting for from you: a decision, an answer, a "did it work?". Each one opens where it is answered — the conversation or the card.</div><div id="prodAgenda"></div>`)}
         ${pane("docs",`<div class="pv-about">The product's documents — the files in its context repository (specifications, contracts, PDFs, minutes, diagrams) that <span class="pv-agentname">${esc(pvAgent())}</span> reads and answers from, for everyone who talks to it.</div>
@@ -2289,12 +2292,14 @@ function renderProduct(name){
             <button class="btn sm ghost" id="pbWaiting" onclick="prodLook('product_pending','Waiting')">What is waiting on me</button>
             <a class="btn sm ghost" id="pbWhole" href="/p/${encodeURIComponent(name)}/board">The whole board</a></div>
           <div id="pvBoard" style="margin-top:12px"></div>`)}
+        ${pane("system",`<div class="pv-about">The product's system — its components, how they talk, the interfaces they describe and the databases they share — as read from what its repositories declare. Every entry says the file it came from; nothing on it is a value.</div>
+          <div id="pvSystem"></div>`)}
       </aside>
     </div>`;
   const who=$("#prodWho");
   if(who&&me)who.textContent=me.display||me.id||"";
   pvSize();
-  paintProductHead();paintRequirements();paintAgenda();paintDocuments();paintSessions();paintScope();paintThread();paintPvBoard();
+  paintProductHead();paintRequirements();paintAgenda();paintDocuments();paintSessions();paintScope();paintThread();paintPvBoard();pvSystemPaint();
   // THE CONVERSATION ON THIS PAGE IS THE PRODUCT CHAT, drawn here rather than in the dock
   if(name)pchatUse(name);
 }
@@ -2369,6 +2374,84 @@ async function pvBoardLoad(){
   _pv.board=(out&&out.ok&&out.data)?out.data.cards:null;
   _pv.boardMsg=(out&&out.message)||"I could not read the board just now.";
   paintPvBoard();
+}
+// THE PRODUCT'S SYSTEM LAYER (#1002): what its repositories declare — the components, the links
+// between them, the interfaces and their operations, the databases and who shares them — as the
+// knowledge refresh published it, and FIRST what it could not derive, because a map that leaves out
+// what it could not read looks like a product that has none of it. Every entry names the file it
+// came from; the map holds names, never a value. Read when the tab opens, never on a clock.
+// `null` = the read failed; a map not published or unreadable says why in its own words.
+async function pvSystemLoad(){
+  if(!_prod.project)return;
+  try{_pv.system=await api(`/api/product/${encodeURIComponent(_prod.project)}/system`);_pv.systemMsg=""}
+  catch(e){_pv.system=null;_pv.systemMsg=(e&&e.message)||"I could not read the system map just now."}
+  pvSystemPaint();
+}
+//: Where an entry came from: the repository, the file and its line, the commit on hover.
+function pvCite(c){
+  if(!c||!c.repo)return"";
+  return`<span class="sub mono" title="${esc(c.commit?"at "+c.commit:"")}">${esc(c.repo)} · ${esc(c.path||"")}${c.line?":"+esc(c.line):""}</span>`;
+}
+function pvSystemPaint(){
+  const el=$("#pvSystem");if(!el)return;
+  const s=_pv.system;
+  if(s===undefined){el.innerHTML="";return}
+  if(!s||s.state!=="published"){
+    el.innerHTML=`<div class="empty" style="padding:18px">${esc(s?s.why:_pv.systemMsg)}</div>`;return;
+  }
+  const all=x=>Array.isArray(x)?x:[];
+  const sec=(title,items,row,none)=>`<details class="pv-folder" open><summary><span>${esc(title)}</span><span class="cnt">${items.length}</span></summary>`
+    +(items.length?items.map(row).join(""):`<div class="sub" style="padding:4px 2px">${esc(none)}</div>`)+`</details>`;
+  const line=(head,sub,cites)=>`<div class="row"><div class="grow"><b style="color:var(--txt)">${head}</b>${sub?`<div class="sub">${sub}</div>`:""}${cites}</div></div>`;
+  const names=x=>all(x).map(esc).join(", ");
+  const links=all(s.links);
+  el.innerHTML=[
+    `<div class="pv-note">${esc(s.scope_limit)}</div>`,
+    sec("What could not be derived",all(s.not_derived),
+        n=>line(esc(n.kind),esc(n.detail),n.repo?`<span class="sub mono">${esc(n.repo)}${n.path?" · "+esc(n.path):""}</span>`:""),
+        "nothing — every declaration found was read"),
+    sec("Sources",all(s.sources),
+        x=>line(esc(x.repo),x.missing?`not read: ${esc(x.missing)}`:`${esc(x.files)} declaration file(s) read`
+          +(all(x.left_out).length?` · not checked out: ${names(x.left_out)}`:""),
+          x.commit?`<span class="sub mono">at ${esc(String(x.commit).slice(0,12))}</span>`:""),
+        "the product declares no source"),
+    sec("Components",all(s.components),
+        c=>line(`${esc(c.name)} <span class="chip dim">${esc(c.kind)}</span>`,
+          links.filter(l=>l.from===c.name).map(l=>`talks to ${esc(l.to)} (${esc(l.kind)}, ${esc(l.via)})`).join("<br>")
+          +(all(c.env).length?`<div class="mono">${names(c.env)}</div>`:""),
+          all(c.declared_by).map(pvCite).join("")),
+        "none was declared"),
+    sec("HTTP APIs",all(s.http),
+        a=>line(`${esc(a.component)} — ${esc(a.title)} ${esc(a.version)}`,
+          all(a.operations).map(o=>`<span class="mono">${esc(o.method)} ${esc(o.path)}</span>${o.summary?" — "+esc(o.summary):""}`).join("<br>")
+          +(all(a.callers).length?`<div>called by ${names(a.callers)}</div>`:""),pvCite(a.source)),
+        "none was described"),
+    sec("gRPC services",all(s.grpc),
+        g=>line(`${esc(g.component)} — ${esc(g.package?g.package+".":"")}${esc(g.service)}`,
+          all(g.rpcs).map(r=>`<span class="mono">${esc(r.name)}(${esc(r.request)}) → ${esc(r.response)}</span>`).join("<br>"),pvCite(g.source)),
+        "none was described"),
+    sec("Events",all(s.events),
+        e=>line(`<span class="mono">${esc(e.channel)}</span> ${e.protocol?`<span class="chip dim">${esc(e.protocol)}</span>`:""}`,
+          `sent by ${names(all(e.producers).map(p=>p.component))||"nobody declared"}; received by ${names(all(e.consumers).map(p=>p.component))||"nobody declared"}`,
+          [...all(e.producers),...all(e.consumers)].map(p=>pvCite(p.source)).join("")),
+        "none was declared"),
+    sec("Databases",all(s.databases),
+        d=>line(`${esc(d.name)} ${d.engine?`<span class="chip dim">${esc(d.engine)}</span>`:""}`,
+          `${all(d.tables).length} table(s) — owned by ${names(d.owners)||"no migrations"}${all(d.users).length?`; also used by ${names(d.users)}`:""}`
+          +(all(d.tables).length?`<div class="mono">${all(d.tables).map(t=>esc(t.name)).join(", ")}</div>`:""),
+          [...all(d.declared_by),...all(d.migrations).slice(0,1)].map(pvCite).join("")),
+        "none was declared"),
+    sec("Queues",all(s.queues),
+        q=>line(`${esc(q.name)} <span class="chip dim">${esc(q.kind)}</span>`,
+          `sent by ${names(q.producers)||"nobody declared"}; received by ${names(q.consumers)||"nobody declared"}`,pvCite(q.source)),
+        "none was declared"),
+    sec("Infrastructure",all(s.infrastructure),
+        i=>line(`${esc(i.address)} <span class="chip dim">${esc(i.kind)}</span>`,esc(i.engine||i.name||""),pvCite(i.source)),
+        "none was declared"),
+    sec("Decision records",all(s.adrs),
+        a=>line(`${esc(a.number?a.number+". ":"")}${esc(a.title)}`,[a.status,a.date,a.component].filter(Boolean).map(esc).join(" · "),pvCite(a.source)),
+        "none was written"),
+  ].join("");
 }
 async function pvCardOpen(ref){
   _pv.ask=null;_pv.said=null;_pv.adjusting=null;
@@ -3160,6 +3243,7 @@ function pvTab(k){
   _pv.tab=k;try{localStorage.setItem("of.prod.tab",k)}catch(e){}
   // THE PERSON'S OWN "SHOW ME NOW" (#440): opening the Board reads it, never a clock
   if(k==="board")pvBoardLoad();
+  if(k==="system")pvSystemLoad();
   if(typeof document.querySelectorAll!=="function")return;
   document.querySelectorAll(".pv-tab").forEach(b=>b.classList.toggle("on",b.dataset.tab===k));
   document.querySelectorAll(".pv-pane").forEach(p=>p.classList.toggle("on",p.dataset.pane===k));

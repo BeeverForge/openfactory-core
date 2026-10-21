@@ -132,6 +132,7 @@ means any credential the deployment issued.
 | GET | `/api/product/{project}/documents` | product | deprecated alias of `/api/v1/product/{project}/documents` |
 | GET | `/api/product/{project}/documents/file/{path:path}` | product | one of the product's documents, as it is |
 | GET | `/api/product/{project}/search` | product | deprecated alias of `/api/v1/product/{project}/search` |
+| GET | `/api/product/{project}/system` | product | deprecated alias of `/api/v1/product/{project}/system` |
 | GET | `/api/projects` | floor | the projects this deployment runs |
 | POST | `/api/projects` | floor | add a project |
 | POST | `/api/projects/{name}/enabled` | floor | turn a project's pickup on or off |
@@ -161,6 +162,7 @@ means any credential the deployment issued.
 | GET | `/api/v1/product/{project}/attachments` | product | what a message may carry, before a file is sent |
 | GET | `/api/v1/product/{project}/documents` | product | the product's documents as their ingestion found them |
 | GET | `/api/v1/product/{project}/search` | product | one product's published knowledge, searched with `q` and `limit`, in the product owner's ranking — a blank `q` finds nothing, a `q` past its declared length is a 400, and a project with no product role is the same 404 an unknown project is |
+| GET | `/api/v1/product/{project}/system` | product | one product's system layer as its context repository publishes it — components, links, interfaces and their operations, databases, queues, infrastructure, decision records and what could not be derived, every entry cited, names and never a value; `state` says `published`, `not-published` or `unreadable` with `why`, and the map's fields are null unless it was read; a project with no product role is the same 404 an unknown project is |
 | GET | `/api/v1/temporal/jobs` | floor | the jobs, live, from the durable engine |
 | GET | `/api/v1/version` | floor | which version this deployment runs, and every add-on installed into it (below) |
 | GET | `/api/v1/whoami` | every credential | who this credential is, and which areas it may act in |
