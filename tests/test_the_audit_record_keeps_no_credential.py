@@ -109,16 +109,19 @@ async def test_a_refused_call_masks_a_secret_by_its_name_whatever_its_case_and_a
 
 
 async def test_a_secret_nested_in_a_parameter_is_masked_like_one_at_the_top(store, caplog):
-    """The reviewer's third case: `product_say context={"password": …}`. A mapping inside a
-    parameter is kept with each of its names read by the same rule, so the nested password is
-    `***`. On c310ba28 the row's `context` was `{"password": "nested-fictitious-secret"}`."""
+    """The reviewer's third case: `product_say context={"password": …}`. Since the second review
+    `context` is a person's words (N4, #1032), so the whole mapping is kept as its length and
+    digest and the password is nowhere; a mapping under a name that is not words
+    (`attachments`) is kept with each of its names read by the same rule, so its nested password
+    is `***`. On c310ba28 the row's `context` was `{"password": "nested-fictitious-secret"}`."""
     with caplog.at_level(logging.INFO):
         await actions.perform("product_say", by=actions.SYSTEM, project="nosuch", message="hi",
-                              context={"password": NESTED})
+                              context={"password": NESTED}, attachments={"password": NESTED})
 
     kept = _row(store)["params"]
-    assert kept["context"] == {"password": "***"}, kept
-    assert _the_line(caplog)["context"] == {"password": "***"}
+    assert set(kept["context"]) == {"chars", "sha256"}, kept
+    assert kept["attachments"] == {"password": "***"}, kept
+    assert _the_line(caplog)["attachments"] == {"password": "***"}
     assert not _in_the_file(store, NESTED), "the nested password is in the store's files"
 
 
@@ -228,10 +231,10 @@ def test_a_value_nested_past_the_depth_bound_is_not_kept_and_says_so():
     for _ in range(10):
         deep = {"a": deep}
 
-    kept = audit._kept("product_say", {"project": "nosuch", "context": deep})
+    kept = audit._kept("product_say", {"project": "nosuch", "attachments": deep})
 
     assert "ten levels down" not in repr(kept), kept
-    inner = kept["context"]
+    inner = kept["attachments"]
     while isinstance(inner, dict):
         inner = inner["a"]
     assert isinstance(inner, str) and "not kept" in inner, inner
@@ -246,9 +249,9 @@ def test_a_nested_value_is_kept_to_the_bound_a_value_is_kept_to():
 
     sent = {f"n{i}": "v" * 2_000 for i in range(5_000)}
 
-    kept = audit._kept("product_say", {"project": "nosuch", "context": sent})
+    kept = audit._kept("product_say", {"project": "nosuch", "attachments": sent})
 
-    assert len(str(kept["context"])) < audit.VALUE_CHARS + 100, len(str(kept["context"]))
+    assert len(str(kept["attachments"])) < audit.VALUE_CHARS + 100, len(str(kept["attachments"]))
 
 
 def test_the_denial_warning_masks_what_the_record_masks():

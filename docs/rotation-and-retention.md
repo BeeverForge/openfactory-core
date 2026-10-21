@@ -324,7 +324,11 @@ the worker's environment, whose `OPENFACTORY_METRICS_SINK=sqlite` and
 are one list. A host command line does not see a compose deployment's records, nor the reverse.
 
 **What a record holds of a person's words.** Never the text: a free-text parameter (a message, a
-comment, an instruction, an answer) is kept as its length and its sha256 (ADR-0024). That digest
+comment, an instruction, an answer, the page context the product chat sends, a requirement or a
+capability named in their words) is kept as its length and its sha256 (ADR-0024). Every
+parameter the catalog takes is declared a person's words or not (`actions.base.FREE_TEXT`,
+`NOT_WORDS`), and a value under any other name — an id, a number, a flag, the name of a thing,
+or a name no row takes — is kept as sent, scrubbed and bounded as below. That digest
 proves a known text, and it reveals a short one: it is not salted, so a six-digit code, a "yes" or
 an "approve" is read back by trying the candidates (a six-digit message took 0.22 s of plain
 Python, measured 2026-10-21). Any other value is cut at 2,000 characters, the cut said in the

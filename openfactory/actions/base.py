@@ -358,11 +358,31 @@ PARAMS: dict[str, str] = {
 #: and erases them on request (`forget-conversations`), and a record kept for a year beside every
 #: call would otherwise hold a second copy nothing erases. The digest is unsalted, so it still
 #: reveals a short answer ("yes", a six-digit code) to whoever tries the candidates.
-#: A row that takes one of these names
-#: takes it as free text; a new word of the same kind belongs here, beside its prose.
+#: A row that takes one of these names takes it as free text.
+#:
+#: EVERY NAME A ROW TAKES IS DECLARED ONE WAY OR THE OTHER — here, or in `NOT_WORDS` below — and
+#: a name in neither fails `test_every_parameter_the_catalog_takes_is_declared_a_persons_words_or
+#: _not`, so a new parameter a person types into cannot be kept as text by forgetting it (PR #1039
+#: review N7). `context`, `requirement`, `violates` and `capability` are here since that review
+#: (#1032): each is what a person typed — the page they were on, a requirement or capability
+#: named in their words — and on 6a41efe7 each was kept as sent, `context` up to 2,000 characters
+#: a client chose (review N4).
 FREE_TEXT: frozenset[str] = frozenset({
     "reason", "comment", "instruction", "message", "question", "query", "answer", "answers",
     "decision", "term", "body", "restated", "text", "title", "criteria", "ask",
+    "context", "requirement", "violates", "capability",
+})
+
+#: Every other parameter a row takes: an id, a number, a flag, a name of a thing, a ref — kept in
+#: the record as sent, scrubbed and bounded (`observability.audit._kept`). Declared rather than
+#: inferred as "the rest", so that a new name is a decision someone makes (above).
+NOT_WORDS: frozenset[str] = frozenset({
+    "accept", "approver", "attachment", "attachments", "before", "board", "board_number",
+    "board_owner", "card", "choice", "column", "display", "docs_repo", "durable", "enabled",
+    "force", "head", "in_favour_of", "issue", "language", "limit", "mentioned", "message_id",
+    "number", "numbers", "out", "password", "path", "person", "pr", "product", "project",
+    "promote", "provider", "remove", "repo_path", "room", "sandbox", "session", "severity",
+    "target", "thread", "token", "token_env", "unit", "version", "wait", "write", "yes",
 })
 
 

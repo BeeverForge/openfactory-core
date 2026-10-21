@@ -489,6 +489,42 @@ def test_every_free_text_parameter_in_the_catalog_is_hashed():
     assert verbatim == [], f"a person's words are kept verbatim by {verbatim}"
 
 
+def test_every_parameter_the_catalog_takes_is_declared_a_persons_words_or_not():
+    """The second review's N7: `FREE_TEXT` was a hand-kept set, so a new parameter a person types
+    into, under a new name, was kept as text and no test turned red. Every name any row takes is
+    now declared either a person's words (`FREE_TEXT`) or not (`NOT_WORDS`), never both, and a
+    name neither declares fails here by name. On 6a41efe7 there was no `NOT_WORDS`: 53 names were
+    declared neither way."""
+    from openfactory.actions import base
+    from openfactory.actions.catalog import CATALOG
+
+    taken = {p for row in CATALOG.values() for p in (*row.required, *row.optional)}
+    words, not_words = base.FREE_TEXT, getattr(base, "NOT_WORDS", frozenset())
+
+    assert not words & not_words, sorted(words & not_words)
+    assert sorted(taken - words - not_words) == [], "declared neither words nor not"
+    assert sorted((words | not_words) - taken) == [], "declared, and no row takes it"
+
+
+#: The four parameters a person types into that #1032 found outside `FREE_TEXT`, each by its row.
+_FOUND_BY_1032 = [("product_say", "context"), ("product_align_card", "requirement"),
+                  ("product_file_defect", "violates"), ("product_confirm_capability", "capability")]
+
+
+@pytest.mark.parametrize(("row", "param"), _FOUND_BY_1032)
+def test_the_free_text_1032_found_is_kept_as_its_length_and_digest(row, param):
+    """#1032 (and the second review's N4: the product socket's `context` was kept as text up to
+    2,000 characters a client chose): each of these is a person's words and is kept as its length
+    and digest. On 6a41efe7 each was kept as sent."""
+    from openfactory.observability.audit import AuditRecord
+
+    record = AuditRecord.of(row, actions.SYSTEM, {"project": "nosuch", param: _SENTINEL},
+                            actions.done("fine"), product_of=lambda _: "")
+
+    assert record.params.get(param) == _digest(_SENTINEL), record.params
+    assert _SENTINEL not in repr(record)
+
+
 # ── a store that does not take the record is said; the loop never waits on one ──────────────────
 
 class _RaisingStore:

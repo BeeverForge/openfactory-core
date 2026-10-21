@@ -527,19 +527,20 @@ async def test_a_value_cut_for_the_record_is_cut_in_the_line_and_the_cut_is_said
     its first 2,000 characters with the cut said, and the INFO line saying it was cut is written
     once — not once for the line and again for the record.
 
-    Before, on this branch at 4b644c36, the line printed the 5,000 characters whole."""
+    Before, on this branch at 4b644c36, the line printed the 5,000 characters whole. (`mentioned`,
+    not `context`, since `context` is a person's words and kept as its digest: PR #1039 review.)"""
     sent = "c" * 5_000
 
     with caplog.at_level("INFO"):
         await actions.perform("product_say", by=actions.SYSTEM, project="nosuch", message="hi",
-                              context=sent)
+                              mentioned=sent)
 
     _line, printed = _the_line(caplog)
     [row] = _audit_rows(stored)
-    assert printed["context"] == row.extra["params"]["context"], printed["context"][-60:]
-    assert len(printed["context"]) < len(sent), len(printed["context"])
+    assert printed["mentioned"] == row.extra["params"]["mentioned"], printed["mentioned"][-60:]
+    assert len(printed["mentioned"]) < len(sent), len(printed["mentioned"])
     cut = [r.getMessage() for r in caplog.records
-           if r.name == "openfactory.observability.audit" and "context was 5000" in r.getMessage()]
+           if r.name == "openfactory.observability.audit" and "mentioned was 5000" in r.getMessage()]
     assert len(cut) == 1, f"the cut was said {len(cut)} times for one call (1 expected): {cut}"
 
 
