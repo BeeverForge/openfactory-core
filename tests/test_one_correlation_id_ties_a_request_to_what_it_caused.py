@@ -387,3 +387,60 @@ async def test_scan_writes_it_only_into_the_jobs_it_started(scan_project, stored
     assert found == {"1": 1, "2": 0, "3": 0}, (
         f"events carrying the scan's correlation id {correlation}, per card's journal: {found} "
         f"(only the started card 1 expected)")
+
+
+# ── a journal that cannot be written ────────────────────────────────────────────────────────────
+#
+# Task 28's own sentence: "a journal write failure is logged and does not undo or fail the start —
+# the start happened, announce what happened" (lesson §9). The failure is one an operator can make:
+# `OPENFACTORY_EVENT_SINK` naming a sink no build knows, so building the job's journal raises
+# `ValueError: unknown event sink 'no-such-sink'`. The start must stand, and a WARNING must name the
+# job and that cause; a silent start would be a job whose journal does not say who asked, with
+# nothing anywhere saying why.
+
+UNBUILDABLE_SINK = "no-such-sink"
+
+
+def _not_journalled(caplog, issue: str) -> list:
+    return [r for r in caplog.records
+            if r.levelname == "WARNING" and "OPENFACTORY_START_NOT_JOURNALLED" in r.getMessage()
+            and f"issue={issue}" in r.getMessage() and UNBUILDABLE_SINK in r.getMessage()]
+
+
+async def test_a_start_whose_journal_cannot_be_written_still_starts_and_says_so(
+        start_project, stored, monkeypatch, caplog):
+    """A local `start` whose job journal cannot be built still launches the process, is still
+    `ok`, and logs one WARNING naming the job and the cause. Before #694 nothing was written to the
+    journal at start, so nothing could fail and nothing was logged: this test is red there on the
+    missing warning, which is the half the new write must add."""
+    launched: list = []
+    monkeypatch.setattr("subprocess.Popen", lambda argv, **kw: launched.append(argv))
+    monkeypatch.setenv("OPENFACTORY_EVENT_SINK", UNBUILDABLE_SINK)
+    caplog.set_level("WARNING")
+
+    out = await actions.perform("start", by=actions.SYSTEM, project="demo", issue="7",
+                                sandbox="worktree")
+
+    assert out.ok and len(launched) == 1, out
+    assert len(_not_journalled(caplog, "7")) == 1, [r.getMessage() for r in caplog.records]
+
+
+async def test_a_scan_whose_journals_cannot_be_written_still_starts_every_card(
+        scan_project, stored, monkeypatch, caplog):
+    """`scan` writes one journal per card it started, inside its loop: a journal that cannot be
+    built must not stop the next card from starting, nor turn the scan into a failure. Both cards
+    start, and each is named in its own WARNING. Before #694: both started, nothing was logged."""
+    from tests.test_the_action_layer import _FakeBoard
+
+    monkeypatch.setattr("openfactory.adapters.board.build_board",
+                        lambda *_a, **_kw: _FakeBoard(["1", "2"]))
+    monkeypatch.setattr("openfactory.runtime.temporal.max_concurrent_jobs", lambda: 5)
+    client = _engine(monkeypatch)
+    monkeypatch.setenv("OPENFACTORY_EVENT_SINK", UNBUILDABLE_SINK)
+    caplog.set_level("WARNING")
+
+    out = await actions.perform("scan", by=actions.SYSTEM, project="demo")
+
+    assert out.ok and out.data["started"] == ["1", "2"] and len(client.launched) == 2, out
+    assert [len(_not_journalled(caplog, i)) for i in ("1", "2")] == [1, 1], (
+        [r.getMessage() for r in caplog.records])

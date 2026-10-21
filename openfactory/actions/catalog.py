@@ -416,6 +416,9 @@ async def _scan(*, project: str, by: Actor) -> Outcome:
                 )
                 started.append(issue)
                 claimed += 1
+                # Only here: a card the engine answered `AlreadyStarted` for, or one the floor
+                # deferred, was not started by this scan, and its journal must not say it was.
+                _journal_the_start(proj, issue, by=by)
             except Exception as exc:
                 if "AlreadyStarted" in type(exc).__name__:
                     skipped.append(issue)
@@ -498,6 +501,9 @@ async def _start(*, project: str, issue: str, by: Actor, sandbox: str = "",
     log_dir = project_log_dir(found)
     log_dir.mkdir(parents=True, exist_ok=True)
     out = (log_dir / f"{issue}-run.log").open("w")
+    # Before `Popen`, not after: the detached run appends its own lines to this journal, and the
+    # note saying who started it reads first.
+    _journal_the_start(found, issue, by=by)
     subprocess.Popen(  # noqa: S603 — fixed argv, no shell, every element is ours or validated
         [sys.executable, "-m", "openfactory.cli", "run", found.name, issue, "--sandbox", sandbox],
         stdout=out, stderr=out,
@@ -542,6 +548,7 @@ async def _start_durable(found, issue: str, *, by: Actor, sandbox: str, promote:
         if "AlreadyStarted" in type(exc).__name__:
             return refused(CONFLICT, f"a job for #{issue} is already running.")
         raise
+    _journal_the_start(found, issue, by=by)
     return done(f"#{issue}: durable job started ({wf_id}) — {by} asked.",
                 project=found.name, issue=issue, sandbox=sandbox, durable=True,
                 workflow_id=wf_id)
@@ -1343,6 +1350,26 @@ async def _stop(*, project: str, issue: str, by: Actor, reason: str = "") -> Out
         f"back to the board and a fresh job starts from the beginning, so whatever that run had "
         f"in flight is gone.",
         project=found.name, issue=issue, by=str(by), reason=why, freed=True, settled=settled))
+
+
+def _journal_the_start(project, issue: str, *, by: Actor) -> None:
+    """The started job's journal says who asked and which request it was (#694): one `started`
+    note carrying `by.correlation`, the id the action's audit record carries, so the job's events
+    read back to the click, the command or the scan that caused them. Written by the three paths
+    that start a job: durable `start`, local `start`, and each card `scan` started.
+
+    BEST-EFFORT, LIKE THE STOP'S LINE: the start happened, so a journal that cannot be written is
+    logged by name and the start stands (lesson §9, announce what happened). Measured: with
+    `OPENFACTORY_EVENT_SINK=no-such-sink` building the journal raises `ValueError: unknown event
+    sink 'no-such-sink'`, and a `scan` still started both its cards."""
+    try:
+        from openfactory.observability.job_record import record_started
+
+        record_started(project, issue, by=by, correlation=by.correlation)
+    except Exception as exc:  # noqa: BLE001 — the start stands; only its journal line is missing
+        log.warning("OPENFACTORY_START_NOT_JOURNALLED project=%s issue=%s — the job was started "
+                    "and its journal does not say who asked (%s)", getattr(project, "name", "?"),
+                    issue, str(exc)[:200])
 
 
 def _journal_the_stop(project, issue: str, *, by: Actor, why: str) -> None:

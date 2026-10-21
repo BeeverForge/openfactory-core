@@ -139,3 +139,25 @@ def record_ending(project, issue: str, state: str, *, by: str, note: str = "") -
         ts=now_iso(), job_id=f"#{issue}", ticket_id=f"#{issue}", kind="state", message=state,
         data={"reason": (note or "").strip() or None, "by": by}))
     return state
+
+
+def record_started(project, issue: str, *, by: object, correlation: str) -> None:
+    """Append a job's START to its card's journal: one `note` line, `started`, carrying who asked
+    and the correlation id of the action that started it (#694). RAISES what building the journal
+    raises, as `record_ending` does: each caller decides what a failure means, and every caller in
+    `actions.catalog` logs it and keeps the start.
+
+    WHY THE ACTION WRITES IT, NOT THE JOB. The id ties a request to every record it caused, and
+    the job's events are one of those records. The workflow and `openfactory run` are not told
+    the id (no `JobParams` field, so no replay versioning), so the process that started the job
+    writes the line, as `stop` writes a stopped job's ending from the action process.
+
+    A `note`, NEVER A `state`: `query.outcomes` reads `state` lines that carry a `by` as endings,
+    and a start is not one."""
+    from openfactory.observability.events import JobEvent, now_iso
+    from openfactory.observability.registry import journal_for
+    from openfactory.paths import events_file
+
+    journal_for(events_file(project, issue)).emit(JobEvent(
+        ts=now_iso(), job_id=f"#{issue}", ticket_id=f"#{issue}", kind="note", message="started",
+        data={"by": str(by), "correlation_id": correlation}))
