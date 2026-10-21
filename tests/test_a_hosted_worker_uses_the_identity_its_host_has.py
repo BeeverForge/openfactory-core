@@ -339,46 +339,52 @@ def test_the_remedy_names_all_three_sources(monkeypatch):
 
 # ── 5. the box receives a value, never the declaration ─────────────────────────────────────────
 
+#: A remote launcher that declares nothing, as every launcher did before #903: it is handed
+#: minted tokens only.
+_LAUNCHER = object()
+
+
 def test_a_remote_box_is_handed_the_minted_token_and_not_the_declaration(monkeypatch):
     """A declaration inside a box would ask the metadata endpoint of whatever machine the box runs
     on, from the process that runs agent-written code. The worker mints; the box's options name
     the variable the value travels in, in the declaration's place."""
-    from openfactory.credentials import BOX_TOKEN_ENV, box_credential_env, box_options
+    from openfactory.credentials import BOX_TOKEN_ENV, box_launch_credentials, box_options
 
     _identity(monkeypatch)
     project = _ado(identity="workload", identity_client_id="aaaa")
 
-    options = box_options(project, "forge")
-    env = box_credential_env(project)
+    env, references = box_launch_credentials(project, "fargate", _LAUNCHER)
+    options = box_options(project, "forge", references=references)
 
     assert "identity" not in options and "identity_client_id" not in options
     assert options["token_env"] == BOX_TOKEN_ENV["forge"]
     assert options["organization"] == "acme", "the axis's other options must travel whole (#162)"
     assert env == {BOX_TOKEN_ENV["tracker"]: f"{IDENTITY}:aaaa",
                    BOX_TOKEN_ENV["forge"]: f"{IDENTITY}:aaaa"}
+    assert references == {}, "a minted token is a value, never a reference"
     # …and inside the box, that variable is the axis's credential, through the same resolution.
     monkeypatch.setenv(BOX_TOKEN_ENV["forge"], env[BOX_TOKEN_ENV["forge"]])
     assert ado.token_for(options) == f"{IDENTITY}:aaaa"
 
 
 def test_an_axis_that_declares_nothing_is_handed_to_the_box_as_before(monkeypatch):
-    from openfactory.credentials import box_credential_env, box_options
+    from openfactory.credentials import box_launch_credentials, box_options
 
     project = _ado(token_env="MY_PAT")
 
     assert box_options(project, "forge") == {"organization": "acme", "project": "Deskline",
                                              "token_env": "MY_PAT"}
-    assert box_credential_env(project) == {}
+    assert box_launch_credentials(project, "fargate", _LAUNCHER) == ({}, {})
 
 
 def test_a_declared_identity_that_does_not_answer_launches_no_box(monkeypatch):
     """A box launched without its credential fails inside with a sentence about the wrong thing."""
-    from openfactory.credentials import CredentialUnavailable, box_credential_env
+    from openfactory.credentials import CredentialUnavailable, box_launch_credentials
 
     _identity(monkeypatch, answers=False)
 
     with pytest.raises(CredentialUnavailable, match="forge|tracker"):
-        box_credential_env(_ado(identity="workload"))
+        box_launch_credentials(_ado(identity="workload"), "fargate", _LAUNCHER)
 
 
 def test_a_box_handed_a_declaration_anyway_drops_it(capsys):

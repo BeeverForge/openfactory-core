@@ -108,8 +108,8 @@ def launcher(tmp_path, monkeypatch):
     built: list = []
     real_box_for = acts._box_for
 
-    def box_for(inp):
-        built.append(real_box_for(inp))
+    def box_for(inp, **kw):
+        built.append(real_box_for(inp, **kw))
         return built[-1]
 
     monkeypatch.setattr(acts, "_box_for", box_for)

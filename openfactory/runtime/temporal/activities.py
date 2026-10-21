@@ -20,7 +20,9 @@ import re as _re_module
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -32,7 +34,7 @@ from openfactory.contracts import JobState, RunResult
 from openfactory.contracts.checks import NOTHING_RAN, CiDecision, decide, declares_no_checks
 from openfactory.contracts.checks import read as read_checks
 from openfactory.contracts.refs import SPLIT_CHILD_MARK, canonical_ref, ref_label, ref_sort_key
-from openfactory.credentials import box_credential_env, box_options
+from openfactory.credentials import box_launch_credentials, box_options
 from openfactory.factory import build_runner, resolve_box_image
 from openfactory.observability import logs
 from openfactory.registry import ProjectRegistry
@@ -88,6 +90,9 @@ from openfactory.runtime.temporal.io import (
     TurnInput,
     TurnProgress,
 )
+
+if TYPE_CHECKING:
+    from openfactory.runtime.boxed_job import BoxConfig
 
 
 def _resolved_image(project, *, sandbox: str, explicit: str | None = None) -> str:
@@ -693,7 +698,9 @@ def _do_run_job(inp: RunJobInput, run_id: str | None = None,
 
 
 
-def _box_for(inp: RunJobInput):
+def _box_for(inp: RunJobInput, *, references: dict[str, str] | None = None):
+    """The job's `BoxConfig`. `references` is what `box_launch_credentials` answered for the
+    launch (#903): an axis handed as a reference is read from the variable the launcher fills."""
     from openfactory.runtime.boxed_job import BoxConfig
 
     project = ProjectRegistry().get(inp.project)
@@ -713,8 +720,8 @@ def _box_for(inp: RunJobInput):
         # …AND EACH AXIS'S COORDINATES (#162). Whole, because they are the provider's own
         # vocabulary: `board_owner`/`board_number` above are two keys of GitHub Projects' that an
         # earlier fix hand-picked, and a box told only those cannot build an Azure adapter at all.
-        tracker_options=box_options(project, "tracker"),
-        forge_options=box_options(project, "forge"),
+        tracker_options=box_options(project, "tracker", references=references),
+        forge_options=box_options(project, "forge", references=references),
         review=inp.review,
         resume_handle=inp.resume_handle,  # C2: propagate to the remote box via env
         spent_turns=inp.spent_turns,  # D4: the effort budget's running total
@@ -753,11 +760,32 @@ def _run_remote(inp: RunJobInput, run_id: str | None = None) -> RunResult:
 
     extra_env = ({} if not getattr(project, "knowledge_experiment", False)
                  else arm_env(arm_for(project)))
-    return remote_box(inp.sandbox).launch(
-        _box_for(inp), journal=journal, run_id=run_id,
-        extra_env={**extra_env, **_the_change_env(inp.change, inp.another_pass),
-                   **box_credential_env(project)} or None
+    return _remote_launch(
+        project, inp.sandbox, lambda references: _box_for(inp, references=references),
+        journal=journal, run_id=run_id,
+        extra_env={**extra_env, **_the_change_env(inp.change, inp.another_pass)},
     )
+
+
+def _remote_launch(project, kind: str, build_box: Callable[[dict[str, str]], BoxConfig], *,
+                   extra_env: dict[str, str], **launch) -> RunResult:
+    """THE ONE WAY AN ACTIVITY LAUNCHES ON A REMOTE BOX (#903): the job, a promotion phase, a
+    re-review and a CI repair or adjustment all come through here, so what a launcher is handed
+    cannot differ between them.
+
+    The credentials are asked FIRST, before the box is built and before `launch`: a secret the
+    credential store holds is refused for a launcher that does not declare it resolves references,
+    and that refusal must come before anything was started (docs/engineering-lessons.md §12).
+    `build_box(references)` builds the `BoxConfig` with the same answer, so an axis handed as a
+    reference names the variable the launcher fills. `references=` is passed only when it is
+    non-empty, which `box_launch_credentials` answers only for a declaring launcher: a launcher
+    that declares nothing is called with exactly the keywords every launcher was called with
+    before the declaration existed (`AcmeRunner.launch` takes no `references`)."""
+    runner = remote_box(kind)
+    env, references = box_launch_credentials(project, kind, runner)
+    if references:
+        launch["references"] = references
+    return runner.launch(build_box(references), extra_env={**extra_env, **env} or None, **launch)
 
 
 # ---------------------------------------------------------------------------
@@ -2074,22 +2102,25 @@ def _run_promotion(
                                non_retryable=True)
     project = ProjectRegistry().get(project_name)
     card_repo, bare_issue = _ref_repo(project, issue)  # C-18: promote acts on the card's repo
-    box = BoxConfig(
-        project=project_name,
-        issue=bare_issue,
-        repo=card_repo,
-        board_owner=project.tracker.options.get("board_owner"),
-        board_number=project.tracker.options.get("board_number"),
-        tracker_kind=project.tracker.kind,
-        forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
-        tracker_options=box_options(project, "tracker"),   # #162, as in `_box_for`
-        forge_options=box_options(project, "forge"),
-    )
-    return remote_box(sandbox).launch(
-        box,
+
+    def box(references):
+        return BoxConfig(
+            project=project_name,
+            issue=bare_issue,
+            repo=card_repo,
+            board_owner=project.tracker.options.get("board_owner"),
+            board_number=project.tracker.options.get("board_number"),
+            tracker_kind=project.tracker.kind,
+            forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
+            # #162, as in `_box_for`
+            tracker_options=box_options(project, "tracker", references=references),
+            forge_options=box_options(project, "forge", references=references),
+        )
+
+    return _remote_launch(
+        project, sandbox, box,
         variant=f"-{phase}",
-        extra_env={"OPENFACTORY_PROMOTE_PHASE": phase, **extra_env,
-                   **box_credential_env(project)},
+        extra_env={"OPENFACTORY_PROMOTE_PHASE": phase, **extra_env},
         timeout=1800,  # 30min — below the activity's 40min ceiling (R2)
         run_id=run_id,
     )
@@ -2621,20 +2652,23 @@ def _run_review_pass(inp: ReviewPassInput, run_id: str | None = None) -> RunResu
     from openfactory.paths import events_file
     from openfactory.runtime.boxed_job import BoxConfig
 
-    box = BoxConfig(
-        project=inp.project, issue=inp.issue, repo=repo,
-        board_owner=project.tracker.options.get("board_owner"),
-        board_number=project.tracker.options.get("board_number"),
-        tracker_kind=project.tracker.kind,
-        forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
-        tracker_options=box_options(project, "tracker"),   # #162, as in `_box_for`
-        forge_options=box_options(project, "forge"),
-    )
+    def box(references):
+        return BoxConfig(
+            project=inp.project, issue=inp.issue, repo=repo,
+            board_owner=project.tracker.options.get("board_owner"),
+            board_number=project.tracker.options.get("board_number"),
+            tracker_kind=project.tracker.kind,
+            forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
+            # #162, as in `_box_for`
+            tracker_options=box_options(project, "tracker", references=references),
+            forge_options=box_options(project, "forge", references=references),
+        )
+
     journal = journal_for(events_file(project, inp.issue), dedup=True)
-    return remote_box(inp.sandbox).launch(
-        box, variant="-review",
+    return _remote_launch(
+        project, inp.sandbox, box, variant="-review",
         extra_env={"OPENFACTORY_PR": inp.pr_url, "OPENFACTORY_REVIEW_PASS": "1",
-                   **_the_change_env(inp.change), **box_credential_env(project)},
+                   **_the_change_env(inp.change)},
         journal=journal, timeout=1800, run_id=run_id,
     )
 
@@ -2922,15 +2956,18 @@ def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
     from openfactory.paths import events_file
     from openfactory.runtime.boxed_job import BoxConfig
 
-    box = BoxConfig(
-        project=inp.project, issue=inp.issue, repo=repo,
-        board_owner=project.tracker.options.get("board_owner"),
-        board_number=project.tracker.options.get("board_number"),
-        tracker_kind=project.tracker.kind,
-        forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
-        tracker_options=box_options(project, "tracker"),   # #162, as in `_box_for`
-        forge_options=box_options(project, "forge"),
-    )
+    def box(references):
+        return BoxConfig(
+            project=inp.project, issue=inp.issue, repo=repo,
+            board_owner=project.tracker.options.get("board_owner"),
+            board_number=project.tracker.options.get("board_number"),
+            tracker_kind=project.tracker.kind,
+            forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
+            # #162, as in `_box_for`
+            tracker_options=box_options(project, "tracker", references=references),
+            forge_options=box_options(project, "forge", references=references),
+        )
+
     journal = journal_for(events_file(project, inp.issue), dedup=True)
     # A DIFFERENT VARIANT AND A DIFFERENT FLAG for the human path, so the box knows it is acting
     # on a review comment rather than a red build, and so the launcher's idempotency tag cannot
@@ -2939,9 +2976,9 @@ def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
     extra["OPENFACTORY_ADJUST" if human else "OPENFACTORY_CI_REPAIR"] = "1"
     if human:
         extra["OPENFACTORY_ADJUST_TEXT"] = ci_log
-    passed = remote_box(inp.sandbox).launch(
-        box, variant="-adjust" if human else "-ci-repair",
-        extra_env={**extra, **_the_change_env(inp.change), **box_credential_env(project)},
+    passed = _remote_launch(
+        project, inp.sandbox, box, variant="-adjust" if human else "-ci-repair",
+        extra_env={**extra, **_the_change_env(inp.change)},
         journal=journal, timeout=1800, run_id=run_id,
     )
     # The box hands `code_changed` back on its result line (`boxed_job._emit` dumps the whole

@@ -46,8 +46,9 @@ MUTATIONS = [
 
     ("the worker builds a box with the kind and none of the coordinates", ACT,
      # re-pinned 2026-09-28 (#373): the options travel through `box_options`; same cut.
-     "        tracker_options=box_options(project, \"tracker\"),\n"
-     "        forge_options=box_options(project, \"forge\"),\n"
+     # re-pinned 2026-10-21 (#903): `box_options` is told the launch's references; same cut.
+     "        tracker_options=box_options(project, \"tracker\", references=references),\n"
+     "        forge_options=box_options(project, \"forge\", references=references),\n"
      "        review=inp.review,", "        review=inp.review,"),
 
     ("the two axes share one map again — a Jira board on a GitHub forge", BOX,

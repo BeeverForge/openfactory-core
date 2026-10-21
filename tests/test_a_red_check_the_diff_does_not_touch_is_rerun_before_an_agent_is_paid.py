@@ -144,8 +144,8 @@ def on_the_worker(monkeypatch):
     monkeypatch.setattr(acts, "_ref_repo", lambda _p, _i: ("acme/x", ""))
     monkeypatch.setattr(acts, "_runner_view", lambda _p, _i: (project, ""))
     monkeypatch.setattr(acts, "_resolved_image", lambda _p, sandbox: "")
-    monkeypatch.setattr(acts, "box_options", lambda _p, _axis: {})
-    monkeypatch.setattr(acts, "box_credential_env", lambda _p: {})
+    monkeypatch.setattr(acts, "box_options", lambda _p, _axis, **_k: {})
+    monkeypatch.setattr(acts, "box_launch_credentials", lambda _p, _kind, _runner: ({}, {}))
     monkeypatch.setattr("openfactory.paths.events_file", lambda _p, _i: None)
     monkeypatch.setattr("openfactory.observability.registry.journal_for",
                         lambda *_a, **_k: None)
