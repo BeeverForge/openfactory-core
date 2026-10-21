@@ -3421,8 +3421,9 @@ def serve(
 def bot_token(
     app_id: str = typer.Option(None, help="GitHub App ID (default: OPENFACTORY_GH_APP_ID)"),
     key_path: str = typer.Option(
-        None, envvar="OPENFACTORY_GH_APP_KEY",
-        help="Path to the App .pem (or set OPENFACTORY_GH_APP_KEY_CONTENT with the PEM itself)",
+        None,
+        help="Path to the App .pem; wins over the environment (default: "
+             "OPENFACTORY_GH_APP_KEY_CONTENT, the PEM itself, else OPENFACTORY_GH_APP_KEY, a path)",
     ),
     installation_id: str = typer.Option(
         None, help="Installation ID (default: OPENFACTORY_GH_APP_INSTALLATION_ID)"
@@ -3441,27 +3442,43 @@ def bot_token(
         export OPENFACTORY_BOT_TOKEN=$(openfactory bot-token)
     """
     from openfactory.credentials import app_id as env_app_id
-    from openfactory.credentials import app_installation_id, app_private_key
+    from openfactory.credentials import app_installation_id, app_private_key, app_private_key_at
 
     # THE FLAGS FALL BACK TO THE COMPOSITION ROOT rather than reading the environment themselves
     # (#64). These carried `envvar=`, which made typer the FOURTH independent reader of
     # `OPENFACTORY_GH_APP_ID` / `OPENFACTORY_GH_APP_INSTALLATION_ID` — and the one place a future
-    # per-project
-    # override could never reach, since typer resolves it before any of our code runs. The
-    # explicit flag still wins; `--help` now names the variable in prose instead.
+    # per-project override could never reach, since typer resolves it before any of our code
+    # runs. The explicit flag still wins; `--help` names the variable in prose instead.
     #
-    # `key_path` stays as the flag — a path is what somebody types — but the KEY is resolved by the
-    # composition root, which also accepts the content form a container is handed. This command run
-    # inside the compose worker used to report a missing option while the PEM sat in its
-    # environment.
+    # `--key-path` IS THE THIRD FLAG OF THE SAME RULE (#905). It kept `envvar=` and was never read
+    # after it was bound: the key always came from `app_private_key()`. Measured 2026-10-20, empty
+    # `HOME`, no credential in the environment: `--app-id 1 --installation-id 1 --key-path <a
+    # real PEM>` exited 1 with "need OPENFACTORY_GH_APP_ID, …", naming as missing an id that was
+    # passed. Now an explicit path is the key that signs, ahead of both variables; without it the
+    # composition root resolves the key as before, content form included (the compose worker
+    # holds the PEM itself, not a path). The file is read by `app_private_key_at`, the one reader
+    # of a key file, not here.
     app_id = app_id or env_app_id()
     installation_id = installation_id or app_installation_id()
-    key = app_private_key()
+    if key_path:
+        try:
+            key = app_private_key_at(key_path)
+        except OSError as exc:
+            # A REFUSAL, NEVER A FALLBACK: minting with the environment's key after the operator
+            # named another would "prove" a key nobody asked about. `strerror` is libc's, in the
+            # process's locale; the path is what the operator can act on.
+            typer.echo(f"✗ the App key at {key_path} could not be read ({exc.strerror or exc}) — "
+                       "nothing was minted; pass a readable .pem or leave --key-path out to use "
+                       "the deployment's key", err=True)
+            raise typer.Exit(1) from None
+    else:
+        key = app_private_key()
     if not (app_id and key and installation_id):
         typer.echo(
-            "need OPENFACTORY_GH_APP_ID, OPENFACTORY_GH_APP_INSTALLATION_ID, and the App key as "
-            "either "
-            "OPENFACTORY_GH_APP_KEY (a path) or OPENFACTORY_GH_APP_KEY_CONTENT (the PEM itself)",
+            "need the App id (--app-id or OPENFACTORY_GH_APP_ID), the installation id "
+            "(--installation-id or OPENFACTORY_GH_APP_INSTALLATION_ID), and the App key "
+            "(--key-path, or OPENFACTORY_GH_APP_KEY as a path, or OPENFACTORY_GH_APP_KEY_CONTENT "
+            "as the PEM itself)",
             err=True,
         )
         raise typer.Exit(1)
