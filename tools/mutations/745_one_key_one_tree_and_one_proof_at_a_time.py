@@ -21,9 +21,10 @@ removed the first one's box. FIVE CLAIMS:
      this file (some 230 lines apart), so that cut is not a row; the tree-survives test is what
      would see it.
   4. **The key is held for the whole life of the box, and free again however the proof ends**
-     (rows 13-15): held until the box is cleaned up, then let go whether the proof ended, raised
-     inside, or raised while the checkout was being synced.
-  5. **Every door says the refusal in one sentence and records nothing** (rows 16-18): `box
+     (rows 13-17): held until the box is cleaned up, then let go whether the proof ended, raised
+     inside, or raised while the checkout was being synced; and the hold `box prove --ref` takes
+     itself is let go whether its manifest could not be read or the proof ran (rows 16, 17).
+  5. **Every door says the refusal in one sentence and records nothing** (rows 18-20): `box
      prove`, `box answer`, and onboarding, whose generic refusal cut a long key's sentence at 160
      characters.
 
@@ -175,6 +176,18 @@ MUTATIONS = [
      PROVE,
      "    except BaseException:\n        _let_go(held)\n        raise\n",
      "    except BaseException:\n        raise\n", TWICE),
+
+    ("`box prove --ref` keeps its key when the `--ref` manifest cannot be read, so the project "
+     "is refused as busy until the process ends",
+     CLI,
+     "            _let_go(held)\n            raise typer.Exit(2) from None\n",
+     "            raise typer.Exit(2) from None\n", DOORS),
+
+    ("`box prove --ref` keeps its key after the proof ran, so the project is refused as busy "
+     "until the process ends",
+     CLI,
+     "    finally:\n        _let_go(held)\n    for f in proof.findings:\n",
+     "    finally:\n        pass\n    for f in proof.findings:\n", DOORS),
 
     # ── 5. every door says it in one sentence ──────────────────────────────────────────────────
     ("`box prove` lets the refusal out as a traceback",

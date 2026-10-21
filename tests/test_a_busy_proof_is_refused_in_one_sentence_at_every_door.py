@@ -149,6 +149,47 @@ def test_a_refused_ref_proof_of_another_repository_leaves_its_checkout_alone(tmp
         "the refused --ref proof of org/web removed the running proof's checkout before it was refused")
 
 
+def test_a_ref_proof_lets_its_key_go_however_it_ends(tmp_path, monkeypatch):
+    """`openfactory box prove acme --ref feat` takes the key itself, before its checkout, so it
+    must give it back on every way out: the `--ref` manifest that cannot be read (exit 2) and the
+    proof that ran. Review round 2 of #745 (2026-10-21): removing `_let_go(held)` from either arm
+    left every test green; the hold leaked until the process ended."""
+    import subprocess
+
+    from openfactory import loader
+    from openfactory.util.filelock import FileLock
+
+    monkeypatch.setattr(box_prove, "PROOF_DIR", tmp_path / "proofs")
+    monkeypatch.setenv("OPENFACTORY_REPO_CACHE", str(tmp_path / "cache"))
+    repo = _repository(tmp_path / "acme")
+    subprocess.run(["git", "-C", str(repo), "branch", "feat"], check=True, capture_output=True)
+    monkeypatch.setattr(cli, "_get_project",
+                        lambda _n: SimpleNamespace(name="acme", repo_path=str(repo), box=None))
+    monkeypatch.setattr(cli, "resolve_box_image", lambda *_a, **_kw: "img")
+    monkeypatch.setattr(cli, "_box_kind", lambda _explicit: "container")
+
+    def unreadable(*_a, **_kw):
+        raise ValueError("no manifest on feat")
+
+    lock = FileLock(box_prove.proof_lock_path("acme"))
+    monkeypatch.setattr(loader, "load_manifest", unreadable)
+    result = CliRunner().invoke(cli.app, ["box", "prove", "acme", "--ref", "feat"])
+    assert result.exit_code == 2, result.output
+    assert not lock.held_here(), "a --ref proof whose manifest could not be read kept its key"
+
+    @contextlib.contextmanager
+    def ran(*_a, **_kw):
+        yield None
+
+    monkeypatch.setattr(loader, "load_manifest", lambda *_a, **_kw: SimpleNamespace(
+        base_branch="main", setup=[], validation={}))
+    monkeypatch.setattr(box_prove, "box_probes", ran)
+    monkeypatch.setattr(box_prove, "prove", lambda *_a, **_kw: SimpleNamespace(
+        findings=[], ok=True, valid=True))
+    CliRunner().invoke(cli.app, ["box", "prove", "acme", "--ref", "feat"])
+    assert not lock.held_here(), "a --ref proof that ran kept its key after it ended"
+
+
 def test_box_answer_says_the_proof_is_running(monkeypatch):
     """`openfactory box answer acme` while acme is being proven: one sentence, and no spend
     recorded for a call nobody made."""
