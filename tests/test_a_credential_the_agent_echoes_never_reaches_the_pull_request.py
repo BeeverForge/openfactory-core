@@ -67,6 +67,9 @@ BASIC = "dXNl" + "cjpxN1NFQ1JFVA=="
 #: A SPNEGO and an NTLM negotiate message, base64 as the header carries them.
 SPNEGO = "YIIB" + "hwYGKwYBBQUCoIIBezCCAXeg"
 NTLM_MESSAGE = "TlRMTVNT" + "UAABAAAAB4IIog=="
+#: A Digest `response=` (an MD5 hex) and an AWS SigV4 `Signature=` (a SHA-256 hex).
+DIGEST_RESPONSE = "6629fae4" + "9393a053" + "97450978" + "507c4ef1"
+AWS_SIGNATURE = "5d672d79" + "c15b1316" + "2d9279b0" + "855cfba6" * 2 + "789a8edb" * 3
 DB_PASSWORD = "q7" + "hunter" * 3
 OPAQUE = "q7" + "OPAQUE" * 5
 LINK_PASSWORD = "q7" + "linkpw" * 3
@@ -143,6 +146,25 @@ def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_
     """At 620bb577 none of these values carries a vendor prefix, and `scrub_credentials` returned
     each unchanged: a fix that only calls it would still publish them."""
     _assert_withheld_and_said(_opened(repo, tmp_path, _Says(said)), secret)
+
+
+@pytest.mark.parametrize("said, secret, kept", [
+    (f'{SENTINEL}: it sent Authorization: Digest username="ann", realm="api", nonce="q7nonce", '
+     f'uri="/x", response="{DIGEST_RESPONSE}", qop=auth', DIGEST_RESPONSE, 'Digest username="ann"'),
+    (f"{SENTINEL}: it sent Authorization: AWS4-HMAC-SHA256 "
+     f"Credential=AKIDEXAMPLE/20261021/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, "
+     f"Signature={AWS_SIGNATURE}", AWS_SIGNATURE,
+     "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261021/us-east-1/s3/aws4_request"),
+], ids=["digest", "aws4-hmac-sha256"])
+def test_a_signed_header_withholds_its_secret_parameter_and_keeps_the_rest(
+        repo: Path, tmp_path: Path, said: str, secret: str, kept: str):
+    """Review on 5fe330d2, decision 3: a `Digest` or SigV4 header is a parameter list. At d892b0a3
+    the scheme shape put the marker on its FIRST parameter's name (`Digest [credential
+    withheld]"ann", … response="6629fae4…"`) and quoted the response or signature — a withholding
+    claimed where none happened. Only `response=` and `Signature=` are withheld now; the rest is
+    quoted as written."""
+    quote = _assert_withheld_and_said(_opened(repo, tmp_path, _Says(said)), secret)
+    assert kept in _shown(quote), f"the header's other parameters were not quoted as written: {quote}"
 
 
 # ── criterion 1: the password of a URL ──────────────────────────────────────────────────────────

@@ -15,6 +15,8 @@ Claims:
     digit, `+`, `/`, `=`, or a lowercase letter before an uppercase one), so "Authorization: Basic
     authentication is kept …" is prose; a bare `Bearer` value only when it is 16 token68
     characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN_2` stays prose;
+  - a `Digest` or SigV4 header withholds its `response=` / `Signature=` only, and keeps the rest
+    of its parameter list as written (never the marker on the first parameter's name);
   - the userinfo pattern needs its `@`, so a URL with no userinfo keeps its host, and a userinfo of
     exactly `git` (an SSH remote's user) is no credential;
   - the platform's `_redact` regex (https userinfo only) is no substitute;
@@ -81,8 +83,7 @@ MUTATIONS = [
      '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
      '    r"[\\w.~+/-]{8,}=*"\n', PROSE),
     ("any word is read as an Authorization scheme", MODEL,
-     '(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM"\n'
-     '    r"|AWS4-HMAC-SHA256)',
+     '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',  # re-pinned 2026-10-21: Digest and AWS4 left for _SIGNED_PARAMETER
      "[A-Za-z][\\w-]*", PROSE),
     # review on 28e5da94: the forms the shape's comment claims, each its own cut
     ("a lowercase header name is not read", MODEL,
@@ -107,8 +108,21 @@ MUTATIONS = [
      "|Negotiate|",
      "|"),
     ("NTLM is not a scheme", MODEL,
-     '|NTLM"',
-     '"'),
+     "|NTLM)",
+     ")"),
+    # decision on the review of 5fe330d2: a parameter list withholds its secret parameter only
+    ("Digest's response is quoted", MODEL,
+     '\\bresponse[',
+     '\\bresponse_never['),
+    ("AWS4-HMAC-SHA256's Signature is quoted", MODEL,
+     '\\bSignature[',
+     '\\bSignature_never['),
+    ("Digest is read as a one-token scheme, its first parameter's name withheld", MODEL,
+     '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',
+     '(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM)'),
+    ("AWS4-HMAC-SHA256 is read as a one-token scheme, Credential= withheld", MODEL,
+     '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',
+     '(?:Bearer|Basic|token|Bot|Negotiate|NTLM|AWS4-HMAC-SHA256)'),
     ("a URL with no userinfo loses its host", MODEL,
      '_USERINFO = re.compile(r"(\\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\\s/@]+@")\n',
      '_USERINFO = re.compile(r"(\\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\\s/@]+")\n', PROSE),

@@ -279,26 +279,36 @@ _CREDENTIAL_SHAPES = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}"
     r"|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,})")
 _USERINFO = re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+@")
-#: The value of an `Authorization` header after a scheme named by HTTP or a forge (`Bearer`,
-#: `Basic`, `token`, …), as a header, a `curl -H` or a JSON key writes it, in any case — and a bare
-#: `Bearer <value>` when the value looks like one: 16 characters of the token68 alphabet with a
-#: digit in them, so "the Bearer credential" is prose. The scheme word stays; the value is
-#: withheld. Measured at 620bb577: a JWT after `Authorization: Bearer` came back unchanged, because
-#: only a vendor prefix (`Bearer ghp_…`) was caught (#885). The scheme is NAMED, not any word:
-#: with any word, "Authorization: handled centrally in middleware.py" lost "centrally" (review on
-#: 28e5da94). `$` is outside the alphabet, so `Bearer $GH_TOKEN` names a variable, not a value;
-#: a header value under 8 characters is a word (`Authorization: Bearer token`), not a credential.
-#: And a header value must carry a credential's mark — a digit, a `+`, `/` or `=`, or a lowercase
-#: letter followed by an uppercase one — because an English word after a named scheme is prose:
-#: "Authorization: Basic authentication is kept for the legacy API" lost "authentication" (review
-#: on 5fe330d2). THE COST, ACCEPTED: a header value with none of those marks — letters only, all
-#: lowercase (or all uppercase, or one capital first), no digit — is no longer withheld. Random
-#: tokens, hex with a digit, base64 and JWTs are not shaped like that.
+#: The value of an `Authorization` header after a one-token scheme named by HTTP or a forge
+#: (`Bearer`, `Basic`, `token`, `Bot`, `Negotiate`, `NTLM`), as a header, a `curl -H` or a JSON key
+#: writes it, in any case — and a bare `Bearer <value>` when the value looks like one: 16 characters
+#: of the token68 alphabet with a digit in them, so "the Bearer credential" is prose. The scheme
+#: word stays; the value is withheld. Measured at 620bb577: a JWT after `Authorization: Bearer` came
+#: back unchanged, because only a vendor prefix (`Bearer ghp_…`) was caught (#885). The scheme is
+#: NAMED, not any word: with any word, "Authorization: handled centrally in middleware.py" lost
+#: "centrally" (review on 28e5da94). `$` is outside the alphabet, so `Bearer $GH_TOKEN` names a
+#: variable, not a value; a header value under 8 characters is a word (`Authorization: Bearer
+#: token`), not a credential. And a header value must carry a credential's mark — a digit, a `+`,
+#: `/` or `=`, or a lowercase letter followed by an uppercase one — because an English word after a
+#: named scheme is prose: "Authorization: Basic authentication is kept for the legacy API" lost
+#: "authentication" (review on 5fe330d2). THE COST, ACCEPTED: a header value with none of those
+#: marks — letters only, all lowercase (or all uppercase, or one capital first), no digit — is no
+#: longer withheld. Random tokens, hex with a digit, base64 and JWTs are not shaped like that.
 _AUTHORIZATION = re.compile(
-    r"(\bAuthorization[\"']?\s*[:=]\s*[\"']?(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM"
-    r"|AWS4-HMAC-SHA256)[ \t]+)"
+    r"(\bAuthorization[\"']?\s*[:=]\s*[\"']?(?:Bearer|Basic|token|Bot|Negotiate|NTLM)[ \t]+)"
     r"(?=[\w.~+/-]*(?:\d|[+/=]|(?-i:[a-z][A-Z])))[\w.~+/-]{8,}=*"
     r"|(\bBearer[ \t]+)(?=[\w.~+/-]*\d)[\w.~+/-]{16,}=*", re.IGNORECASE)
+#: The SECRET PARAMETER of a header whose value is a parameter list, not one token: `response=`
+#: after `Digest` (RFC 7616) and `Signature=` after `AWS4-HMAC-SHA256` (AWS SigV4). Only that
+#: parameter is withheld; the username, realm, nonce, URI, `Credential=` and `SignedHeaders=` are
+#: quoted as written. Measured at d892b0a3, with these two schemes in `_AUTHORIZATION`'s list: the
+#: marker landed on the FIRST parameter's name (`Digest [credential withheld]"ann", …
+#: response="6629fae4…"`) and the response stayed — a withholding claimed where none happened
+#: (decision on the review of 5fe330d2). THE COST, ACCEPTED: a second, parameter-level shape to
+#: keep beside the scheme shape; a scheme with a parameter list not named here is not read.
+_SIGNED_PARAMETER = re.compile(
+    r"(\bDigest[ \t]+[^\n]*?\bresponse[ \t]*=[ \t]*\"?)[0-9a-f]{32,}"
+    r"|(\bAWS4-HMAC-SHA256[ \t]+[^\n]*?\bSignature[ \t]*=[ \t]*)[0-9a-f]{64}", re.IGNORECASE)
 #: An environment variable whose value is a secret, by its name.
 _SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE|CREDENTIAL|KEY_CONTENT", re.I)
 WITHHELD_CREDENTIAL = "[credential withheld]"
@@ -306,7 +316,8 @@ WITHHELD_CREDENTIAL = "[credential withheld]"
 
 def scrub_credentials(text: str, *, userinfo: str = "") -> str:
     """`text` with every credential this process holds, and every credential-shaped string —
-    a token by its prefix, the value of an `Authorization` header — withheld. A facts file is read
+    a token by its prefix, the value of an `Authorization` header, a `Digest` response or a SigV4
+    signature — withheld. A facts file is read
     by a model and written to a workspace; a token in one is a token handed to whatever reads that
     directory. The pull request body quotes the agent through it too (#885).
 
@@ -321,6 +332,7 @@ def scrub_credentials(text: str, *, userinfo: str = "") -> str:
     text = _USERINFO.sub(lambda m: m.group(0) if userinfo and m.group(0)[len(m.group(1)):] == "git@"
                          else m.group(1) + userinfo, text)
     text = _AUTHORIZATION.sub(lambda m: (m.group(1) or m.group(2)) + WITHHELD_CREDENTIAL, text)
+    text = _SIGNED_PARAMETER.sub(lambda m: (m.group(1) or m.group(2)) + WITHHELD_CREDENTIAL, text)
     text = _CREDENTIAL_SHAPES.sub(WITHHELD_CREDENTIAL, text)
     for secret in _secrets_of_this_process():
         if secret in text:
