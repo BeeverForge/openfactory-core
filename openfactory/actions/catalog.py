@@ -7915,6 +7915,10 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_import",
             scope=PRODUCT,
+            # WHAT IT WRITES LIVES IN THE CONTEXT (#993, after #992): requirements, facts and
+            # documents, as `product_note_fact`'s and `product_file_attachment`'s do; a product
+            # that started before its code takes its first requirements this way
+            needs_code=False,
             summary="import a folder of requirements, facts and documents into the product under "
                     "its corpus's rules — shows the plan, and lands it on `yes`",
             run=_product_import,
