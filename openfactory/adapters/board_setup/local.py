@@ -1,14 +1,17 @@
-"""Creating the board the platform itself holds — six rows in `board.db` (ADR-0049 D1, D5).
+"""Creating the board the platform itself holds — seven rows in `board.db` (ADR-0049 D1, D5).
 
 WHAT "CREATING A BOARD" MEANS HERE. On a vendor's board it is an API call that mints an object and
-hands back a coordinate; here it is the six columns appearing in this project's rows, in board
+hands back a coordinate; here it is the seven columns appearing in this project's rows, in board
 order, with the platform's own names. There is no second object and therefore no coordinate: the
 port's `create` answers `""` for the first half of its pair, and `init` writes nothing into the
 registry, because there is nothing to point at.
 
 IDEMPOTENT, AND SAYS SO THROUGH `attached`. `openfactory project init` promises whoever re-runs it
 that the board step can be repeated, and this row keeps that promise twice over: it reports the
-columns it already has, and the write itself only fills in what is missing.
+columns it already has, and the write itself only fills in what is missing — in board order,
+renaming nothing. That is how a board made before #753 gets its "Needs Review" row: `init` calls
+`create` on a board that is already attached, because this row says it may
+(`completes_an_attached_board`).
 """
 
 from __future__ import annotations
@@ -18,7 +21,11 @@ from openfactory.adapters.board_db import connect
 
 
 class LocalBoardSetup:
-    """The six columns, for one project, in `board.db`."""
+    """The platform's columns, for one project, in `board.db`."""
+
+    #: `create` IS SAFE ON A BOARD THAT IS ALREADY ATTACHED, and adds the rows it lacks; `init`
+    #: reads this to call it on a re-run. A row whose `create` mints a second board must not say so.
+    completes_an_attached_board = True
 
     def attached(self, project) -> str:
         """A sentence naming the columns this project already has, or `""`."""
@@ -26,7 +33,8 @@ class LocalBoardSetup:
         return f"{len(names)} columns ({', '.join(names)})" if names else ""
 
     def create(self, *, project, owner: str, title: str, token: str | None) -> tuple[str, str]:
-        """Write the six columns; answer `("", <the board's page>)`.
+        """Write the columns this project lacks, place every one in board order; answer
+        `("", <the board's page>)`.
 
         `owner` and `token` ARE ACCEPTED AND UNUSED, which is the port's shape rather than an
         oversight: the caller resolves a credential on the tracker axis for every row and a row
@@ -52,6 +60,13 @@ class LocalBoardSetup:
                 conn.execute(
                     "INSERT OR IGNORE INTO columns(project, key, name, position) VALUES (?,?,?,?)",
                     (name, key, named.get(key) or CANONICAL_COLUMNS[key], position))
+                # AND EVERY ROW TAKES ITS PLACE IN BOARD ORDER, the existing ones included. A board
+                # made before #753 holds six rows at 0-5; the seventh key is fifth in order, so the
+                # INSERT above gives it 4, which Needs Action already holds — and a tie sorts by
+                # insertion, so the board read "Needs Action, Needs Review" (measured 2026-10-21 on
+                # a board written by 1be1835a's `project init`). Only the position is written.
+                conn.execute("UPDATE columns SET position = ? WHERE project = ? AND key = ?",
+                             (position, name, key))
         return "", f"{panel_url()}/p/{name}/board"
 
     def _existing(self, project) -> list[str]:

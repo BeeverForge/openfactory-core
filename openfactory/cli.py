@@ -754,7 +754,7 @@ def project_init(
         setup = plugins.sentence(board_row(project), "setup", "", project)
         typer.echo(f"· board: the {tracker_kind} tracker brings its own — nothing to create"
                    + (f" ({setup})" if setup else ""))
-    elif attached:
+    elif attached and not getattr(create_board, "completes_an_attached_board", False):
         typer.echo(f"· board already attached ({attached})")
     else:
         from openfactory.credentials import deployment_tracker_token, tracker_token
@@ -788,7 +788,16 @@ def project_init(
             # every later read has to special-case.
             if number:
                 reg.attach_board(name, board_owner=owner, board_number=number)
-            typer.echo(f"✓ board created with the platform's columns — {url}")
+            if not attached:
+                typer.echo(f"✓ board created with the platform's columns — {url}")
+            else:
+                # A RE-RUN ON A BOARD THAT WAS THERE ALREADY, on a row whose `create` completes it
+                # rather than minting a second one. Main's re-run skipped `create` here and so never
+                # gave a six-row board its seventh column (measured 2026-10-21); what it added is
+                # said, because a re-run that changed the board in silence is one nobody can check.
+                now = create_board.attached(project)
+                typer.echo(f"✓ board: added the columns it lacked — {now}" if now != attached
+                           else f"· board already attached ({attached})")
 
     # WHICH BRANCH THIS CHECKOUT IS ON, read once: the manifest is scaffolded with it and the
     # closing lines name it. `symbolic-ref --short HEAD` answers on an unborn branch, where

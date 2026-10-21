@@ -23,7 +23,13 @@ class BoardCreator(Protocol):
     platform's own, whose columns are rows in a file — could not be asked the question at all,
     and would have had its board recreated on every re-run of an idempotent command.
 
-    So the row answers both, and `init` compares nothing."""
+    So the row answers both, and `init` compares nothing.
+
+    ONE OPTIONAL ATTRIBUTE, read with `getattr` so a row that predates it stays conformant:
+    `completes_an_attached_board = True` says `create` may be called on a board `attached` already
+    answers, and adds only what that board lacks. `init` then calls it on a re-run, which is how a
+    board made before a column existed gets it. The platform's own row says so; GitHub's does not,
+    because its `create` mints a second board."""
 
     def attached(self, project) -> str:
         """What board this project ALREADY has, as a sentence a person reads, or `""`.

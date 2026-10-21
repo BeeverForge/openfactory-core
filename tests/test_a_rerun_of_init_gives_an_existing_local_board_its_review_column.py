@@ -1,0 +1,130 @@
+"""A re-run of `project init` gives an existing local board its review column (#753, Q1 answer B).
+
+A local board made before #753 has main's six rows in `board.db` — Backlog, TO-DO, In progress,
+In review, Needs Action, Done — and no "Needs Review", so a pull request waiting for a person's
+review keeps landing in Needs Action there (AC3). The human chose (2026-10-21) that such a
+deployment opts in by re-running `openfactory project init`, and that the row lands where a new
+board has it: between In review and Needs Action.
+
+RED BEFORE THIS CHANGE, MEASURED 2026-10-21 on a real six-row board written by main 1be1835a's
+`project init`: the branch's re-run printed `· board already attached (6 columns (Backlog, TO-DO,
+In progress, In review, Needs Action, Done))` and wrote nothing — `cli.py` skipped the setup's
+`create` whenever `attached` answered. And `LocalBoardSetup.create` called directly gave the new
+row position 4, which Needs Action already held, so the board read `… Needs Action, Needs Review,
+Done`: the two columns in the wrong order.
+
+The six rows are written LITERALLY, as `tests/a_pull_request_awaiting_review_on_each_row.py`
+writes them for AC3, with TO-DO renamed the way a deployment may rename it (C-14), so a re-run
+that restored the platform's word would show.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import sys
+
+import pytest
+
+sys.path.insert(0, "tests")
+import one_machine as om  # noqa: E402
+
+from tests.a_pull_request_awaiting_review_on_each_row import MAINS_SIX  # noqa: E402
+
+#: The deployment's own name for `todo`, as a person who renamed it left it.
+RENAMED_TODO = "A Fazer"
+
+
+def _columns(root) -> list[tuple[str, str, int]]:
+    with sqlite3.connect(root / "board.db") as db:
+        return db.execute("SELECT key, name, position FROM columns WHERE project = 'myapp' "
+                          "ORDER BY position ASC").fetchall()
+
+
+def _cards(root) -> list[tuple]:
+    with sqlite3.connect(root / "board.db") as db:
+        return db.execute("SELECT * FROM cards WHERE project = 'myapp' ORDER BY ref").fetchall()
+
+
+@pytest.fixture
+def six_row_board(tmp_path, monkeypatch):
+    """A registered local project whose board is main's six rows, with one card on it."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = om.a_repository(tmp_path)
+    om.a_deployment(tmp_path, monkeypatch=monkeypatch)
+    code, out = om.cli("project", "init", "myapp", str(repo))
+    assert code == 0, out
+    code, out = om.cli("act", "card_create", "-p", "myapp", "-P", "title=Add the feature",
+                       "-P", "body=a card that was on the board before the re-run")
+    assert code == 0, out
+    with sqlite3.connect(tmp_path / "board.db") as db:
+        db.execute("DELETE FROM columns WHERE project = 'myapp'")
+        for position, (key, name) in enumerate(MAINS_SIX):
+            db.execute("INSERT INTO columns(project, key, name, position) VALUES (?,?,?,?)",
+                       ("myapp", key, RENAMED_TODO if key == "todo" else name, position))
+        db.execute("UPDATE cards SET column_key = 'needs_action' WHERE project = 'myapp'")
+    return tmp_path, repo
+
+
+def test_the_rerun_adds_needs_review_between_in_review_and_needs_action(six_row_board):
+    root, repo = six_row_board
+
+    code, out = om.cli("project", "init", "myapp", str(repo))
+
+    assert code == 0, out
+    assert [name for _, name, _ in _columns(root)] == [
+        "Backlog", RENAMED_TODO, "In progress", "In review", "Needs Review", "Needs Action",
+        "Done"], f"the re-run left the six-row board as {_columns(root)}; it said:\n{out}"
+
+
+def test_the_rerun_gives_every_column_a_position_of_its_own(six_row_board):
+    """A tie sorts by insertion order, which is how the measured board read Needs Review AFTER
+    Needs Action: the order the panel shows must not depend on when a row was written."""
+    root, repo = six_row_board
+
+    om.cli("project", "init", "myapp", str(repo))
+
+    positions = [position for _, _, position in _columns(root)]
+    assert len(set(positions)) == len(positions) == 7, f"positions after the re-run: {_columns(root)}"
+
+
+def test_the_rerun_renames_no_column_the_deployment_had(six_row_board):
+    root, repo = six_row_board
+
+    om.cli("project", "init", "myapp", str(repo))
+
+    names = {key: name for key, name, _ in _columns(root)}
+    assert {key: names.get(key) for key, _ in MAINS_SIX} == {
+        key: (RENAMED_TODO if key == "todo" else name) for key, name in MAINS_SIX}, (
+        "a re-run of init renamed a column the deployment had")
+
+
+def test_the_rerun_leaves_the_cards_where_they_were(six_row_board):
+    """The new column is opted into, not back-filled: a card in Needs Action before the re-run is
+    there after it, and the next move of a pull request is what puts one in Needs Review."""
+    root, repo = six_row_board
+    before = _cards(root)
+
+    om.cli("project", "init", "myapp", str(repo))
+
+    assert _cards(root) == before, "a re-run of init touched the cards"
+
+
+def test_the_rerun_says_what_it_added(six_row_board):
+    """`init` is read at a terminal: a re-run that changed the board says so, and names it."""
+    _, repo = six_row_board
+
+    _, out = om.cli("project", "init", "myapp", str(repo))
+
+    assert "Needs Review" in out and "added" in out, out
+
+
+def test_a_second_rerun_on_the_seven_row_board_changes_nothing(six_row_board):
+    root, repo = six_row_board
+    om.cli("project", "init", "myapp", str(repo))
+    seven = _columns(root)
+
+    code, out = om.cli("project", "init", "myapp", str(repo))
+
+    assert code == 0, out
+    assert _columns(root) == seven
+    assert "added" not in out, f"a re-run that changed nothing said it added something:\n{out}"
