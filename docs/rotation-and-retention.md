@@ -302,6 +302,15 @@ a sqlite file instead: `OPENFACTORY_METRICS_DB` when set, else `audit.db` beside
 never a file relative to wherever the shell stood. A store that refuses a row is said in one
 WARNING naming the action and the store; the action's outcome stands.
 
+**Two command lines, two places.** `openfactory` run on the host, outside the compose environment,
+declares no store, so its records — and what `openfactory audit` there reads back — are in
+`audit.db` beside that host's `registry.yaml` (`~/.openfactory/audit.db` by default). Under compose,
+the command line is `docker compose --env-file .env.compose exec worker openfactory …`: it runs with
+the worker's environment, whose `OPENFACTORY_METRICS_SINK=sqlite` and
+`OPENFACTORY_METRICS_DB=/var/lib/openfactory/metrics.db` name the store the panel writes to as well
+(both mount the `openfactory_state` volume there), so the panel's records and the command line's
+are one list. A host command line does not see a compose deployment's records, nor the reverse.
+
 **What a record holds of a person's words.** Nothing readable. A free-text parameter (a message, a
 comment, an instruction, an answer) is kept as its length and its sha256, so the record can prove
 what was sent without holding it (ADR-0024). Passwords, tokens and keys are masked as they are in
