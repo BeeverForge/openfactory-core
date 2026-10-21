@@ -243,13 +243,15 @@ def test_nothing_outside_the_registry_names_this_class():
 def test_the_lifecycle_table_is_the_contracts_not_a_copy():
     """One bucketing for every vendor, and one reading of it. The adapter imported the table by
     identity; it calls the contract's resolver now, so the `needs_person` distinction (#166) is
-    not something each vendor could answer differently."""
+    not something each vendor could answer differently. Since #753 the row calls `column_keys`,
+    the resolver's answer followed by the contract's fallback, so the order in which a
+    deployment's map is tried is not Azure's either."""
     import inspect
 
     from openfactory.adapters.tracker import azure_devops
-    from openfactory.adapters.tracker.base import column_key
+    from openfactory.adapters.tracker.base import column_keys
 
-    assert azure_devops._column_key is column_key
+    assert azure_devops._column_keys is column_keys
     # PROSE STRIPPED FIRST: the paragraph explaining this rule names the very symbol
     # it forbids, which is how a guard comes to fail on its own explanation.
     from conftest import code_only
