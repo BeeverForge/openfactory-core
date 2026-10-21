@@ -26,7 +26,9 @@ The claims, each a group of rows (the numbers are the plan's, `ai/tasks/todo.md`
   the deployment-wide key the records share; and the cost dashboard's project selector and its
   default view, which an audit row under a typed or deployment-wide key moved (fixed 2026-10-21);
   and a caller the panel could not name listed as `-` rather than an empty column (found running
-  `openfactory serve` and a curl by hand, 2026-10-21).
+  `openfactory serve` and a curl by hand, 2026-10-21); and the row's key, the project and the
+  action a caller sent, kept storable (a lone surrogate written as its escape) and bounded to
+  `VALUE_CHARS` (branch review round 1, 2026-10-21).
 
 FOUR GUARDS WERE WRITTEN WITH THIS PLAN (2026-10-20), each for a row nothing held: the record of
 a call raising outside the row's guard, and a store's other kinds read as records — both rows
@@ -370,4 +372,23 @@ MUTATIONS = [
      '                       if (r.get("pk") or r.get("project")) and r.get("kind") != "audit"})\n',
      '                       if (r.get("pk") or r.get("project"))})\n',
      _STORE + "test_audit_rows_in_the_store_do_not_change_the_cost_dashboard"),
+
+    # the row's key is a value the caller sent: storable, and bounded (branch review round 1,
+    # 2026-10-21 — a lone surrogate in it left no record; a million characters of it were kept)
+    ("a lone surrogate in the project reaches the row's key", _AUDIT,
+     '        project = _storable(str(view.get("project") or ""))\n',
+     '        project = str(view.get("project") or "")\n',
+     _STORE + "test_a_lone_surrogate_in_the_rows_key_still_leaves_the_record"),
+    ("a lone surrogate in the action reaches the row's key", _AUDIT,
+     "        action = _storable(asked)[:VALUE_CHARS]\n",
+     "        action = asked[:VALUE_CHARS]\n",
+     _STORE + "test_a_lone_surrogate_in_the_rows_key_still_leaves_the_record"),
+    ("the record's project is the parameter as sent, uncut", _AUDIT,
+     '        project = _storable(str(view.get("project") or ""))\n',
+     '        project = _storable(str(params.get("project") or ""))\n',
+     _STORE + "test_the_project_a_caller_typed_is_kept_to_the_bound_like_any_value"),
+    ("the record's action is the name as asked, uncut", _AUDIT,
+     "        action = _storable(asked)[:VALUE_CHARS]\n",
+     "        action = _storable(asked)\n",
+     _STORE + "test_the_action_name_a_caller_typed_is_kept_to_the_bound_like_any_value"),
 ]

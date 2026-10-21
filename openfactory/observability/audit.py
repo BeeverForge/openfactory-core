@@ -165,6 +165,12 @@ def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
     return kept
 
 
+def _storable(text: str) -> str:
+    """`text` as a store can key a row by: each lone surrogate written as its escape (`\\ud800`),
+    every other character as it is — sqlite binds a key column as strict UTF-8 and refuses one."""
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
 def _product_of(name: str) -> str:
     """The product a registry project belongs to (`product_key`, ADR-0051), or `""` when it is not
     linked to a context repository or the registry does not know the name.
@@ -213,7 +219,8 @@ class AuditRecord:
     provider: str
     #: Which transport carried the request (`Actor.via`: `panel`, `slack`, `cli`, …).
     via: str
-    #: The action as `perform` resolved it (lower-cased, stripped), or as asked when no row has it.
+    #: The action as `perform` resolved it (lower-cased, stripped), or as asked when no row has
+    #: it — cut to `VALUE_CHARS`, a lone surrogate written as its escape (it is in the row's key).
     action: str
     #: What was passed, as `_kept` keeps it: every `SECRET` value masked by `redact`, a person's
     #: words (`actions.base.FREE_TEXT`) as `{"chars", "sha256"}`, other values cut to `VALUE_CHARS`.
@@ -230,7 +237,9 @@ class AuditRecord:
     #: Which deployment wrote the record (`deployment()`): the operator's name for it, else the
     #: engine's namespace.
     deployment: str
-    #: The `project` parameter as passed (`""` when the action takes none), and its product.
+    #: The `project` parameter as `_kept` keeps it — cut to `VALUE_CHARS`, a lone surrogate
+    #: written as its escape, because it is also the row's key (`""` when the action takes none) —
+    #: and its product.
     project: str
     product: str
     #: When, ISO-8601 in UTC.
@@ -252,9 +261,21 @@ class AuditRecord:
         # carries the call's correlation id, and that copy is still the factory.
         system = by is SYSTEM or dataclasses.replace(by, correlation="") == SYSTEM
         provider = "system" if system else (by.subject.via if by.subject else "")
-        project = str(params.get("project") or "")
-        action = (name or "").strip().lower() or name
+        # THE ROW'S KEY IS BOUNDED AND STORABLE TOO. `metric_of` makes `project` the row's `pk`
+        # and `action` part of its `sk`, which sqlite binds as strict UTF-8 — unlike `data`, which
+        # `json.dumps` escapes. On cd7dbcd3 both were taken as sent: a lone surrogate in either
+        # (`"nosuch\ud800"`) made the store refuse the row, so the call left no record, and a
+        # 1,000,000-character project wrote a 1,000,000-character `pk` and grew `audit.db` to
+        # 7,041,024 bytes from one request (branch review of 2026-10-21, a real `openfactory
+        # serve`). So `project` is read from the view, which `_kept` has already cut to
+        # `VALUE_CHARS`, and `action` is cut the same way.
+        asked = (name or "").strip().lower() or name
+        action = _storable(asked)[:VALUE_CHARS]
+        if len(asked) > VALUE_CHARS:
+            log.info("audit: an action name of %d characters was asked; the record keeps the "
+                     "first %d", len(asked), VALUE_CHARS)
         view = dict(kept) if kept is not None else _kept(action, params)
+        project = _storable(str(view.get("project") or ""))
         return cls(
             record_id=uuid.uuid4().hex,
             actor_id=by.id,

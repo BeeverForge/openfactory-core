@@ -773,3 +773,51 @@ async def test_audit_rows_in_the_store_do_not_change_the_cost_dashboard(store):
     assert (shown["projects"], shown["project"], shown["totals"]["cost_usd"]) == (
         ["books"], "books", 0.5), "an audit row moved the dashboard's selector or its default view"
     assert shown["autonomy"] == autonomy(spend_only, "books"), "the autonomy block read audit rows"
+
+
+@pytest.mark.parametrize(("name", "params"), [
+    ("product_status", {"project": "nosuch\ud800"}),
+    ("teleport\ud800", {}),
+], ids=["in_the_project", "in_the_action"])
+async def test_a_lone_surrogate_in_the_rows_key_still_leaves_the_record(store, name, params):
+    """Criterion 2, "every call leaves a record": a JSON body or a path may carry a lone surrogate,
+    and the project and the action are the row's key (`pk`, `sk`), which sqlite binds as strict
+    UTF-8. On cd7dbcd3 the store refused the row (`'utf-8' codec can't encode character '\\ud800'
+    … surrogates not allowed`), `perform` logged one WARNING and the call had 0 records — measured
+    by the branch review on a real `openfactory serve`, `POST /api/act/product_status` with
+    `{"project":"nosuch\\ud800"}`: 404 and no line in `openfactory audit`. Now it is recorded."""
+    await actions.perform(name, by=actions.Actor(id="eve", via="panel"), **params)
+
+    rows = _audit_rows(store)
+    assert len(rows) == 1, f"{len(rows)} audit records for one call (1 expected)"
+
+
+async def test_the_project_a_caller_typed_is_kept_to_the_bound_like_any_value(store):
+    """Q11, "every value is bounded": the project is a value the caller sent, and it is the row's
+    key and a field of its own — a million characters of it are kept to `VALUE_CHARS`, in the key
+    and in the record. On cd7dbcd3 only `params.project` was cut: one `POST /api/act/
+    product_status` with a 1,000,000-character project wrote a `pk` of 1,000,000 characters and
+    `data` of 3,003,108, and grew `audit.db` to 7,041,024 bytes (branch review, measured)."""
+    from openfactory.observability.audit import VALUE_CHARS
+
+    await actions.perform("product_status", by=actions.Actor(id="eve", via="panel"),
+                          project="p" * 1_000_000)
+
+    [row] = _audit_rows(store)
+    assert len(row["pk"]) <= VALUE_CHARS + 64, f"the row's key is {len(row['pk'])} characters"
+    assert len(row["extra"]["project"]) <= VALUE_CHARS + 64, (
+        f"the record's project is {len(row['extra']['project'])} characters")
+
+
+async def test_the_action_name_a_caller_typed_is_kept_to_the_bound_like_any_value(store):
+    """Q11, "every value is bounded": an action nobody registered is recorded as asked, and the
+    action is part of the row's key (`sk`) and a field of its own — a million characters of it are
+    kept to `VALUE_CHARS`. On cd7dbcd3 the name was kept whole, as the project was (see above)."""
+    from openfactory.observability.audit import VALUE_CHARS
+
+    await actions.perform("t" * 1_000_000, by=actions.Actor(id="eve", via="panel"))
+
+    [row] = _audit_rows(store)
+    assert len(row["sk"]) <= VALUE_CHARS + 128, f"the row's key is {len(row['sk'])} characters"
+    assert len(row["extra"]["action"]) <= VALUE_CHARS, (
+        f"the record's action is {len(row['extra']['action'])} characters")
