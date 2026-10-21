@@ -129,7 +129,10 @@ def test_a_github_token_in_the_agents_message_is_withheld_and_the_body_says_so(
      HEX_TOKEN),
     (f'{SENTINEL}: the client sends {{"Authorization": "token {HEX_TOKEN}"}}', HEX_TOKEN),
     (f"{SENTINEL}: set Authorization=Basic {BASIC} in the env file", BASIC),
-], ids=["bearer-jwt", "curl-token-hex", "bare-bearer", "lowercase-header", "json-key", "equals"])
+    # review on 5fe330d2: a scheme the comment names and nothing held (a Discord bot's header)
+    (f"{SENTINEL}: sent Authorization: Bot {HEX_TOKEN}", HEX_TOKEN),
+], ids=["bearer-jwt", "curl-token-hex", "bare-bearer", "lowercase-header", "json-key", "equals",
+        "bot"])
 def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_and_the_body_says_so(
         repo: Path, tmp_path: Path, said: str, secret: str):
     """At 620bb577 none of these values carries a vendor prefix, and `scrub_credentials` returned
