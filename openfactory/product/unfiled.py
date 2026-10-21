@@ -27,10 +27,12 @@ BROKEN_DOWN_AGAIN = "broken_down_again"
 
 def not_filed(results) -> list[str]:
     """The module's sentence for each front a breakdown did not file — never a card that landed,
-    one that already existed, or the module's verdict that nothing is to be built (#182)."""
+    one that already existed, the module's verdict that nothing is to be built (#182), or that
+    the product's code has not started (#992)."""
     return [str(getattr(r, "detail", "") or "").strip()
             for r in results or []
             if not getattr(r, "ok", False) and not getattr(r, "nothing_to_build", False)
+            and not getattr(r, "waits_for_code", False)
             and str(getattr(r, "detail", "") or "").strip()]
 
 

@@ -128,6 +128,17 @@ both credentials that will open it. `product init <name> --create-context --writ
 where the credential may. A credential that may NOT create says so and names `declare` — the
 enterprise shape where repository creation is somebody else's process.
 
+**A product before its code** — `product start <name> <context-repository>` registers a project
+with its context repository and NO code repository (GitHub `owner/repo`, the Azure DevOps clone
+URL, or on one machine a short name, created when it does not exist), and reads the context back.
+Its product owner's conversation, its requirements and its context work at once; everything that
+needs code refuses it by name — the action rows that do (`no_code_yet`), pickup, `box prove`,
+`run`, `poll`, `project init` — and the doctor says the state in one `code` line. `product
+first-source <name> <path-or-url>` gives it its code repository, on the forge its context is on:
+the first entry of `sources:` in the context, then the registry — and the breakdown needs no
+other step. Both are action rows (`product_start`, `product_first_source`), the same on
+`POST /api/act/{name}`. Walked in [ONBOARDING §9b](../ONBOARDING.md).
+
 **The box proof** — `box prove <name>` runs the project's own `setup:` and `validate:` inside
 the real box and saves the verdict; `box status <name>` says whether it still holds, what moved
 if not, and **what the proof is pinned to** (the box's toolchain — a rebuild that leaves it

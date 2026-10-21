@@ -16,6 +16,8 @@ The guard under test is `tests/test_the_context_repository_exists_on_this_runtim
 TEST = "tests/test_the_context_repository_exists_on_this_runtime.py"
 
 CLI = "openfactory/cli.py"
+#: the seed itself, since #992: `product start` seeds a context the same way, with no source in it
+SEED = "openfactory/product/onboard.py"
 
 MUTATIONS = [
     ("nothing is created, so the module the platform switched on has nowhere to read", CLI,
@@ -27,21 +29,23 @@ MUTATIONS = [
      "    if registered_local_kind == \"local\":\n        _seed_the_context_repository(name)",
      "    if False:\n        _seed_the_context_repository(name)", TEST),
 
+    # RE-PINNED (#992): the seed moved from `cli._seed_the_context_repository` to
+    # `product.onboard.seed_context_repository`, which the CLI's verb now calls.
     ("the early return asks whether THIS run made it, so a repository with no commit is left",
-     CLI,
-     '        if has_a_commit.returncode == 0:\n            return',
-     '        if not created:\n            return', TEST),
+     SEED,
+     '    if has_a_commit.returncode == 0:\n        return created, ""',
+     '    if not created:\n        return created, ""', TEST),
 
     ("a repository that was only finished is reported as created", CLI,
      '        typer.echo(f"✓ context repository {\'created\' if created else \'seeded\'} for the product "',
      '        typer.echo(f"✓ context repository created for the product "', TEST),
 
-    ("the repository is created and left EMPTY — a checkout of `main` fails as before", CLI,
-     '            git("push", "-q", "origin", "HEAD:main")', "            pass", TEST),
+    ("the repository is created and left EMPTY — a checkout of `main` fails as before", SEED,
+     '        git("push", "-q", "origin", "HEAD:main")', "        pass", TEST),
 
-    ("the seed says nothing about which product it is for", CLI,
-     '            seed.write_text(f"product: {name}\\nsources:\\n  - {name}\\n"',
-     '            seed.write_text(f"sources:\\n  - {name}\\n"', TEST),
+    ("the seed says nothing about which product it is for", SEED,
+     '        seed.write_text(f"product: {name}\\nsources:{listed}\\n"',
+     '        seed.write_text(f"sources:{listed}\\n"', TEST),
 
     ("the source repository stops naming the context back, and the pair is half-declared", CLI,
      '                    scaffold += f"docs_repo: {name}-context\\n"',

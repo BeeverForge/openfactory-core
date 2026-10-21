@@ -124,6 +124,14 @@ def resolve_repo_path(project, *, token: str | None = None, cache_key: str | Non
     one it already minted instead of paying for a second.
     """
     raw = (project.repo_path or "").strip()
+    # NO CODE IS NOT THE CURRENT DIRECTORY (#992). A product that started before its code has no
+    # `repo_path`, and `Path("")` is `.` — every caller below would read whatever directory the
+    # process stands in as the project's code. Refused here, where every reader of the code
+    # passes, with the way through.
+    from openfactory.contracts.project import NoCodeYet, before_its_code
+
+    if before_its_code(project):
+        raise NoCodeYet(getattr(project, "name", "") or "the project")
     if not looks_like_a_clone_url(raw):
         local = Path(raw).expanduser()
         # A REF ON A LOCAL PATH USED TO BE SILENTLY IGNORED, and that is the one thing this

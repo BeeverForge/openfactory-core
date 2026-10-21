@@ -505,3 +505,53 @@ class Project(BaseModel):
         if self.ci is None:
             self.ci = self.forge
         return self
+
+
+def before_its_code(project) -> bool:
+    """Whether this project's product has started and its code has not (#992): the registry names
+    no code repository for it, and its context repository is where everything it has lives.
+
+    ONE FIELD DECIDES, `repo_path`, because it is the one every door writes and every consumer of
+    the code reads: the box clones it, the worktree box opens it, the poller's jobs fetch from it.
+    The axes cannot decide — a local project names its own name as their `repo`, whether or not it
+    has a repository behind it — and `sources:` cannot either: the context repository lists what
+    the product is made of, and the registry, not a file anybody can push to, says where this
+    deployment's credential writes code (ADR-0019 §8).
+
+    A STATE, NOT A DEFECT. The product owner's conversation, the requirements and the context work
+    on such a project; what needs code — a breakdown into cards, a job, a pickup, a box — waits for
+    its first source and says so (`openfactory product first-source`). `ProjectRegistry.add`
+    refuses a project that has neither a code repository nor a context repository, so a project
+    this answers true for always has somewhere its product lives.
+
+    ASKED OF THE FIELD, NOT OF ITS ABSENCE: a stand-in that carries no `repo_path` string at all —
+    a double, a reading of something that is not a registry entry — is not judged, and answers
+    false. Only a registry entry that says, in the field, that it has no code is before it."""
+    repo = getattr(project, "repo_path", None)
+    return isinstance(repo, str) and not repo.strip()
+
+
+def no_code_yet(name: str, waiting: str = "") -> str:
+    """The sentence every door says when something that needs a project's code is asked of a
+    project that started before it — `waiting` names what waits, when the door knows. ONE
+    SENTENCE, so the action layer, the command line and the code's own resolver cannot name the
+    way through three ways (#992)."""
+    what = f", so {waiting} waits for one" if waiting else ""
+    return (f"{name} has no code repository yet — its product started before its code{what}. "
+            f"Its first source gives it one: the `product_first_source` action (`openfactory "
+            f"product first-source {name} <repository>`). Its product owner's conversation, its "
+            f"requirements and its context work meanwhile.")
+
+
+class NoCodeYet(FileNotFoundError, ValueError):
+    """The code of a project whose product started before it was asked for (#992).
+
+    IT TRAVELS THE ROAD A MISSING MANIFEST TRAVELS. Before any code is registered, the absence
+    every reader of a project's code already handles is "there is no manifest" — a
+    `FileNotFoundError` from `loader.load_manifest` — and the readers that parse one handle a
+    `ValueError`. Being both, this reaches every one of them as the reason the code could not be
+    read, never as a crash on a path nobody wrote for it, and its sentence names the way through."""
+
+    def __init__(self, name: str, waiting: str = "") -> None:
+        super().__init__(no_code_yet(name, waiting))
+        self.project = name

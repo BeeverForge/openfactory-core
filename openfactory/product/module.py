@@ -2998,6 +2998,17 @@ class ProductModule:
         from openfactory.product.voice import breakdown_said
 
         lang = getattr(self.project, "language", None)
+        # THE SINK ASKS AS WELL AS THE DOORS (#992), the rule `break_down` keeps for a reading of
+        # the code: every door into a breakdown already says a product with no code repository
+        # waits, and this is what stops the door nobody has written yet — before a model is asked
+        # to draft cards nothing could be worked in, and before a tracker is built for nothing.
+        from openfactory.contracts.project import before_its_code
+
+        if before_its_code(self.project):
+            from openfactory.product.voice import breakdown_waits_for_code
+
+            return [WriteResult(ok=False, waits_for_code=True, detail=breakdown_waits_for_code(
+                number=getattr(requirement, "number", 0), language=lang))]
 
         # THE BOARD, READ ONCE AND USED TWICE. `_role()` puts it in the decomposition's prompt and
         # this set verifies every `already_on_board` the decomposition answers with. Priming

@@ -196,7 +196,6 @@ def project_add(
     DevOps: the dev.azure.com clone URL carries the organisation, project and repository, so
     registering with it needs no coordinate flags (docs/setup/azure-devops.md is the whole
     walkthrough). Split setups (e.g. Jira tickets + GitHub code) are edited in the registry."""
-    ado = doors.ado_coordinates(repo_path)
     # WHOSE HOST IS IT — asked HERE too, since ADR-0049 D2. `project init` has refused a foreign
     # host by name since #162 and this door, one command along in the same help text, wrote it as
     # GitHub: the same URL, two answers, and the wrong one reaches `factory._authenticated`, which
@@ -209,61 +208,27 @@ def project_add(
     if foreign:
         typer.echo(_foreign_refusal(foreign, provider))
         raise typer.Exit(2)
-    # THE KIND THIS ADDRESS IS, on every axis (D2). A bare filesystem path is `local` — the person's
-    # own repository, no account anywhere — and a path handed WITH coordinates keeps the hosted
-    # kind, because a mounted checkout of a hosted repository is a shape that runs today.
-    kind = doors.kind_for(repo_path, repo=repo or "", provider=provider or "")
+    # THE KIND THIS ADDRESS IS, on every axis (D2), and the axes it writes — `doors.axes_for`,
+    # the one answer this door and a product's first source share (#992). A bare filesystem path
+    # is `local` — the person's own repository, no account anywhere — and a path handed WITH
+    # coordinates keeps the hosted kind, because a mounted checkout of a hosted repository is a
+    # shape that runs today.
+    try:
+        axes = doors.axes_for(name, repo_path, provider=provider or "", repo=repo or "",
+                              organization=organization or "", ado_project=ado_project or "",
+                              repository=repository or "", work_item_type=work_item_type or "",
+                              token_env=token_env or "", board_owner=board_owner or "",
+                              board_number=board_number or "")
+    except doors.MissingCoordinates as exc:
+        typer.echo(f"✗ an Azure DevOps project needs its coordinates and "
+                   f"{', '.join(exc.missing)} could not be read from {repo_path!r}")
+        # vendor-url-ok: this is help text SHOWING A HUMAN the shape to paste, not a URL this
+        # platform builds and sends anybody to.
+        typer.echo("  the clone URL of an Azure DevOps repository carries all three: "
+                   "https://dev.azure.com/<organization>/<project>/_git/<repository>")
+        raise typer.Exit(2) from None
     reg = ProjectRegistry()
-    kwargs: dict = {"name": name, "repo_path": repo_path}
-
-    if kind == "azure_devops":
-        # THE URL IS THE DECLARATION. `https://dev.azure.com/<org>/<project>/_git/<repo>` names
-        # all three coordinates, so asking for them again is asking the operator to re-type what
-        # they just pasted — the funnel review measured that NO flag combination could produce a
-        # valid ADO entry at all, which hard-stopped scenario B at registration.
-        org = organization or ado[0]
-        proj = ado_project or ado[1]
-        repo_name = repository or repo or ado[2]
-        missing = [flag for flag, value in (("--organization", org), ("--ado-project", proj),
-                                            ("--repository", repo_name)) if not value]
-        if missing:
-            typer.echo(f"✗ an Azure DevOps project needs its coordinates and {', '.join(missing)} "
-                       f"could not be read from {repo_path!r}")
-            # vendor-url-ok: this is help text SHOWING A HUMAN the shape to paste, not a URL this
-            # platform builds and sends anybody to.
-            typer.echo("  the clone URL of an Azure DevOps repository carries all three: "
-                       "https://dev.azure.com/<organization>/<project>/_git/<repository>")
-            raise typer.Exit(2)
-        tracker_options: dict[str, str] = {"organization": org}
-        forge_options: dict[str, str] = {"organization": org, "project": proj}
-        if work_item_type:
-            tracker_options["work_item_type"] = work_item_type
-        if token_env:
-            tracker_options["token_env"] = token_env
-            forge_options["token_env"] = token_env
-        # The tracker's `repo` is the ADO PROJECT (work items live in a project, not a repo); the
-        # forge's is the git repository inside it. Collapsing the two is how a three-repo product
-        # sends the agent to the wrong tree — the axes really do name different things here.
-        kwargs["tracker"] = ProviderRef(kind="azure_devops", repo=proj, options=tracker_options)
-        kwargs["forge"] = ProviderRef(kind="azure_devops", repo=repo_name, options=forge_options)
-    elif kind == "local":
-        # EVERY AXIS, SPELLED (D2). A row-less axis inherits `ProviderRef`'s `github` default, and
-        # a local project that inherited it would be handed the deployment's GitHub credential and
-        # asked to open a pull request on a repository nobody named. `repo` is the project's own
-        # name because four consumers need it non-empty (the tech-lead's conversation and
-        # diagnosis, the product board, the knowledge pipeline).
-        local = {"kind": "local", "repo": name, "options": {}}
-        kwargs["tracker"] = ProviderRef(**local)
-        kwargs["forge"] = ProviderRef(**local)
-        kwargs["ci"] = ProviderRef(kind="none", repo=name, options={})
-    else:
-        options: dict[str, str] = {}
-        if board_owner and board_number:
-            options = {"board_owner": board_owner, "board_number": board_number}
-        if token_env:
-            options["token_env"] = token_env
-        inferred = repo or (doors.infer_repo(repo_path) or None if kind == "github" else None)
-        kwargs["tracker"] = ProviderRef(kind=kind, repo=inferred, options=options)
+    kwargs: dict = {"name": name, "repo_path": repo_path, **axes}
 
     if language:
         kwargs["language"] = language
@@ -665,7 +630,9 @@ def project_init(
     anything still missing."""
     reg = ProjectRegistry()
     try:
-        project = reg.get(name)
+        # BEFORE ITS CODE, NOTHING HERE APPLIES (#992): a board for cards nothing can work, and a
+        # manifest scaffolded into `repo_path` — empty, the directory this command stands in
+        project = _with_its_code(reg.get(name), "setting up its board and manifest")
         typer.echo(f"· {name} is already registered")
     except KeyError:
         if not repo_path:
@@ -1371,7 +1338,7 @@ def box_prove_cmd(
     """
     from openfactory.box_prove import PROOF_DIR, box_probes, load, prove, save
 
-    project = _get_project(name)
+    project = _with_its_code(_get_project(name), "proving its box")
     proof_key = name
     view = project
     if repo:
@@ -3573,7 +3540,7 @@ def run(
     review: bool = typer.Option(True, help="Run the independent reviewer (D-5)"),
 ) -> None:
     """Drive one ticket through the state machine."""
-    project = _get_project(name)
+    project = _with_its_code(_get_project(name), "running a ticket")
     # C-18 HERE TOO. This called `build_runner(project, …)` with the raw registry entry, so a card
     # naming its own repository was edited in the DEFAULT one. The durable path applied the view;
     # the CLI did not — and the CLI is what an operator uses to try the platform, and what an
@@ -3618,7 +3585,7 @@ def poll(
     from openfactory.credentials import deployment_tracker_token, tracker_token_for
     from openfactory.scheduler import ready_to_resume
 
-    project = _get_project(name)
+    project = _with_its_code(_get_project(name), "picking up its cards")
     if not project.enabled:
         typer.echo(f"{name}: framework OFF — nothing picked up")
         return
@@ -3725,50 +3692,17 @@ def _seed_the_context_repository(name: str) -> None:
     BEST-EFFORT, AND LOUD WHEN IT FAILS: registration has already happened and is worth keeping,
     so this never raises — but a person whose product module is off deserves the reason here
     rather than in a doctor line an hour later."""
-    import subprocess
-    import tempfile
-
-    from openfactory.adapters.forge.base import RepositoryCreatingForge
-    from openfactory.adapters.forge.registry import build_forge
+    from openfactory.product.onboard import seed_context_repository
     from openfactory.registry import ProjectRegistry
 
     try:
-        project = ProjectRegistry().get(name)
-        forge = build_forge(project)
-        if not isinstance(forge, RepositoryCreatingForge):
+        # THE MECHANISM MOVED TO `product.onboard` (#992), because a second door seeds one now: a
+        # product started before its code on this runtime is given its context the same way, with
+        # no source in it. This project has code, so its own repository is the one source.
+        created, where = seed_context_repository(ProjectRegistry().get(name), f"{name}-context",
+                                                 sources=[name])
+        if not where:
             return
-        docs = f"{name}-context"
-        # IDEMPOTENT ON BOTH HALVES (review of #106). `create_repository` already answers
-        # "already there" normally, and the question that decides whether there is anything left
-        # to do is whether the base branch has a COMMIT — not whether this run is the one that
-        # made the directory. A seed that failed once left a bare repository with no commit and no
-        # way forward: the registry had the `product:` section, so `create_context_repository`'s
-        # callers were shut out by their own `if not docs_repo`, and this function returned early
-        # for ever. The doctor then said the module was "enabled but unusable" on a machine whose
-        # only problem was one failed push.
-        _, created = forge.create_repository(name=docs)
-        where = forge.clone_url(docs)
-        has_a_commit = subprocess.run(["git", "-C", where, "rev-parse", "--verify", "main"],
-                                      capture_output=True, text=True, check=False)
-        if has_a_commit.returncode == 0:
-            return
-        with tempfile.TemporaryDirectory() as tmp:
-            def git(*args: str, cwd: str = tmp) -> None:
-                subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
-                               check=True, timeout=60)
-
-            subprocess.run(["git", "clone", "--no-local", "-q", where, tmp], capture_output=True,
-                           text=True, check=True, timeout=60)
-            seed = Path(tmp) / namespace.DIR / "product.yaml"
-            seed.parent.mkdir(parents=True, exist_ok=True)
-            seed.write_text(f"product: {name}\nsources:\n  - {name}\n"
-                            f"requirements_dir: requirements\n", encoding="utf-8")
-            (Path(tmp) / "requirements").mkdir(exist_ok=True)
-            (Path(tmp) / "requirements" / ".gitkeep").write_text("", encoding="utf-8")
-            git("add", "-A")
-            git("-c", "user.email=bot@openfactory.local", "-c", "user.name=OpenFactory Bot",
-                "commit", "-qm", f"{name}: the product's own context repository")
-            git("push", "-q", "origin", "HEAD:main")
         # WHICH OF THE TWO IT DID. "Created" over a repository that was already there — because a
         # push failed last time and this run finished the job — is the kind of small untruth that
         # makes a person doubt the rest of the output.
@@ -3798,6 +3732,22 @@ def _get_project(name: str):
                    f"`openfactory project add {name} <path-or-clone-url> --repo <org>/<repo>` "
                    f"first. Registered here: {_registered_here(reg, refusing=name)}.")
         raise typer.Exit(2) from None
+
+
+def _with_its_code(project, waiting: str):
+    """`project`, or the sentence a project before its code is owed and exit 1 (#992).
+
+    FOR THE VERBS THAT ARE NOT ROWS YET. A catalogue row that needs the code is refused by
+    `perform` (`ActionSpec.needs_code`); these verbs read the code without one, and on a project
+    whose product started before its code they would read `repo_path` — empty, which is the
+    current directory to `Path` — as if it were the product. `factory.resolve_repo_path` refuses
+    underneath them; this says it first, in the sentence every door says."""
+    from openfactory.contracts.project import before_its_code, no_code_yet
+
+    if before_its_code(project):
+        typer.echo(f"✗ {no_code_yet(project.name, waiting)}")
+        raise typer.Exit(1)
+    return project
 
 
 def _registered_here(reg, *, refusing: str) -> str:
@@ -4484,6 +4434,12 @@ def product_accept_cmd(
         # command, and naming it here is what keeps the way through from being folklore (#182).
         typer.echo(f"  if its text now says more than the code does:  openfactory product "
                    f"break-down {name} {outcome.data.get('number') or number} --yes")
+    if outcome.data.get("waits_for_code"):
+        # …and the same for a product that started before its code (#992): the two commands
+        # the sentence describes, in the order they run
+        typer.echo(f"  when its code exists:  openfactory product first-source {name} "
+                   f"<repository>\n  then:                 openfactory product break-down "
+                   f"{name} {outcome.data.get('number') or number} --yes")
 
 
 @product_app.command("break-down")
@@ -4677,6 +4633,63 @@ def _context_clone_url(project, docs_repo: str) -> str:
     from openfactory.product.onboard import context_clone_url
 
     return context_clone_url(project, docs_repo)
+
+
+@product_app.command("start")
+def product_start_cmd(
+    name: str = typer.Argument(..., help="The project to register"),
+    docs_repo: str = typer.Argument(..., help="Its context repository, as its forge names it "
+                                              "or by its clone URL — on this machine a short "
+                                              "name, created when it does not exist"),
+    provider: str = typer.Option(None, help="The forge the context lives on, when its address "
+                                            "does not say"),
+    token_env: str = typer.Option(None, help="Name of the env var holding THIS project's "
+                                             "credential — the registry names the variable"),
+    language: str = typer.Option(None, help="Language for unprompted messages (default: en)"),
+) -> None:
+    """Start a product BEFORE its code: a project with its context repository and no code
+    repository.
+
+    Its product owner's conversation, its requirements and its context work at once; what needs
+    code — breaking a requirement into cards, a job, pickup, `box prove` — waits for its first
+    source and says so: `openfactory product first-source <name> <repository>`. Safe to run
+    again: a product already started on the same context is found, not refused."""
+    outcome = _perform("product_start", project=name, docs_repo=docs_repo,
+                       **({"provider": provider} if provider else {}),
+                       **({"token_env": token_env} if token_env else {}),
+                       **({"language": language} if language else {}))
+    typer.echo(outcome.message if outcome.ok else f"✗ {outcome.code}: {outcome.message}")
+    if not outcome.ok:
+        raise typer.Exit(1)
+    if not (outcome.data.get("reachable") and outcome.data.get("active")):
+        raise typer.Exit(1)
+
+
+@product_app.command("first-source")
+def product_first_source_cmd(
+    name: str = typer.Argument(..., help="A project that started before its code"),
+    repo_path: str = typer.Argument(..., help="Its code repository: the clone URL, or a path "
+                                              "on this machine"),
+    token_env: str = typer.Option(None, help="Name of the env var holding this project's "
+                                             "credential, when it is not the context's"),
+    board_owner: str = typer.Option(None, help="Who owns its board on the tracker, when the "
+                                               "tracker's boards have an owner"),
+    board_number: str = typer.Option(None, help="Its board's number, when the tracker numbers "
+                                                "its boards"),
+) -> None:
+    """Give a product that started before its code its code repository.
+
+    One act: the repository becomes the first entry of `sources:` in the context and the
+    project's code repository in the registry, on the forge the context lives on. Breaking a
+    requirement into cards needs no other step afterwards; a board is attached the way it is for
+    any project (`openfactory project init <name>`)."""
+    outcome = _perform("product_first_source", project=name, repo_path=repo_path,
+                       **({"token_env": token_env} if token_env else {}),
+                       **({"board_owner": board_owner} if board_owner else {}),
+                       **({"board_number": board_number} if board_number else {}))
+    typer.echo(outcome.message if outcome.ok else f"✗ {outcome.code}: {outcome.message}")
+    if not outcome.ok:
+        raise typer.Exit(1)
 
 
 @product_app.command("name")

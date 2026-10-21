@@ -285,6 +285,11 @@ OWNED = {
     # keeps nothing BEFORE a link is minted: a front end that reacquired it would be minting links
     # itself, which is the second copy of "who may vouch for whom" this row exists to prevent.
     "sink_is_durable": "people_invite",
+    # A product before its code (#992). Each marker is the act its row owns: a front end that
+    # registered a project with no code, or wrote a first source into `sources:` and the registry,
+    # would be a second place deciding what that state is — and the refusals it carries.
+    "start_before_code": "product_start",
+    "first_source": "product_first_source",
     # The product role (#98). ONE marker for five rows, because they share one seam: a front end
     # that CONSTRUCTS the module is doing the work itself, whatever verb it then calls.
     #

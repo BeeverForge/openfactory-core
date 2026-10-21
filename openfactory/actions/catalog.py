@@ -3638,7 +3638,117 @@ async def _product_accept(*, project: str, number: str, by: Actor,
         return accepted
     if getattr(result, "nothing_to_build", False) is True:
         return _with_nothing_to_build(accepted, project=proj, number=num)
+    from openfactory.contracts.project import before_its_code
+
+    if before_its_code(proj):
+        return _with_the_breakdown_waiting(accepted, project=proj, number=num)
     return await _with_the_work_filed(accepted, project=proj.name, number=num, by=by, proj=proj)
+
+
+# ── a product before its code (#992) ─────────────────────────────────────────────────────────
+
+def _refused_before_code(exc) -> Outcome:
+    """`product.before_code.Refused` in the action layer's words — its kind is one of three."""
+    from openfactory.product import before_code
+
+    if exc.kind == before_code.CONFLICT:
+        return refused(CONFLICT, exc.message)
+    if exc.kind == before_code.UNAVAILABLE:
+        return refused(UNAVAILABLE, exc.message)
+    return refused(INVALID, exc.message)
+
+
+async def _product_start(*, project: str, docs_repo: str, by: Actor, provider: object = "",
+                         token_env: object = "", language: object = "") -> Outcome:
+    """Start a product before its code (#992): register `project` with its context repository and
+    no code repository — `product.before_code.start_before_code`, which says what that state is.
+
+    READ BACK, like a declared context (`product declare`): "registered" and "readable" are
+    different facts, and both credentials that will read the context are tried here, while
+    somebody is watching. An unreadable context is still REGISTERED (`reachable: false`): fixing
+    the access must not mean registering again, and running this again converges.
+
+    OFF THE LOOP: the read runs `git` against the context with each credential, which takes
+    seconds, and the panel serves every other request from the loop this runs on."""
+    import asyncio
+
+    from openfactory.product import before_code
+
+    try:
+        got = await asyncio.to_thread(
+            before_code.start_before_code, project, docs_repo, provider=str(provider or ""),
+            token_env=str(token_env or ""), language=str(language or ""))
+    except before_code.Refused as exc:
+        return _refused_before_code(exc)
+    head = (f"{got.project} started before its code" if got.registered
+            else f"{got.project} had already started before its code")
+    where = f"its context repository is {got.docs_repo}" + (
+        " (created on this machine)" if got.created else "")
+    said = f"{head}: {where}, and it has no code repository yet."
+    if got.active:
+        said += (" Its product owner's conversation, its requirements and its context work now; "
+                 "breaking a requirement into cards waits for its first source "
+                 f"(`openfactory product first-source {got.project} <repository>`).")
+    elif not got.reachable:
+        said += (f" The context could not be read: {got.why}. The registration stands — fix the "
+                 "access and nothing needs registering again.")
+    else:
+        said += (f" The product role is not on yet: {got.reason.rstrip('.')}. `openfactory "
+                 f"product init {got.project} --write` proposes the declaration it reads.")
+    return done(said, project=got.project, docs_repo=got.docs_repo, kind=got.kind,
+                registered=got.registered, created=got.created, reachable=got.reachable,
+                why=got.why, active=got.active, reason=got.reason)
+
+
+async def _product_first_source(*, project: str, repo_path: str, by: Actor,
+                                token_env: object = "", board_owner: object = "",
+                                board_number: object = "") -> Outcome:
+    """Give a product that started before its code its code repository (#992): the first entry of
+    `sources:` in its context, then the registry's `repo_path` and axes — and the breakdown needs no
+    other step. `product.before_code.first_source` says why in that order.
+
+    THE REQUIREMENTS THAT WAITED ARE NAMED, not broken down here: a breakdown is the product
+    owner's to ask for (ADR-0057 D3, `product-owner`), and this act is the operator's. Each one is
+    a single `product_break_down` away, and every acceptance from now on files its cards itself."""
+    import asyncio
+
+    from openfactory.product import before_code
+
+    found, bad = _project(project)
+    if bad:
+        return bad
+    try:
+        got = await asyncio.to_thread(
+            before_code.first_source, found.name, repo_path, token_env=str(token_env or ""),
+            board_owner=str(board_owner or ""), board_number=str(board_number or ""))
+    except before_code.Refused as exc:
+        return _refused_before_code(exc)
+    listed = ("listed in `sources:` of" if got.listed_now else "already listed in `sources:` of")
+    said = (f"{got.project}'s first source is {got.entry}: {listed} {got.docs_repo}, and recorded "
+            f"as its code repository ({got.repo_path}). Breaking a requirement into cards needs "
+            "no other step now, and every acceptance files its own.")
+    if got.waiting:
+        numbers = ", ".join(str(n) for n in got.waiting)
+        said += (f" Accepted while it waited: {numbers} — ask for each to be broken down "
+                 f"(`openfactory product break-down {got.project} <number> --yes`).")
+    return done(said, project=got.project, repo_path=got.repo_path, entry=got.entry,
+                docs_repo=got.docs_repo, listed_now=got.listed_now, waiting=list(got.waiting))
+
+
+def _with_the_breakdown_waiting(accepted: Outcome, *, project, number: int) -> Outcome:
+    """The acceptance on a product that started before its code (#992): the promise is recorded
+    and its breakdown waits for the code repository its cards would be worked in.
+
+    NO ENGINE IS CONNECTED TO, as for a reading of the code (#182): a breakdown that could file
+    nothing is not started, and the sentence is the product's own, in the project's language —
+    the one every door into a breakdown says (`voice.breakdown_waits_for_code`). `filed` is in the
+    data, empty, and `waits_for_code` is true, so a surface asks one key on every acceptance."""
+    from openfactory.product.voice import breakdown_waits_for_code
+
+    data = {**accepted.data, "project": getattr(project, "name", ""), "number": number,
+            "filed": [], "nothing_to_build": False, "waits_for_code": True}
+    said = breakdown_waits_for_code(number=number, language=getattr(project, "language", None))
+    return done(f"{accepted.message} {said}", **data)
 
 
 def _with_nothing_to_build(accepted: Outcome, *, project, number: int) -> Outcome:
@@ -7190,8 +7300,49 @@ CATALOG: dict[str, ActionSpec] = {
         # so a deployment with no Slack can propose a requirement, accept it and watch the cards
         # appear — which is the acceptance test #98 states for itself.
         ActionSpec(
+            name="product_start",
+            summary="register a product before its code — a project with its context repository "
+                    "and no code repository; what needs code waits for its first source",
+            run=_product_start,
+            refuses=(INVALID, CONFLICT, UNAVAILABLE),
+            required=("project", "docs_repo"),
+            optional=("provider", "token_env", "language"),
+            needs_code=False,
+            params={
+                "project": "the name of the project to register, e.g. `acme`",
+                "docs_repo": "its context repository, as its forge names it or by its clone "
+                             "URL — on this machine a short name, created when it does not "
+                             "exist — e.g. `acme/acme-context`",
+                "provider": "the kind of forge the context lives on, when its address does "
+                            "not say — one this deployment has, an installed add-on's included",
+                "token_env": "the name of the environment variable holding this project's "
+                             "credential — never the credential itself",
+                "language": "the language its agents speak first, e.g. `pt-BR`; English unless "
+                            "you say",
+            },
+        ),
+        ActionSpec(
+            name="product_first_source",
+            summary="give a product that started before its code its code repository — the "
+                    "first entry of `sources:` and the registry's, so the breakdown starts",
+            run=_product_first_source,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
+            required=("project", "repo_path"),
+            optional=("token_env", "board_owner", "board_number"),
+            needs_code=False,
+            params={
+                "repo_path": "the code repository: its clone URL, or a path on this machine",
+                "token_env": "the name of the environment variable holding this project's "
+                             "credential, when it is not the one its context is read with",
+                "board_owner": "who owns its board on the tracker, when the tracker's boards "
+                               "have an owner",
+                "board_number": "its board's number, when the tracker numbers its boards",
+            },
+        ),
+        ActionSpec(
             name="product_status",
             scope=PRODUCT,
+            needs_code=False,
             summary="whether the product role can see its corpus at all, and where measured",
             run=_product_status,
             refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
@@ -7201,6 +7352,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_requirements",
             scope=PRODUCT,
+            needs_code=False,
             summary="every requirement in the corpus — number, title and status",
             run=_product_requirements,
             refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
@@ -7210,6 +7362,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_ingest",
             scope=PRODUCT,
+            needs_code=False,
             summary="read the product's documents now — one file, or whatever changed since the "
                     "last pass",
             run=_product_ingest,
@@ -7253,6 +7406,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_announce",
             scope=PRODUCT,
+            needs_code=False,
             summary="the role arrives and says where things stand",
             run=_product_announce,
             refuses=(INVALID, NOT_FOUND, UNAVAILABLE),
@@ -7262,6 +7416,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_pending",
             scope=PRODUCT,
+            needs_code=False,
             summary="what the product role has staged and is waiting on a person for",
             run=_product_pending,
             refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
@@ -7271,6 +7426,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_answer",
             scope=PRODUCT,
+            needs_code=False,
             summary="answer a proposal the product role staged — the pair of product_pending",
             run=_product_answer,
             refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
@@ -7282,6 +7438,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_say",
             scope=PRODUCT,
+            needs_code=False,
             summary="one message to the product role — it answers, remembers, and stages what "
                     "it heard as work for a yes; it writes nothing on its own",
             run=_product_say,
@@ -7296,6 +7453,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_agenda",
             scope=PRODUCT,
+            needs_code=False,
             summary="what the product role owes, and to whom — its open loops as an agenda: "
                     "yours and the room's, never anybody else's",
             run=_product_agenda,
@@ -7307,6 +7465,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_cases",
             scope=PRODUCT,
+            needs_code=False,
             summary="what is in progress in a conversation with the product role — the open "
                     "intakes, typed: said, asked, drafted, landed",
             run=_product_cases,
@@ -7318,6 +7477,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_recall",
             scope=PRODUCT,
+            needs_code=False,
             summary="what was said about something anywhere in this project — by whom, where, "
                     "when; one read over every conversation and the channel",
             run=_product_recall,
@@ -7329,6 +7489,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_sessions",
             scope=PRODUCT,
+            needs_code=False,
             summary="your conversations with the product role — the project's room and each of "
                     "your own, newest first",
             run=_product_sessions,
@@ -7339,6 +7500,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_session_rename",
             scope=PRODUCT,
+            needs_code=False,
             summary="name one of your conversations with the product role, or clear its name",
             run=_product_session_rename,
             refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE),
@@ -7349,6 +7511,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_session_delete",
             scope=PRODUCT,
+            needs_code=False,
             summary="delete one of your conversations with the product role — what you said in "
                     "it is erased; what it became in the product stays",
             run=_product_session_delete,
@@ -7360,6 +7523,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_file_attachment",
             scope=PRODUCT,
+            needs_code=False,
             summary="file a file sent in the conversation into the product's documents — "
                     "committed to from-chat/ in the context repository, and read",
             run=_product_file_attachment,
@@ -7371,6 +7535,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_discard_attachment",
             scope=PRODUCT,
+            needs_code=False,
             summary="discard a file sent in the conversation — it can no longer be opened there",
             run=_product_discard_attachment,
             refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE),
@@ -7381,6 +7546,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_thread",
             scope=PRODUCT,
+            needs_code=False,
             summary="the recent turns of a conversation with the product role — the "
                     "project's room, or your own",
             run=_product_thread,
@@ -7392,6 +7558,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_propose",
             scope=PRODUCT,
+            needs_code=False,
             summary="record a drafted requirement as a pull request — the sign-off surface",
             run=_product_propose,
             refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
@@ -7401,6 +7568,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_accept",
             scope=PRODUCT,
+            needs_code=False,
             summary="turn a written requirement into a promise the factory defends (ADR-0032)",
             run=_product_accept,
             refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
@@ -7525,6 +7693,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_record_decision",
             scope=PRODUCT,
+            needs_code=False,
             summary="write a decision taken after acceptance into the requirement's register",
             run=_product_record_decision,
             refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
@@ -7546,6 +7715,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_note_fact",
             scope=PRODUCT,
+            needs_code=False,
             summary="write down one thing somebody said about the business, attributed",
             run=_product_note_fact,
             refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
@@ -7610,6 +7780,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec(
             name="product_drop",
             scope=PRODUCT,
+            needs_code=False,
             summary="drop a proposed requirement, with the reason recorded beside it",
             run=_product_drop,
             refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),

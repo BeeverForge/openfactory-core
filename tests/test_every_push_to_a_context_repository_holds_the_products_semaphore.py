@@ -252,8 +252,9 @@ def test_the_system_layer_holding_the_semaphore_is_not_held_up_by_its_own_publis
 #: each fails rather than overwrite if something did (neither forces). Declared, with the reason;
 #: a declaration whose function no longer pushes is reported, so this list cannot outlive its code.
 BIRTHS = {
-    ("openfactory/cli.py", "_seed_the_context_repository"):
-        "`project init` seeding the repository it has just created, before any role runs",
+    ("openfactory/product/onboard.py", "seed_context_repository"):
+        "`project init` and `product start` seeding the repository one of them has just "
+        "created, before any role runs",
     ("openfactory/onboarding/onboard.py", "onboard_product_context"):
         "onboarding's first commit to a born-empty context repository (no base to propose to)",
 }

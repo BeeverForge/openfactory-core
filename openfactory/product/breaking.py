@@ -24,6 +24,10 @@ log = logging.getLogger(__name__)
 STARTED = "started"
 #: One of the same requirement was already running, and this door started nothing (D18 item 2).
 RUNNING = "running"
+#: The product started before its code (#992): nothing was started, because a breakdown files cards
+#: worked in a code repository the product does not have yet. The door says why, in its own words
+#: (`voice.breakdown_waits_for_code`), and no engine was asked.
+WAITS = "waits"
 
 
 async def start(project, number: int, *, actor: str, asked_for: bool, conversation: str = "",
@@ -34,8 +38,16 @@ async def start(project, number: int, *, actor: str, asked_for: bool, conversati
 
     `asked_for` says whether a person asked for it or it is an acceptance's second act (#182);
     `conversation`, `room` and `requester` are where it was asked, and that conversation is told
-    what was filed when it ends, in `language`."""
+    what was filed when it ends, in `language`. `WAITS`, and nothing started, for a product that
+    started before its code (#992)."""
+    from openfactory.contracts.project import before_its_code
     from openfactory.product.door import _engine
+
+    if before_its_code(project):
+        log.info("OPENFACTORY_PRODUCT_BREAKDOWN_WAITS_FOR_CODE project=%s req=%s — the product has "
+                 "no code repository yet; nothing was started",
+                 getattr(project, "name", "") or project, number)
+        return WAITS
 
     try:
         from temporalio.exceptions import WorkflowAlreadyStartedError

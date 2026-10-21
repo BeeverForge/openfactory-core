@@ -467,6 +467,19 @@ class ProjectRegistry:
             raw = self._load_raw()
             if project.name in raw:
                 raise ValueError(f"project already registered: {project.name!r}")
+            # A PROJECT BEFORE ITS CODE HAS ITS CONTEXT, OR IT IS NOTHING (#992). No code
+            # repository is a state — the product started with its product owner, and
+            # `before_its_code` names it — but a project with neither a code repository nor a
+            # context repository is one every reader would have to guess about, and none should.
+            from openfactory.contracts.project import before_its_code
+
+            if before_its_code(project) and not str(getattr(
+                    getattr(project, "product", None), "docs_repo", "") or "").strip():
+                raise ValueError(
+                    f"project {project.name!r} names neither a code repository nor a context "
+                    "repository — register it with its code (`openfactory project add <name> "
+                    "<repository>`) or start its product before the code with its context "
+                    "repository (`openfactory product start <name> <context-repository>`)")
             # REFUSED HERE BECAUSE HERE IS WHERE THE MISTAKE IS MADE (#64). A human is in front of
             # this — `openfactory project add` or the panel's POST /api/projects, which already
             # renders a
@@ -690,6 +703,43 @@ class ProjectRegistry:
             # file at all, where the next reader of it is a person trusting what it says.
             clean = _without_foreign_tokens(project, everyone).preview
             raw[name]["preview"] = clean.model_dump(mode="json")
+            self._save_raw(raw)
+
+    def set_code(self, name: str, project: Project) -> None:
+        """Give a project that started before its code its code repository (#992): `repo_path`
+        and the three axes of `project`, written over the entry's, and its context repository's
+        name as the code's forge addresses it (`product.docs_repo` — an Azure DevOps project
+        qualifies it when the code lives in another project) — everything else is kept.
+
+        ONLY THE FIRST. A project that has a code repository already is refused, under the lock,
+        because the question this answers is "where does the code go", and answering it a second
+        time would point the deployment's credential at another repository behind the back of the
+        jobs, branches and cards that live in the first. The registry is asked again as it would
+        be — one GitHub organisation per deployment (#64) — exactly as `add` asks."""
+        from openfactory.contracts.project import before_its_code
+
+        with self._locked():
+            raw = self._load_raw()
+            if name not in raw:
+                raise KeyError(name)
+            if not before_its_code(Project(**raw[name])):
+                raise ValueError(f"{name} already has its code repository "
+                                 f"({raw[name].get('repo_path')!r}) — a project's code is "
+                                 "given once")
+            entry = dict(raw[name])
+            entry["repo_path"] = project.repo_path
+            for axis in ("tracker", "forge", "ci"):
+                ref = getattr(project, axis, None)
+                if ref is not None:
+                    entry[axis] = ref.model_dump(mode="json")
+            docs_repo = getattr(getattr(project, "product", None), "docs_repo", "") or ""
+            if docs_repo and isinstance(entry.get("product"), dict):
+                entry["product"] = {**entry["product"], "docs_repo": docs_repo}
+            would_be = [Project(**other) for key, other in raw.items() if key != name]
+            spanning = spanning_installations([*would_be, Project(**entry)])
+            if spanning:
+                raise ValueError(spanning_message(spanning))
+            raw[name] = entry
             self._save_raw(raw)
 
     def set_enabled(self, name: str, enabled: bool) -> None:

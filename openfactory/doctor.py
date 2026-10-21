@@ -552,6 +552,19 @@ class Probes:
     #: registry, because the installation is the deployment's. None = an older Probes; the check
     #: is skipped rather than invented.
     installation_scope: Callable[[], InstallationScope] | None = None
+    #: `(name, sentence)` when the project's product started before its code (#992) — `("", "")`
+    #: for every other project. The lines that read the code have nothing to read, so `diagnose`
+    #: says the state once, as the `code` line, in their place.
+    before_its_code: tuple[str, str] = ("", "")
+
+
+#: The lines `diagnose` does not ask of a project whose product started before its code (#992):
+#: each reads its checkout, its manifest, its board or its proof, and none exists yet. Every other
+#: line — the harness the product role runs on, the forge its context is read through, the link,
+#: the product's reading and search — is asked as for any project.
+NEEDS_THE_CODE = frozenset({"manifest", "guidelines", "quality_floor", "ci_declared", "box_proof",
+                            "api_budget", "box_identity", "board_columns", "board_stages",
+                            "board_intake", "merge_gates", "post_merge", "documents"})
 
 
 #: The remedy every check inherits when it could not run because the manifest is not written yet.
@@ -647,6 +660,14 @@ def diagnose(probes: Probes) -> Report:
         findings.extend(_reading_findings(probes))
     if probes.inlined_documents:
         findings.append(_guarded("documents", lambda: _documents(probes)))
+    name, said = probes.before_its_code
+    if said:
+        # ONE LINE FOR THE STATE, NOT ONE RED LINE PER READER OF THE CODE (#992): a product that
+        # started before its code has no checkout, manifest, board or proof, and each of those
+        # lines would say the same absence in its own words — one of them, the proof, as a pass
+        findings = [f for f in findings if f.check not in NEEDS_THE_CODE]
+        findings.insert(0, Finding("code", False, said,
+                                   f"openfactory product first-source {name} <repository>"))
     return Report(findings)
 
 
@@ -3134,7 +3155,11 @@ def probes_for(project) -> Probes:
             return InstallationScope(by_owner=by_owner, installed=None, used_instead=said)
         return InstallationScope(by_owner=by_owner, installed=app_installation_account())
 
+    from openfactory.contracts.project import before_its_code, no_code_yet
+
     return Probes(
+        before_its_code=((project.name, no_code_yet(project.name, "running a ticket"))
+                         if before_its_code(project) else ("", "")),
         docker_running=_docker_running,
         ci_checks=_ci_checks,
         harness_on_path=_on_path,

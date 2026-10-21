@@ -241,10 +241,20 @@ def resolve_product_link(
     # when it declared one, the platform's default otherwise. A remedy naming a path nothing
     # reads sends the person to create a file the platform will never open.
     manifest_rel = getattr(project, "manifest_path", None) or namespace.MANIFEST
+    # A PRODUCT THAT STARTED BEFORE ITS CODE (#992) has no source repository to claim anything and
+    # no code repository to be a member: steps 1 and 4 have nothing to read, and saying "the source
+    # repo does not declare" or "membership could not be checked" about a repository that does not
+    # exist yet would be a warning about a state, not a fault. Steps 2 and 3 stand as they are —
+    # the context must be readable and must name THIS product, since nothing is listed to admit it.
+    from openfactory.contracts.project import before_its_code
+
+    code_less = before_its_code(project)
 
     # 1. the source repo's CLAIM may confirm, never redirect
-    claimed = normalize_repo(manifest_docs_repo)
-    if manifest_docs_repo and not claimed:
+    claimed = "" if code_less else normalize_repo(manifest_docs_repo)
+    if code_less:
+        pass
+    elif manifest_docs_repo and not claimed:
         warnings.append(
             f"the source repo's `{manifest_rel}` has an unreadable `docs_repo` "
             f"({manifest_docs_repo!r}); expected a repository reference or a clone URL. "
@@ -284,14 +294,16 @@ def resolve_product_link(
     #    which is the second declaration the isolation rests on; a listing on the repository's
     #    name alone does not stand in for it, and the name decides alone only where nothing is
     #    listed to check.
-    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and not _listed(
-            project, docs):
+    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and (
+            code_less or not _listed(project, docs)):
         return _off(
             "conflict",
             f"{authorized} holds requirements for product {docs.product!r}, but this project is "
-            f"{project.name!r} and its code repository is not in that product's `sources:`. "
-            f"Refusing: writing one client's requirements into another's repository is an "
-            f"isolation breach, not a typo to work around.",
+            f"{project.name!r} and "
+            + ("it has no code repository yet, so only `product:` could have admitted it. "
+               if code_less else "its code repository is not in that product's `sources:`. ")
+            + "Refusing: writing one client's requirements into another's repository is an "
+            "isolation breach, not a typo to work around.",
         )
 
     # 4. …and must count this source repo as a member. The DETECTABLE inconsistency the two-way
@@ -320,6 +332,14 @@ def resolve_product_link(
     ) if unreadable else ""
     if dropped:
         warnings.append(dropped)
+    if code_less:
+        # NOTHING TO BE A MEMBER OF YET: the registry names no code repository, so whatever
+        # `sources:` lists — nothing, or the entries a scaffold put there first — is read by the
+        # product role as the product's, and no repository of this project's is missing from it
+        return ProductLink(active=True, docs_repo=authorized, kind="ok",
+                           reason="registry and documentation repo agree; the product has no "
+                                  "code repository yet",
+                           warnings=warnings)
     if not source and declared_source:
         # REFUSED, NOT WARNED. An unreadable source coordinate makes the membership check
         # vacuously true — `source` is falsy, so the `not in members` branch never runs and the

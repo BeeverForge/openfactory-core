@@ -55,6 +55,7 @@ from openfactory.actions.base import (
     FAILED,
     FLOOR,
     INVALID,
+    NO_CODE_YET,
     NOT_ADMIN,
     NOT_FOUND,
     OK,
@@ -155,6 +156,33 @@ def spec(name: str) -> ActionSpec | None:
     return _catalog().get((name or "").strip().lower())
 
 
+def waits_for_code(found: ActionSpec) -> bool:
+    """Whether `perform` refuses this row for a project that started before its code (#992): it
+    `needs_code` and it names a `project` to look at — a row that names none acts on no project's
+    code and is never asked."""
+    return found.needs_code and "project" in found.parameters
+
+
+def _waiting_for_its_code(project: object, key: str) -> str:
+    """The sentence a row that needs the code is refused with on a project that started before
+    it — `""` for any other project, and for a name the registry cannot answer about: the row
+    itself says "not registered" in its own words, and a registry that cannot be read is the row's
+    to report, never this check's to swallow into a refusal about code."""
+    from openfactory.contracts.project import before_its_code, no_code_yet
+    from openfactory.registry import ProjectRegistry
+
+    name = str(project or "").strip()
+    if not name:
+        return ""
+    try:
+        found = ProjectRegistry().get(name)
+    except (KeyError, ValueError):
+        return ""
+    if not before_its_code(found):
+        return ""
+    return no_code_yet(name, key)
+
+
 def reasons(name: str) -> tuple[str, ...]:
     """Every reason a refusal of `name` may carry in `data["reason"]` — what `perform` checks
     around the row, what the row's own code paths refuse with, and what the rows it hands back
@@ -174,7 +202,8 @@ def reasons(name: str) -> tuple[str, ...]:
         seen.add(key)
         around = [r for r in AROUND_EVERY_ROW
                   if (r != BAD_REF or "issue" in found.parameters)
-                  and (r != NOT_ADMIN or found.needs_admin)]
+                  and (r != NOT_ADMIN or found.needs_admin)
+                  and (r != NO_CODE_YET or waits_for_code(found))]
         out += [r for r in (*around, *found.refuses) if r not in out]
         todo += list(found.relays)
     return tuple(out)
@@ -240,7 +269,7 @@ def proposable(by: Actor) -> tuple[str, ...]:
 async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
     """Run one action. Never raises. Always returns an `Outcome`.
 
-    THE FIVE THINGS THAT HAPPEN HERE RATHER THAN IN THREE FRONT ENDS:
+    THE SIX THINGS THAT HAPPEN HERE RATHER THAN IN THREE FRONT ENDS:
 
     1. **The name is resolved**, and an unknown one is refused with the list of what exists —
        the registry rule this codebase already holds everywhere else (`adapters/*/registry.py`).
@@ -252,7 +281,9 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
        panel knew that and Slack did not.
     4. **`needs_admin` is enforced.** Slack had this gate, the panel had a token, the CLI had
        nothing; now the three answers meet in `Actor.admin` and the decision is made in one place.
-    5. **Everything is logged with the actor**, whatever the result. This is the audit line — the
+    5. **A row that needs the code waits for it** (`ActionSpec.needs_code`, #992): on a project
+       whose product started before its code it is refused by name, naming the first source.
+    6. **Everything is logged with the actor**, whatever the result. This is the audit line — the
        first time this platform can say who asked for a thing, which is the question an enterprise
        security review opens with.
 
@@ -302,6 +333,15 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
             f"{by} is not allowed to {key} — ask somebody listed as an admin for this project.",
             reason=NOT_ADMIN,
         )
+
+    # WHO FIRST, THEN WHAT THE PROJECT IS (#992): a row that needs the code is refused, by name and
+    # before it runs, on a project whose product started before its code — a refusal somebody can
+    # act on, where running it would fail in a clone, a board or a box with a sentence about that
+    if waits_for_code(found):
+        waiting = _waiting_for_its_code(params.get("project"), key)
+        if waiting:
+            log.info("NO_CODE_YET %s by %s (%s)", key, by, _loggable(params))
+            return refused(CONFLICT, waiting, reason=NO_CODE_YET)
 
     from openfactory.runtime.temporal.vocabulary import EngineUnreachable
 

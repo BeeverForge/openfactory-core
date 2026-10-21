@@ -238,3 +238,74 @@ def kind_for(repo_path: str, *, repo: str = "", provider: str = "") -> str:
     if "://" in raw or raw.startswith("git@"):
         return host_owner(raw) or "github"
     return "github" if (repo or "").strip() else "local"
+
+
+class MissingCoordinates(ValueError):
+    """An address whose kind needs coordinates it does not carry — `missing` names the flags that
+    would have given them, in the order the door offers them."""
+
+    def __init__(self, repo_path: str, missing: list[str]) -> None:
+        self.repo_path = repo_path
+        self.missing = list(missing)
+        super().__init__(f"{', '.join(self.missing)} could not be read from {repo_path!r}")
+
+
+def axes_for(name: str, repo_path: str, *, provider: str = "", repo: str = "",
+             organization: str = "", ado_project: str = "", repository: str = "",
+             work_item_type: str = "", token_env: str = "", board_owner: str = "",
+             board_number: str = "") -> dict:
+    """The provider axes a door writes for a code repository at `repo_path` — `tracker`, and
+    `forge` and `ci` where the kind needs them spelled — as `Project` keyword arguments. RAISES
+    `MissingCoordinates` when the address does not carry a coordinate its kind needs.
+
+    MOVED OUT OF `project add` (#992), because a second door now writes the same shape: the first
+    source of a product that started before its code is registered with exactly these axes, and a
+    copy of them in that door would be the drift this module exists to end. Whose host the
+    address is (`foreign_host`) stays each door's question to ask first — the command line offers
+    ways out the action layer cannot."""
+    from openfactory.contracts.project import ProviderRef
+
+    kind = kind_for(repo_path, repo=repo or "", provider=provider or "")
+    if kind == "azure_devops":
+        # THE URL IS THE DECLARATION. `https://dev.azure.com/<org>/<project>/_git/<repo>` names
+        # all three coordinates, so asking for them again is asking the operator to re-type what
+        # they just pasted — the funnel review measured that NO flag combination could produce a
+        # valid ADO entry at all, which hard-stopped scenario B at registration.
+        ado = ado_coordinates(repo_path)
+        org = organization or ado[0]
+        proj = ado_project or ado[1]
+        repo_name = repository or repo or ado[2]
+        missing = [flag for flag, value in (("--organization", org), ("--ado-project", proj),
+                                            ("--repository", repo_name)) if not value]
+        if missing:
+            # NAMED BY THE FLAGS, WORDED BY THE DOOR: `project add` says it with the shape of the
+            # URL that carries them, and a first source in its own words (#992)
+            raise MissingCoordinates(repo_path, missing)
+        tracker_options: dict[str, str] = {"organization": org}
+        forge_options: dict[str, str] = {"organization": org, "project": proj}
+        if work_item_type:
+            tracker_options["work_item_type"] = work_item_type
+        if token_env:
+            tracker_options["token_env"] = token_env
+            forge_options["token_env"] = token_env
+        # The tracker's `repo` is the ADO PROJECT (work items live in a project, not a repo); the
+        # forge's is the git repository inside it. Collapsing the two is how a three-repo product
+        # sends the agent to the wrong tree — the axes really do name different things here.
+        return {"tracker": ProviderRef(kind="azure_devops", repo=proj, options=tracker_options),
+                "forge": ProviderRef(kind="azure_devops", repo=repo_name, options=forge_options)}
+    if kind == "local":
+        # EVERY AXIS, SPELLED (D2). A row-less axis inherits `ProviderRef`'s `github` default, and
+        # a local project that inherited it would be handed the deployment's GitHub credential and
+        # asked to open a pull request on a repository nobody named. `repo` is the project's own
+        # name because four consumers need it non-empty (the tech-lead's conversation and
+        # diagnosis, the product board, the knowledge pipeline).
+        local = {"kind": "local", "repo": name, "options": {}}
+        return {"tracker": ProviderRef(**local), "forge": ProviderRef(**local),
+                "ci": ProviderRef(kind="none", repo=name, options={})}
+    options: dict[str, str] = {}
+    if board_owner and board_number:
+        options = {"board_owner": board_owner, "board_number": board_number}
+    if token_env:
+        options["token_env"] = token_env
+    inferred = repo or (infer_repo(repo_path) or None if kind == "github" else None)
+    return {"tracker": ProviderRef(kind=kind, repo=inferred, options=options)}

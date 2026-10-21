@@ -279,7 +279,16 @@ class LocalForge:
         needs to tell "we made you one" from "we found the one you had"."""
         from pathlib import Path
 
-        where = Path(self.clone_url(name))
+        answered = str(self.clone_url(name) or "").strip()
+        if not answered:
+            # NO PATH IS NOT THE CURRENT DIRECTORY (#992). The project's own name answers its
+            # `repo_path`, which is empty for a product that started before its code, and
+            # `Path("")` is `.` — `git init --bare` would turn whatever directory the process stands
+            # in into the context repository. Refused, naming the name that could not be placed.
+            raise ValueError(f"{name!r} is this project's own name on this runtime, and it has no "
+                             f"code repository there — a context repository needs a name of its "
+                             f"own, e.g. `{name}-context`")
+        where = Path(answered)
         if (where / "HEAD").exists():
             return name, False
         where.parent.mkdir(parents=True, exist_ok=True)
