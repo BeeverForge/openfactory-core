@@ -1,4 +1,4 @@
-"""One correlation id ties a request to every record it caused (#694, criterion 5, the record half).
+"""One correlation id ties a request to every record it caused (#694, criterion 5).
 
 WHAT WAS TRUE BEFORE. No correlation id existed anywhere in the tree (`git grep -i correlation
 openfactory/` on bb929e49 found only two CI adapters' unrelated words). `Actor` gained a
@@ -15,6 +15,10 @@ product chat's socket) is given one by `perform`, before the row runs, so a row 
 another hands the relayed call the same id. Every assertion reads the record back from the
 deployment's store, not from a spy on how it was made — except the CLI's, which reads the `by` the
 CLI handed `perform`, because the claim there is that the CLI minted the id, not `perform`.
+
+AND IN THE JOB'S EVENTS: an action that starts a job — `start` on either engine, `scan` for each
+card it started and none it skipped — leaves in that job's journal (`paths.events_file`, read back
+as JSON lines) one event whose `data.correlation_id` is the id its record carries.
 """
 
 from __future__ import annotations
@@ -224,3 +228,162 @@ async def test_a_relayed_call_shares_the_id_perform_minted_for_its_caller(regist
     ids = {r.extra["correlation_id"] for r in rows}
     assert len(ids) == 1, f"one request left {len(ids)} correlation ids: {sorted(ids)}"
     assert MINTED.fullmatch(ids.pop()), rows
+
+
+# ── the job's own events ────────────────────────────────────────────────────────────────────────
+#
+# Criterion 5's second half: the id "is in the job's events when the action starts a job". Each
+# test drives the real row through `perform`, with the engine, the board or `Popen` stubbed as the
+# action layer's own tests stub them, and then READS the job's journal — the JSON-lines file
+# `paths.events_file(project, issue)` names, the file the panel's Logs tab and `query` read — and
+# requires one event carrying the id the action's audit record carries. Before #694 the record
+# had no id and nothing an action did wrote one into a journal.
+
+
+def _journal(project, issue: str) -> list[dict]:
+    """The job's journal, parsed: one dict per JSON line, `[]` when the file was never written."""
+    from openfactory.paths import events_file
+
+    path = events_file(project, issue)
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def _carrying(events: list[dict], correlation: str) -> list[dict]:
+    return [e for e in events if (e.get("data") or {}).get("correlation_id") == correlation]
+
+
+def _recorded_id(sink, action: str) -> str:
+    """The correlation id the one audit record of `action` carries — minted, as `perform` mints it
+    for `SYSTEM`, so a journal that held some other id would not match it."""
+    [row] = [r for r in _audit_rows(sink) if r.extra["action"] == action]
+    correlation = row.extra["correlation_id"]
+    assert MINTED.fullmatch(correlation), row.extra  # the premise: the record carries one
+    return correlation
+
+
+@pytest.fixture
+def logs(tmp_path, monkeypatch):
+    """Where the journals are written: the deployment's `OPENFACTORY_LOG_DIR`, in a temporary
+    directory, so `events_file` names a file this test alone writes."""
+    monkeypatch.setenv("OPENFACTORY_LOG_DIR", str(tmp_path / "logs"))
+    return tmp_path / "logs"
+
+
+@pytest.fixture
+def start_project(monkeypatch, logs):
+    """The project `start` launches for, resolved as `tests/test_the_action_layer.py::_start_env`
+    resolves it, and a box image that resolves without asking any registry."""
+    from tests.test_the_action_layer import _start_project
+
+    project = _start_project()
+    monkeypatch.setattr(ProjectRegistry, "get", lambda self, name: project)
+    monkeypatch.setattr("openfactory.factory.resolve_box_image",
+                        lambda *_a, **_kw: "openfactory-python")
+    return project
+
+
+@pytest.fixture
+def scan_project(monkeypatch, logs):
+    """The project `scan` reads the board of, pinned as `tests/test_the_action_layer.py::_scan_env`
+    pins it: resolvable, a token that needs no credential, a box image that needs no registry."""
+    from tests.test_the_action_layer import _scan_project
+
+    project = _scan_project()
+    monkeypatch.setattr(ProjectRegistry, "get", lambda self, name: project)
+    monkeypatch.setattr("openfactory.credentials.tracker_token", lambda: "tok")
+    monkeypatch.setattr("openfactory.factory.resolve_box_image",
+                        lambda *_a, **_kw: "openfactory-python")
+    return project
+
+
+def _engine(monkeypatch, **kw):
+    """The action layer's fake engine (`_FakeTemporalClient`), reached where the rows connect."""
+    from tests.test_the_action_layer import _AsyncReturns, _FakeTemporalClient
+
+    client = _FakeTemporalClient(**kw)
+    monkeypatch.setattr("openfactory.runtime.temporal.view.connect", lambda: _AsyncReturns(client))
+    return client
+
+
+async def test_a_durable_start_writes_it_into_the_jobs_events(start_project, stored, monkeypatch):
+    """Criterion 5, "in the job's events when the action starts a job", on the durable engine: a
+    `start --durable` the engine accepted leaves, in the journal of the job it started, one event
+    whose `data.correlation_id` is the id the action's record carries. Before #694 the journal of
+    a started job held no such event — the engine was told nothing, and neither was the file."""
+    client = _engine(monkeypatch)
+
+    out = await actions.perform("start", by=actions.SYSTEM, project="demo", issue="7",
+                                durable=True, sandbox="container")
+
+    assert out.ok and client.launched, out  # the premise: the engine took the job
+    correlation = _recorded_id(stored, "start")
+    events = _journal(start_project, "7")
+    assert len(_carrying(events, correlation)) == 1, (
+        f"{len(_carrying(events, correlation))} events in #7's journal carry the start's "
+        f"correlation id {correlation} (1 expected): {events}")
+
+
+async def test_a_local_start_writes_it_into_the_jobs_events(start_project, stored, monkeypatch):
+    """Criterion 5 on the local engine: a `start` that launched `openfactory run` as a detached
+    process (`Popen`, stubbed here) leaves the same one event in the job's journal, carrying the
+    record's id. Before #694 nothing but the run log was written before the process was spawned."""
+    launched: list = []
+    monkeypatch.setattr("subprocess.Popen", lambda argv, **kw: launched.append(argv))
+
+    out = await actions.perform("start", by=actions.SYSTEM, project="demo", issue="7",
+                                sandbox="worktree")
+
+    assert out.ok and launched, out  # the premise: the process was launched
+    correlation = _recorded_id(stored, "start")
+    events = _journal(start_project, "7")
+    assert len(_carrying(events, correlation)) == 1, (
+        f"{len(_carrying(events, correlation))} events in #7's journal carry the start's "
+        f"correlation id {correlation} (1 expected): {events}")
+
+
+async def test_scan_writes_it_into_each_started_jobs_events(scan_project, stored, monkeypatch):
+    """Criterion 5 through `scan`, the action that starts several jobs at once: each job it started
+    has, in its own journal, one event carrying the id of the scan's one record — so every job a
+    single click started reads back to that click. Before #694 neither journal held one."""
+    from tests.test_the_action_layer import _FakeBoard
+
+    monkeypatch.setattr("openfactory.adapters.board.build_board",
+                        lambda *_a, **_kw: _FakeBoard(["1", "2"]))
+    monkeypatch.setattr("openfactory.runtime.temporal.max_concurrent_jobs", lambda: 5)
+    _engine(monkeypatch)
+
+    out = await actions.perform("scan", by=actions.SYSTEM, project="demo")
+
+    assert out.data["started"] == ["1", "2"], out  # the premise: both were started
+    correlation = _recorded_id(stored, "scan")
+    found = {issue: len(_carrying(_journal(scan_project, issue), correlation))
+             for issue in ("1", "2")}
+    assert found == {"1": 1, "2": 1}, (
+        f"events carrying the scan's correlation id {correlation}, per started job's journal: "
+        f"{found} (one each expected)")
+
+
+async def test_scan_writes_it_only_into_the_jobs_it_started(scan_project, stored, monkeypatch):
+    """Criterion 5's "when the action starts a job", read from the other side: a card `scan`
+    found already running (the engine answered `AlreadyStarted`) and a card it left in TO-DO
+    because the floor was full were not started by this scan, and their journals must not say
+    they were. Card 1, the one it started, carries the id — the premise that this test reads the
+    files the note is written to. Before #694 no journal carried it, card 1's included."""
+    from tests.test_the_action_layer import _FakeBoard
+
+    monkeypatch.setattr("openfactory.adapters.board.build_board",
+                        lambda *_a, **_kw: _FakeBoard(["1", "2", "3"]))
+    monkeypatch.setattr("openfactory.runtime.temporal.max_concurrent_jobs", lambda: 2)
+    _engine(monkeypatch, fail_started={"2"})
+
+    out = await actions.perform("scan", by=actions.SYSTEM, project="demo")
+
+    assert (out.data["started"], out.data["skipped"]) == (["1"], ["2", "3"]), out  # the premise
+    correlation = _recorded_id(stored, "scan")
+    found = {issue: len(_carrying(_journal(scan_project, issue), correlation))
+             for issue in ("1", "2", "3")}
+    assert found == {"1": 1, "2": 0, "3": 0}, (
+        f"events carrying the scan's correlation id {correlation}, per card's journal: {found} "
+        f"(only the started card 1 expected)")
