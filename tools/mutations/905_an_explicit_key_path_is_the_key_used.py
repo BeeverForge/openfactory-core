@@ -12,6 +12,10 @@ Claims:
     environment's key;
   - an empty `--key-path` (`"$NEW_PEM"` with the variable unset) is a path given, not "no flag":
     it refuses and never proves the environment's key;
+  - an explicit path to a file that is not text (a DER key) refuses by name, not with a
+    `UnicodeDecodeError` traceback; through `OPENFACTORY_GH_APP_KEY` the same file is the
+    warning and None `app_private_key()` gives any unreadable key (`app_private_key_at` raises
+    it as an `OSError`);
   - `~` in the flag's value resolves against `HOME` (`app_private_key_at` expands it), as
     `OPENFACTORY_GH_APP_KEY` always did;
   - without the flag, `app_private_key()` still reads the path form through
@@ -29,6 +33,9 @@ TILDE = ALONE + "[tilde]"
 REFUSES = (TEST + "::test_an_unreadable_key_path_refuses_naming_the_path_and_does_not_use_the_"
            "environments_key")
 EMPTY = TEST + "::test_an_empty_key_path_refuses_and_does_not_use_the_environments_key"
+NOT_TEXT = TEST + "::test_a_key_path_that_is_not_text_refuses_by_name"
+ENV_NOT_TEXT = ("tests/test_the_app_key_reaches_every_entry_point.py::"
+                "test_a_path_to_a_file_that_is_not_text_is_None_and_says_so")
 WITHOUT_FLAG = TEST + "::test_without_the_flag_the_key_the_environment_names_by_path_is_still_used"
 NO_ENVVAR = ENV_WALK + "::test_no_option_of_any_openfactory_command_declares_an_envvar"
 HELP = ENV_WALK + "::test_the_bot_token_help_names_the_variables_in_prose_and_no_env_var_binding"
@@ -68,8 +75,8 @@ MUTATIONS = [
      'typer.echo(f"✗ the App key could not be read', REFUSES),
     # ── M5: `~` is not expanded ────────────────────────────────────────────────────────────────
     ("M5 the key file's path is read without expanding ~", CREDENTIALS,
-     "    return Path(path).expanduser().read_text()\n",
-     "    return Path(path).read_text()\n", TILDE),
+     "    data = Path(path).expanduser().read_bytes()\n",
+     "    data = Path(path).read_bytes()\n", TILDE),
     # ── M6: preservation, the environment's path form ──────────────────────────────────────────
     ("M6 app_private_key no longer reads the path form (bot-token without the flag)", CREDENTIALS,
      "        return app_private_key_at(path)\n", "        return None\n", WITHOUT_FLAG),
@@ -82,4 +89,9 @@ MUTATIONS = [
     # ── M8: an empty path is read as "no flag" ─────────────────────────────────────────────────
     ("M8 an empty --key-path takes the no-flag branch and proves the environment's key", CLI,
      "    if key_path is not None:\n", "    if key_path:\n", EMPTY),
+    # ── M9: a file that is not text escapes as UnicodeDecodeError ─────────────────────────────
+    ("M9 a key file that is not text raises UnicodeDecodeError past the CLI's refusal",
+     CREDENTIALS, "    except UnicodeDecodeError:\n", "    except LookupError:\n", NOT_TEXT),
+    ("M9 a key file that is not text raises UnicodeDecodeError out of app_private_key()",
+     CREDENTIALS, "    except UnicodeDecodeError:\n", "    except LookupError:\n", ENV_NOT_TEXT),
 ]

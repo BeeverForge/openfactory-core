@@ -218,6 +218,32 @@ def test_an_empty_key_path_refuses_and_does_not_use_the_environments_key(github,
     assert "--key-path" in result.stderr, f"the refusal must name the flag: {result.stderr!r}"
 
 
+def test_a_key_path_that_is_not_text_refuses_by_name(github, monkeypatch, tmp_path):
+    """A DER key (or any binary file) cannot be read as a PEM: a sentence naming it, not a
+    `UnicodeDecodeError` traceback.
+
+    Criterion: "an explicit path that cannot be read refuses with a sentence naming that path".
+    On 4adc0410 `app_private_key_at` called `read_text()`, whose `UnicodeDecodeError` is a
+    `ValueError`, past the CLI's `except OSError`: the review measured `exit=1
+    exc=UnicodeDecodeError` with a DER PKCS8 key, and a traceback from the real CLI on 300 random
+    bytes (2026-10-21).
+    """
+    monkeypatch.setenv("OPENFACTORY_GH_APP_ID", "12345")
+    monkeypatch.setenv("OPENFACTORY_GH_APP_INSTALLATION_ID", "67890")
+    monkeypatch.setenv("OPENFACTORY_GH_APP_KEY_CONTENT", _pem("B"))
+    der = tmp_path / "key.der"
+    der.write_bytes(_key("A").private_bytes(serialization.Encoding.DER,
+                                            serialization.PrivateFormat.PKCS8,
+                                            serialization.NoEncryption()))
+
+    result = CliRunner().invoke(app, ["bot-token", "--key-path", str(der)])
+
+    assert github == []
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit), repr(result.exception)
+    assert str(der) in result.stderr, result.stderr
+
+
 def test_without_the_flag_the_key_the_environment_names_by_path_is_still_used(
         github, monkeypatch, tmp_path):
     """Preservation: without `--key-path`, the key is still found through `app_private_key()`,

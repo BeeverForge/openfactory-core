@@ -12,6 +12,7 @@ is what `OPENFACTORY_BOT_TOKEN` is for.
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 from pathlib import Path
@@ -22,7 +23,7 @@ log = logging.getLogger("openfactory.credentials")
 
 
 def app_private_key_at(path: str) -> str:
-    """The PEM in the file at `path` (`~` expanded); an `OSError` reaching the caller unchanged.
+    """The PEM in the file at `path` (`~` expanded); any failure to read it is an `OSError`.
 
     ONE READER OF A KEY FILE. `app_private_key` below reads the path a deployment names in
     `OPENFACTORY_GH_APP_KEY`; `openfactory bot-token --key-path` reads the path an operator types
@@ -36,8 +37,22 @@ def app_private_key_at(path: str) -> str:
 
     An explicit path is the operator's, not a deployment credential: it is not asked of the
     environment here, and is not a name a credential store would be asked for.
+
+    A FILE THAT IS NOT TEXT IS AN UNREADABLE KEY. A DER key or any binary file used to raise
+    `UnicodeDecodeError` from `read_text()`; that is a `ValueError`, so it went past both callers'
+    `except OSError` as a traceback (#905's review, 2026-10-21: `bot-token --key-path` on 300
+    random bytes, and `app_private_key()` with `OPENFACTORY_GH_APP_KEY` naming one). It is
+    raised here as `OSError(EINVAL)` naming the path, so each caller's existing handling (a
+    refusal, a warning) speaks for it. Errors from opening the file (`ENOENT`, `EISDIR`, `EACCES`)
+    still reach the caller unchanged. Reading bytes drops `read_text()`'s newline translation;
+    a CRLF PEM, traditional or PKCS8, still signs (measured 2026-10-21, cryptography 50.0.2,
+    PyJWT 2.15.1).
     """
-    return Path(path).expanduser().read_text()
+    data = Path(path).expanduser().read_bytes()
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise OSError(errno.EINVAL, "not a PEM file: it is not text", path) from None
 
 
 def app_private_key() -> str | None:

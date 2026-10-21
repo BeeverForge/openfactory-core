@@ -87,6 +87,21 @@ def test_an_unreadable_path_is_None_and_says_so(monkeypatch, caplog):
     assert any("here.pem" in r.getMessage() for r in caplog.records), caplog.text
 
 
+def test_a_path_to_a_file_that_is_not_text_is_None_and_says_so(monkeypatch, tmp_path, caplog):
+    """A binary file (a DER key, a wrong download) is an unreadable key, not a crash: the same
+    warning and None as a missing file. Until #905's review `read_text()` raised
+    `UnicodeDecodeError` (a `ValueError`) straight past `app_private_key`'s `except OSError`,
+    out of every entry point that asks "do we have an App?" (measured 2026-10-21 on 4adc0410)."""
+    from openfactory.credentials import app_private_key
+
+    key = tmp_path / "bot.der"
+    key.write_bytes(b"\x30\x82\xea\xff" * 75)
+    monkeypatch.setenv("OPENFACTORY_GH_APP_KEY", str(key))
+    with caplog.at_level("WARNING"):
+        assert app_private_key() is None
+    assert any("bot.der" in r.getMessage() for r in caplog.records), caplog.text
+
+
 # ── reachability: the minting paths must go through it ──────────────────────────────────────────
 
 MINTERS = [
