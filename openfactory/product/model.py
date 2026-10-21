@@ -305,14 +305,15 @@ _AUTHORIZATION = re.compile(
 #: The SECRET PARAMETER of a header whose value is a parameter list, not one token: `response=`
 #: after `Digest` (RFC 7616) and `Signature=` after `AWS4-HMAC-SHA256` (AWS SigV4). Only that
 #: parameter is withheld; the username, realm, nonce, URI, `Credential=` and `SignedHeaders=` are
-#: quoted as written. Measured at d892b0a3, with these two schemes in `_AUTHORIZATION`'s list: the
-#: marker landed on the FIRST parameter's name (`Digest [credential withheld]"ann", …
-#: response="6629fae4…"`) and the response stayed — a withholding claimed where none happened
-#: (decision on the review of 5fe330d2). THE COST, ACCEPTED: a second, parameter-level shape to
-#: keep beside the scheme shape; a scheme with a parameter list not named here is not read.
-#: The scan from the scheme to its parameter is BOUNDED at 1,000 characters (a header is far
-#: shorter): unbounded, it read to the end of the line from every `Digest`, and one 400 KB line of
-#: prose with `Digest` every ~80 characters took 11.29 s (0.09 s bounded; review on cfe48e02).
+#: quoted as written — `Credential=` unless its key id is an `AKIA…` the vendor shape withholds.
+#: Measured at d892b0a3, with these two schemes in `_AUTHORIZATION`'s list: the marker landed on the
+#: FIRST parameter's name (`Digest [credential withheld]"ann", … response="6629fae4…"`) and the
+#: response stayed — a withholding claimed where none happened (decision on the review of 5fe330d2).
+#: THE COST, ACCEPTED: a second, parameter-level shape to keep beside the scheme shape; a scheme
+#: with a parameter list not named here is not read. The scan from the scheme to its parameter is
+#: BOUNDED at 1,000 characters (a header is far shorter): unbounded, it read to the end of the line
+#: from every `Digest`, and one 400 KB line of prose with `Digest` every ~80 characters took 11.29 s
+#: (0.09 s bounded; review on cfe48e02).
 _SIGNED_PARAMETER = re.compile(
     r"(\bDigest[ \t]+[^\n]{0,1000}?\bresponse[ \t]*=[ \t]*\"?)[0-9a-f]{32,}"
     r"|(\bAWS4-HMAC-SHA256[ \t]+[^\n]{0,1000}?\bSignature[ \t]*=[ \t]*)[0-9a-f]{64}", re.IGNORECASE)
