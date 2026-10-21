@@ -8,16 +8,16 @@ removed the first one's box. FIVE CLAIMS:
      (rows 1-3). The slug keeps a hash of the key, or `acme web` and `acme/web` share a branch
      again, and it keeps only what a ref can spell, or git refuses the name (git itself is asked).
   2. **One key is proven once at a time on this machine**, by a kernel lock on a path of the key's
-     own that every process computes alike (rows 4, 5, 8): two keys never block each other, and a
+     own that every process computes alike (rows 4-6): two keys never block each other, and a
      holder in another process refuses this one.
-  3. **The refusal comes before anything is touched** (row 6): neither the checkout sync, nor the
+  3. **The refusal comes before anything is touched** (row 7): neither the checkout sync, nor the
      box's construction, nor `prepare`. The cut moves the lock just past the sync, the earliest
      wrong place; any later place passes the sync too, and the same assertion sees it. Moving it
      past `prepare` is not one contiguous edit of this file (some 230 lines apart), so that cut is
      not a row; the tree-survives test is what would see it.
-  4. **The key is free again however the proof ends** (row 7, 7b): ended, raised inside the proof,
+  4. **The key is free again however the proof ends** (rows 8, 9): ended, raised inside the proof,
      or raised while the checkout was being synced.
-  5. **Every door says the refusal in one sentence and records nothing** (rows 9-10): `box prove`,
+  5. **Every door says the refusal in one sentence and records nothing** (rows 10-12): `box prove`,
      `box answer`, and onboarding, whose generic refusal cut a long key's sentence at 160
      characters.
 
