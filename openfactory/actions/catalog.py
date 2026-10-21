@@ -2207,8 +2207,8 @@ def _failed(said: str, *, did: str, **payload) -> Outcome:
     """A product write that was tried and did not happen, as `/api/act` answers it: 500 `failed`,
     the sentence unchanged, and a reference that is in `data["reference"]` AND in the one line
     logged here — `_not_done`'s failure arm, and a worker's answer that is not ok where no word can
-    travel (`product_baseline`). FAILED only, so a row that reaches this and not `_not_done`
-    declares no refusal code it cannot answer.
+    travel (`product_baseline`), or that names no outcome (`product_answer`). FAILED only, so a
+    row that reaches this and not `_not_done` declares no refusal code it cannot answer.
 
     A PREFIX OF ITS OWN, NOT `OPENFACTORY_PRODUCT_WRITE_FAILED`: the module already logged that
     line for the same write (`_could_not`, `act=…`), and whoever counts that prefix counts writes
@@ -2567,10 +2567,15 @@ async def _product_answer(*, project: str, token: str, answer: str, by: Actor,
                 "listed can be answered again.", project=proj.name)
     except Exception as exc:  # noqa: BLE001 — a write path must report, never raise
         # THE EXCEPTION DOES NOT GO IN THE SENTENCE: a Temporal timeout rendered to a client is
-        # the same leak a repo slug would be.
-        log.exception("the staged proposal could not be answered for %s (%s)", proj.name, exc)
+        # the same leak a repo slug would be. THE REFERENCE IS IN THE LINE AND THE ANSWER, as on
+        # every other write row: this one performs a requirement entering the corpus or a card
+        # leaving the board, and answered its engine's failure with no reference (review of
+        # 2b58340a: 500 `failed`, `data={"project", "reason"}`).
+        reference = failure_reference()
+        log.exception("the staged proposal could not be answered for %s reference=%s (%s)",
+                      proj.name, reference, exc)
         return refused(FAILED, "I could not answer that just now, and nothing was performed.",
-                       project=proj.name)
+                       project=proj.name, reference=reference)
 
     raw = raw or {}
     from openfactory.product.voice import strip_markup
@@ -2586,8 +2591,11 @@ async def _product_answer(*, project: str, token: str, answer: str, by: Actor,
         # already, or replaced by a newer one, or aged out. The caller re-reads `product_pending`.
         return refused(CONFLICT, text, project=proj.name)
     if not outcome:
-        return refused(FAILED, "I could not tell what happened to that proposal, so treat it as "
-                               "unanswered and look again.", project=proj.name)
+        # NOBODY'S DECISION: the worker answered and named no outcome. A failure with a reference
+        # its own line names (review of 2b58340a: it answered 500 with none and logged nothing).
+        return _failed("I could not tell what happened to that proposal, so treat it as "
+                       "unanswered and look again.", did="answer the staged proposal",
+                       project=proj.name)
     return done(text, project=proj.name, token=tok, answer=said, outcome=outcome)
 
 

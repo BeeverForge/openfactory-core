@@ -36,7 +36,9 @@ On 620bb577 `_write_outcome` rendered every not-ok `WriteResult` as FAILED, so a
      breakdown whose every front was refused answers that refusal;
  11. a failed write is logged once under `OPENFACTORY_PRODUCT_WRITE_FAILED`; the line its
      reference names is `OPENFACTORY_PRODUCT_FAILURE_ANSWERED`;
- 12. no row answers both meanings of `data.refusal` (the role's word, pickup's verdict).
+ 12. no row answers both meanings of `data.refusal` (the role's word, pickup's verdict);
+ 13. `product_answer` is a write too: its engine's failure, and a worker answer naming no
+     outcome, each carry a reference its log line names (review of 2b58340a).
 """
 
 TEST = "tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py"
@@ -418,6 +420,21 @@ MUTATIONS = [
      "    _also = _not_done\n"
      "    count = len(draft.acceptance_criteria)\n",
      TEST + "::test_no_row_answers_both_meanings_of_data_refusal"),
+
+    # 14. (review of 2b58340a) the answer to a staged proposal performs a write
+    ("R4.1: the answer's engine failure carries no reference", CATALOG,
+     '        return refused(FAILED, "I could not answer that just now, and nothing was performed.",\n'
+     "                       project=proj.name, reference=reference)\n",
+     '        return refused(FAILED, "I could not answer that just now, and nothing was performed.",\n'
+     "                       project=proj.name)\n",
+     FAILURE + "::test_a_write_the_worker_did_not_finish_is_a_failure_with_a_reference"),
+    ("R4.1: an answer naming no outcome is a failure with no reference again", CATALOG,
+     '        return _failed("I could not tell what happened to that proposal, so treat it as "\n'
+     '                       "unanswered and look again.", did="answer the staged proposal",\n'
+     "                       project=proj.name)\n",
+     '        return refused(FAILED, "I could not tell what happened to that proposal, so treat it "\n'
+     '                               "as unanswered and look again.", project=proj.name)\n',
+     FAILURE + "::test_an_answer_whose_outcome_the_worker_did_not_say_is_a_failure_with_a_reference"),
 
     # 6. the family's table
     ("the family stops driving the defect filing row", TEST,

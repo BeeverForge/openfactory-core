@@ -23,9 +23,10 @@ local tracker, as the product admin on a named product credential:
   · a result from a worker older than `refusal` (its dict names none) is a failure with a
     reference — the rolling-deploy case. It passes before the change on the code and the status;
     it is red only on the reference;
-  · the rows the worker runs — refine, align, the breakdown, the first pass — answer their engine's
-    failure (the module raising on the worker) with a reference too, and a running breakdown whose
-    every front was refused answers that refusal (review of PR #970).
+  · the rows the worker runs — refine, align, the breakdown, the first pass, the answer to a staged
+    proposal — answer their engine's failure (the module raising on the worker) with a reference
+    too, and a running breakdown whose every front was refused answers that refusal (review of PR
+    #970; `product_answer` from the review of 2b58340a).
 """
 
 from __future__ import annotations
@@ -326,6 +327,7 @@ def _a_reference_its_line_names(r, caplog) -> str:
     ("product_refine_card", {"number": "1"}),
     ("product_align_card", {"number": "1", "requirement": "7"}),
     ("product_baseline", {}),
+    ("product_answer", {"token": "k|abc", "answer": "approve"}),
 ])
 def test_a_write_the_worker_did_not_finish_is_a_failure_with_a_reference(
         client, deployment, the_worker_raises, caplog, row, params):  # noqa: F811 — fixtures
@@ -357,6 +359,30 @@ def test_a_first_pass_the_worker_reports_unfinished_is_a_failure_with_a_referenc
 
     _a_reference_its_line_names(r, caplog)
     assert r.json()["message"] == "I could not get a copy of the code to read."
+
+
+def test_an_answer_whose_outcome_the_worker_did_not_say_is_a_failure_with_a_reference(
+        client, deployment, monkeypatch, caplog):  # noqa: F811 — the imported fixtures
+    """`product_answer` performs a write (a requirement entering the corpus, a card leaving the
+    board), and a worker answer that names no outcome is nobody's decision: it is a failure, and
+    it carries a reference its log line names. Review of 2b58340a: this arm answered 500 `failed`
+    with `data={"project", "reason"}` and logged nothing."""
+    from openfactory.actions import catalog
+
+    class _Engine:
+        async def execute_workflow(self, name, inp, **_kw):
+            return {"message": ""}
+
+    async def _connected():
+        return _Engine(), None
+
+    monkeypatch.setattr(catalog, "_connected", _connected)
+    with caplog.at_level(logging.INFO):
+        r = _post(client, "product_answer", who=ADMIN, yes=True, token="k|abc", answer="approve")
+
+    _a_reference_its_line_names(r, caplog)
+    assert r.json()["message"] == ("I could not tell what happened to that proposal, so treat it "
+                                   "as unanswered and look again.")
 
 
 def _past_the_breakdowns_gates(monkeypatch, deployment):  # noqa: F811 — the imported fixture
