@@ -12,7 +12,10 @@ auditor could read back.
 WHAT HOLDS NOW, in this file: the record is a type with every field the issue names (read off the
 type, not its source), it cannot be changed once made, and it names the product a project belongs
 to when there is one, and the identity provider that named the caller is the one the transport
-resolved — the panel's provider, or the shell login on the command line.
+resolved — the panel's provider, or the shell login on the command line. And `perform` leaves
+exactly one record in the deployment's store on every way out of it — each reason it can refuse
+with, a row's own refusal and success, the set read off the reasons it exports — and a row that
+relays to another leaves one per call under the caller's one correlation id.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import dataclasses
 import pytest
 
 from openfactory import actions
+from openfactory.actions import base
 from openfactory.contracts.project import Project
 from openfactory.product.key import product_key
 from openfactory.registry import ProjectRegistry
@@ -216,3 +220,144 @@ def test_naming_the_deployment_does_not_import_the_engines_client():
 
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "[]", done.stdout
+
+
+# ── one record for every way out of `perform` ───────────────────────────────────────────────────
+
+
+@pytest.fixture
+def stored(monkeypatch):
+    """The store this deployment writes its records to, read back: the `memory` metrics sink,
+    named by `OPENFACTORY_METRICS_SINK` as an operator names one, with its builder pinned to ONE
+    instance so what `perform` wrote is still there when the test reads it (the shipped builder
+    makes a fresh, empty store per call).
+
+    Read through the registry rather than a spy on `perform`, because the claim is that the record
+    REACHES the store — a spy that built the record itself (as `recorded` does above) would be
+    green on a `perform` that wrote nothing."""
+    from openfactory.observability import registry as sinks
+    from openfactory.observability.metrics import InMemoryMetricsSink
+
+    sink = InMemoryMetricsSink()
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "memory")
+    monkeypatch.setitem(sinks.METRICS_SINKS, "memory", lambda **_kw: sink)
+    return sink
+
+
+def _audit_rows(sink) -> list:
+    return [rec for rec in sink.records if rec.kind == "audit"]
+
+
+def _runs(outcome):
+    """A row whose runner does exactly one thing — so a path `perform` takes AROUND the row (the
+    engine not answering, the row raising, the row reporting nothing) can be driven without the
+    row's own side effects."""
+    async def runner(**_kw):
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+    return runner
+
+
+def _engine_down():
+    from openfactory.runtime.temporal.vocabulary import EngineUnreachable
+
+    return EngineUnreachable("the engine did not answer")
+
+
+#: A row's own refusal, as opposed to one `perform` makes around it.
+ROWS_OWN = "a_rows_own_refusal"
+
+#: Every way out of `perform`, by the reason it says — each as (row, who asks, what they pass, the
+#: runner that replaces the row's own, or None to run the real one). `skip` is the row driven
+#: around: it takes an `issue` (so it can be refused a bad ref) and needs an admin.
+_ADMIN = actions.Actor(id="op", display="Operator", via="panel", admin=True)
+WAYS_OUT = {
+    actions.UNKNOWN_ACTION: ("teleport", actions.SYSTEM, {}, None),
+    actions.BAD_PARAMETERS: ("skip", actions.SYSTEM, {"project": "demo"}, None),
+    actions.BAD_REF: ("skip", actions.SYSTEM, {"project": "demo", "issue": "../x"}, None),
+    actions.OUT_OF_SCOPE: ("product_status",
+                           actions.Actor(id="ba", via="panel", admin=True,
+                                         scopes=frozenset({actions.FLOOR})),
+                           {"project": "demo"}, None),
+    actions.NOT_ADMIN: ("skip", actions.Actor(id="U9", via="slack"),
+                        {"project": "demo", "issue": "1"}, None),
+    actions.ENGINE_UNREACHABLE: ("skip", _ADMIN, {"project": "demo", "issue": "1"}, _engine_down),
+    actions.RAISED: ("skip", _ADMIN, {"project": "demo", "issue": "1"},
+                     lambda: RuntimeError("nope")),
+    actions.REPORTED_NOTHING: ("skip", _ADMIN, {"project": "demo", "issue": "1"}, lambda: None),
+    ROWS_OWN: ("product_status", actions.SYSTEM, {"project": "nosuch"}, None),
+    "ok": ("skip", _ADMIN, {"project": "demo", "issue": "1"}, lambda: actions.done("skipped")),
+}
+
+
+@pytest.mark.parametrize("way_out", list(WAYS_OUT))
+async def test_each_way_out_of_perform_leaves_one_record_and_only_one(way_out, registry, stored,
+                                                                      monkeypatch):
+    """Criterion 2: every call leaves exactly one record, on every path — the early refusals, both
+    denials, the three ways a row can fail around its runner, a row's own refusal, and success —
+    and the record says what the caller was told (`ok`, `code`, `reason` equal the `Outcome`'s).
+
+    Before #694 `perform` wrote nothing durable on any path: the store received 0 records of kind
+    `audit` for each of these ten calls, and the only trace was one INFO line written on two of
+    them (a row's answer, a row's refusal) — the other eight left at most a WARNING."""
+    from openfactory.actions import catalog
+
+    name, by, params, runner = WAYS_OUT[way_out]
+    if runner is not None:
+        monkeypatch.setitem(catalog.CATALOG, name,
+                            dataclasses.replace(catalog.CATALOG[name], run=_runs(runner())))
+
+    outcome = await actions.perform(name, by=by, **params)
+
+    said = outcome.data.get("reason", "")
+    assert (outcome.ok, said) == ((True, "") if way_out == "ok" else
+                                  (False, actions.NOT_FOUND if way_out == ROWS_OWN else way_out)), (
+        f"the {way_out} case drove another path: {outcome}")
+    rows = _audit_rows(stored)
+    assert len(rows) == 1, f"{way_out}: {len(rows)} audit records for one call (1 expected)"
+    [row] = rows
+    assert (row.extra["ok"], row.extra["code"], row.extra["reason"]) == (
+        outcome.ok, outcome.code, said), row.extra
+
+
+def test_every_reason_perform_can_say_is_a_path_this_test_drives():
+    """Criterion 2, kept true: the ways out above are read against the reasons `perform` exports
+    (`UNKNOWN_ACTION` and `AROUND_EVERY_ROW`, `actions/base.py`), so a reason `perform` learns
+    later is a path the parametrised test must drive — not one that skips the record unseen.
+    Green before #694 by construction; it holds the table, not the record."""
+    missing = {actions.UNKNOWN_ACTION, *base.AROUND_EVERY_ROW} - set(WAYS_OUT)
+
+    assert not missing, f"perform can say {sorted(missing)}, and no case above drives it"
+
+
+async def test_a_relayed_row_leaves_its_own_record_under_the_callers_correlation(
+        registry, stored, monkeypatch):
+    """Criterion 2, relays: a row that performs another row (`ask` answering a plain "yes" runs
+    what the tech-lead staged, through `run_staged`, `actions/catalog.py`) is two calls, and leaves
+    two records — one per action — under the ONE correlation id the caller carried, so an auditor
+    can read the yes and the skip it caused as one request. Before #694 the store received 0
+    records for either."""
+    from openfactory.actions import catalog
+    from openfactory.memory import messages as channel
+
+    registry.add(Project(name="demo", repo_path="https://github.com/acme/demo.git"))
+    staged = channel.Message(
+        kind=channel.SAID, text="I'd skip it", ts="2026-10-20T00:00:00+00:00",
+        token=channel.suggestion_token("skip", "87"),
+        payload='{"suggestion": ["skip", "87"]}')
+    monkeypatch.setattr(channel, "staged", lambda *_a, **_k: (staged, ""))
+    monkeypatch.setattr(channel, "answer", lambda *_a, **_k: True)
+    monkeypatch.setattr(channel, "say", lambda *_a, **_k: True)
+    monkeypatch.setattr(catalog, "_remember", lambda *_a, **_k: None)
+    monkeypatch.setitem(catalog.CATALOG, "skip",
+                        dataclasses.replace(catalog.CATALOG["skip"],
+                                            run=_runs(actions.done("skipped"))))
+    by = dataclasses.replace(_ADMIN, correlation="req-7f3a")
+
+    outcome = await actions.perform("ask", by=by, project="demo", question="sim")
+
+    assert outcome.ok and outcome.data.get("action") == "skip", outcome  # the relay happened
+    rows = _audit_rows(stored)
+    assert sorted(r.extra["action"] for r in rows) == ["ask", "skip"], rows
+    assert {r.extra["correlation_id"] for r in rows} == {"req-7f3a"}, rows
