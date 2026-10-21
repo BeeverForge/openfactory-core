@@ -580,3 +580,17 @@ async def test_words_holding_a_lone_surrogate_are_still_kept_as_their_length_and
     assert kept["chars"] == len(words) and re.fullmatch(r"[0-9a-f]{64}", kept["sha256"]), kept
     _line, printed = _the_line(caplog)
     assert printed["message"] == kept, printed
+
+
+def test_a_registry_that_cannot_be_read_names_the_product_unread_not_none(tmp_path, monkeypatch):
+    """Criterion 1's "product when there is one", and lesson §2: "the registry did not answer" and
+    "this project belongs to no product" never share a value — an unreadable registry gives
+    `PRODUCT_UNREAD`, not `""`. No test held it: the branch review's cut answering `""` there
+    survived 133 tests."""
+    from openfactory.observability.audit import PRODUCT_UNREAD, _product_of
+
+    bad = tmp_path / "registry.yaml"
+    bad.write_text("projects: [: not yaml\n")
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(bad))
+
+    assert _product_of("demo") == PRODUCT_UNREAD

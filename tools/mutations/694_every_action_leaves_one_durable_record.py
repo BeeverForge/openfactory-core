@@ -28,7 +28,9 @@ The claims, each a group of rows (the numbers are the plan's, `ai/tasks/todo.md`
   and a caller the panel could not name listed as `-` rather than an empty column (found running
   `openfactory serve` and a curl by hand, 2026-10-21); and the row's key, the project and the
   action a caller sent, kept storable (a lone surrogate written as its escape) and bounded to
-  `VALUE_CHARS` (branch review round 1, 2026-10-21).
+  `VALUE_CHARS` (branch review round 1, 2026-10-21); and four documented behaviours the same
+  review's cuts showed no test held — the fallback file `OPENFACTORY_METRICS_DB` names, the action
+  recorded and filtered by its resolved name, and an unreadable registry's product.
 
 FOUR GUARDS WERE WRITTEN WITH THIS PLAN (2026-10-20), each for a row nothing held: the record of
 a call raising outside the row's guard, and a store's other kinds read as records — both rows
@@ -391,4 +393,24 @@ MUTATIONS = [
      "        action = _storable(asked)[:VALUE_CHARS]\n",
      "        action = _storable(asked)\n",
      _STORE + "test_the_action_name_a_caller_typed_is_kept_to_the_bound_like_any_value"),
+
+    # documented behaviours no test held: each survived the branch review's own cut (round 1,
+    # 2026-10-21, 133 passed under each), and each has a guard of its own now
+    ("the fallback store ignores OPENFACTORY_METRICS_DB", _AUDIT,
+     '    if named := os.environ.get("OPENFACTORY_METRICS_DB", "").strip():\n',
+     '    if named := "":\n',
+     _STORE + "test_a_deployment_with_no_store_keeps_the_record_in_the_file_"
+              "OPENFACTORY_METRICS_DB_names"),
+    ("audit --action is matched as typed, not lower-cased", _CLI,
+     '        if action is not None and r.get("action") != action.strip().lower():\n',
+     '        if action is not None and r.get("action") != action:\n',
+     _LIST + "::test_an_action_asked_in_capitals_is_recorded_and_listed_by_its_name"),
+    ("the record keeps the action as asked, not as resolved", _AUDIT,
+     '        asked = (name or "").strip().lower() or name\n',
+     '        asked = name\n',
+     _LIST + "::test_an_action_asked_in_capitals_is_recorded_and_listed_by_its_name"),
+    ("an unreadable registry gives the product no product has", _AUDIT,
+     "        return PRODUCT_UNREAD\n",
+     '        return ""\n',
+     _EVERY + "test_a_registry_that_cannot_be_read_names_the_product_unread_not_none"),
 ]

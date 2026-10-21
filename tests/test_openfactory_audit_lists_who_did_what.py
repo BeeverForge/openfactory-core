@@ -337,3 +337,21 @@ async def test_a_caller_the_panel_could_not_name_is_listed_as_a_dash_keeping_eac
     assert result.exit_code == 0, (result.exit_code, result.output)
     [line] = result.stdout.splitlines()
     assert line.split()[1:4] == ["-", "product_status", "nosuch"], line
+
+
+def test_an_action_asked_in_capitals_is_recorded_and_listed_by_its_name(tmp_path, monkeypatch):
+    """An action is resolved lower-cased and stripped (`perform`), so the record keeps the name it
+    resolved to and `--action` matches it however it is typed. No test held either half: the
+    branch review's cuts keeping the name as asked, and not lower-casing `--action`, each survived
+    133 tests."""
+    import asyncio
+
+    from openfactory.cli import app
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "m.db"))
+    asyncio.run(actions.perform(" Product_Status ", by=actions.SYSTEM, project="nosuch"))
+
+    out = CliRunner().invoke(app, ["audit", "--action", "PRODUCT_STATUS", "--json"])
+    assert [r["action"] for r in json.loads(out.stdout)["records"]] == ["product_status"], out.output

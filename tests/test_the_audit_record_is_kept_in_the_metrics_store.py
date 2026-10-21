@@ -23,8 +23,10 @@ at WARNING naming the action and the store, and the caller's outcome is unchange
 made and written off the event loop, and a cancel while it is made still leaves it. Records of a
 call that named no project share the people store's `_deployment_` key and do not crowd a
 registered person out of its read (Q7). A host CLI with no store named keeps its records in
-`audit.db` beside `registry.yaml`, and the deployment's own metrics sink is still inferred `null`
-there. The cost dashboard, which reads the whole store, lists no project an audit row alone is
+`audit.db` beside `registry.yaml`, or in the file `OPENFACTORY_METRICS_DB` names, and the
+deployment's own metrics sink is still inferred `null` there. The project and the action a caller
+sent are the row's key: a lone surrogate in either still leaves the record, and a million
+characters of either are kept to `VALUE_CHARS`. The cost dashboard, which reads the whole store, lists no project an audit row alone is
 under and opens on the same project, spend and autonomy block it showed before the rows landed.
 """
 
@@ -684,6 +686,24 @@ def test_a_host_cli_with_no_store_configured_still_keeps_the_record(tmp_path, mo
         ("product_status", "cli")], f"no record in {home / 'audit.db'}"
     assert sorted(p.name for p in shell.iterdir()) == [], "the CLI wrote into the shell's cwd"
 
+
+
+async def test_a_deployment_with_no_store_keeps_the_record_in_the_file_OPENFACTORY_METRICS_DB_names(
+        tmp_path, monkeypatch):
+    """Q9, as `docs/rotation-and-retention.md` §5 and `changes/694.upgrade.md` state it: with no
+    metrics store declared the record goes to the file `OPENFACTORY_METRICS_DB` names when it is
+    set, and to `audit.db` beside `registry.yaml` only when it is not. No test held the first
+    half: the branch review's cut `audit_path` ignoring the variable survived 133 tests."""
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "reg" / "registry.yaml"))
+    monkeypatch.delenv("OPENFACTORY_METRICS_SINK", raising=False)
+    monkeypatch.delenv("OPENFACTORY_METRICS_TABLE", raising=False)
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "named.db"))
+
+    await actions.perform("product_status", by=actions.SYSTEM, project="nosuch")
+
+    rows = _audit_rows(SqliteMetricsSink(tmp_path / "named.db"))
+    assert [r["extra"]["action"] for r in rows] == ["product_status"], rows
+    assert not (tmp_path / "reg" / "audit.db").exists(), "the record went beside the registry"
 
 def test_the_metrics_sink_kind_inference_is_unchanged(monkeypatch):
     """Q9's other half: the audit's fallback file is the audit's alone. With no
