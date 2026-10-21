@@ -26,10 +26,15 @@ log = logging.getLogger("openfactory.tracker.github_project")
 #: STATES stay closed, only the LABELS open (C-14, ADR-0022 §4).
 #:
 #: THE PLATFORM'S VOCABULARY, READ FROM ITS NEUTRAL HOME (`adapters/board/columns.py`) rather than
-#: spelled again here. This board's defaults ARE the canonical six because the platform creates
-#: this board; the Azure row's are its own (`adapters/board/azure_devops.py`), which is what a
-#: vendor whose board already exists is entitled to. A copy is taken so a caller mutating this
-#: dict cannot reach the table every other axis reads.
+#: spelled again here. This board's defaults ARE the canonical columns because the platform
+#: creates this board; the Azure row's are its own (`adapters/board/azure_devops.py`), which is
+#: what a vendor whose board already exists is entitled to. A copy is taken so a caller mutating
+#: this dict cannot reach the table every other axis reads.
+#:
+#: SO A NAME HERE IS NOT A COLUMN THE BOARD HAS (#753). `needs_review` joined the vocabulary in
+#: 0.7, which puts "Needs Review" in this map on every deployment, including every board created
+#: before it with six Status options. "Mapped" on this row is therefore read off the board's own
+#: options (`set_status`), never off this dict.
 DEFAULT_COLUMNS: dict[str, str] = dict(CANONICAL_COLUMNS)
 
 # framework state -> board Status option name — the DEFAULT rendering, kept because callers and
@@ -638,16 +643,31 @@ class GitHubProjectBoard:
 
     def set_status(self, *, issue: str, issue_url: str, state: JobState,
                    needs_person: bool | None = None) -> bool:
-        """Move the card to the Status mapped from `state`. Returns True on success. If the
-        mapped column doesn't exist on this board yet (e.g. 'Needs Action' before the owner
-        adds it in the UI — GitHub has no API to create it), fall back to Backlog so a parked
-        ticket still leaves the active columns instead of getting stuck showing 'In progress'."""
-        from openfactory.adapters.tracker.base import column_key
+        """Move the card to the Status mapped from `state`. Returns True on success.
 
-        key = column_key(state, needs_person=needs_person)
-        name = self._columns.get(key or "")
-        if not name:
+        THE FIRST OF `column_keys` WHOSE NAME IS ONE OF THIS BOARD'S STATUS OPTIONS (#753): a
+        pull request a person must review goes to "Needs Review" (or the deployment's own name for
+        `needs_review`) on a board that has that option, and to Needs Action, the contract's
+        `FALLS_BACK_TO`, on one that does not — every board made before 0.7. The options are READ,
+        and a board whose options could not be read raises out of `_ensure_meta` as it always
+        did: unreadable is not "has no Needs Review", and is never answered with the fallback.
+
+        If the last candidate's column doesn't exist on this board either (e.g. 'Needs Action'
+        before the owner adds it in the UI — GitHub has no API to create it), `set_column` falls
+        back to Backlog so a parked ticket still leaves the active columns instead of getting
+        stuck showing 'In progress'."""
+        from openfactory.adapters.tracker.base import column_keys
+
+        names = [name for name in (self._columns.get(key, "")
+                                   for key in column_keys(state, needs_person=needs_person))
+                 if name]
+        if not names:
             return False
+        self._ensure_meta()
+        name = next((n for n in names if n in self._option_ids), names[-1])
+        if name != names[0]:
+            log.info("%s/%s has no %r Status option — issue %s goes to %r instead",
+                     self.owner, self.number, names[0], issue, name)
         return self.set_column(issue=issue, issue_url=issue_url, name=name)
 
     def place_after(self, *, issue: str, issue_url: str, after: str | None, column: str) -> bool:
