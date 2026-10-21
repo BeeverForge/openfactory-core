@@ -143,7 +143,11 @@ def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_
     (f"{SENTINEL}: the tests use postgres://app:{DB_PASSWORD}@db:5432/app", DB_PASSWORD),
     (f"{SENTINEL}: cloned https://x-access-token:{OPAQUE}@github.com/o/r.git first", OPAQUE),
     (f"{SENTINEL}: the [db](https://u:{LINK_PASSWORD}@host/x) is up", LINK_PASSWORD),
-], ids=["postgres", "clone-url", "markdown-link"])
+    # review on 5fe330d2: only a userinfo of exactly `git` is left as written — a password after
+    # it, or GitLab's CI user whose job token no vendor prefix matches, is withheld
+    (f"{SENTINEL}: cloned ssh://git:{DB_PASSWORD}@github.com/o/r.git", DB_PASSWORD),
+    (f"{SENTINEL}: CI cloned https://gitlab-ci-token:{OPAQUE}@gitlab.example.test/o/r.git", OPAQUE),
+], ids=["postgres", "clone-url", "markdown-link", "git-with-password", "gitlab-ci-token"])
 def test_the_password_of_a_url_in_the_agents_message_is_withheld_and_the_body_says_so(
         repo: Path, tmp_path: Path, said: str, secret: str):
     """At 620bb577 the password was quoted; `scrub_credentials` would have dropped it with nothing
