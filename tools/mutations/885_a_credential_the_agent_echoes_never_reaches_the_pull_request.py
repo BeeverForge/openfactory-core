@@ -12,7 +12,8 @@ Claims:
   - `scrub_credentials` withholds an `Authorization` value after a NAMED scheme (any word there is
     prose: "Authorization: handled centrally …"), in any case, after `:` or `=`, a JSON key's
     quote included; a header value only from 8 characters, and only with a credential's mark (a
-    digit, `=`, or a lowercase letter before an uppercase one; never a `+` or `/`), so
+    digit, trailing `=` padding, or a lowercase letter before an uppercase one; never a `+`, a `/`
+    or an `=` inside the value), so
     "Authorization: Basic authentication is kept …" and "… username/password pairs …" are prose;
     a bare `Bearer` value only when it is 16 token68
     characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN_2` stays prose;
@@ -74,16 +75,21 @@ MUTATIONS = [
      '    r"|(\\bBearer[ \\t]+)(?=[\\w.~+/-]*\\d)[\\w.~+/-]{16,}=*", re.IGNORECASE)\n',
      '    r"|(\\bBearer[ \\t]+)[\\w.~+/-]+=*", re.IGNORECASE)\n', PROSE),
     # re-pinned 2026-10-21: the header value moved to its own line with the credential's mark;
-    # re-pinned again: `+` and `/` left the mark set (review on cfe48e02)
+    # re-pinned again: `+` and `/` left the mark set (review on cfe48e02); and again: `=` counts
+    # only as trailing padding (review on 34209477)
     ("a variable reference is read as a value", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
-     '    r"(?=[\\w.~+/$-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/$-]{8,}=*"\n', PROSE),
-    ("a slash is a credential's mark", MODEL, '(?:\\d|=|', '(?:\\d|[+/=]|', PROSE),
+     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/$-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/$-]{8,}=*"\n', PROSE),
+    ("a slash is a credential's mark", MODEL, '(?:\\d|=+(?![\\w.~+/-])|',
+     '(?:\\d|[+/]|=+(?![\\w.~+/-])|', PROSE),
+    # review on 34209477: `=` is a mark only as the padding that ends a value
+    ("padding is not a credential's mark", MODEL, '|=+(?![\\w.~+/-])|', '|'),
+    ("any = is a credential's mark", MODEL, '=+(?![\\w.~+/-])', '=', PROSE),
     ("a word after an Authorization scheme is withheld", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
-     '    r"(?=[\\w.~+/-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/-]+=*"\n', PROSE),
+     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]+=*"\n', PROSE),
     ("a header value needs no credential's mark", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
      '    r"[\\w.~+/-]{8,}=*"\n', PROSE),
     ("any word is read as an Authorization scheme", MODEL,
      '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',  # re-pinned 2026-10-21: Digest and AWS4 left for _SIGNED_PARAMETER
@@ -124,7 +130,7 @@ MUTATIONS = [
     ("Digest is read as a one-token scheme, its first parameter's name withheld", MODEL,
      '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',
      '(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM)'),
-    ("AWS4-HMAC-SHA256 is read as a one-token scheme, Credential= withheld", MODEL,
+    ("AWS4-HMAC-SHA256 is read as a one-token scheme, its first parameter's name withheld", MODEL,
      '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',
      '(?:Bearer|Basic|token|Bot|Negotiate|NTLM|AWS4-HMAC-SHA256)'),
     ("a URL with no userinfo loses its host", MODEL,
