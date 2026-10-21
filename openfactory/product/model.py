@@ -295,21 +295,84 @@ def scrub_spend(text: str) -> str:
 
 
 #: A credential by its shape — the forges', the chat vendors', the clouds' and the model vendors'
-#: own prefixes — and a URL carrying userinfo, which is how a clone URL holds a token.
+#: own prefixes — and a URL carrying userinfo, which is how a clone URL holds a token. Read by a
+#: facts file, a briefing, a refused source, and the pull request body's quote of the agent (#885).
 _CREDENTIAL_SHAPES = re.compile(
     r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}"
     r"|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,})")
 _USERINFO = re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+@")
+#: The value of an `Authorization` header after a one-token scheme named by HTTP or a forge
+#: (`Bearer`, `Basic`, `token`, `Bot`, `Negotiate`, `NTLM`), as a header, a `curl -H` or a JSON key
+#: writes it, in any case — and a bare `Bearer <value>` when the value looks like one: 16 characters
+#: of the token68 alphabet with a digit in them, so "the Bearer credential" is prose. The scheme
+#: word stays; the value is withheld. Measured at 620bb577: a JWT after `Authorization: Bearer` came
+#: back unchanged, because only a vendor prefix (`Bearer ghp_…`) was caught (#885). The scheme is
+#: NAMED, not any word: with any word, "Authorization: handled centrally in middleware.py" lost
+#: "centrally" (review on 28e5da94). `$` is outside the alphabet, so `Bearer $GH_TOKEN` names a
+#: variable, not a value; a header value under 8 characters is a word (`Authorization: Bearer
+#: token`), not a credential. And a header value must carry a credential's mark — a digit, trailing
+#: `=` padding (before a space, punctuation or a sentence's full stop), or a lowercase letter
+#: followed by an uppercase one — because an English word after a named scheme is prose:
+#: "Authorization: Basic authentication is kept for the legacy API" lost "authentication" (review
+#: on 5fe330d2). An `=` inside the value is no mark: "Authorization: Basic username=admin" lost
+#: "username=", and "Bearer access_token=abcdef…" put the marker on the name with the value quoted
+#: beside it (review on 34209477). A full stop after the padding ends the sentence unless a value
+#: character follows it: read as part of the value, `Basic QSECRETOPAQ=. It answered` lost its
+#: mark and was quoted raw, 405 of 200,000 8-byte values (seed 885; review on c0bb69c0); 0 now.
+#: `+` and `/` are NOT marks: they fired only on prose, "Authorization: Basic username/password
+#: pairs are refused now" lost "username/password" (review on cfe48e02). THE COST, ACCEPTED: a
+#: header value with none of those marks is quoted as written — letters only, all lowercase (or
+#: all uppercase, or one capital first), no digit, no padding, whatever its `+`, `/` or inner `=`.
+#: Measured on random base64
+#: (seed 885, 200,000 values per length): 1.52% of 8-character values carry no mark (0.88% had a
+#: `+` or `/`), 0.12% of 12-character ones, 0.007% of 16, 0.0005% of 20, none of 32. Hex with a
+#: digit and JWTs always carry one.
+_AUTHORIZATION = re.compile(
+    r"(\bAuthorization[\"']?\s*[:=]\s*[\"']?(?:Bearer|Basic|token|Bot|Negotiate|NTLM)[ \t]+)"
+    r"(?=[\w.~+/-]*(?:\d|=+(?!\.?[\w~+/-])|(?-i:[a-z][A-Z])))[\w.~+/-]{8,}=*"
+    r"|(\bBearer[ \t]+)(?=[\w.~+/-]*\d)[\w.~+/-]{16,}=*", re.IGNORECASE)
+#: The SECRET PARAMETER of a header whose value is a parameter list, not one token: `response=`
+#: after `Digest` (RFC 7616) and `Signature=` after `AWS4-HMAC-SHA256` (AWS SigV4). Only that
+#: parameter is withheld; the username, realm, nonce, URI, `Credential=` and `SignedHeaders=` are
+#: quoted as written — `Credential=` unless its key id is an `AKIA…` the vendor shape withholds.
+#: Measured at d892b0a3, with these two schemes in `_AUTHORIZATION`'s list: the marker landed on the
+#: FIRST parameter's name (`Digest [credential withheld]"ann", … response="6629fae4…"`) and the
+#: response stayed — a withholding claimed where none happened (decision on the review of 5fe330d2).
+#: THE COST, ACCEPTED: a second, parameter-level shape to keep beside the scheme shape; a scheme
+#: with a parameter list not named here is not read. The scan from the scheme to its parameter is
+#: BOUNDED at 1,000 characters (a header is far shorter): unbounded, it read to the end of the line
+#: from every `Digest`, and one 400 KB line of prose with `Digest` every ~80 characters took 11.29 s
+#: (0.09 s bounded; review on cfe48e02). THE BOUND'S COST, ACCEPTED: a header whose parameters
+#: before `response=` / `Signature=` run past 1,000 characters is quoted whole, secret included —
+#: measured at 04c620b9, a `uri="/x?<973 q>"` (1,000 characters after `Digest `) is withheld and
+#: `<974 q>` leaves the response raw (review on 34209477).
+_SIGNED_PARAMETER = re.compile(
+    r"(\bDigest[ \t]+[^\n]{0,1000}?\bresponse[ \t]*=[ \t]*\"?)[0-9a-f]{32,}"
+    r"|(\bAWS4-HMAC-SHA256[ \t]+[^\n]{0,1000}?\bSignature[ \t]*=[ \t]*)[0-9a-f]{64}", re.IGNORECASE)
 #: An environment variable whose value is a secret, by its name.
 _SECRET_NAME = re.compile(r"TOKEN|SECRET|PASSW|API_?KEY|PRIVATE|CREDENTIAL|KEY_CONTENT", re.I)
 WITHHELD_CREDENTIAL = "[credential withheld]"
 
 
-def scrub_credentials(text: str) -> str:
-    """`text` with every credential this process holds, and every credential-shaped string,
-    withheld. A facts file is read by a model and written to a workspace; a token in one is a token
-    handed to whatever reads that directory."""
-    text = _USERINFO.sub(r"\1", text)
+def scrub_credentials(text: str, *, userinfo: str = "") -> str:
+    """`text` with every credential this process holds, and every credential-shaped string —
+    a token by its prefix, the value of an `Authorization` header, a `Digest` response or a SigV4
+    signature — withheld. A facts file is read
+    by a model and written to a workspace; a token in one is a token handed to whatever reads that
+    directory. The pull request body quotes the agent through it too (#885).
+
+    A URL's userinfo is replaced by `userinfo`: nothing by default, so a facts file keeps a usable
+    URL, silently; the pull request body passes the marker, because its reader must be told
+    something was withheld, and "absent" and "withheld" are different facts. Given a marker, a
+    userinfo of exactly `git` (`ssh://git@github.com/…`, the user every forge's SSH remote names)
+    is left as written: it is never a credential, and the marker would claim one was there."""
+    # A function, not a template: a template reads every backslash of `userinfo` as an escape or a
+    # group (`re.sub("(a)", r"\1x\d", "a")` raises `bad escape \d`, Python 3.12), so the text
+    # would depend on what the caller's marker happens to contain.
+    text = _USERINFO.sub(lambda m: m.group(0) if userinfo and m.group(0)[len(m.group(1)):] == "git@"
+                         else m.group(1) + userinfo, text)
+    text = _AUTHORIZATION.sub(lambda m: (m.group(1) or m.group(2)) + WITHHELD_CREDENTIAL, text)
+    text = _SIGNED_PARAMETER.sub(lambda m: (m.group(1) or m.group(2)) + WITHHELD_CREDENTIAL, text)
     text = _CREDENTIAL_SHAPES.sub(WITHHELD_CREDENTIAL, text)
     for secret in _secrets_of_this_process():
         if secret in text:
