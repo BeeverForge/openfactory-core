@@ -26,7 +26,7 @@ from openfactory.adapters.tracker.base import (
     STATE_KEYS,
     TicketComment,
     TicketSummary,
-    column_key,
+    column_keys,
     list_state,
 )
 from openfactory.adapters.tracker.parse import parse_ticket_body
@@ -329,9 +329,10 @@ class LocalTracker:
 
     def set_state(self, ref: str, state: JobState, reason: str | None = None, *,
                   needs_person: bool | None = None) -> bool | None:
-        """Move the card to the column this state belongs in. `False` when this board declares no
-        such column — never a raise, which is what every other row on this axis promises and what
-        the gather's park path reads to decide whether to say the park did not land.
+        """Move the card to the column this state belongs in — or, when this board has no row for
+        that key, to its `FALLS_BACK_TO` column (#753). `False` when it declares neither — never a
+        raise, which is what every other row on this axis promises and what the gather's park path
+        reads to decide whether to say the park did not land.
 
         DONE CLOSES THE CARD AS DELIVERED, AND LEAVING DONE OPENS IT AGAIN (#500). The column and
         the card's state are two fields of one row here, and only the column moved: a card the
@@ -365,14 +366,18 @@ class LocalTracker:
         move reopens it: only a person does, through the door. A card already closed as delivered
         is not closed again (one writer per close, GitHub's `_close_as_delivered`). Its column
         moves as it always did; a card closed as not delivered is on nobody's board."""
-        key = column_key(state, needs_person=needs_person)
-        if not key:
+        # THE FIRST KEY THIS BOARD HAS A ROW FOR (#753). A `board.db` written by 0.6's setup has
+        # six rows and no `needs_review`; a person-gated pull request on it must still land in
+        # Needs Action, as it did, so the contract's fallback is tried before giving up.
+        keys = column_keys(state, needs_person=needs_person)
+        if not keys:
             return False
         with connect(self._db, write=True) as conn:
-            if conn.execute("SELECT 1 FROM columns WHERE project = ? AND key = ?",
-                            (self.project, key)).fetchone() is None:
-                return False
-            return move_card(conn, self.project, _number(ref), key, closes_at_done=True)
+            for key in keys:
+                if conn.execute("SELECT 1 FROM columns WHERE project = ? AND key = ?",
+                                (self.project, key)).fetchone() is not None:
+                    return move_card(conn, self.project, _number(ref), key, closes_at_done=True)
+            return False
 
     def set_assignees(self, ref: str, logins: list[str]) -> None:
         """A no-op with a record in the log rather than a silent one: a caller that assigned
