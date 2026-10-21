@@ -23,7 +23,9 @@ The claims, each a group of rows (the numbers are the plan's, `ai/tasks/todo.md`
      deployment's own metrics inference is unchanged;
   and the deployment's name, the product, the correlation id, and the people store's read under
   the deployment-wide key the records share; and the cost dashboard's project selector and its
-  default view, which an audit row under a typed or deployment-wide key moved (fixed 2026-10-21).
+  default view, which an audit row under a typed or deployment-wide key moved (fixed 2026-10-21);
+  and a caller the panel could not name listed as `-` rather than an empty column (found running
+  `openfactory serve` and a curl by hand, 2026-10-21).
 
 FOUR GUARDS WERE WRITTEN WITH THIS PLAN (2026-10-20), each for a row nothing held: the record of
 a call raising outside the row's guard, and a store's other kinds read as records — both rows
@@ -243,6 +245,11 @@ MUTATIONS = [
      '        rows = [r for r in store.scan() if r.get("kind") == "audit"]\n',
      "        rows = list(store.scan())\n",
      _LIST),
+    ("a caller with no id leaves an empty column, not a dash", _CLI,
+     "{r.get('actor_id') or '-'}",
+     "{r.get('actor_id')}",
+     _LIST + "::test_a_caller_the_panel_could_not_name_is_listed_as_a_dash_keeping_each_line_in_"
+     "columns"),
     # 14. three answers, never one
     ("an unreadable store is printed as no records", _CLI,
      '        typer.echo(f"audit: {audit._named(store)} cannot be read, so this cannot say who '

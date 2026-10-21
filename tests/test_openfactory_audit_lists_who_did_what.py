@@ -317,3 +317,23 @@ def test_the_bound_is_said_when_it_is_hit(deployment):
     whole = _audit("--limit", str(len(CALLS)))
     assert whole.stderr == "", whole.stderr
     assert json.loads(_audit("--limit", str(len(CALLS)), "--json").stdout)["cut"] is False
+
+
+async def test_a_caller_the_panel_could_not_name_is_listed_as_a_dash_keeping_each_line_in_columns(
+        tmp_path, monkeypatch):
+    """A record whose `actor_id` is empty — the panel's anonymous caller, `somebody with the panel
+    token` — lists `-` where who asked goes, as an absent project does, so the action and the
+    project stay the third and fourth words. Measured by hand on 2026-10-21 (`openfactory serve`,
+    one `curl -X POST /api/act/product_status`): the line read `<ts>    product_status  nosuch …`,
+    an empty column, so `split()` put the action where who asked goes."""
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(tmp_path / "metrics.db"))
+    nobody = actions.Actor(id="", display="somebody with the panel token", via="panel")
+    await actions.perform("product_status", by=nobody, project="nosuch")
+
+    result = _audit()
+
+    assert result.exit_code == 0, (result.exit_code, result.output)
+    [line] = result.stdout.splitlines()
+    assert line.split()[1:4] == ["-", "product_status", "nosuch"], line

@@ -3884,10 +3884,10 @@ def audit_cmd(
 ) -> None:
     """List who asked the factory to do what, on which project, what came of it and when.
 
-    One line per record, oldest first, in UTC: the time, who asked, the action, the project
-    (`-` when none) and `ok`, or `refused` with its code and reason. Reads the store every action
-    writes its record to. Exits 2 naming the store when it cannot be read, or when this
-    deployment's metrics sink keeps nothing that can be read back."""
+    One line per record, oldest first, in UTC: the time, who asked (their id), the action, the
+    project (`-` for either when none) and `ok`, or `refused` with its code and reason. Reads the
+    store every action writes its record to. Exits 2 naming the store when it cannot be read, or
+    when this deployment's metrics sink keeps nothing that can be read back."""
     import json as _json
     from datetime import UTC, datetime, time, timedelta
 
@@ -3963,7 +3963,11 @@ def audit_cmd(
     for r in [] if as_json else found:
         said = "ok" if r.get("ok") else " ".join(
             w for w in ("refused", r.get("code") or "", r.get("reason") or "") if w)
-        typer.echo(f"{_audit_when(r['ts']).isoformat()}  {r.get('actor_id')}  {r.get('action')}"
+        # A caller the panel could not name has an empty `actor_id`; printed bare it left an empty
+        # column and `split()` read the action as who asked (by hand on 2026-10-21, one curl to
+        # `openfactory serve`). `-` holds the place, as for a record with no project.
+        typer.echo(f"{_audit_when(r['ts']).isoformat()}  {r.get('actor_id') or '-'}"
+                   f"  {r.get('action')}"
                    f"  {r.get('project') or '-'}  {said}")
     if cut:
         typer.echo(f"audit: only the {limit} most recent matching records are listed — "
