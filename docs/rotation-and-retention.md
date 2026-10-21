@@ -313,8 +313,9 @@ are one list. A host command line does not see a compose deployment's records, n
 
 **What a record holds of a person's words.** Nothing readable. A free-text parameter (a message, a
 comment, an instruction, an answer) is kept as its length and its sha256, so the record can prove
-what was sent without holding it (ADR-0024). Passwords, tokens and keys are masked as they are in
-the log line, and any other value is cut at 2,000 characters, the cut said in the value.
+what was sent without holding it (ADR-0024). Passwords, tokens and keys are masked, and any other
+value is cut at 2,000 characters, the cut said in the value. The action's INFO line prints the
+parameters exactly as the record keeps them, so a person's words reach neither.
 
 **`openfactory project forget` keeps the records.** An audit trail that forgetting a project erases
 is no audit trail, and the records hold no client words for the forget to protect. They leave when

@@ -291,8 +291,9 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
        around `_decide`, so a `return` added there later cannot skip it): the INFO line
        `action=… by=… ok=… code=… params=…`, now on every way out including the refusals, and one
        `observability.audit.AuditRecord` handed to `audit.write` — who asked (the `Subject` and
-       the provider that named them), what, with which parameters (`SECRET` values masked, by the
-       same `audit.redact` the line uses), the answer, the deployment, the product, and the
+       the provider that named them), what, with which parameters (as `audit._kept` keeps them,
+       made once and printed in the line too: `SECRET` values masked, a person's words as their
+       length and digest, other values bounded), the answer, the deployment, the product, and the
        correlation id that ties it to the request that caused it — `by.correlation`, or one minted
        here before the row runs when the caller carried none, so a relayed call shares it. A call
        cancelled before it answered is recorded as `failed`/`cancelled`. Who asked for a thing is
