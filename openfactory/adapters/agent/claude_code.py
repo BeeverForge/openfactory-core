@@ -36,6 +36,7 @@ from openfactory.adapters.agent.base import (
     PromptTooLarge,
     handed_to_a_live_session,
     prompt_too_large_result,
+    prose_only,
     stage_prompt,
     ticket_brief,
     wall_result,
@@ -1055,6 +1056,102 @@ def _detect_pause(text: str) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _pause_from(out: str) -> tuple[str | None, str | None]:
+    """A usage-limit or auth stop in a run that ended with NO result event, read from what the
+    CLI ITSELF said — each of `_CLI_SIGNALS` — and never from what the run read (#750).
+
+    A killed or stalled run's output is the whole stream it got through, and that stream is mostly
+    the REPOSITORY: a `user` event carries what a tool returned (a file read, a test log), an
+    assistant message carries the model's prose and its `tool_use` inputs, and `system/init` names
+    the repository's own skills, slash commands and working directory. Matched as one text, a
+    repository whose domain is throttling (ARNs, `429` handlers, comments about quotas) parked its
+    own killed runs as rate limited, with a resume timer, on an account nobody had limited — and
+    so did any killed run whose stream held a `rate_limit_event`, matched on the event's NAME
+    whatever its status said. So each signal reads the CLI's own events by their fields, a
+    `system` event only as `api_retry`. A rate limit wins over an auth stop, as it does across a
+    lap (`_invoke`): it is the one a later run can resume."""
+    events = []
+    for line in (out or "").splitlines():
+        try:
+            evt = json.loads(line.strip()) if line.strip().startswith("{") else None
+        except json.JSONDecodeError:
+            continue  # an event cut in half when the CLI died is still repository data
+        if isinstance(evt, dict):
+            events.append(evt)
+    said = [signal(out, events) for signal in _CLI_SIGNALS]
+    return (next((s for s in said if s[0] == "rate_limit"), None)
+            or next((s for s in said if s[0]), (None, None)))
+
+
+def _stderr(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """What the CLI printed outside the stream: every line that is not an event (`prose_only`,
+    which drops a line that starts with `{` whether or not it parses). Its `Error: …` lines and
+    the subscription's limit sentence arrive here when no event carried them."""
+    return _detect_pause(prose_only(out))
+
+
+def _api_error_message(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """The message the CLI writes IN THE MODEL'S PLACE when the API refused: an `assistant` event
+    with `is_api_error_message: true` from the model `<synthetic>`, whose top-level `error` is the
+    CLI's code (`authentication_failed`) and whose text is the CLI's sentence (`Not logged in ·
+    Please run /login`) — measured on 2.1.219 (`tests/fixtures/claude_cli/2.1.219/`). An assistant
+    message without that flag is the model's own prose, and is not read."""
+    for evt in events:
+        if evt.get("type") != "assistant" or evt.get("is_api_error_message") is not True:
+            continue
+        message = evt.get("message") if isinstance(evt.get("message"), dict) else {}
+        content = message.get("content") if isinstance(message.get("content"), list) else []
+        words = [str(evt.get("error") or "")] + [
+            str(b.get("text") or "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text"]
+        found = _detect_pause(" · ".join(words))
+        if found[0]:
+            return found
+    return None, None
+
+
+def _rejected_rate_limit(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """The stream's LAST `rate_limit_event`, when its `rate_limit_info.status` is `rejected` and
+    the plan is not running on extra usage: the CLI declaring the account limited, with `resetsAt`
+    in epoch seconds as the reset (`tests/claude_cli_output.py::rate_limit_event`).
+
+    THE LAST, because the CLI emits one whenever the limit state changes: a `rejected` followed by
+    `allowed` is an account that works again (review of #1019). AND NOT ON EXTRA USAGE: the pinned
+    binary (2.1.219, read in its own code on the review of #1019) keeps `status: "rejected"` with
+    `isUsingOverage: true` once the plan is spent and extra usage pays, and shows no error for it.
+    `allowed` and `allowed_warning` say the account still works, and are no pause."""
+    from datetime import UTC, datetime
+
+    infos = [evt.get("rate_limit_info") for evt in events if evt.get("type") == "rate_limit_event"]
+    info = infos[-1] if infos else None
+    if not (isinstance(info, dict) and info.get("status") == "rejected"):
+        return None, None
+    if info.get("isUsingOverage") is True:
+        return None, None  # over the plan, running on extra usage: the CLI itself shows no error
+    at = info.get("resetsAt")
+    when = (datetime.fromtimestamp(at, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if isinstance(at, int | float) and not isinstance(at, bool) else None)
+    return "rate_limit", when
+
+
+def _retrying_a_rate_limit(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """The CLI died while it was retrying a 429: its LAST event is `system/api_retry` with
+    `error: "rate_limit"` or `error_status: 429` (2.1.219 emits one per attempt, and retries every
+    429; read in its code on the review of #1019). Only while it is the last event: a 429 the CLI
+    got past is followed by the run's own events, and is no pause."""
+    last = events[-1] if events else {}
+    if (last.get("type") == "system" and last.get("subtype") == "api_retry"
+            and (last.get("error") == "rate_limit" or last.get("error_status") == 429)):
+        return "rate_limit", None
+    return None, None
+
+
+#: Everything a stream with no result event is read for a pause from: the CLI's own words, and
+#: nothing the run read or wrote. A new signal is a row here, and the family guard in
+#: `tests/test_a_pause_is_read_from_what_the_cli_said.py` asks for a case of each.
+_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit, _retrying_a_rate_limit)
+
+
 def _parse_stream(
     rc: int, out: str, allowed_tools: list[str] | None = None
 ) -> AgentRunResult:
@@ -1097,9 +1194,10 @@ def _parse_stream(
                         actions.append(a)
     if final is None:
         # Only classify a pause when the run actually FAILED (rc != 0). A clean exit with no
-        # result event is odd but not a limit; scanning its full transcript would false-match
-        # any "429"/"quota" the agent merely read or wrote (audit: bogus pause on healthy runs).
-        reason, retry = _detect_pause(out) if rc != 0 else (None, None)
+        # result event is odd but not a limit. And then only from what the CLI said, never the
+        # transcript: a killed run's events hold every "429"/"quota" the agent merely read or
+        # wrote (audit: bogus pause on healthy runs; #750: and on killed ones).
+        reason, retry = _pause_from(out) if rc != 0 else (None, None)
         # "no result event in agent output" is true and tells nobody anything: it is the shape a
         # harness takes when it died mid-thought, and the events it DID emit before that are the
         # only account of why. Same reading as the wall (C-39), same reason — a failure must not
