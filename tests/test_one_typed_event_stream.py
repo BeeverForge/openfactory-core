@@ -13,11 +13,15 @@ WHAT IS PROVEN HERE:
   · a representative frame of every kind each stream emits today maps onto the envelope and
     validates against its kind's model — built by the producers themselves where they are plain
     functions (`frames_of`, `presence_for`, `JobEvent`);
-  · `product` is required for the kinds that belong to a product, and absent or null for the rest.
+  · `product` is required for the kinds that belong to a product, and absent or null for the rest;
+  · the kinds and fields are the ones the EMITTERS write — read from their source, so a kind
+    renamed in `app.py` or `product_chat.py`, a field renamed or added, or a kind `STREAMS`
+    claims a stream emits that it does not, fails here rather than drifting from the schema.
 """
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 from pathlib import Path
@@ -42,8 +46,8 @@ def _subscriber():
                       conversation="acme", may_read_room=True, frames=asyncio.Queue())
 
 
-def _ended(why="signed_out", status=401):
-    return {"why": why, "status": status, "detail": "unauthorized"}
+def _ended(why="signed_out", status=401, **more):
+    return {"why": why, "status": status, "detail": "unauthorized", **more}
 
 
 def _turn():
@@ -68,7 +72,8 @@ def _frames() -> list[tuple[str, str, dict]]:
         (FLOOR, "update", {"kind": "update", "project": "acme",
                            "projects": [{"name": "acme", "enabled": True}],
                            "chat": {"project": "acme", "messages": [], "pending": []}}),
-        (FLOOR, "bye", {"kind": "bye", "reason": "unauthorized", "ended": _ended()}),
+        (FLOOR, "bye", {"kind": "bye", "reason": "unauthorized",
+                        "ended": _ended(login="/auth/login")}),
         # `/api/product/stream`
         (CHAT, "hello", {"kind": "hello"}),
         (CHAT, "subscribed", {"kind": "subscribed", "project": "acme", "private": False,
@@ -88,7 +93,8 @@ def _frames() -> list[tuple[str, str, dict]]:
         (CHAT, "resync", {"kind": "resync"}),
         (CHAT, "bye", {"kind": "bye", "reason": "", "ended": _ended("unavailable", 503)}),
         # `/api/temporal/stream`
-        (JOBS, "jobs", {"connected": True, "address": "localhost:7233", "jobs": [
+        (JOBS, "jobs", {"connected": True, "address": "localhost:7233", "ui_base": "",
+                        "ui_hint": "nobody said where the engine's UI is", "jobs": [
             {"workflow_id": "job-acme-7", "project": "acme", "issue": "7", "state": "running"}],
             "intake": {"known": True}, "build": {}}),
         (JOBS, "jobs", {"connected": False, "address": "localhost:7233", "error": "down",
@@ -258,3 +264,153 @@ def test_product_is_absent_or_null_for_a_kind_that_does_not(stream, kind, frame)
     assert validate(nulled).product is None
     with pytest.raises(ValidationError):
         validate({**absent, "product": PRODUCT})
+
+
+# ── the emitters, read: the kinds and fields above are the ones the code writes ─────────────────
+
+APP = ROOT / "openfactory" / "api" / "app.py"
+PRODUCT_CHAT = ROOT / "openfactory" / "api" / "product_chat.py"
+
+
+def _tree(path: Path) -> ast.Module:
+    return ast.parse(path.read_text(encoding="utf-8"))
+
+
+def _function(tree: ast.AST, name: str) -> ast.AST:
+    found = [n for n in ast.walk(tree)
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name]
+    assert len(found) == 1, f"expected one function {name!r}, found {len(found)}"
+    return found[0]
+
+
+def _keys(node: ast.Dict) -> set[str]:
+    return {k.value for k in node.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+
+
+def _returned_keys(tree: ast.AST, name: str) -> list[set[str]]:
+    """The keys of every dict literal function `name` returns — either side of a conditional."""
+    out = []
+    for node in ast.walk(_function(tree, name)):
+        if isinstance(node, ast.Return):
+            values = [node.value]
+            while values:
+                value = values.pop()
+                if isinstance(value, ast.IfExp):
+                    values += [value.body, value.orelse]
+                elif isinstance(value, ast.Dict):
+                    out.append(_keys(value))
+    return out
+
+
+def _with_spreads(tree: ast.AST, frame: ast.Dict) -> set[str]:
+    """`frame`'s keys, and those of every `**helper(...)` it spreads (whichever dict it returns)."""
+    keys = _keys(frame)
+    for key, value in zip(frame.keys, frame.values, strict=True):
+        if key is None and isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            keys |= set().union(*_returned_keys(tree, value.func.id))
+    return keys
+
+
+def _socket_frames(scope: ast.AST) -> list[tuple[str, set[str]]]:
+    """(kind, keys) of every frame literal in `scope`: a dict whose `kind` is a constant string."""
+    out = []
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values, strict=True):
+            if (isinstance(key, ast.Constant) and key.value == "kind"
+                    and isinstance(value, ast.Constant) and isinstance(value.value, str)):
+                out.append((value.value, _keys(node) - {"kind"}))
+    return out
+
+
+def _fields(kind: str) -> tuple[set[str], set[str]]:
+    """(named, required) fields of `kind`'s data model."""
+    from openfactory.api.events import DATA_MODELS
+
+    fields = DATA_MODELS[kind].model_fields
+    return set(fields), {name for name, f in fields.items() if f.is_required()}
+
+
+def _emitted():
+    app = _tree(APP)
+    return {FLOOR: _socket_frames(_function(app, "stream")),
+            CHAT: _socket_frames(_tree(PRODUCT_CHAT))}
+
+
+@pytest.mark.parametrize("stream", [FLOOR, CHAT])
+def test_a_socket_emits_exactly_the_kinds_streams_says(stream):
+    from openfactory.api.events import STREAMS
+
+    frames = _emitted()[stream]
+    assert frames, f"no frame literal found for {stream} — has its emitter moved?"
+    assert {kind for kind, _keys in frames} == set(STREAMS[stream])
+
+
+@pytest.mark.parametrize("stream", [FLOOR, CHAT])
+def test_every_field_a_socket_frame_writes_is_named_by_its_kind(stream):
+    for kind, keys in _emitted()[stream]:
+        named, required = _fields(kind)
+        lifted = {"project"} if kind == "update" else set()   # onto the envelope
+        assert keys - lifted <= named, (kind, sorted(keys - lifted - named))
+        assert required <= keys, (kind, sorted(required - keys))
+
+
+def test_the_temporal_frame_writes_only_what_jobs_data_names():
+    app = _tree(APP)
+    gen = _function(app, "temporal_stream")
+    named, required = _fields("jobs")
+    frames = [n for n in ast.walk(gen) if isinstance(n, ast.Dict) and "connected" in _keys(n)]
+    assert len(frames) >= 2, "the connected and disconnected frames have moved"
+    for frame in frames:
+        keys = _with_spreads(app, frame)
+        assert keys <= named, sorted(keys - named)
+        assert required <= keys, sorted(required - keys)
+    # the connected frame says where the engine's UI is, through `_engine_ui`
+    assert any({"ui_base", "ui_hint"} <= _with_spreads(app, frame) for frame in frames)
+    # and what it spreads from its cached pair is named too
+    slow = [_keys(n) for n in ast.walk(gen) if isinstance(n, ast.Dict) and "intake" in _keys(n)]
+    assert slow and all(k <= named for k in slow)
+
+
+def test_ended_writes_why_status_and_a_refusal_body_ended_data_names():
+    """`ended`, and `bye.ended`, are the gate's answer: `why`, `status`, and the body of whichever
+    refusal it was — every `_Refusal` the gate builds."""
+    from typing import get_args
+
+    import openfactory.api.app as app_module
+    from openfactory.api.events import EndedData
+
+    app = _tree(APP)
+    named, required = _fields("ended")
+    whys = set(app_module._ENDED_WHY.values()) | {app_module._ENDED_UNAVAILABLE}
+    assert whys == set(get_args(EndedData.model_fields["why"].annotation))
+    answered = _returned_keys(app, "asked")
+    assert answered == [{"why", "status"}], "the ended frame's own keys have moved"
+    bodies = []
+    for call in ast.walk(app):
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                and call.func.id == "_Refusal" and len(call.args) == 2):
+            body = call.args[1]
+            if isinstance(body, ast.Dict):
+                bodies.append(_keys(body))
+            elif isinstance(body, ast.Call) and isinstance(body.func, ast.Name):
+                bodies += _returned_keys(app, body.func.id)
+            else:
+                raise AssertionError(f"a refusal body this test cannot read: {ast.dump(body)}")
+    assert len(bodies) >= 4
+    for body in bodies:
+        keys = {"why", "status"} | body
+        assert keys <= named, sorted(keys - named)
+        assert required <= keys, sorted(required - keys)
+    # …and what EVERY refusal writes, a reader may count on: the model requires it
+    assert {"why", "status"} | set.intersection(*bodies) <= required
+
+
+def test_a_log_frame_is_a_journal_line_field_for_field():
+    from openfactory.api.events import LogData
+    from openfactory.observability.events import JobEvent
+
+    assert set(LogData.model_fields) == set(JobEvent.model_fields)
+    assert ({n for n, f in LogData.model_fields.items() if f.is_required()}
+            == {n for n, f in JobEvent.model_fields.items() if f.is_required()})

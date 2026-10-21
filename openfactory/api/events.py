@@ -15,6 +15,10 @@ its kind's model. The description is committed beside the OpenAPI one, generated
 
 writes `docs/reference/events.schema.json` again, and a test fails when it is apart from these.
 
+A DESCRIPTION, NOT YET A STREAM. Nothing sends this envelope today: the four streams send their
+frames as they always did, and this module is what a stream that sends the envelope will be built
+on. Their tests read the emitters' code, so a kind or field they write that is not named here fails.
+
 THE KINDS ARE ONE NAMESPACE. A frame's `kind` names what it says, not which stream said it: the two
 sockets' `hello` and `bye` are one kind each, and the two event streams' `ended` is one kind. The
 temporal stream's unnamed frame is `jobs`, and a run's journal line is `log` — whose own `kind`
@@ -91,11 +95,14 @@ class HelloData(EventData):
 
 
 class EndedData(EventData):
-    """Why a stream stopped: the gate's answer to the credential it was opened with (#208)."""
+    """Why a stream stopped: the gate's answer to the credential it was opened with (#208) — `why`
+    and `status`, beside the refusal's own body. Every refusal says `detail`; a 401 from a provider
+    with a login page also names it (`login`, #33), so the page can send the browser there."""
 
     why: Literal["signed_out", "not_allowed", "unavailable"]
     status: int
-    detail: str | None = None
+    detail: str
+    login: str | None = None
 
 
 class ByeData(EventData):
@@ -118,11 +125,15 @@ class UpdateData(EventData):
 
 class JobsData(EventData):
     """The durable jobs' state (`/api/temporal/stream`). `jobs` is ALWAYS sent, and is `null` when
-    the engine could not be read — never `[]`, which is an engine that answered with nothing."""
+    the engine could not be read — never `[]`, which is an engine that answered with nothing.
+    A connected frame says where the engine's UI is (`ui_base`), and the sentence that stands in
+    for the link when nobody said (`ui_hint`, `""` when `ui_base` is known) — #183."""
 
     connected: bool
     jobs: list[EngineJob] | None
     address: str | None = None
+    ui_base: str | None = None
+    ui_hint: str | None = None
     error: str | None = None
     intake: dict[str, Any] | None = None
     build: dict[str, Any] | None = None

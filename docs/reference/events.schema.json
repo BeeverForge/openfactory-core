@@ -407,7 +407,7 @@
     },
     "EndedData": {
       "additionalProperties": true,
-      "description": "Why a stream stopped: the gate's answer to the credential it was opened with (#208).",
+      "description": "Why a stream stopped: the gate's answer to the credential it was opened with (#208) — `why`\nand `status`, beside the refusal's own body. Every refusal says `detail`; a 401 from a provider\nwith a login page also names it (`login`, #33), so the page can send the browser there.",
       "properties": {
         "why": {
           "enum": [
@@ -423,6 +423,10 @@
           "type": "integer"
         },
         "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "login": {
           "anyOf": [
             {
               "type": "string"
@@ -432,12 +436,13 @@
             }
           ],
           "default": null,
-          "title": "Detail"
+          "title": "Login"
         }
       },
       "required": [
         "why",
-        "status"
+        "status",
+        "detail"
       ],
       "title": "EndedData",
       "type": "object"
@@ -882,7 +887,7 @@
     },
     "JobsData": {
       "additionalProperties": true,
-      "description": "The durable jobs' state (`/api/temporal/stream`). `jobs` is ALWAYS sent, and is `null` when\nthe engine could not be read — never `[]`, which is an engine that answered with nothing.",
+      "description": "The durable jobs' state (`/api/temporal/stream`). `jobs` is ALWAYS sent, and is `null` when\nthe engine could not be read — never `[]`, which is an engine that answered with nothing.\nA connected frame says where the engine's UI is (`ui_base`), and the sentence that stands in\nfor the link when nobody said (`ui_hint`, `\"\"` when `ui_base` is known) — #183.",
       "properties": {
         "connected": {
           "title": "Connected",
@@ -913,6 +918,30 @@
           ],
           "default": null,
           "title": "Address"
+        },
+        "ui_base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Base"
+        },
+        "ui_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Hint"
         },
         "error": {
           "anyOf": [

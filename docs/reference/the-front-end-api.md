@@ -317,14 +317,19 @@ while it stays open: a credential that stops opening its path ends the stream.
 | `/api/temporal/stream` | Server-sent events | a JSON frame of the jobs' state — the jobs, whether the poller runs, the build — on connect and whenever it changes; `"jobs": null` when the engine cannot be read | a named event, `ended`, with why: `signed_out`, `not_allowed` or `unavailable` |
 | `/api/jobs/{project}/{issue}/stream` | Server-sent events | the run's log events as they are written; a reconnect resumes from its `Last-Event-ID` (`v2-<n>`) | the same `ended` event |
 
-**One typed event for every frame (#679).** [`events.schema.json`](events.schema.json), committed
-beside `openapi.json`, describes each frame above as one envelope — `kind`, `id`, `at`, `project`,
-`product` when one applies, and `data` — and a data model per kind: the sockets' `kind`s, `jobs`
-for the temporal stream's frame, `log` for a run's log line, and `ended`. `product` is required
-for the kinds a product conversation emits (`subscribed`, `history`, `earlier`, `said`, `reply`,
-`staged`, `presence`, `resync`) and absent for every other. It is generated, never edited by hand:
-`tests/test_one_typed_event_stream.py` fails when it is not what the models generate, and
-`python -m openfactory.api.events` writes it again.
+**One typed description of every frame (#679).** The streams above still send their frames in
+the shapes the table gives; none of them sends an envelope yet. What #679 adds so far is a
+DESCRIPTION: [`events.schema.json`](events.schema.json), committed beside `openapi.json`, names one
+envelope — `kind`, `id`, `at`, `project`, `product` when one applies, and `data` — and a data model
+per kind: the sockets' `kind`s, `jobs` for the temporal stream's frame, `log` for a run's log line,
+and `ended`. A frame of today is that envelope's `data`, less the socket's own `kind` (and less
+the floor `update`'s `project`, which the envelope carries); `id` and `at` are not on today's
+frames. `product` is required for the kinds a product conversation emits (`subscribed`,
+`history`, `earlier`, `said`, `reply`, `staged`, `presence`, `resync`) and absent for every other.
+It is generated, never edited by hand: `tests/test_one_typed_event_stream.py` fails when it is not
+what the models generate, and when a stream's code writes a kind or a field the models do not
+name; `python -m openfactory.api.events` writes it again. One stream that sends the envelope
+itself is the next slice of #679.
 
 ## 5. What is not here yet
 
