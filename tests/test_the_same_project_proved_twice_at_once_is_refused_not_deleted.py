@@ -13,9 +13,9 @@ tree survives; the refusal holds when the holder is another process, ends when t
 raises, and a holder killed with SIGKILL leaves nothing behind; two different keys never block
 each other.
 
-`ProveBusy` and `proof_lock_path` are read off the module inside each test body, never imported
-at module level, so that on a tree without them each test FAILS for that reason instead of the
-module erroring at collection.
+`ProveBusy` and `proof_lock_path` are read off the module inside each test body (or by the
+holder process), never imported at module level, so that on a tree without them each test FAILS
+for that reason instead of the module erroring at collection.
 """
 
 from __future__ import annotations
@@ -151,10 +151,14 @@ def _repository(where: Path) -> Path:
     return where
 
 
-#: A process that takes the exclusive `flock` the path names, says so, and keeps it until killed.
+#: Another process proving `key`: it asks `box_prove` for the key's lock path ITSELF, as the CLI
+#: beside the worker does, takes the exclusive `flock` on it, says so, and keeps it until killed. A
+#: path the test computed and handed over would agree with this process whatever the path is made
+#: of, so a lock path that varied by process (a pid in its name) would go unseen.
 _HOLD = """
-import fcntl, pathlib, sys, time
-path = pathlib.Path(sys.argv[1])
+import fcntl, sys, time
+from openfactory import box_prove
+path = box_prove.proof_lock_path(sys.argv[1])
 path.parent.mkdir(parents=True, exist_ok=True)
 handle = open(path, "a")
 fcntl.flock(handle, fcntl.LOCK_EX)
@@ -163,9 +167,9 @@ time.sleep(120)
 """
 
 
-def _another_process_holding(path: Path) -> subprocess.Popen:
-    holder = subprocess.Popen([sys.executable, "-c", _HOLD, str(path)],
-                              stdout=subprocess.PIPE, text=True)
+def _another_process_holding(key: str, proofs: Path) -> subprocess.Popen:
+    holder = subprocess.Popen([sys.executable, "-c", _HOLD, key], stdout=subprocess.PIPE,
+                              text=True, env={**os.environ, "OPENFACTORY_PROOFS": str(proofs)})
     assert holder.stdout is not None and holder.stdout.readline().strip() == "held", (
         "the holder process never took the lock")
     return holder
@@ -234,6 +238,29 @@ def test_a_proof_that_ended_or_raised_leaves_its_key_free(tmp_path, monkeypatch)
     assert after_a_raise is None, repr(after_a_raise)
 
 
+def test_a_proof_whose_checkout_could_not_be_resolved_leaves_its_key_free(tmp_path, monkeypatch):
+    """AC2: the lock is taken before the checkout is synced, so a sync that raises (an unreachable
+    remote, a full disk) happens while the key is held. It must let the key go, or every later
+    proof of it in this process is refused until a restart."""
+    from openfactory import factory
+
+    _proofs_here(tmp_path, monkeypatch)
+    _recording_box(monkeypatch, tmp_path)
+    busy = box_prove.ProveBusy
+
+    def unreachable(*_a, **_kw):
+        raise RuntimeError("the remote could not be reached")
+
+    monkeypatch.setattr(factory, "resolve_repo_path", unreachable)
+    with pytest.raises(RuntimeError, match="could not be reached"):
+        with _prove("acme", None, sandbox="container"):
+            pass
+
+    after = _on_another_thread("acme", tmp_path, sandbox="container")
+    assert not isinstance(after, busy), f"a proof whose checkout failed kept acme: {after}"
+    assert after is None, repr(after)
+
+
 def test_two_keys_hold_their_locks_side_by_side(tmp_path, monkeypatch):
     """AC1/AC2: the refusal is per key — a proof of `b` runs while `a` is being proven."""
     _proofs_here(tmp_path, monkeypatch)
@@ -249,10 +276,10 @@ def test_two_keys_hold_their_locks_side_by_side(tmp_path, monkeypatch):
 
 def test_a_proof_held_by_another_process_refuses_this_one(tmp_path, monkeypatch):
     """AC3: the CLI and the worker are two processes, so the lock is the kernel's, on the path
-    `proof_lock_path` exports. Before: no such path, and nothing refused."""
+    `proof_lock_path` gives each of them for the key. Before: no such path, and nothing refused."""
     _proofs_here(tmp_path, monkeypatch)
     touched = _recording_box(monkeypatch, tmp_path)
-    holder = _another_process_holding(box_prove.proof_lock_path("acme"))
+    holder = _another_process_holding("acme", tmp_path / "proofs")
     try:
         refused = _try_to_prove("acme", tmp_path, sandbox="container")
     finally:
@@ -270,7 +297,7 @@ def test_a_holder_killed_mid_proof_leaves_no_lock(tmp_path, monkeypatch):
     would hold its key for good. The kernel's `flock` dies with its holder."""
     _proofs_here(tmp_path, monkeypatch)
     touched = _recording_box(monkeypatch, tmp_path)
-    holder = _another_process_holding(box_prove.proof_lock_path("acme"))
+    holder = _another_process_holding("acme", tmp_path / "proofs")
     os.kill(holder.pid, signal.SIGKILL)
     holder.wait(_WAIT)
 

@@ -106,3 +106,23 @@ def test_onboarding_says_skipped_with_the_sentence_and_saves_nothing(monkeypatch
 
     assert answer == (f"skipped: {refusal.sentence}", [], []), answer
     assert recorded == [], f"a refused proof was proven or saved: {recorded}"
+
+
+def test_onboarding_says_the_whole_sentence_for_a_long_project_name(monkeypatch, tmp_path):
+    """Onboarding's generic refusal keeps the first 160 characters of an error, and the busy
+    sentence is 113 characters plus the key: for a key of 48 characters or more it lost the
+    remedy (measured on the generic path). A busy proof says its whole sentence whatever the key."""
+    from openfactory import factory
+    from openfactory.onboarding import onboard
+
+    key = "acme-" + "storefront-" * 5  # 60 characters, a `_checkout_key`-length name
+    refusal = box_prove.ProveBusy(key)
+    recorded = _busy(monkeypatch, refusal)
+    monkeypatch.setattr(factory, "resolve_box_image", lambda *_a, **_kw: "img")
+    manifest = SimpleNamespace(base_branch="main", setup=[], validation={})
+
+    answer = onboard._prove_in_box(SimpleNamespace(name=key, box=None), key,
+                                   Path(tmp_path), manifest, sandbox="container", stream=None)
+
+    assert answer == (f"skipped: {refusal.sentence}", [], []), answer
+    assert recorded == [], f"a refused proof was proven or saved: {recorded}"
