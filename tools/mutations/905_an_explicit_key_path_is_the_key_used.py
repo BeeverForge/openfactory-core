@@ -10,6 +10,8 @@ Claims:
     top-level command);
   - an explicit path that cannot be read refuses, naming that path, and never falls back to the
     environment's key;
+  - an empty `--key-path` (`"$NEW_PEM"` with the variable unset) is a path given, not "no flag":
+    it refuses and never proves the environment's key;
   - `~` in the flag's value resolves against `HOME` (`app_private_key_at` expands it), as
     `OPENFACTORY_GH_APP_KEY` always did;
   - without the flag, `app_private_key()` still reads the path form through
@@ -26,6 +28,7 @@ ALONE = TEST + "::test_key_path_alone_with_the_two_id_flags_mints_with_no_enviro
 TILDE = ALONE + "[tilde]"
 REFUSES = (TEST + "::test_an_unreadable_key_path_refuses_naming_the_path_and_does_not_use_the_"
            "environments_key")
+EMPTY = TEST + "::test_an_empty_key_path_refuses_and_does_not_use_the_environments_key"
 WITHOUT_FLAG = TEST + "::test_without_the_flag_the_key_the_environment_names_by_path_is_still_used"
 NO_ENVVAR = ENV_WALK + "::test_no_option_of_any_openfactory_command_declares_an_envvar"
 HELP = ENV_WALK + "::test_the_bot_token_help_names_the_variables_in_prose_and_no_env_var_binding"
@@ -76,4 +79,7 @@ MUTATIONS = [
     ("M7 an option of a sub-typer's command (preview login --username) declares an envvar", CLI,
      '"--username", "-u", prompt=True,',
      '"--username", "-u", prompt=True, envvar="X",', NO_ENVVAR),
+    # ── M8: an empty path is read as "no flag" ─────────────────────────────────────────────────
+    ("M8 an empty --key-path takes the no-flag branch and proves the environment's key", CLI,
+     "    if key_path is not None:\n", "    if key_path:\n", EMPTY),
 ]

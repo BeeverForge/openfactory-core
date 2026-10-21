@@ -3463,7 +3463,15 @@ def bot_token(
     # of a key file, not here.
     app_id = app_id or env_app_id()
     installation_id = installation_id or app_installation_id()
-    if key_path:
+    # `is not None`, NOT TRUTHINESS: `--key-path "$NEW_PEM"` with the variable unset hands the
+    # option "", a path given and empty, not "no flag". Under `if key_path:` it took the `else`
+    # branch and proved the environment's key: measured 2026-10-21 under `env -i`, the deployment
+    # key in OPENFACTORY_GH_APP_KEY, "✓ the App trio works", JWT signed by that key, exit 0.
+    if key_path is not None:
+        if not key_path.strip():
+            typer.echo("✗ --key-path was given an empty path — nothing was minted; pass the .pem's "
+                       "path, or leave --key-path out to use the deployment's key", err=True)
+            raise typer.Exit(1)
         try:
             key = app_private_key_at(key_path)
         except OSError as exc:

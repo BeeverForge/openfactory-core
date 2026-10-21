@@ -196,6 +196,28 @@ def test_an_unreadable_key_path_refuses_naming_the_path_and_does_not_use_the_env
         f"the refusal must say why ({reading.value.strerror!r}): {result.stderr!r}")
 
 
+def test_an_empty_key_path_refuses_and_does_not_use_the_environments_key(github, monkeypatch):
+    """`--key-path "$NEW_PEM"` with the variable unset hands the option "": a path given and
+    unreadable, not "no flag" (lessons §2), so it must not prove the environment's key.
+
+    Criterion: "an explicit path that cannot be read refuses ... and never falls back to a key from
+    the environment". On efa234a2 `if key_path:` sent "" to the `else` branch: the review measured
+    `--key-path "$NEW_PEM"` (unset) under `env -i` with the deployment key in
+    `OPENFACTORY_GH_APP_KEY` print "✓ the App trio works", JWT signed by the environment's key,
+    exit 0 (2026-10-21).
+    """
+    monkeypatch.setenv("OPENFACTORY_GH_APP_ID", "12345")
+    monkeypatch.setenv("OPENFACTORY_GH_APP_INSTALLATION_ID", "67890")
+    monkeypatch.setenv("OPENFACTORY_GH_APP_KEY_CONTENT", _pem("B"))
+
+    result = CliRunner().invoke(app, ["bot-token", "--key-path", ""])
+
+    assert github == [], "an empty --key-path minted with the environment's key"
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit), repr(result.exception)
+    assert "--key-path" in result.stderr, f"the refusal must name the flag: {result.stderr!r}"
+
+
 def test_without_the_flag_the_key_the_environment_names_by_path_is_still_used(
         github, monkeypatch, tmp_path):
     """Preservation: without `--key-path`, the key is still found through `app_private_key()`,
