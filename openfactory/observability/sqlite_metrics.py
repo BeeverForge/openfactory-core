@@ -281,6 +281,17 @@ class SqliteMetricsSink:
             "SELECT data FROM metrics WHERE (expires_at IS NULL OR expires_at > ?)"
             " ORDER BY pk, sk", (int(time.time()),))
 
+    def scan_except(self, kinds: list[str]) -> list[dict]:
+        """Every live row whose kind is not in `kinds` (`KindExcludingSink`, #694): `scan` with
+        the rows of those kinds left in the file, never parsed. RAISES `StoreUnreadable`."""
+        if not kinds:   # `NOT IN ()` is not SQL, and `NOT IN (NULL)` matches no row at all
+            return self.scan()
+        marks = ", ".join("?" for _ in kinds)
+        return self._query(
+            f"SELECT data FROM metrics WHERE kind NOT IN ({marks})"
+            " AND (expires_at IS NULL OR expires_at > ?) ORDER BY pk, sk",
+            (*kinds, int(time.time())))
+
     def records_of_kind(self, project: str, kind: str, *, limit: int = 500) -> list[dict]:
         """Rows of one kind for one project, **oldest first**, keeping the most RECENT `limit`.
 

@@ -158,13 +158,14 @@ MUTATIONS = [
     ("a sink that records and cannot be read is read as empty in silence", MV,
      "    if not isinstance(sink, NullMetricsSink):\n        log.warning(",
      "    if False:\n        log.warning("),
+    # Re-pinned 2026-10-21 (#694): the scan goes through `_scanned`, which leaves audit rows out.
     ("the dashboard reader falls through to the table variable again", MV,
-     "    sink = _configured_sink()\n    return [] if sink is None else sink.scan()",
+     "    sink = _configured_sink()\n    return [] if sink is None else _scanned(sink)",
      "    sink = _configured_sink()\n"
      "    if sink is None and os.environ.get(\"OPENFACTORY_METRICS_TABLE\"):\n"
      "        from openfactory.observability.registry import build_metrics_sink\n"
      "        return build_metrics_sink(\"dynamodb\").scan()\n"
-     "    return [] if sink is None else sink.scan()"),
+     "    return [] if sink is None else _scanned(sink)"),
     ("the memory reader falls through to the table variable again", QUERY,
      "    if sink is None:\n        return []\n    return sink.records_of_kind(project, kind, limit=limit)",
      "    if sink is None:\n        import os\n"

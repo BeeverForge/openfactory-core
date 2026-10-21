@@ -128,13 +128,25 @@ def scan_all_or_raise(table_name: str | None = None, region: str | None = None, 
     if table_name:
         from openfactory.observability.registry import configured_metrics_sink
 
-        return configured_metrics_sink(table=table_name, region=region).scan()
+        return _scanned(configured_metrics_sink(table=table_name, region=region))
     if must_answer:
         # asked with the keyword only here: doubles of this resolver take none (`query.py`)
         found = _configured_sink(must_build=True)
-        return [] if found is None else found.scan()
+        return [] if found is None else _scanned(found)
     sink = _configured_sink()
-    return [] if sink is None else sink.scan()
+    return [] if sink is None else _scanned(sink)
+
+
+def _scanned(sink) -> list[dict]:
+    """`sink`'s every live row but those of `metrics.SCANNED_APART` — asked of a store that can
+    leave a kind out (`KindExcludingSink`, the sqlite one), dropped here after `scan` from one
+    that cannot — so every whole-store reader gets the same rows from either (#694, PR #1039
+    review N2: with 100,000 audit rows the cost dashboard went from 0.002 s to 9.99 s)."""
+    from openfactory.observability.metrics import SCANNED_APART, KindExcludingSink
+
+    if isinstance(sink, KindExcludingSink):
+        return sink.scan_except(list(SCANNED_APART))
+    return [r for r in sink.scan() if r.get("kind") not in SCANNED_APART]
 
 
 def _round_map(d: dict) -> dict:

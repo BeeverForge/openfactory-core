@@ -217,6 +217,30 @@ class KeyedSink(Protocol):
         ...
 
 
+#: The kinds a reader that scans the whole store never gets (`api/metrics_view._scanned`): rows
+#: of these are read by their kind, apart. `audit` (#694) is one row per action call, kept for a
+#: year — one opening of the product page writes five — and on c310ba28 the cost dashboard over
+#: 50 cost rows took 0.002 s, and 9.99 s with 100,000 audit rows beside them (PR #1039 review N2).
+#: Left out by the sqlite store, the same 183 MB store's dashboard went from 1.23 s to 0.14 s here
+#: (2026-10-21, best of 3, load 8; 0.001 s with no audit rows): the walk of the table remains, the
+#: parse of 100,000 rows does not.
+SCANNED_APART = ("audit",)
+
+
+@runtime_checkable
+class KindExcludingSink(Protocol):
+    """A sink that scans every live row EXCEPT those of the kinds named — so a whole-store reader
+    neither parses nor holds the rows it would only drop (#694, PR #1039 review N2).
+
+    A SEPARATE PROTOCOL, like `KindPagingSink`: a store that does not implement it is scanned
+    and the rows dropped after (`api/metrics_view._scanned`), so what a reader gets is the same.
+    RAISES `query.StoreUnreadable` WHEN THE STORE WILL NOT ANSWER."""
+
+    def scan_except(self, kinds: list[str]) -> list[dict]:
+        """Every live row whose kind is not in `kinds`, as `ReadableSink.scan` returns them."""
+        ...
+
+
 @runtime_checkable
 class KindPagingSink(Protocol):
     """A sink that reads the live rows of ONE kind, across projects, NEWEST FIRST, a page at a time

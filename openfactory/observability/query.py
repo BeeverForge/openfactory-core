@@ -308,13 +308,13 @@ def _journals(names: list[str]) -> tuple[list[_Job], str]:
 def _store_rows(names: list[str]) -> tuple[list[dict] | None, str]:
     """The store's rows for these projects, or `None` and why. ONE SCAN: every measure reads the
     same rows, so no two of them can disagree about what the store held."""
-    from openfactory.api.metrics_view import _configured_sink
+    from openfactory.api.metrics_view import _configured_sink, _scanned
 
     try:
         sink = _configured_sink(must_build=True)
         if sink is None:
             return None, _NO_STORE
-        rows = sink.scan()
+        rows = _scanned(sink)   # no audit row: they are read by their kind, apart (#694)
     except StoreUnreadable as exc:
         log.warning("the outcome aggregates could not read the metrics store (%s)", exc)
         return None, _UNREADABLE
