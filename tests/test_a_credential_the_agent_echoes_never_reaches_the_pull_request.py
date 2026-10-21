@@ -67,6 +67,9 @@ BASIC = "dXNl" + "cjpxN1NFQ1JFVA=="
 #: 8 bytes of base64 whose only credential's mark is its padding: no digit, no lowercase before an
 #: uppercase (review on 34209477).
 PADDED = "QSECRET" + "OPAQ="
+#: A value whose only mark is one lowercase letter followed by one capital, `eV` (review on
+#: c0bb69c0).
+CASE_PAIR = "opaque" + "Valuexyz"
 #: A SPNEGO and an NTLM negotiate message, base64 as the header carries them.
 SPNEGO = "YIIB" + "hwYGKwYBBQUCoIIBezCCAXeg"
 NTLM_MESSAGE = "TlRMTVNT" + "UAABAAAAB4IIog=="
@@ -149,8 +152,12 @@ def test_a_github_token_in_the_agents_message_is_withheld_and_the_body_says_so(
     # review on c0bb69c0: the same value at a sentence's end. With `.` read as a value character
     # after the padding, `QSECRETOPAQ=.` had no mark and was quoted raw (0.20% of 8-byte values)
     (f"{SENTINEL}: I sent Authorization: Basic {PADDED}. It answered 401", PADDED),
+    # review on c0bb69c0: a value whose only mark is ONE lowercase letter followed by ONE capital
+    # (`eV`); every other case's pair is followed by a second capital, so `[a-z][A-Z]{2}` survived
+    (f"{SENTINEL}: sent Authorization: Basic {CASE_PAIR} once", CASE_PAIR),
 ], ids=["bearer-jwt", "curl-token-hex", "bare-bearer", "lowercase-header", "json-key", "equals",
-        "bot", "negotiate", "ntlm", "padding-only-mark", "padding-before-a-full-stop"])
+        "bot", "negotiate", "ntlm", "padding-only-mark", "padding-before-a-full-stop",
+        "one-case-pair-mark"])
 def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_and_the_body_says_so(
         repo: Path, tmp_path: Path, said: str, secret: str):
     """At 620bb577 none of these values carries a vendor prefix, and `scrub_credentials` returned

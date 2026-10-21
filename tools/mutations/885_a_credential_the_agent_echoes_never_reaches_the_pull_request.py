@@ -12,8 +12,8 @@ Claims:
   - `scrub_credentials` withholds an `Authorization` value after a NAMED scheme (any word there is
     prose: "Authorization: handled centrally …"), in any case, after `:` or `=`, a JSON key's
     quote included; a header value only from 8 characters, and only with a credential's mark (a
-    digit, trailing `=` padding, or a lowercase letter before an uppercase one; never a `+`, a `/`
-    or an `=` inside the value), so
+    digit, trailing `=` padding, a sentence's full stop after it included, or a single lowercase
+    letter before a single uppercase one; never a `+`, a `/` or an `=` inside the value), so
     "Authorization: Basic authentication is kept …" and "… username/password pairs …" are prose;
     a bare `Bearer` value only when it is 16 token68
     characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN_2` stays prose;
@@ -89,6 +89,8 @@ MUTATIONS = [
     ("padding before a sentence's full stop is no mark", MODEL, '=+(?!\\.?[\\w~+/-])',
      '=+(?![\\w.~+/-])'),
     ("any = is a credential's mark", MODEL, '=+(?!\\.?[\\w~+/-])', '=', PROSE),
+    # review on c0bb69c0: one lowercase letter followed by one capital is the mark, not by two
+    ("a case pair needs a second capital", MODEL, '(?-i:[a-z][A-Z])', '(?-i:[a-z][A-Z]{2})'),
     ("a word after an Authorization scheme is withheld", MODEL,
      '    r"(?=[\\w.~+/-]*(?:\\d|=+(?!\\.?[\\w~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
      '    r"(?=[\\w.~+/-]*(?:\\d|=+(?!\\.?[\\w~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]+=*"\n', PROSE),
