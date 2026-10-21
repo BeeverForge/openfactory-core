@@ -372,6 +372,36 @@ def test_a_pull_request_waiting_for_review_is_not_in_the_parked_review(site, jir
     assert error == "" and [i.number for i in items] == ["DAR-1"]
 
 
+def test_a_park_whose_status_is_called_needs_review_is_still_in_the_parked_review(site, jira):
+    """A site that named its park "Needs Review" before 0.7 (`status_map.needs_action`) keeps it
+    in the parked review (#753's review, point 1). Until 0.7 a pull request waiting on a reviewer
+    went to `needs_action`, so a team that wanted those in a "Needs Review" status mapped the park
+    there. On this branch before the fix the new key's DEFAULT name claimed that status:
+    `key_for("Needs Review", renamed={"needs_action": "Needs Review"})` answered `needs_review`,
+    and the parked review read `[]` where `main` (1be1835a) read `["DAR-1"]`."""
+    from openfactory.product.board import parked_with_diagnosis
+
+    site.put("DAR-1", "Needs Review")
+    project, _module_, tracker, _board = jira({**RENAMED, "needs_action": "Needs Review"})
+
+    items, error = parked_with_diagnosis(project, token="t", tracker=tracker)
+
+    assert error == "" and [i.number for i in items] == ["DAR-1"]
+
+
+def test_and_triage_and_the_stage_read_it_as_a_park(site, jira):
+    """The same board, through the one door generic code asks (`stage_key`): the status the
+    deployment gave `needs_action` reads as `needs_action`, not as the key that only carries the
+    name by default. Before the fix it read `needs_review`, so the panel drew the park with the
+    "queued … not stuck" note."""
+    from openfactory.adapters.board.base import stage_key
+
+    site.put("DAR-1", "Needs Review")
+    _p, _m, _t, board = jira({**RENAMED, "needs_action": "Needs Review"})
+
+    assert stage_key(board, "Needs Review") == "needs_action"
+
+
 # ── 3. the sentences name the board's own columns ───────────────────────────────────────────────
 
 def test_a_card_filed_on_jira_is_said_to_be_in_the_boards_own_backlog(site, jira):

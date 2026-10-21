@@ -27,13 +27,16 @@ THE CLAIMS, each with a red twin below:
      list a card in Needs Review (ADR-0019 §6: it holds what needs a decision).
   6. **The panel describes the column.** Row 32 removes its `_BCOL` row.
   7. **A status two keys share reads back as `in_review`** (the reporter's board maps both to "In
-     Review"). Row 33 makes `key_for` answer the LAST key that spells a name, so the shared status
-     reads as `needs_review` and the door would queue a card the factory may still be reviewing.
+     Review"), **and a status the deployment gave a key keeps that key.** Row 33 makes `key_for`
+     ignore which key the deployment renamed, so a park a deployment already called "Needs Review"
+     reads as `needs_review` and the product role's parked review goes empty (the review's point
+     1); row 34 makes it answer the LAST key that spells a name, so the shared status reads as
+     `needs_review` and the door would queue a card the factory may still be reviewing.
   8. **A re-run of `project init` gives an existing local board its review column, in board order
-     (Q1, answer B).** Row 34 puts back `init`'s skip of `create` on an attached board; row 35 takes
-     the local row's say-so away; row 36 leaves the existing rows' positions as they were, so the
-     new row ties with Needs Action and sorts after it; row 37 restores the platform's names on a
-     re-run; row 38 back-fills the parked cards into the new column; rows 39-40 make the re-run
+     (Q1, answer B).** Row 35 puts back `init`'s skip of `create` on an attached board; row 36 takes
+     the local row's say-so away; row 37 leaves the existing rows' positions as they were, so the
+     new row ties with Needs Action and sorts after it; row 38 restores the platform's names on a
+     re-run; row 39 back-fills the parked cards into the new column; rows 40-41 make the re-run
      silent about what it added, and loud about what it did not.
 """
 
@@ -237,9 +240,14 @@ MUTATIONS = [
      "tests/test_the_panel_says_what_every_platform_column_means.py"),
 
     # ── 7. a status two keys share ──────────────────────────────────────────────────────────────
+    ("a park a deployment already called \"Needs Review\" reads as `needs_review`", COLUMNS,
+     "    return next((key for key in hits if merged[key] != CANONICAL_COLUMNS.get(key)),",
+     "    return next((key for key in hits if False),",
+     QUEUE_READERS),
+
     ("a status `in_review` and `needs_review` share reads back as `needs_review`", COLUMNS,
-     "    for key, spelled in {**CANONICAL_COLUMNS, **(renamed or {})}.items():",
-     "    for key, spelled in reversed({**CANONICAL_COLUMNS, **(renamed or {})}.items()):",
+     "    return next((key for key in hits if merged[key] != CANONICAL_COLUMNS.get(key)),",
+     "    return next((key for key in reversed(hits) if merged[key] != CANONICAL_COLUMNS.get(key)),",
      f"{AC456}::test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs"),
 
     # ── 8. a re-run of init on an existing local board ──────────────────────────────────────────

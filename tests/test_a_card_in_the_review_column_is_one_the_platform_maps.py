@@ -216,8 +216,9 @@ def test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs():
     still reviewing or rewriting. Of the two readings, `running` makes the door ask the engine before
     a close and refuse to queue the card again under a live job. `waiting_on_a_person` would queue
     a card the factory is still working on. A deployment that wants the door to treat the wait as
-    a wait gives it a status of its own. `key_for` answers the first key in `CANONICAL_COLUMNS`
-    order, so this holds while `in_review` comes before `needs_review` there.
+    a wait gives it a status of its own. Among keys the deployment renamed, `key_for` answers the
+    first in `CANONICAL_COLUMNS` order, so this holds while `in_review` comes before
+    `needs_review` there.
 
     Green on this branch before it was written (it pins behaviour the change already had). Measured
     red by hand, 2026-10-21: with `needs_review` moved above `in_review` in `CANONICAL_COLUMNS`,
@@ -235,6 +236,19 @@ def test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs():
     key = stage_key(JiraProjectBoard(tracker), "In Review")
 
     assert (key, BY_COLUMN.get(key)) == ("in_review", State.RUNNING)
+
+
+def test_a_park_a_github_deployment_already_called_needs_review_still_reads_as_a_park():
+    """A GitHub deployment that mapped its park to "Needs Review" before 0.7 keeps reading that
+    option as `needs_action` (#753's review, point 1). The board's `_columns` already merges the
+    defaults, so ordering the deployment's map first would not be enough: the key the deployment
+    RENAMED must win over one that only carries the name by default. Before the fix this read
+    `needs_review`; `main` (1be1835a) read `needs_action`."""
+    from openfactory.adapters.tracker.github_project import GitHubProjectBoard
+
+    board = GitHubProjectBoard("org", "6", token="t", columns={"needs_action": "Needs Review"})
+
+    assert board.stage_key("Needs Review") == "needs_action"
 
 
 # ── AC5: the door reads a card there as waiting on a person ───────────────────────────────────

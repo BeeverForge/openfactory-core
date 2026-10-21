@@ -130,14 +130,25 @@ def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
     `""` RATHER THAN A GUESS, for the same reason `name_for` answers `""`: a column this platform
     does not know is a legitimate thing for a client's board to have, and a caller deciding what
     may be done to a card must be able to tell *I know this column* from *I do not*.
+
+    A KEY THE DEPLOYMENT GAVE THIS NAME BEATS ONE THAT ONLY CARRIES IT BY DEFAULT, the rule
+    `name_for` states ("the deployment's word wins"). Among keys of one kind, the first in
+    `CANONICAL_COLUMNS` order answers: a status a deployment gives both `in_review` and
+    `needs_review` reads as `in_review`.
     """
     wanted = (name or "").strip().casefold()
     if not wanted:
         return ""
-    for key, spelled in {**CANONICAL_COLUMNS, **(renamed or {})}.items():
-        if str(spelled).strip().casefold() == wanted:
-            return str(key)
-    return ""
+    merged = {**CANONICAL_COLUMNS, **(renamed or {})}
+    hits = [str(key) for key, spelled in merged.items()
+            if str(spelled).strip().casefold() == wanted]
+    # A board whose park was already called "Needs Review" before 0.7 (`needs_action` mapped to
+    # it) read its parked cards as `needs_review` once that key's default name was the same word,
+    # and the product role's parked review went empty (#753's review, measured 2026-10-21: `main`
+    # 1be1835a answered `needs_action`, the branch at 79087790 `needs_review`). The GitHub row's
+    # map already merges the defaults, so "the deployment's map first" alone would not hold it.
+    return next((key for key in hits if merged[key] != CANONICAL_COLUMNS.get(key)),
+                hits[0] if hits else "")
 
 
 def has_started(key: str) -> bool:

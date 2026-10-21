@@ -193,8 +193,8 @@ tracker:
 ```
 
 The platform finds this state **only through these maps**: no category and no name answers for
-it. A board column already called `Needs Review` that `columns` does not name is read as the
-review wait when a person puts a card there, but the factory moves no card into it.
+it. A board column already called `Needs Review` that `columns` names for no key is read as the
+review wait (one it names for another key, `needs_action` say, keeps that key) when a person puts a card there, but the factory moves no card into it.
 
 A backlog state of its own works too — `Backlog` in the Proposed category, a column for it, and
 `state_map: '{"backlog": "Backlog"}'` with `columns: '{"backlog": "Backlog"}'`: the product role
