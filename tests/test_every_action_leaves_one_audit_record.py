@@ -361,3 +361,35 @@ async def test_a_relayed_row_leaves_its_own_record_under_the_callers_correlation
     rows = _audit_rows(stored)
     assert sorted(r.extra["action"] for r in rows) == ["ask", "skip"], rows
     assert {r.extra["correlation_id"] for r in rows} == {"req-7f3a"}, rows
+
+
+async def test_a_cancelled_call_still_leaves_one_record(registry, stored, monkeypatch):
+    """Criterion 2, the way out no `return` takes: a call cancelled while its row runs (a panel
+    request whose client hung up, a worker shutting down) is still a call, and leaves one record
+    saying it did not finish — `ok` false, code `failed`, reason `cancelled` — while the
+    `CancelledError` reaches the caller unchanged, so whoever cancelled it still sees the cancel.
+
+    Before #694 the store received 0 records for it: `perform` wrote its one INFO line only after
+    the row returned, and a cancelled row never returns."""
+    import asyncio
+
+    from openfactory.actions import catalog
+
+    started = asyncio.Event()
+
+    async def hangs(**_kw):
+        started.set()
+        await asyncio.Event().wait()  # nobody sets it: only the cancel ends this row
+
+    monkeypatch.setitem(catalog.CATALOG, "skip",
+                        dataclasses.replace(catalog.CATALOG["skip"], run=hangs))
+    call = asyncio.ensure_future(actions.perform("skip", by=_ADMIN, project="demo", issue="1"))
+    await started.wait()
+    call.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await call
+    rows = _audit_rows(stored)
+    assert len(rows) == 1, f"cancelled: {len(rows)} audit records for one call (1 expected)"
+    assert (rows[0].extra["ok"], rows[0].extra["code"], rows[0].extra["reason"]) == (
+        False, actions.FAILED, "cancelled"), rows[0].extra

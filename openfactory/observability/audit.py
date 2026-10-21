@@ -48,6 +48,11 @@ MASK = "***"
 #: (`docs/engineering-lessons.md` §2). No `product_key` can spell it: those carry `repo:`.
 PRODUCT_UNREAD = "unread"
 
+#: The record's `reason` for a call cancelled before its row answered (a panel client that hung
+#: up, a worker shutting down). Not one of `actions.REASONS`: no caller is ever told it — `perform`
+#: re-raises the `CancelledError` — so it is the record's word alone, and no row declares it.
+CANCELLED = "cancelled"
+
 #: The variable an operator names a deployment by, for the records it writes.
 DEPLOYMENT_ENV = "OPENFACTORY_DEPLOYMENT"
 
@@ -166,3 +171,14 @@ class AuditRecord:
             project=project,
             product=product_of(project),
         )
+
+
+async def write(record: AuditRecord) -> bool:
+    """Hand `record` to the deployment's store; True only when it was kept.
+
+    The one seam `actions.perform` writes through, once per call. The store does not know the
+    record's kind yet (`MetricKind` has no `audit`), so nothing is kept and this answers False —
+    said at DEBUG rather than WARNING, because it is every call, not a store that refused one."""
+    log.debug("audit: no store keeps action records yet; %s by %s not kept", record.action,
+              record.actor_id)
+    return False

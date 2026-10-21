@@ -41,6 +41,7 @@ implemented by none of them.**
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -77,6 +78,7 @@ from openfactory.actions.base import (
     not_moved_yet,
     refused,
 )
+from openfactory.observability import audit
 from openfactory.observability.audit import SECRET, redact
 
 log = logging.getLogger("openfactory.actions")
@@ -295,6 +297,30 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
     the fixed string "Activity task failed" (#66).
     """
     key = (name or "").strip().lower()
+    outcome: Outcome | None = None
+    try:
+        outcome = await _decide(name, key, by, params)
+    except asyncio.CancelledError:
+        # A CANCELLED CALL IS STILL A CALL (#694): the record says it did not finish, and the
+        # cancel goes on to whoever asked for it — swallowing it would keep a shutting-down worker
+        # or a hung-up panel request running the row it meant to stop.
+        outcome = Outcome(ok=False, code=FAILED, data={"reason": audit.CANCELLED},
+                          message=f"{key or name!r} was cancelled before it answered")
+        raise
+    finally:
+        # ONE EXIT, so a `return` added to `_decide` later cannot leave a call unrecorded. `None`
+        # here is what escaped `_decide` without being an answer: an exception raised outside the
+        # row's own guard (the catalog failing to import). It is recorded as `raised` and goes on.
+        if outcome is None:
+            outcome = Outcome(ok=False, code=FAILED, data={"reason": RAISED},
+                              message=f"{key or name!r} raised before it answered")
+        await asyncio.shield(_leave_record(name, key, by, params, outcome))
+    return outcome
+
+
+async def _decide(name: str, key: str, by: Actor, params: dict[str, object]) -> Outcome:
+    """What `perform` answers — every check and the row itself, with no record: `perform` makes
+    the one record of the call around this, whichever `return` it took."""
     found = _catalog().get(key)
     if found is None:
         return refused(
@@ -375,13 +401,25 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
         # row's refusals off its source; this is for the one they could not see.
         log.error("action %s refused with an undeclared reason %r — it declares %s", key,
                   outcome.data.get("reason"), ", ".join(reasons(key)))
+    return outcome
+
+
+async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object],
+                        outcome: Outcome) -> None:
+    """The call's trace, once, on every way out of `perform`: the INFO line and the record.
+
+    Never raises: a record that could not be made or kept is said at WARNING and the outcome
+    stands, because `perform` never takes its caller down (its docstring)."""
     # A LABEL IS PRINTED AS ONE (`Actor.label`): what an anonymous caller says it is, beside the
     # credential it used — never in `by=`, which is who that credential is.
     label = str(getattr(by, "label", "") or "")
     log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,
              f" label={label!r}" if label else "", outcome.ok, outcome.code or "-",
              _loggable(params))
-    return outcome
+    try:
+        await audit.write(audit.AuditRecord.of(name, by, params, outcome))
+    except Exception as exc:  # noqa: BLE001 — the record must never take the call down
+        log.warning("audit: the record of %s by %s was not kept (%s)", key or name, by, exc)
 
 
 #: Parameters whose VALUE must never reach a log line: one set, `audit.SECRET`, so the line and the
