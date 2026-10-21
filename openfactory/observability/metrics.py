@@ -15,7 +15,6 @@ A scan + in-process aggregation powers the dashboard (low volume: dozens of jobs
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -219,8 +218,8 @@ class KeyedSink(Protocol):
 
 
 @runtime_checkable
-class KindStreamingSink(Protocol):
-    """A sink that reads every live row of ONE kind, across projects, NEWEST FIRST, a row at a time
+class KindPagingSink(Protocol):
+    """A sink that reads the live rows of ONE kind, across projects, NEWEST FIRST, a page at a time
     (#694, PR #1039 review) — so a reader that wants the most recent rows of a kind stops when it
     has them, rather than holding the whole store.
 
@@ -228,13 +227,20 @@ class KindStreamingSink(Protocol):
     to keep the rows of kind `audit` and print the last `--limit` of them: on a store whose rows
     are mostly a job's cost, its memory and its time were the store's size, not the answer's.
 
+    A PAGE, NOT AN ITERATOR: every port signature stays serialisable
+    (`tests/test_ports_are_serialisable.py`), and a page of rows with a cursor is what a provider
+    out of process could answer. THE CURSOR IS THE LAST ROW'S `(sk, pk)`: `sk` begins with the
+    row's time for every row `record` writes (`dynamo_key`), and with `pk` it is the primary key,
+    so a page boundary never skips nor repeats a row.
+
     A SEPARATE PROTOCOL, like `TicketReadingSink`: a store added from outside declares it by
     implementing the method, and one that does not is read the old way, through `scan`
-    (`cli.audit_cmd`). The shipped sqlite sink does it with one query on `kind`, read in batches.
-    RAISES `query.StoreUnreadable` WHEN THE STORE WILL NOT ANSWER, before or during the read."""
+    (`cli.audit_cmd`). RAISES `query.StoreUnreadable` WHEN THE STORE WILL NOT ANSWER."""
 
-    def stream_of_kind(self, kind: str) -> Iterator[dict]:
-        """Every live row of `kind`, newest first (`ts`, then the row's key), as it is read."""
+    def page_of_kind(self, kind: str, *, before: tuple[str, str] | None = None,
+                     limit: int = 500) -> list[dict]:
+        """At most `limit` live rows of `kind`, every project's, newest first by `(sk, pk)`, each
+        of whose `(sk, pk)` comes before `before` (the previous page's last row; None = now)."""
         ...
 
 

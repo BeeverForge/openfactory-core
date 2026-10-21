@@ -36,17 +36,11 @@ MUTATIONS = [
      "        elif ensure:\n            try:\n                self.path.parent.mkdir(",
      "        elif False:\n            try:\n                self.path.parent.mkdir("),
 
-    # Re-pinned 2026-10-21 (#694): the forgetting moved into `_unreadable`, which every read
-    # that fails calls.
     ("a store removed under a running process fails every read for the rest of its life", SINK,
-     "        _SCHEMA_ENSURED.discard(str(self.path))\n        log.warning(",
-     "        log.warning("),
+     "            _SCHEMA_ENSURED.discard(str(self.path))\n",
+     "            pass\n"),
 
-    # Re-pinned 2026-10-21 (#694): `_query` and `stream_of_kind` share `_unreadable`, which makes
-    # the exception; the claim is `_query`'s answer, so the cut is at its `raise`.
     ("#126 UNDONE: a store that cannot be read answers as an empty one", SINK,
-     "                return [self._row(r[0]) for r in conn.execute(sql, args).fetchall()]\n"
-     "        except Exception as exc:\n            raise self._unreadable(exc) from exc\n",
-     "                return [self._row(r[0]) for r in conn.execute(sql, args).fetchall()]\n"
-     "        except Exception as exc:\n            return []\n"),
+     '            log.warning("metrics read failed on %s: %s", self.path, exc)\n',
+     '            return []\n'),
 ]

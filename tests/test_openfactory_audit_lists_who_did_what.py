@@ -360,18 +360,13 @@ def test_an_action_asked_in_capitals_is_recorded_and_listed_by_its_name(tmp_path
 
 # ── the read is bounded (PR #1039 review) ───────────────────────────────────────────────────────
 
-def _rows_of_another_kind(db, count: int) -> None:
-    """`count` rows of a job's cost (`agent_run`) in the store the records share — what a busy
-    deployment's metrics store mostly holds — each written as `SqliteMetricsSink.record` writes
+def _written(db, records) -> None:
+    """`records` (`MetricRecord`s) in the store, each written as `SqliteMetricsSink.record` writes
     one, in one transaction (a `record` per row costs a connection and a commit each)."""
     import sqlite3
 
-    from openfactory.observability.metrics import MetricRecord
-
     rows = []
-    for i in range(count):
-        rec = MetricRecord(kind="agent_run", project="alpha", ticket=str(i),
-                           ts=TODAY.isoformat(), extra={"cost_usd": 0.01})
+    for rec in records:
         key = rec.dynamo_key()
         rows.append((key["pk"], key["sk"], rec.kind, rec.ts, rec.ticket, rec.expires_at,
                      json.dumps({**rec.model_dump(), **key}, default=str)))
@@ -379,6 +374,30 @@ def _rows_of_another_kind(db, count: int) -> None:
         conn.executemany("INSERT INTO metrics (pk, sk, kind, ts, ticket, expires_at, data)"
                          " VALUES (?,?,?,?,?,?,?)", rows)
     conn.close()
+
+
+def _rows_of_another_kind(db, count: int) -> None:
+    """`count` rows of a job's cost (`agent_run`) in the store the records share — what a busy
+    deployment's metrics store mostly holds."""
+    from openfactory.observability.metrics import MetricRecord
+
+    _written(db, (MetricRecord(kind="agent_run", project="alpha", ticket=str(i),
+                               ts=TODAY.isoformat(), extra={"cost_usd": 0.01})
+                  for i in range(count)))
+
+
+def _older_records(db, count: int) -> None:
+    """`count` audit records made a week before `BEFORE`, an hour apart, as `audit.metric_of`
+    makes the row."""
+    from openfactory.observability import audit
+
+    def made(i: int):
+        record = audit.AuditRecord.of("product_status", actions.SYSTEM, {"project": "old"},
+                                      actions.done("fine"), product_of=lambda _name: "")
+        ts = (BEFORE - timedelta(days=7, hours=i)).isoformat()
+        return audit.metric_of(dataclasses.replace(record, ts=ts))
+
+    _written(db, (made(i) for i in range(count)))
 
 
 @pytest.fixture
@@ -401,7 +420,7 @@ def parsed(monkeypatch) -> list[int]:
 def test_the_store_is_asked_for_audit_rows_and_never_scanned_whole(deployment, monkeypatch):
     """The review's point: `openfactory audit` read the whole store (`scan()`, every kind, every
     row's JSON) into memory to keep the audit rows. A sqlite store is asked for rows of kind
-    `audit` alone; its `scan` is never called. On c310ba28 it was: exit 2, `scan read the whole
+    `audit` alone, a page at a time; its `scan` is never called. On c310ba28 it was: exit 2, `scan read the whole
     store`."""
     from openfactory.observability.sqlite_metrics import SqliteMetricsSink
 
@@ -432,21 +451,37 @@ def test_the_store_is_read_to_the_limit_and_one_more_however_many_rows_it_holds(
     assert parsed[0] <= 2, f"{parsed[0]} rows read for --limit 1"
 
 
-def test_the_store_is_read_back_to_since_and_no_further(deployment, parsed):
-    """Rows come newest first, so `--since` stops the read at the first record older than it:
-    today's two records and the one before them are read, not the days before. On c310ba28 every
-    row of the store was."""
+def test_the_store_is_read_back_to_since_and_no_further(deployment, parsed, monkeypatch):
+    """Pages come newest first, so `--since` ends the read at the first record older than it: in
+    pages of 2, over today's two records and 22 older ones, two pages are read — 4 rows — not
+    twelve. On c310ba28 every row of the store was: 74, the 50 cost rows among them."""
+    from openfactory import cli
+
     _rows_of_another_kind(deployment, 50)
+    _older_records(deployment, 20)
+    monkeypatch.setattr(cli, "AUDIT_PAGE", 2, raising=False)   # c310ba28 has no pages
     parsed[0] = 0
 
     listed = _listed("--since", TODAY.date().isoformat())
 
     assert listed == [("bob", "skip", "beta"), ("alice", "ack", "alpha")], listed
-    assert parsed[0] <= 3, f"{parsed[0]} rows read for two records since today"
+    assert parsed[0] <= 4, f"{parsed[0]} rows read for two records since today"
+
+
+def test_a_page_boundary_neither_skips_nor_repeats_a_record(deployment, monkeypatch):
+    """Each page starts after the last row of the one before (`(sk, pk)`, the primary key), so in
+    pages of 2 the four records are listed once each, in their order. Green on c310ba28 (one scan,
+    no pages); the cuts that start a page at its predecessor's first row, or at its last row
+    inclusive, list a record twice."""
+    from openfactory import cli
+
+    monkeypatch.setattr(cli, "AUDIT_PAGE", 2, raising=False)
+
+    assert _listed() == [(by.id, name, project) for _when, by, name, project in CALLS]
 
 
 def test_a_store_that_cannot_ask_by_kind_is_still_listed_through_its_scan(tmp_path, monkeypatch):
-    """`KindStreamingSink` is optional: a store that reads back (`ReadableSink`) without it — an
+    """`KindPagingSink` is optional: a store that reads back (`ReadableSink`) without it — an
     add-on's, as the DynamoDB one is today — is listed as before, through its `scan`, its other
     kinds left out (a cost row carrying a record's field names among them), cut here to the most
     recent. Green on c310ba28 (that was the only path); the cuts that drop the fallback, or its

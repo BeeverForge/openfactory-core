@@ -3845,6 +3845,13 @@ def act_cmd(
         raise typer.Exit(1)
 
 
+#: How many audit rows `openfactory audit` asks a paging store for at once (`KindPagingSink`):
+#: few enough that a page parsed is a page held, and each page costs the store one walk of its
+#: table (81-95 ms on a 336 MB store, measured 2026-10-21) — so the page is `--limit` + 1 when
+#: that is smaller, and an answer that fits one page costs one walk.
+AUDIT_PAGE = 500
+
+
 def _audit_day(flag: str, text: str | None):
     """`--since`/`--until` as a UTC date, or None when not given; anything but `YYYY-MM-DD` is
     refused by name with exit 2 rather than read as "no bound" and listing the whole year."""
@@ -3892,7 +3899,7 @@ def audit_cmd(
     from datetime import UTC, datetime, time, timedelta
 
     from openfactory.observability import audit
-    from openfactory.observability.metrics import KindStreamingSink, ReadableSink
+    from openfactory.observability.metrics import KindPagingSink, ReadableSink
     from openfactory.observability.registry import metrics_sink_kind
 
     # NOT A CATALOG ROW, AND NO ROUTE (#694 Q2). Every capability is reachable from both
@@ -3921,17 +3928,24 @@ def audit_cmd(
                    f"OPENFACTORY_METRICS_SINK to a store that reads (sqlite)", err=True)
         raise typer.Exit(2)
     # THE AUDIT ROWS, NEWEST FIRST, READ UNTIL THE ANSWER IS WHOLE (PR #1039 review). A store that
-    # streams one kind (`KindStreamingSink`, the sqlite sink) is asked for `audit` alone and read
-    # until `limit` + 1 records match — one more, to know the list was cut — or the rows are older
-    # than --since; on c310ba28 every row of every kind was parsed into memory first (204 for
-    # `--limit 1` over 4 records and 200 cost rows). One that cannot is read as before, through
-    # `scan`, and sorted here. Filtered HERE, even with --project: `records_of_kind` keeps the
-    # most recent `limit` rows BEFORE --actor, --outcome or the period are applied, so a bound
+    # pages one kind (`KindPagingSink`, the sqlite sink) is asked for `audit` alone, a page at a
+    # time, until `limit` + 1 records match — one more, to know the list was cut — or the rows are
+    # older than --since; on c310ba28 every row of every kind was parsed into memory first (204
+    # for `--limit 1` over 4 records and 200 cost rows). One that cannot is read as before,
+    # through `scan`, and sorted here. Filtered HERE, even with --project: `records_of_kind` keeps
+    # the most recent `limit` rows BEFORE --actor, --outcome or the period are applied, so a bound
     # there would drop records that match and call rows that do not "cut".
     def newest_first():
-        if isinstance(store, KindStreamingSink):
-            yield from store.stream_of_kind("audit")
-            return
+        if isinstance(store, KindPagingSink):
+            size = min(limit + 1, AUDIT_PAGE)
+            before: tuple[str, str] | None = None
+            while True:
+                page = store.page_of_kind("audit", before=before, limit=size)
+                yield from page
+                if len(page) < size:
+                    return
+                before = (str(page[-1].get("sk", "")), str(page[-1].get("pk", "")))
+
         def when(r: dict):
             ts = (r.get("extra") or {}).get("ts")
             return (_audit_when(ts) if ts else datetime.min.replace(tzinfo=UTC)), r.get("sk", "")
