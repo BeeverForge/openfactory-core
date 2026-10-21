@@ -361,6 +361,10 @@ OWNED = {
     # deciding whether a preview may start, and it would skip the row's scope and runtime checks.
     "start_preview": "preview_start",
     "signal_preview": "preview_stop/preview_rebuild",
+    # An import of a folder into a product (#993). The marker is the module's own verb: a front end
+    # that called it would land a client's requirements with no source admitted — the command
+    # line's any path, everyone else's inbox — and no plan shown before the yes.
+    "import_requirements": "product_import",
 }
 
 

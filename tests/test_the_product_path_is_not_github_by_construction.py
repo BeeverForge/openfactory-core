@@ -302,9 +302,10 @@ def test_every_writer_addresses_the_docs_repo_through_one_helper():
     source = inspect.getsource(product_module)
     # eight, plus `record_answer`'s two (ADR-0048 §6: a decision on the cited requirement, or a
     # fact about the file) — both through the one helper — a capability's confirmation
-    # (#268 slice 3), a conversation's distillate (#269 slice 3, `record_distillate`), and a file
-    # filed from the chat into `from-chat/` (#336, `file_document`)
-    assert source.count("self._clone_url(") == 13, (
+    # (#268 slice 3), a conversation's distillate (#269 slice 3, `record_distillate`), a file
+    # filed from the chat into `from-chat/` (#336, `file_document`), and a folder imported under
+    # the corpus's rules (#993, `import_requirements`)
+    assert source.count("self._clone_url(") == 14, (
         "every clone on the product path goes through the one helper — a new writer that spells "
         "its own URL is how the github.com literal came back")
 
@@ -550,21 +551,23 @@ def test_the_FORGE_reaches_every_entry_point_that_writes_to_the_docs_repository(
     were fixed. `land_open_proposals` is now among them: its four acts (open / merge / delete /
     leave alone) all needed a method that could name a repository, which is exactly what #95 gave
     the port."""
-    from openfactory.product import authoring
+    from openfactory.product import authoring, importing
 
     for fn in (authoring.propose_requirement, authoring.land_open_proposals,
-               authoring.propose_baseline):
+               authoring.propose_baseline, importing.land_import):
         assert "forge" in inspect.signature(fn).parameters, fn.__name__
 
     from openfactory.product import module as product_module
 
-    # AND BOTH WRITERS ARE HANDED THE ADAPTER ITSELF. `propose` has a behavioural guard above;
+    # AND EVERY WRITER IS HANDED THE ADAPTER ITSELF. `propose` has a behavioural guard above;
     # `baseline` would need a survey, a source checkout and a role to drive end to end, and the
     # reads it is about happen before any of them. Counted, for the reason its sibling is: the
-    # failure this catches is somebody deleting one argument of two, after which the writer
-    # refuses every baseline with a sentence about a board it was never given.
-    assert inspect.getsource(product_module).count("forge=self._forge()") == 2, (
-        "both writers that act on the documentation repository must be handed a forge")
+    # failure this catches is somebody deleting one argument of several, after which the writer
+    # refuses every baseline with a sentence about a board it was never given. The import (#993)
+    # mints from the proposal branches the forge lists, and is driven end to end in
+    # `tests/test_requirements_are_imported_under_the_corpus_rules.py`.
+    assert inspect.getsource(product_module).count("forge=self._forge()") == 3, (
+        "every writer that acts on the documentation repository must be handed a forge")
 
 
 def test_the_HOURLY_sweep_is_handed_the_forge_it_used_to_run_without(monkeypatch):

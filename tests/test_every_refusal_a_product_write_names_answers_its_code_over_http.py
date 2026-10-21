@@ -50,6 +50,8 @@ WORKER = "<the worker>"
 BREAKDOWN = "<the worker's breakdown>"
 #: The module methods that answer a LIST of results, of which the row renders none made.
 LISTS = {"promote", "reorder"}
+#: A folder in the product's import inbox — the one place a caller over the API may name (#993).
+INBOX = "<a folder in the product's import inbox>"
 
 #: Per row: the parameters that get it past its own checks, and the module method it then calls.
 ROWS: dict[str, tuple[dict[str, object], str]] = {
@@ -77,6 +79,7 @@ ROWS: dict[str, tuple[dict[str, object], str]] = {
     "product_promote": ({"numbers": "7", "yes": True}, "promote"),
     "product_reorder": ({"numbers": "7,8", "yes": True}, "reorder"),
     "product_break_down": ({"number": "7", "yes": True}, BREAKDOWN),
+    "product_import": ({"source": INBOX, "yes": True}, "import_requirements"),
 }
 
 #: One fictitious operator — named, unscoped — so every row above, floor or product, is reachable.
@@ -121,6 +124,13 @@ class _Refusing:
     def __getattr__(self, method: str):
         if method.startswith("__"):
             raise AttributeError(method)
+        if method == "context":
+            # A READ, NOT A WRITE: a row that reads the product's checkout before it writes (the
+            # import, for the name of its requirements' folder) is handed one, and it is not the
+            # call this family drives
+            from types import SimpleNamespace
+
+            return lambda: SimpleNamespace(available=True, requirements_dir="requirements")
 
         def write(*_args, **_kwargs):
             self.called.append(method)
@@ -190,6 +200,17 @@ def test_each_refusal_reason_answers_its_code_and_the_modules_sentence_on_every_
     if CARD in params.values():
         ref = _opened_by_product(tracker, board)
         params = {k: (ref if v == CARD else v) for k, v in params.items()}
+    if INBOX in params.values():
+        from openfactory.product import importing
+        from openfactory.product import module as product_module
+
+        folder = importing.inbox(deployment) / "round-two"
+        (folder / "design").mkdir(parents=True)
+        (folder / "design" / "flow.md").write_text("the flow\n")
+        params = {k: ("round-two" if v == INBOX else v) for k, v in params.items()}
+        # the row asks `may_act` itself, before it reads the folder: the operator administers the
+        # floor, not acme's product — what is driven here is the rendering, not that gate
+        monkeypatch.setattr(product_module, "may_act", lambda *_a, **_k: True)
 
     said_as = sentence
     if method in (WORKER, BREAKDOWN):
