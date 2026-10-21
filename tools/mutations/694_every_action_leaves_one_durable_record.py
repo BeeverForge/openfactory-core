@@ -17,7 +17,8 @@ The claims, each a group of rows (the numbers are the plan's, `ai/tasks/todo.md`
   13-14. `openfactory audit` lists by each filter, refuses a date that is not one by name, keeps
      the most recent when cut, and tells an unreadable store and a sink it cannot read back apart
      from an empty store;
-  15. the INFO line is still written beside the record;
+  15. the INFO line is still written beside the record, and prints the parameters as the record
+     keeps them, made once (the human's decision of 2026-10-21);
   16. the record names which identity provider named the caller, on the panel and the CLI;
   19-20. a host CLI with no store named still keeps its records beside `registry.yaml`, and the
      deployment's own metrics inference is unchanged;
@@ -122,9 +123,10 @@ MUTATIONS = [
      "@dataclass(frozen=True)\nclass AuditRecord:",
      "@dataclass\nclass AuditRecord:",
      _EVERY + "test_an_audit_record_cannot_be_changed_once_it_is_made"),
+    # Re-pinned 2026-10-21: the record takes the view `perform` already made for its line.
     ("the record's params are a plain dict, not a read-only mapping", _AUDIT,
-     "            params=MappingProxyType(_kept(action, params)),\n",
-     "            params=_kept(action, params),\n",
+     "            params=MappingProxyType(view),\n",
+     "            params=view,\n",
      _EVERY + "test_an_audit_record_cannot_be_changed_once_it_is_made"),
 
     # 7-9. the row
@@ -165,9 +167,11 @@ MUTATIONS = [
      "    return await asyncio.to_thread(_keep, record)",
      "    return _keep(record)",
      _STORE + "test_the_audit_write_does_not_run_on_the_event_loop"),
+    # Re-pinned 2026-10-21: the record is handed the line's view (`kept=`) on the next line.
     ("the record is made on the event loop", _ACTIONS,
-     "        record = await asyncio.to_thread(audit.AuditRecord.of, name, by, params, outcome)\n",
-     "        record = audit.AuditRecord.of(name, by, params, outcome)\n",
+     "        record = await asyncio.to_thread(audit.AuditRecord.of, name, by, params, outcome,\n"
+     "                                         kept=kept)\n",
+     "        record = audit.AuditRecord.of(name, by, params, outcome, kept=kept)\n",
      _STORE + "test_the_record_reads_the_registry_off_the_event_loop"),
     ("a cancel while the record is written cancels the write", _ACTIONS,
      "        await asyncio.shield(_leave_record(name, key, by, params, outcome))\n",
@@ -282,6 +286,20 @@ MUTATIONS = [
      '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,\n',
      '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", key, by,\n',
      "tests/test_the_action_layer.py::test_a_password_never_reaches_a_log_line"),
+    # 15, the human's decision of 2026-10-21: the line prints what the record keeps, made once.
+    ("the INFO line logs redact(params): a person's words in full", _ACTIONS,
+     "        shown: object = kept\n",
+     "        shown: object = redact(params)\n",
+     _EVERY + "test_the_info_line_shows_a_persons_words_only_as_the_record_keeps_them"),
+    ("the record makes its own view again, so a cut is said twice", _ACTIONS,
+     "                                         kept=kept)\n",
+     "                                         kept=None)\n",
+     _EVERY + "test_a_value_cut_for_the_record_is_cut_in_the_line_and_the_cut_is_said_once"),
+    ("parameters that cannot be read are printed as sent", _ACTIONS,
+     '        shown = f"<not shown: they could not be read ({exc})>"\n',
+     "        shown = params\n",
+     _EVERY + "test_parameters_that_cannot_be_read_leave_the_line_saying_so_"
+     "and_the_outcome_stands"),
 
     # 16. which identity provider named the caller. Re-pinned 2026-10-20: both actors now also
     # carry the call's correlation id on the next line (#694, task 26).

@@ -431,3 +431,128 @@ async def test_a_call_that_raises_outside_the_rows_guard_leaves_one_record_and_r
     assert len(rows) == 1, f"raised outside the guard: {len(rows)} audit records (1 expected)"
     assert (rows[0].extra["ok"], rows[0].extra["code"], rows[0].extra["reason"]) == (
         False, actions.FAILED, actions.RAISED), rows[0].extra
+
+
+# ── the INFO line shows what the record keeps ───────────────────────────────────────────────────
+
+
+#: A client's words, as a `product_say` message carries them — measured in the line on the #694
+#: branch at 4b644c36, before the line logged what the record keeps.
+_WORDS = "my salary is 9000 and my CPF is 123"
+
+
+def _the_line(caplog) -> tuple[str, dict]:
+    """The one `action=` line the call wrote, and the parameters it printed, read back as the
+    value they are (`ast.literal_eval` of what follows `params=`), not searched for as text."""
+    import ast
+
+    lines = [r.getMessage() for r in caplog.records
+             if r.levelname == "INFO" and r.getMessage().startswith("action=")]
+    assert len(lines) == 1, f"{len(lines)} action lines for one call (1 expected): {lines}"
+    return lines[0], ast.literal_eval(lines[0].split(" params=", 1)[1])
+
+
+#: Three ways out, each carrying a person's words: refused before any check of who asked (an
+#: unexpected `password`, so a secret rides along), refused for the caller's scope, and answered
+#: by the row itself.
+_WORDS_WAYS = {
+    actions.BAD_PARAMETERS: (actions.SYSTEM,
+                             {"project": "nosuch", "message": _WORDS, "password": "hunter2"}),
+    actions.OUT_OF_SCOPE: (actions.Actor(id="ba", via="panel", admin=True,
+                                         scopes=frozenset({actions.FLOOR})),
+                           {"project": "nosuch", "message": _WORDS}),
+    ROWS_OWN: (actions.SYSTEM, {"project": "nosuch", "message": _WORDS}),
+}
+
+
+@pytest.mark.parametrize("way_out", list(_WORDS_WAYS))
+async def test_the_info_line_shows_a_persons_words_only_as_the_record_keeps_them(
+        way_out, registry, stored, caplog):
+    """Criterion 6 and the human's decision of 2026-10-21 (option b): the INFO line beside the
+    record prints the parameters as the record keeps them — a `FREE_TEXT` value as its length and
+    sha256, a `SECRET` value as `***` — on every way out, so the line and the record are one view.
+
+    Before, on this branch at 4b644c36, the line printed `audit.redact(params)`, which masks
+    secrets only: `params={'project': 'nosuch', 'message': 'my salary is 9000 and my CPF is
+    123', …}` beside a record holding `{'chars': 35, 'sha256': …}` — and #694 had made the line
+    run on all ten ways out, so a refusal before any row wrote the words to stderr too. Red on
+    all three ways out then: `a person's words reached a log line`."""
+    import hashlib
+
+    by, params = _WORDS_WAYS[way_out]
+
+    with caplog.at_level("INFO"):
+        outcome = await actions.perform("product_say", by=by, **params)
+
+    said = outcome.data.get("reason", "")
+    assert said == (actions.NOT_FOUND if way_out == ROWS_OWN else way_out), outcome
+    # THE DENIALS' OWN WARNING (`DENIED_SCOPE …`, `DENIED …`) predates #694 and still prints
+    # `audit.redact(params)`: the decision was about the action's line, and that warning is a
+    # follow-up of its own (*The denial warnings log a person's words in full*).
+    leaked = [r.getMessage() for r in caplog.records
+              if _WORDS in r.getMessage() and not r.getMessage().startswith("DENIED")]
+    assert not leaked, f"a person's words reached a log line: {leaked}"
+    assert "hunter2" not in caplog.text
+    _line, printed = _the_line(caplog)
+    assert printed["message"] == {"chars": len(_WORDS),
+                                  "sha256": hashlib.sha256(_WORDS.encode()).hexdigest()}, printed
+    if "password" in params:
+        assert printed["password"] == "***", printed
+    [row] = _audit_rows(stored)
+    assert printed == row.extra["params"], (printed, row.extra["params"])
+
+
+async def test_a_value_cut_for_the_record_is_cut_in_the_line_and_the_cut_is_said_once(
+        registry, stored, caplog):
+    """The line and the record are made from one view of the parameters (`audit._kept`), computed
+    once per call: a 5,000-character value is printed in the line as the record keeps it, cut to
+    its first 2,000 characters with the cut said, and the INFO line saying it was cut is written
+    once — not once for the line and again for the record.
+
+    Before, on this branch at 4b644c36, the line printed the 5,000 characters whole."""
+    sent = "c" * 5_000
+
+    with caplog.at_level("INFO"):
+        await actions.perform("product_say", by=actions.SYSTEM, project="nosuch", message="hi",
+                              context=sent)
+
+    _line, printed = _the_line(caplog)
+    [row] = _audit_rows(stored)
+    assert printed["context"] == row.extra["params"]["context"], printed["context"][-60:]
+    assert len(printed["context"]) < len(sent), len(printed["context"])
+    cut = [r.getMessage() for r in caplog.records
+           if r.name == "openfactory.observability.audit" and "context was 5000" in r.getMessage()]
+    assert len(cut) == 1, f"the cut was said {len(cut)} times for one call (1 expected): {cut}"
+
+
+class _Unreadable:
+    """A parameter value that cannot be turned into text — what an internal caller could hand
+    `perform`, and the one way `audit._kept` can fail."""
+
+    def __str__(self) -> str:
+        raise ValueError("this value cannot be read")
+
+    __repr__ = __str__
+
+
+async def test_parameters_that_cannot_be_read_leave_the_line_saying_so_and_the_outcome_stands(
+        registry, stored, caplog):
+    """The line is written on every way out even when the parameters cannot be read as the record
+    keeps them: it says so in their place, a WARNING names the record that was not kept, and the
+    caller still gets the row's answer — never the parameters as sent, and never an exception.
+
+    Before, on this branch at 4b644c36, the line was lost: formatting it raised in the handler, a
+    stream handler printed `--- Logging error --- … ValueError: this value cannot be read` in its
+    place (measured 2026-10-21), and pytest's capture re-raised it out of `perform`."""
+    with caplog.at_level("INFO"):
+        outcome = await actions.perform("product_say", by=actions.SYSTEM, project="nosuch",
+                                        context=_Unreadable())
+
+    assert outcome.data.get("reason") == actions.NOT_FOUND, outcome
+    line = next(r.getMessage() for r in caplog.records if r.getMessage().startswith("action="))
+    assert line.endswith("params=<not shown: they could not be read (this value cannot be read)>"), (
+        line)
+    warned = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"
+              and "record of product_say" in r.getMessage()]
+    assert len(warned) == 1, warned
+    assert _audit_rows(stored) == []

@@ -441,16 +441,31 @@ async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object
     # A LABEL IS PRINTED AS ONE (`Actor.label`): what an anonymous caller says it is, beside the
     # credential it used — never in `by=`, which is who that credential is.
     label = str(getattr(by, "label", "") or "")
+    # THE LINE PRINTS WHAT THE RECORD KEEPS (#694, the human's decision of 2026-10-21): secrets
+    # masked, a person's words as their length and digest, every other value bounded — one view,
+    # made once here and handed to the record, so the two cannot differ and a cut is said once.
+    # On the loop: 1.45 ms for a 1,000,000-character message and as long a context, measured
+    # 2026-10-21; a request is far smaller. Unreadable (a value whose `str` raises), the line
+    # says so in their place rather than print them as sent, and no record is made.
+    try:
+        kept: dict[str, object] | None = audit._kept(key or name, params)
+        shown: object = kept
+    except Exception as exc:  # noqa: BLE001 — the line is written on every way out
+        kept, unread = None, exc
+        shown = f"<not shown: they could not be read ({exc})>"
     log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,
              f" label={label!r}" if label else "", outcome.ok, outcome.code or "-",
-             _loggable(params))
+             shown)
     try:
+        if kept is None:
+            raise unread
         # MADE OFF THE LOOP TOO, not only written: naming the product parses `registry.yaml`
         # (`audit._product_of`) on every call that names a project — 0.95 ms with one project and
         # 18.2 ms (p95 20.8) with twenty, measured 2026-10-20 — a read the panel keeps off its loop
         # everywhere else (`asyncio.to_thread(lambda: ProjectRegistry().list())` in `api/app.py`).
         # The hop costs 0.027 ms (`api/app.py` `_ask_the_gate`'s measurement).
-        record = await asyncio.to_thread(audit.AuditRecord.of, name, by, params, outcome)
+        record = await asyncio.to_thread(audit.AuditRecord.of, name, by, params, outcome,
+                                         kept=kept)
         await audit.write(record)
     except Exception as exc:  # noqa: BLE001 — the record must never take the call down
         log.warning("audit: the record of %s by %s was not kept (%s)", key or name, by, exc)
@@ -484,7 +499,9 @@ def _why(exc: Exception) -> str:
     return first_message(exc)
 
 
-#: The line's redaction is the record's: one function, `audit.redact`.
+#: What the denial warnings (`DENIED_SCOPE`, `DENIED`) print of the parameters: `audit.redact`,
+#: secrets masked. The INFO line prints what the record keeps instead (`audit._kept`, in
+#: `_leave_record`).
 _loggable = redact
 
 

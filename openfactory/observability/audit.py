@@ -8,9 +8,11 @@ never wrote it, and nothing kept it: measured on bb929e49 with an empty `HOME` a
 reached nobody. *Who approved that production release* had no answer an auditor could read back.
 The record is that answer, as a value: the line stays beside it (ADR-0039 §2).
 
-ONE REDACTION FOR BOTH. `redact` is the function the log line uses too (`actions._loggable` is
-its alias), so a parameter that is masked in one is masked in the other — there is no second
-list of secrets to forget to update.
+ONE VIEW FOR BOTH. `perform`'s INFO line prints what the record keeps, `_kept(params)`, made
+once per call and handed to `AuditRecord.of` (#694, the human's decision of 2026-10-21): a secret
+masked, a person's words as their length and digest, every other value bounded — in the line as
+in the record, so there is no second list of secrets or of free-text names to forget to update.
+`redact` alone (secrets only) is what the denial warnings print (`actions._loggable`).
 
 WHERE IT IS KEPT. `write` hands each record to `sink()` as one row of kind `audit` in the metrics
 store, off the event loop; a deployment that declares no store keeps them in `audit.db` beside
@@ -48,7 +50,8 @@ log = logging.getLogger(__name__)
 #: Parameters whose VALUE must never reach a log line or an audit record. `approve_prod` and
 #: `promote` take the approver's password, and `perform` writes its line and its record on every
 #: call including the refusals — which is precisely the path a wrong password takes. Read by
-#: `redact`, which both the line (`actions._loggable`) and the record (`AuditRecord.of`) call.
+#: `redact`, which `_kept` (the line's and the record's view) and the denial warnings
+#: (`actions._loggable`) call.
 SECRET = frozenset({"password", "token", "secret", "key"})
 
 #: What a masked value reads as, in the line and in the record alike.
@@ -137,9 +140,10 @@ def _words(value: object) -> dict[str, object]:
 
 
 def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
-    """`params` as a record keeps them: `SECRET` values masked (`redact`, the line's own function),
-    each `FREE_TEXT` value as its length and digest, and every other value cut to `VALUE_CHARS`
-    with the cut said — in the value, and in one INFO line naming the action and the parameter."""
+    """`params` as a record keeps them, and as `perform`'s INFO line prints them: `SECRET` values
+    masked (`redact`), each `FREE_TEXT` value as its length and digest, and every other value cut
+    to `VALUE_CHARS` with the cut said — in the value, and in one INFO line naming the action and
+    the parameter. Called once per call, so that INFO line is written once."""
     from openfactory.actions.base import FREE_TEXT
 
     kept: dict[str, object] = {}
@@ -231,8 +235,12 @@ class AuditRecord:
 
     @classmethod
     def of(cls, name: str, by: Actor, params: Mapping[str, object], outcome: Outcome, *,
-           product_of: Callable[[str], str] = _product_of) -> AuditRecord:
-        """The record of one `perform(name, by=by, **params)` that returned `outcome`."""
+           product_of: Callable[[str], str] = _product_of,
+           kept: Mapping[str, object] | None = None) -> AuditRecord:
+        """The record of one `perform(name, by=by, **params)` that returned `outcome`.
+
+        `kept` is `_kept(params)` when the caller already made it — `perform` does, to print the
+        same view in its INFO line — so it is made once per call; else it is made here."""
         from openfactory.actions.base import SYSTEM
 
         # ADR-0057 D1 names the factory's own actor `system`; it acts on nobody's behalf, so it
@@ -243,6 +251,7 @@ class AuditRecord:
         provider = "system" if system else (by.subject.via if by.subject else "")
         project = str(params.get("project") or "")
         action = (name or "").strip().lower() or name
+        view = dict(kept) if kept is not None else _kept(action, params)
         return cls(
             record_id=uuid.uuid4().hex,
             actor_id=by.id,
@@ -250,7 +259,7 @@ class AuditRecord:
             provider=provider,
             via=by.via,
             action=action,
-            params=MappingProxyType(_kept(action, params)),
+            params=MappingProxyType(view),
             ok=outcome.ok,
             code=outcome.code,
             reason=str(outcome.data.get("reason", "") or ""),
