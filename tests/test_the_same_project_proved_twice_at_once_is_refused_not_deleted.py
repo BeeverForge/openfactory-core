@@ -292,6 +292,21 @@ def test_a_proof_whose_checkout_could_not_be_resolved_leaves_its_key_free(tmp_pa
     assert after is None, repr(after)
 
 
+def test_a_lock_that_cannot_be_created_proves_unlocked_and_says_so(tmp_path, monkeypatch, caplog):
+    """An unwritable proofs directory (a person's laptop without `OPENFACTORY_OWN_WORK`): the proof
+    runs as every proof did before the lock, and the log names the lock it could not take. A FILE
+    where the directory goes fails the same `mkdir` whoever runs the suite, root included. Before
+    review round 1 of #745 this arm had no test: refusing there instead left every test green."""
+    _proofs_here(tmp_path, monkeypatch)
+    touched = _recording_box(monkeypatch, tmp_path)
+    (tmp_path / "proofs").write_text("not a directory\n")
+
+    with caplog.at_level("WARNING", logger=box_prove.log.name):
+        assert _try_to_prove("acme", tmp_path, sandbox="container") is None
+    assert "prepare" in touched, touched
+    assert "runs without its lock" in caplog.text, caplog.text
+
+
 def test_two_keys_hold_their_locks_side_by_side(tmp_path, monkeypatch):
     """AC1/AC2: the refusal is per key — a proof of `b` runs while `a` is being proven."""
     _proofs_here(tmp_path, monkeypatch)

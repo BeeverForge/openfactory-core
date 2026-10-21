@@ -109,6 +109,14 @@ MUTATIONS = [
      "        raise ProveBusy(key) from None",
      "        return None", TWICE),
 
+    ("a lock that cannot be created refuses the proof, so a laptop whose proofs directory is not "
+     "writable can never prove",
+     PROVE,
+     '                    "time is not refused: %s could not be opened (%s)", key, lock.path, exc)\n'
+     "        return None\n",
+     '                    "time is not refused: %s could not be opened (%s)", key, lock.path, exc)\n'
+     "        raise ProveBusy(key) from None\n", TWICE),
+
     # ── 3. refused before anything is touched ──────────────────────────────────────────────────
     ("the lock is taken after the checkout is synced, so a refused proof re-syncs a live tree",
      PROVE,
