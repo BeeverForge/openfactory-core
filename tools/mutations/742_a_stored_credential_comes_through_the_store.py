@@ -658,4 +658,18 @@ MUTATIONS = [
      "openfactory/doctor.py",
      "        return {kind} if kind else {store.ENV, store.deployment_store()}",
      "        return {kind or store.ENV}"),
+
+    # ── the rebase onto 8202613f (#908, #970): a gate's word is a state or a failure, one table
+    ("an answer the refused gate key could not seal is read as a gate state",
+     "openfactory/product/module.py",
+     "    waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,\n"
+     "             accept.MOVED}\n",
+     "    waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,\n"
+     "             accept.MOVED, adjust.KEY_REFUSED}\n",
+     "tests/test_a_merge_gates_answer_is_a_refusal_or_a_failure_as_it_is.py"),
+    ("an answer the refused gate key could not seal is in neither table, and the door raises",
+     "openfactory/product/module.py",
+     "    failed = {adjust.UNREACHABLE, adjust.KEY_REFUSED, accept.UNRECORDED}\n",
+     "    failed = {adjust.UNREACHABLE, accept.UNRECORDED}\n",
+     "tests/test_a_merge_gates_answer_is_a_refusal_or_a_failure_as_it_is.py"),
 ]

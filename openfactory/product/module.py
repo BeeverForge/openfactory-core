@@ -906,8 +906,9 @@ def _the_gate_said(why: str, *, ref: str, detail: str) -> WriteResult:
     """A merge gate's answer to a person's pass or yes, as a not-ok result that says what it is
     (#908): `not_yours` is theirs to refuse; a STATE of the gate a person can read and wait out —
     nobody waits on them, a pass is running, the job cannot hear from here, the passes are spent,
-    nothing was tried, the pull request moved — is `NOT_WAITING`; an engine that could not be asked
-    or an acceptance that could not be written down was tried and did not happen (`NOT_REFUSED`).
+    nothing was tried, the pull request moved — is `NOT_WAITING`; an engine that could not be asked,
+    an answer the deployment's refused gate key could not seal (#742), or an acceptance that could
+    not be written down was tried and did not happen (`NOT_REFUSED`).
     One table for `send_back` and `accept_change`, so the two doors cannot read one word two ways.
     A word in none of them raises: `adjust.WHY` is a closed set, and a new member is said here
     before it ships."""
@@ -915,7 +916,7 @@ def _the_gate_said(why: str, *, ref: str, detail: str) -> WriteResult:
 
     waits = {adjust.NOT_WAITING, adjust.WORKING, adjust.DEAF, adjust.SPENT, accept.UNTRIED,
              accept.MOVED}
-    failed = {adjust.UNREACHABLE, accept.UNRECORDED}
+    failed = {adjust.UNREACHABLE, adjust.KEY_REFUSED, accept.UNRECORDED}
     if why == "not_yours":
         return WriteResult(ok=False, refusal=NOT_YOURS, ref=ref, detail=detail)
     if why in waits:
