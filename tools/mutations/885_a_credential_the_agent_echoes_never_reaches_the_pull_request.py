@@ -79,18 +79,21 @@ MUTATIONS = [
     # re-pinned again: `+` and `/` left the mark set (review on cfe48e02); and again: `=` counts
     # only as trailing padding (review on 34209477)
     ("a variable reference is read as a value", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
-     '    r"(?=[\\w.~+/$-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/$-]{8,}=*"\n', PROSE),
-    ("a slash is a credential's mark", MODEL, '(?:\\d|=+(?![\\w.~+/-])|',
-     '(?:\\d|[+/]|=+(?![\\w.~+/-])|', PROSE),
+     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?!\\.?[\\w~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/$-]*(?:\\d|=+(?!\\.?[\\w~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/$-]{8,}=*"\n', PROSE),
+    ("a slash is a credential's mark", MODEL, '(?:\\d|=+(?!\\.?[\\w~+/-])|',
+     '(?:\\d|[+/]|=+(?!\\.?[\\w~+/-])|', PROSE),
     # review on 34209477: `=` is a mark only as the padding that ends a value
-    ("padding is not a credential's mark", MODEL, '|=+(?![\\w.~+/-])|', '|'),
-    ("any = is a credential's mark", MODEL, '=+(?![\\w.~+/-])', '=', PROSE),
+    ("padding is not a credential's mark", MODEL, '|=+(?!\\.?[\\w~+/-])|', '|'),
+    # review on c0bb69c0: a full stop after the padding ends the sentence, not the value
+    ("padding before a sentence's full stop is no mark", MODEL, '=+(?!\\.?[\\w~+/-])',
+     '=+(?![\\w.~+/-])'),
+    ("any = is a credential's mark", MODEL, '=+(?!\\.?[\\w~+/-])', '=', PROSE),
     ("a word after an Authorization scheme is withheld", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
-     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]+=*"\n', PROSE),
+     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?!\\.?[\\w~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?!\\.?[\\w~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]+=*"\n', PROSE),
     ("a header value needs no credential's mark", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?![\\w.~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/-]*(?:\\d|=+(?!\\.?[\\w~+/-])|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
      '    r"[\\w.~+/-]{8,}=*"\n', PROSE),
     ("any word is read as an Authorization scheme", MODEL,
      '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',  # re-pinned 2026-10-21: Digest and AWS4 left for _SIGNED_PARAMETER

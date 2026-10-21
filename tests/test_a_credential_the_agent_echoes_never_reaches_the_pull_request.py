@@ -146,8 +146,11 @@ def test_a_github_token_in_the_agents_message_is_withheld_and_the_body_says_so(
     (f"{SENTINEL}: the proxy sent Authorization: NTLM {NTLM_MESSAGE} back", NTLM_MESSAGE),
     # review on 34209477: a value whose only mark is the `=` padding that ends it
     (f"{SENTINEL}: sent Authorization: Basic {PADDED} once", PADDED),
+    # review on c0bb69c0: the same value at a sentence's end. With `.` read as a value character
+    # after the padding, `QSECRETOPAQ=.` had no mark and was quoted raw (0.20% of 8-byte values)
+    (f"{SENTINEL}: I sent Authorization: Basic {PADDED}. It answered 401", PADDED),
 ], ids=["bearer-jwt", "curl-token-hex", "bare-bearer", "lowercase-header", "json-key", "equals",
-        "bot", "negotiate", "ntlm", "padding-only-mark"])
+        "bot", "negotiate", "ntlm", "padding-only-mark", "padding-before-a-full-stop"])
 def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_and_the_body_says_so(
         repo: Path, tmp_path: Path, said: str, secret: str):
     """At 620bb577 none of these values carries a vendor prefix, and `scrub_credentials` returned
