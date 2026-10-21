@@ -36,6 +36,27 @@ def test_the_pull_request_still_lands_in_needs_action(row, tmp_path, monkeypatch
         f"Needs Action ({where.needs_action!r})")
 
 
+
+def test_the_local_board_says_which_column_it_fell_back_from(tmp_path, monkeypatch, caplog):
+    """The local board's fallback is not silent: a person reading the log learns that this board
+    has no Needs Review row and that the card went to Needs Action instead, which is what a
+    deployment opting in looks for. The warning names both keys. On this branch at 70cfff7c,
+    cutting `if key != keys[0]` to `if False` in `LocalBoard.set_status` survived every test and
+    plan 753 (#753's review, cuts table); this holds it."""
+    import logging
+
+    from tests.a_pull_request_awaiting_review_on_each_row import local_board
+
+    with caplog.at_level(logging.WARNING, logger="openfactory"):
+        where = local_board(False, tmp_path, monkeypatch)
+
+    fell_back = [r.getMessage() for r in caplog.records
+                 if r.levelno == logging.WARNING and "'needs_review'" in r.getMessage()]
+    assert where.landed == where.needs_action
+    assert len(fell_back) == 1 and "'needs_action'" in fell_back[0], [
+        r.getMessage() for r in caplog.records]
+
+
 def test_a_github_board_with_neither_column_still_sends_the_pull_request_to_backlog(monkeypatch):
     """A board made before its owner added Needs Action by hand has neither option. On `main` the
     person-gated pull request fell back to Backlog (`set_column`'s fallback for Needs Action); the
