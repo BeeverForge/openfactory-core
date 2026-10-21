@@ -58,8 +58,9 @@ MetricKind = Literal["agent_run", "job", "product_sweep", "techlead_watch", "age
                      # of it, written only by `observability/audit.write`. Append-only — each row
                      # is keyed by its own record id, so two calls in one instant are two rows and
                      # nothing rewrites one — and kept for `audit.AUDIT_KEPT_DAYS` through
-                     # `expires_at`. `project forget` keeps it: the record holds no client words,
-                     # and an audit trail a forget erased would be no audit trail.
+                     # `expires_at`. `project forget` keeps it: the record holds no client's words
+                     # as text (only their length and unsalted sha256, which reveals a short
+                     # message), and an audit trail a forget erased would be no audit trail.
                      "audit"]
 
 

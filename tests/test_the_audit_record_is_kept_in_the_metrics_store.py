@@ -17,8 +17,9 @@ states every other retention. Append-only on the store's own terms: a row's key 
 record's own id, and nothing in `openfactory/` but `audit.write` makes or writes an audit row,
 nor forgets one — read off the parsed tree, never its text. `project forget` keeps a project's
 records (Q8) and may: a person's words are in a record only as their length and sha256 — for the
-one call driven here and for every free-text parameter the catalog takes — so the record is no
-second copy of what `forget-conversations` erases. A store that does not take a record is said
+one call driven here and for every free-text parameter the catalog takes — so the record holds
+no copy of the text `forget-conversations` erases (its unsalted digest still reveals a short
+message). A store that does not take a record is said
 at WARNING naming the action and the store, and the caller's outcome is unchanged; the record is
 made and written off the event loop, and a cancel while it is made still leaves it. Records of a
 call that named no project share the people store's `_deployment_` key and do not crowd a
@@ -436,7 +437,7 @@ async def test_a_clients_words_never_reach_the_audit_record(store):
     """Criterion 6, and the condition Q8's "kept" rests on: what a client says to the product role
     is kept in the conversation and erased on request (`project forget-conversations`, ADR-0024);
     a record kept for `AUDIT_KEPT_DAYS` beside every call, and kept by `project forget`, must not
-    be a second copy of it. `product_say` with a sentinel message leaves a record whose `message`
+    hold a copy of its text. `product_say` with a sentinel message leaves a record whose `message`
     is its length and sha256 and nothing else, and the sentinel's bytes are in neither the sqlite
     file nor its `-wal`. Before #694's hashing (task 12) the record would have held the message
     verbatim; dropping `message` from `actions.base.FREE_TEXT` turns this red."""

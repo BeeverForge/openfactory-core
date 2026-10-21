@@ -356,7 +356,9 @@ PARAMS: dict[str, str] = {
 #: declared for every row (#694). The audit record keeps each of these as its length and sha256,
 #: never as text (`observability.audit`): ADR-0024 holds a client's words for a retention period
 #: and erases them on request (`forget-conversations`), and a record kept for a year beside every
-#: call would otherwise hold a second copy nothing erases. A row that takes one of these names
+#: call would otherwise hold a second copy nothing erases. The digest is unsalted, so it still
+#: reveals a short answer ("yes", a six-digit code) to whoever tries the candidates.
+#: A row that takes one of these names
 #: takes it as free text; a new word of the same kind belongs here, beside its prose.
 FREE_TEXT: frozenset[str] = frozenset({
     "reason", "comment", "instruction", "message", "question", "query", "answer", "answers",

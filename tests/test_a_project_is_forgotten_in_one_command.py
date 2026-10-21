@@ -581,9 +581,10 @@ def test_every_kind_it_forgets_is_one_the_store_knows_and_never_the_people():
     # are removed, and that record must not outlive them
     assert "card_transition" in forget.RECORD_KINDS
     # THE RECORD OF WHO DID WHAT IS KEPT (#694): an audit trail a forget erased is no audit trail —
-    # "who removed this project's records" would be answered by nothing — and it holds no client
-    # words to erase (ADR-0024): a person's words are kept as their length and sha256 only
-    # (`audit._kept`), so `forget-conversations` leaves no second copy behind in it. It goes after
+    # "who removed this project's records" would be answered by nothing — and it holds no client's
+    # words as text (ADR-0024): a person's words are kept as their length and sha256 only
+    # (`audit._kept`), so `forget-conversations` leaves no copy of the text behind in it. The
+    # unsalted digest still reveals a short message, and it stays for the period. It goes after
     # `audit.AUDIT_KEPT_DAYS`, by the store's TTL.
     kept = {"agent_run", "job", "techlead_watch", "product_sweep", "audit"}
     assert not kept & set(forget.RECORD_KINDS)

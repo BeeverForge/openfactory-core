@@ -17,7 +17,8 @@ in the record, so there is no second list of secrets or of free-text names to fo
 WHERE IT IS KEPT. `write` hands each record to `sink()` as one row of kind `audit` in the metrics
 store, off the event loop; a deployment that declares no store keeps them in `audit.db` beside
 `registry.yaml`. A person's words are kept as their length and digest, never as text (ADR-0024),
-and every other value is bounded.
+and every other value is bounded. The digest is an unsalted sha256: it proves a known text and
+reveals a short one (a six-digit message was read back from it in 0.22 s, 2026-10-21).
 
 NO ENGINE AT IMPORT. This module is imported by `openfactory.actions`, which the panel imports;
 the panel serves without the `runtime` extra (`tests/test_the_panel_serves_without_the_engines_
@@ -134,7 +135,9 @@ def redact(params: Mapping[str, object]) -> dict[str, object]:
 
 def _words(value: object) -> dict[str, object]:
     """A person's words as the record keeps them: how many characters, and their sha256 — that and
-    when they spoke, never what they said (`actions.base.FREE_TEXT`)."""
+    when they spoke, never the text (`actions.base.FREE_TEXT`). Unsalted, so the digest proves a
+    known text and reveals a short one: a six-digit message was read back from it in 0.22 s of
+    plain Python (measured 2026-10-21)."""
     text = str(value)
     # `surrogatepass`: a JSON body may carry a lone surrogate (`"\ud800"`), which a strict encode
     # refuses with `UnicodeEncodeError` — and the call then left no record (measured 2026-10-21).

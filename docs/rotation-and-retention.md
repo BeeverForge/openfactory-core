@@ -311,14 +311,17 @@ the worker's environment, whose `OPENFACTORY_METRICS_SINK=sqlite` and
 (both mount the `openfactory_state` volume there), so the panel's records and the command line's
 are one list. A host command line does not see a compose deployment's records, nor the reverse.
 
-**What a record holds of a person's words.** Nothing readable. A free-text parameter (a message, a
-comment, an instruction, an answer) is kept as its length and its sha256, so the record can prove
-what was sent without holding it (ADR-0024). Passwords, tokens and keys are masked, and any other
+**What a record holds of a person's words.** Never the text: a free-text parameter (a message, a
+comment, an instruction, an answer) is kept as its length and its sha256 (ADR-0024). That digest
+proves a known text, and it reveals a short one: it is not salted, so a six-digit code, a "yes" or
+an "approve" is read back by trying the candidates (a six-digit message took 0.22 s of plain
+Python, measured 2026-10-21). Passwords, tokens and keys are masked, and any other
 value is cut at 2,000 characters, the cut said in the value. The action's INFO line prints the
 parameters exactly as the record keeps them, so a person's words reach neither.
 
 **`openfactory project forget` keeps the records.** An audit trail that forgetting a project erases
-is no audit trail, and the records hold no client words for the forget to protect. They leave when
+is no audit trail, and the records hold no client's words as text. They do hold the digest of
+each, which reveals a short message (above), and the forget leaves it for the record's period. They leave when
 their period does, and not before: no write ever replaces an audit row (each is keyed by its own
 record id).
 
