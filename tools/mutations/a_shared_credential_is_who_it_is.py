@@ -82,9 +82,11 @@ MUTATIONS = [
      _APP, '    return actions.Actor(id=(subject.id or "") if known else "",\n',
      '    return actions.Actor(id=subject.id or "",\n'),
 
+    # Re-pinned 2026-10-20: the line now also hands the subject to the actor (#694, `_actor_of`),
+    # so the anchor carries `subject=subject` and the cut leaves it in place.
     ("a named person keeps the label they sent",
-     _APP, '                         label="" if known else label)\n',
-     '                         label=label)\n'),
+     _APP, '                         label="" if known else label, subject=subject)\n',
+     '                         label=label, subject=subject)\n'),
 
     ("the header is read a second time, outside `_label_of`",
      _APP, "    return _actor_of(request, _subject(request), label=_label_of(request))\n",
