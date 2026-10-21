@@ -391,8 +391,8 @@ def test_a_park_whose_status_is_called_needs_review_is_still_in_the_parked_revie
 
 def test_and_triage_and_the_stage_read_it_as_a_park(site, jira):
     """The same board, through the one door generic code asks (`stage_key`): the status the
-    deployment gave `needs_action` reads as `needs_action`, not as the key that only carries the
-    name by default. Before the fix it read `needs_review`, so the panel drew the park with the
+    deployment gave `needs_action` reads as `needs_action`, not as `needs_review`, whose default
+    name yields to it. Before the fix it read `needs_review`, so the panel drew the park with the
     "queued … not stuck" note."""
     from openfactory.adapters.board.base import stage_key
 

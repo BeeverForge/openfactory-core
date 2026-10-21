@@ -29,11 +29,13 @@ THE CLAIMS, each with a red twin below:
      list a card in Needs Review (ADR-0019 §6: it holds what needs a decision).
   6. **The panel describes the column.** Row 34 removes its `_BCOL` row.
   7. **A status two keys share reads back as `in_review`** (the reporter's board maps both to "In
-     Review"), **and a status the deployment gave a key keeps that key.** Row 35 makes `key_for`
-     ignore which key the deployment renamed, so a park a deployment already called "Needs Review"
-     reads as `needs_review` and the product role's parked review goes empty (the review's point
-     1); row 36 makes it answer the LAST key that spells a name, so the shared status reads as
-     `needs_review` and the door would queue a card the factory may still be reviewing.
+     Review"), **and a park already called "Needs Review" stays a park.** Row 35 empties
+     `YIELDS_ITS_DEFAULT_NAME`, so `needs_review`'s default name no longer yields and a park a
+     deployment already called "Needs Review" reads as `needs_review`, and the product role's
+     parked review goes empty (the review's point 1); row 36 makes `key_for` answer the LAST key
+     that spells a name, so the shared status, in either spelling and on GitHub as on Jira, reads
+     as `needs_review` and the door would queue a card the factory may still be reviewing (the
+     re-review's point 1).
   8. **A re-run of `project init` gives an existing local board its review column, in board order
      (Q1, answer B).** Row 37 puts back `init`'s skip of `create` on an attached board; row 38 takes
      the local row's say-so away; row 39 leaves the existing rows' positions as they were, so the
@@ -253,14 +255,14 @@ MUTATIONS = [
 
     # ── 7. a status two keys share ──────────────────────────────────────────────────────────────
     ("a park a deployment already called \"Needs Review\" reads as `needs_review`", COLUMNS,
-     "    return next((key for key in hits if merged[key] != CANONICAL_COLUMNS.get(key)),",
-     "    return next((key for key in hits if False),",
+     'YIELDS_ITS_DEFAULT_NAME: tuple[str, ...] = ("needs_review",)',
+     "YIELDS_ITS_DEFAULT_NAME: tuple[str, ...] = ()",
      QUEUE_READERS),
 
     ("a status `in_review` and `needs_review` share reads back as `needs_review`", COLUMNS,
-     "    return next((key for key in hits if merged[key] != CANONICAL_COLUMNS.get(key)),",
-     "    return next((key for key in reversed(hits) if merged[key] != CANONICAL_COLUMNS.get(key)),",
-     f"{AC456}::test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs"),
+     "    return next((key for key in hits",
+     "    return next((key for key in reversed(hits)",
+     AC456),
 
     # ── 8. a re-run of init on an existing local board ──────────────────────────────────────────
     ("init skips create on any attached board again", CLI,

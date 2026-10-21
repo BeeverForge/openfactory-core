@@ -117,6 +117,12 @@ AFTER_THE_FACTORY: tuple[str, ...] = ("done",)
 #: states.
 WAITING_ON_A_PERSON_KEYS: tuple[str, ...] = ("needs_review", "needs_action")
 
+#: The keys whose DEFAULT name yields to any other key that carries it (#753): `needs_review` is
+#: optional, and its default "Needs Review" may already be a deployment's park. Only these: a
+#: rule that let every renamed key beat a default read a wait pointed at the review column's
+#: default spelling as the wait, not the factory's review (#753's re-review, 2026-10-21).
+YIELDS_ITS_DEFAULT_NAME: tuple[str, ...] = ("needs_review",)
+
 
 def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
     """The neutral key a board's own column NAME means, or `""` when nothing maps it.
@@ -131,10 +137,11 @@ def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
     does not know is a legitimate thing for a client's board to have, and a caller deciding what
     may be done to a card must be able to tell *I know this column* from *I do not*.
 
-    A KEY THE DEPLOYMENT GAVE THIS NAME BEATS ONE THAT ONLY CARRIES IT BY DEFAULT, the rule
-    `name_for` states ("the deployment's word wins"). Among keys of one kind, the first in
-    `CANONICAL_COLUMNS` order answers: a status a deployment gives both `in_review` and
-    `needs_review` reads as `in_review`.
+    THE FIRST KEY IN `CANONICAL_COLUMNS` ORDER THAT SPELLS THE NAME ANSWERS, except that a key in
+    `YIELDS_ITS_DEFAULT_NAME` gives up its DEFAULT name to any other key carrying it. So a status
+    a deployment gives both `in_review` and `needs_review` reads as `in_review`, in any spelling,
+    and a park a deployment already called "Needs Review" (`needs_action`) stays a park. Every
+    other collision answers as it did before `needs_review` existed.
     """
     wanted = (name or "").strip().casefold()
     if not wanted:
@@ -145,9 +152,13 @@ def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
     # A board whose park was already called "Needs Review" before 0.7 (`needs_action` mapped to
     # it) read its parked cards as `needs_review` once that key's default name was the same word,
     # and the product role's parked review went empty (#753's review, measured 2026-10-21: `main`
-    # 1be1835a answered `needs_action`, the branch at 79087790 `needs_review`). The GitHub row's
-    # map already merges the defaults, so "the deployment's map first" alone would not hold it.
-    return next((key for key in hits if merged[key] != CANONICAL_COLUMNS.get(key)),
+    # 1be1835a answered `needs_action`, the branch at 79087790 `needs_review`). Letting EVERY
+    # renamed key beat a default (22f1cc53) read `{"needs_review": "In review"}` as `needs_review`
+    # on GitHub, whose map merges the defaults, so the factory's own review read as a person's
+    # wait (#753's re-review, measured 2026-10-21). Only the optional key's default name yields.
+    return next((key for key in hits
+                 if key not in YIELDS_ITS_DEFAULT_NAME
+                 or CANONICAL_COLUMNS[key].casefold() != wanted),
                 hits[0] if hits else "")
 
 

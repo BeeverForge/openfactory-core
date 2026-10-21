@@ -216,8 +216,8 @@ def test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs():
     still reviewing or rewriting. Of the two readings, `running` makes the door ask the engine before
     a close and refuse to queue the card again under a live job. `waiting_on_a_person` would queue
     a card the factory is still working on. A deployment that wants the door to treat the wait as
-    a wait gives it a status of its own. Among keys the deployment renamed, `key_for` answers the
-    first in `CANONICAL_COLUMNS` order, so this holds while `in_review` comes before
+    a wait gives it a status of its own. `key_for` answers the first key in `CANONICAL_COLUMNS`
+    order that spells the status, so this holds while `in_review` comes before
     `needs_review` there.
 
     Green on this branch before it was written (it pins behaviour the change already had). Measured
@@ -241,14 +241,51 @@ def test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs():
 def test_a_park_a_github_deployment_already_called_needs_review_still_reads_as_a_park():
     """A GitHub deployment that mapped its park to "Needs Review" before 0.7 keeps reading that
     option as `needs_action` (#753's review, point 1). The board's `_columns` already merges the
-    defaults, so ordering the deployment's map first would not be enough: the key the deployment
-    RENAMED must win over one that only carries the name by default. Before the fix this read
+    defaults, so ordering the deployment's map first would not be enough: `needs_review`'s DEFAULT
+    name must yield to any other key that carries it (`YIELDS_ITS_DEFAULT_NAME`). Before the fix this read
     `needs_review`; `main` (1be1835a) read `needs_action`."""
     from openfactory.adapters.tracker.github_project import GitHubProjectBoard
 
     board = GitHubProjectBoard("org", "6", token="t", columns={"needs_action": "Needs Review"})
 
     assert board.stage_key("Needs Review") == "needs_action"
+
+
+def test_a_github_wait_pointed_at_the_review_column_still_reads_as_the_factorys_review():
+    """A GitHub deployment that puts the wait in its review column (`columns: {"needs_review":
+    "In review"}`, the default spelling of `in_review`) still reads a card there as the factory's
+    review, `running` (#753's re-review, point 1).
+
+    Before: round 1's rule let any key the deployment renamed beat one carrying the name by
+    default, and `_columns` merges the defaults, so "In review" read as `needs_review` (measured
+    2026-10-21 at 22f1cc53; 1be1835a and 79087790 read `in_review`). Triage then flagged cards
+    the factory was still reviewing as waiting too long."""
+    from openfactory.adapters.tracker.github_project import GitHubProjectBoard
+    from openfactory.lifecycle.table import BY_COLUMN, State
+
+    board = GitHubProjectBoard("org", "6", token="t", columns={"needs_review": "In review"})
+
+    key = board.stage_key("In review")
+
+    assert (key, BY_COLUMN.get(key)) == ("in_review", State.RUNNING)
+
+
+def test_a_jira_wait_pointed_at_the_review_status_in_its_default_spelling_reads_as_in_review():
+    """The reporter's shared status, spelled exactly as `in_review`'s default ("In review"), reads
+    as `in_review` (#753's re-review, point 1). The pin above holds only "In Review", which differs
+    from the default by case.
+
+    Before: at 22f1cc53 this read `needs_review`, because `in_review` carried the name by default
+    and `needs_review` by the map (measured 2026-10-21; 1be1835a and 79087790 read `in_review`)."""
+    from openfactory.adapters.board.base import stage_key
+    from openfactory.adapters.board.jira import JiraProjectBoard
+    from openfactory.adapters.tracker.jira import JiraTracker
+
+    tracker = JiraTracker(site="https://acme-team.atlassian.net", project_key="DAR",
+                          email="alice@acme.ai", token="t",
+                          status_map={"in_review": "In review", "needs_review": "In review"})
+
+    assert stage_key(JiraProjectBoard(tracker), "In review") == "in_review"
 
 
 # ── AC5: the door reads a card there as waiting on a person ───────────────────────────────────
