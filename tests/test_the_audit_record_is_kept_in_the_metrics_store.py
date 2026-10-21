@@ -842,13 +842,21 @@ async def test_the_project_a_caller_typed_is_kept_to_the_bound_like_any_value(st
         f"the record's project is {len(row['extra']['project'])} characters")
 
 
-async def test_a_project_of_lone_surrogates_is_kept_to_the_bound_once_it_is_escaped(store):
+async def test_a_project_of_lone_surrogates_is_kept_to_the_bound_once_it_is_escaped(store,
+                                                                                    caplog):
     """Q11, "every value is bounded", for the row's key: a lone surrogate is written as its
     six-character escape so that sqlite can key the row, and the bound holds for what is written.
     On bc41a86f the project was cut first and escaped after: 1,000,000 × `\\ud800` gave a `pk`
-    of 12,035 characters, six times `VALUE_CHARS` (branch review round 2)."""
+    of 12,035 characters, six times `VALUE_CHARS` (branch review round 2).
+
+    Nothing below CRITICAL is captured, as in the test above: with `_storable` cut to the
+    identity, `-n 4` over this module ended in `INTERNALERROR … DumpError: strings must be utf-8
+    encodable`, exit 3, and the shard's report was lost (branch review round 3)."""
+    import logging
+
     from openfactory.observability.audit import VALUE_CHARS
 
+    caplog.set_level(logging.CRITICAL)
     await actions.perform("product_status", by=actions.Actor(id="eve", via="panel"),
                           project="\ud800" * 1_000_000)
 
