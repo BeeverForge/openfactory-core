@@ -21,6 +21,21 @@ against the LIVE requirements of the product carrying its slug:
     (the folder's own dead    HISTORY    minted, landed with its status — so every reference
     ones)                                between the folder's requirements still resolves
 
+WHAT A TEXT REPLACES IS ITS SLUG'S TWIN AND ITS OWN HISTORY: the product's live requirement
+carrying its slug, and every requirement of the product its `Supersedes:` reaches through the
+folder's retired texts — a retired text the product holds word for word IS the product's
+requirement, whatever its status (`_lineage`).
+
+AN IMPORT NEVER CHANGES AN AGREED REQUIREMENT. When anything a text would replace is `accepted`,
+the text is BESIDE that one, and an accepted number never enters a `Supersedes:` (review of PR
+#999: a folder's retired twin of an accepted REQ-0007 made its successor's plan read `replaces
+(7, 8)`, and `_mark_superseded` retired the promise). A landed `Supersedes:` names the folder's
+own history and what this import retires now — a live text nobody agreed — and nothing else of
+the product's: the folder's dead texts touch nothing, and a requirement already retired or dropped
+is not claimed again. `land` holds it after the fact as well: the corpus it leaves has no error
+the base did not have, and every requirement accepted before is accepted after with the same
+promise — or nothing is committed, and what would have broken is named (`_broken`).
+
 AN IMPORT NEVER LANDS A PROMISE. A requirement the folder marks `accepted` lands `proposed`: the
 promise is the product's to make, on a person's yes (ADR-0032), and a file copied from elsewhere is
 not one. A reading of code (`observed`) stays `observed` — it is not a promise either.
@@ -42,7 +57,9 @@ WHAT ELSE A FOLDER BRINGS, and where it goes:
 
 NEVER LANDED, AND SAID: anything hidden (`.git/`, `.openfactory/`, `.okf/`), a link, a device;
 `capabilities/` and `conversations/`, which only a person's confirmation and the distiller write;
-a file in the requirements folder that is not `NNNN-slug.md`.
+a file in the requirements folder that is not `NNNN-slug.md`; a document whose way into the
+product passes through a link the product holds. What is left out counts toward the import's
+bound like what is read, so neither the plan nor the record can grow without one.
 
 WHERE IT LANDS. Documents go under `imported/` rather than where the folder had them: the context
 repository's base holds what a preview builds (`policy/context_writes.py`), and a folder from
@@ -53,7 +70,19 @@ named by the policy (`context_writes.outside_an_import`).
 PURE OVER FILES. `read` takes a folder or an archive into memory, never following a link and never
 extracting to disk; `plan` reads a checkout of the product and decides; `land` writes the plan into
 a checkout. The clone, the commit and the single push under the product's semaphore are
-`ProductModule.import_requirements`'s, through `land_import` below.
+`ProductModule.import_requirements`'s, through `land_import` below. Neither reads nor makes
+anything through a link of the checkout: every part of a path is asked with `lstat` first
+(`_linked`, `_write`).
+
+LANDED AS IT CAME, NOT SCRUBBED — deliberately, like every writer that lands what a person chose:
+`authoring.file_document` writes a filed document's bytes as they came, `record_fact` and
+`propose_requirement` the person's words. The person is shown the plan and says yes to THAT; a
+scrub would land a text other than the one they said yes to, break "word for word" (the same
+folder imported again would no longer be the same), and cannot reach inside a document's bytes.
+What leaves the context repository for a model is withheld where it is read: every file of the
+facts pack passes `model.finish`, which withholds credentials (`scrub_credentials`). The one
+context writer that scrubs, the distiller, writes a model's reading of a conversation that nobody
+read before it landed — the opposite of a plan a person said yes to.
 """
 
 from __future__ import annotations
@@ -70,13 +99,12 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from openfactory.product.authoring import WriteResult
+from openfactory.product.authoring import NOT_REFUSED, NOT_VALID, NOT_WAITING, WriteResult
 from openfactory.product.corpus import (
     _FIRST_SECTION_RE,
     _STATUS_RE,
     _SUPERSEDES_RE,
     _TITLE_RE,
-    ACCEPTED,
     DECISIONS_HEADING,
     OBSERVED,
     PROPOSED,
@@ -114,9 +142,16 @@ PROPOSALS = "proposals"
 INGEST_SECONDS = 90
 
 #: How much one import may bring. Read into memory whole, so bounded: a folder past either is
-#: refused, said with its limit, before anything is planned.
+#: refused, said with its limit, before anything is planned. EVERY ENTRY COUNTS toward
+#: `MAX_FILES`, the ones left out too (review of PR #999): a folder of links is a folder of entries,
+#: and what is left out is listed in the plan and in the record.
 MAX_FILES = 2000
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
+#: How much of a path the plan and the record say: an archive's member name is the archive's word,
+#: as long as it likes.
+MAX_PATH_CHARS = 300
+#: How many questions a folder's manifest may bring into the record (#994 asks them).
+MAX_QUESTIONS = 100
 
 _ARCHIVES = (".zip", ".tar", ".tar.gz", ".tgz")
 _REF = re.compile(r"\bREQ-(\d{4})\b")
@@ -206,6 +241,18 @@ class _Budget:
         if self.bytes > MAX_TOTAL_BYTES:
             raise NotImportable("too_large", name=self.name, limit=_size(MAX_TOTAL_BYTES))
 
+    def leave(self, left_out: list[tuple[str, str]], path: str, why: str) -> None:
+        """`path` left out, and why — COUNTED like a file read: what is left out is still an entry
+        the folder brought, and the plan and the record list every one."""
+        self.take(0)
+        left_out.append((_said_path(path), why))
+
+
+def _said_path(path: str) -> str:
+    """A path as the plan and the record say it: whole, or cut at `MAX_PATH_CHARS`."""
+    text = str(path)
+    return text if len(text) <= MAX_PATH_CHARS else text[:MAX_PATH_CHARS - 1] + "…"
+
 
 def _size(n: int) -> str:
     return f"{n // (1024 * 1024)} MB"
@@ -223,9 +270,9 @@ def _from_folder(root: Path) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
         for folder in sorted(folders):
             path = (rel / folder).as_posix()
             if folder.startswith("."):
-                left_out.append((path + "/", "hidden"))
+                budget.leave(left_out, path + "/", "hidden")
             elif (Path(here) / folder).is_symlink():
-                left_out.append((path, "a_link"))
+                budget.leave(left_out, path, "a_link")
             else:
                 kept.append(folder)
         folders[:] = kept
@@ -233,18 +280,18 @@ def _from_folder(root: Path) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
             path = (rel / name).as_posix()
             full = Path(here) / name
             if name.startswith("."):
-                left_out.append((path, "hidden"))
+                budget.leave(left_out, path, "hidden")
                 continue
             mode = full.lstat().st_mode
             if stat.S_ISLNK(mode):
-                left_out.append((path, "a_link"))
+                budget.leave(left_out, path, "a_link")
                 continue
             if not stat.S_ISREG(mode):
-                left_out.append((path, "not_a_file"))
+                budget.leave(left_out, path, "not_a_file")
                 continue
             size = full.lstat().st_size
             if size > budget.per_file:
-                left_out.append((path, "too_large_a_file"))
+                budget.leave(left_out, path, "too_large_a_file")
                 continue
             budget.take(size)
             fd = os.open(full, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
@@ -265,14 +312,14 @@ def _from_archive(path: Path) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
                 for info in archive.infolist():
                     if info.is_dir():
                         continue
-                    name = _member(info.filename, left_out)
+                    name = _member(info.filename, left_out, budget)
                     if not name:
                         continue
                     if stat.S_ISLNK(info.external_attr >> 16):
-                        left_out.append((name, "a_link"))
+                        budget.leave(left_out, name, "a_link")
                         continue
                     if info.file_size > budget.per_file:
-                        left_out.append((name, "too_large_a_file"))
+                        budget.leave(left_out, name, "too_large_a_file")
                         continue
                     # WHAT IS READ IS COUNTED, NOT WHAT THE ARCHIVE DECLARES: a member's size in a
                     # zip's directory is the archive's word, and a member that lies about it is
@@ -281,7 +328,7 @@ def _from_archive(path: Path) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
                         data = handle.read(budget.per_file + 1)
                     budget.take(len(data))
                     if len(data) > budget.per_file:
-                        left_out.append((name, "too_large_a_file"))
+                        left_out.append((_said_path(name), "too_large_a_file"))
                         continue
                     entries[name] = data
         else:
@@ -289,17 +336,17 @@ def _from_archive(path: Path) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
                 for member in archive:
                     if member.isdir():
                         continue
-                    name = _member(member.name, left_out)
+                    name = _member(member.name, left_out, budget)
                     if not name:
                         continue
                     if member.issym() or member.islnk():
-                        left_out.append((name, "a_link"))
+                        budget.leave(left_out, name, "a_link")
                         continue
                     if not member.isfile():
-                        left_out.append((name, "not_a_file"))
+                        budget.leave(left_out, name, "not_a_file")
                         continue
                     if member.size > budget.per_file:
-                        left_out.append((name, "too_large_a_file"))
+                        budget.leave(left_out, name, "too_large_a_file")
                         continue
                     budget.take(member.size)
                     handle = archive.extractfile(member)
@@ -312,13 +359,13 @@ def _from_archive(path: Path) -> tuple[dict[str, bytes], list[tuple[str, str]]]:
     return entries, left_out
 
 
-def _member(raw: str, left_out: list[tuple[str, str]]) -> str:
+def _member(raw: str, left_out: list[tuple[str, str]], budget: _Budget) -> str:
     name = _safe_member(raw)
     if not name:
-        left_out.append((str(raw)[:200], "outside_the_folder"))
+        budget.leave(left_out, str(raw)[:200], "outside_the_folder")
         return ""
     if _hidden(name):
-        left_out.append((name, "hidden"))
+        budget.leave(left_out, name, "hidden")
         return ""
     return name
 
@@ -390,8 +437,10 @@ def _brought(name: str, entries: dict[str, bytes], left_out: list[tuple[str, str
         if not any(f.path == filename for f in domain.facts):
             brought.left_out.append((f"{DOMAIN}/{filename}", "no_fact"))
     brought.facts = [f for f in domain.facts if f.live]
-    brought.left_out += [(f"{DOMAIN}/{f.path}", "a_retired_fact")
-                         for f in domain.facts if not f.live]
+    # ONE ROW PER FILE, however many retired facts it holds — a row per fact would let one file
+    # grow the plan and the record without the bound that counts files
+    brought.left_out += [(f"{DOMAIN}/{path}", "a_retired_fact")
+                         for path in sorted({f.path for f in domain.facts if not f.live})]
     return brought
 
 
@@ -412,12 +461,13 @@ def _manifest(data: bytes, left_out: list[tuple[str, str]]) -> dict:
     if isinstance(raw.get("origin"), str) and raw["origin"].strip():
         out["origin"] = raw["origin"].strip()[:200]
     if isinstance(raw.get("design"), str) and raw["design"].strip():
-        out["design"] = _safe_member(raw["design"])
+        out["design"] = _safe_member(raw["design"])[:MAX_PATH_CHARS]
     order = raw.get("order")
     if isinstance(order, list):
         out["order"] = [int(n) for n in order if isinstance(n, int) or str(n).isdigit()]
     questions = []
-    for q in raw.get("questions") or []:
+    for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])[
+            :MAX_QUESTIONS]:
         if isinstance(q, str) and q.strip():
             questions.append({"text": q.strip()[:400]})
         elif isinstance(q, dict) and isinstance(q.get("text"), str) and q["text"].strip():
@@ -598,7 +648,8 @@ def plan(brought: Brought, *, root: Path, requirements_dir: str, first: int, ide
                 same[r.number] = t
                 break
     while True:
-        renumbered = _numbering(brought.requirements, same, twins, first)
+        agreed = _agreed(brought.requirements, same, twins)
+        renumbered = _numbering(brought.requirements, same, agreed, first)
         broken = [n for n, t in same.items()
                   if promise_of(_source(brought, n).body, renumbered) != promise_of(t.body, {})]
         if not broken:
@@ -606,10 +657,18 @@ def plan(brought: Brought, *, root: Path, requirements_dir: str, first: int, ide
         for n in broken:
             del same[n]
     out.renumbered = renumbered
+    # WHAT THIS IMPORT MINTS — every number past `first`; anything else a row names is the
+    # product's own
+    minted = {renumbered[r.number] for r in brought.requirements
+              if r.number not in same and r.number not in agreed}
 
     for r in brought.requirements:
         number = renumbered[r.number]
-        own = sorted(renumbered.get(n, n) for n in r.supersedes)
+        # THE FOLDER'S OWN HISTORY, in the product's numbers: of what its `Supersedes:` names, only
+        # what this import lands — a retired text the product already holds is the product's, and
+        # what becomes of it is decided below, never by the folder's word
+        own = sorted({renumbered[n] for n in r.supersedes
+                      if n in renumbered and renumbered[n] in minted})
         if r.number in same:
             twin = same[r.number]
             # a retired text records no decision: its register is history too
@@ -622,22 +681,28 @@ def plan(brought: Brought, *, root: Path, requirements_dir: str, first: int, ide
             out.requirements.append(Row(SAME, r.number, r.slug, r.title, twin.number,
                                         twin.status, rows=joining, path=f"{folder}/{twin.path}"))
         elif not r.is_live:
+            # THE FOLDER'S DEAD TEXTS TOUCH NOTHING OF THE PRODUCT'S: landed with their status,
+            # claiming only the folder's own history this import lands with them
             status = (f"superseded-by {renumbered.get(r.superseded_by, r.superseded_by):04d}"
                       if r.status == SUPERSEDED and r.superseded_by else r.status)
             out.requirements.append(Row(HISTORY, r.number, r.slug, r.title, number, status,
                                         tuple(own), path=_path(folder, number, r.slug)))
-        elif not twins[r.number]:
-            out.requirements.append(Row(NEW, r.number, r.slug, r.title, number, _landing(r),
-                                        tuple(own), path=_path(folder, number, r.slug)))
-        elif any(t.status == ACCEPTED for t in twins[r.number]):
-            agreed = next(t for t in twins[r.number] if t.status == ACCEPTED)
-            out.requirements.append(Row(BESIDE, r.number, r.slug, r.title, agreed.number,
-                                        agreed.status, path=_proposal(ident, agreed.number,
-                                                                      r.slug)))
+        elif r.number in agreed:
+            # A TEXT THAT WOULD CHANGE AN AGREED REQUIREMENT — its slug's twin, or one its own
+            # history reaches — changes nothing: it is kept beside that one, a proposal to change a
+            # promise only a person's yes makes
+            kept = agreed[r.number]
+            out.requirements.append(Row(BESIDE, r.number, r.slug, r.title, kept.number,
+                                        kept.status, path=_proposal(ident, kept.number, r.slug)))
         else:
-            replaced = tuple(sorted({*own, *(t.number for t in twins[r.number])}))
-            out.requirements.append(Row(REVISION, r.number, r.slug, r.title, number,
-                                        _landing(r), replaced,
+            # WHAT IT RETIRES NOW: the product's live texts nobody agreed — its slug's twin, and
+            # every one its history reaches. None is accepted (`agreed` would hold it), and one
+            # already retired or dropped is not claimed again.
+            retired = {t.number for t in [*twins[r.number], *_lineage(r, brought, same)]
+                       if t.is_live and not t.is_promise}
+            kind = REVISION if retired else NEW
+            out.requirements.append(Row(kind, r.number, r.slug, r.title, number, _landing(r),
+                                        tuple(sorted({*own, *retired})),
                                         path=_path(folder, number, r.slug)))
 
     domain = existing_terms if existing_terms is not None else load_domain(root / DOMAIN)
@@ -654,10 +719,15 @@ def plan(brought: Brought, *, root: Path, requirements_dir: str, first: int, ide
     for name, data in sorted(brought.documents.items()):
         dest = f"{IMPORTED_FOLDER}/{name}"
         here = root / dest
+        if _linked(root, str(PurePosixPath(dest).parent)):
+            # THE WAY IN IS A LINK the product holds (`imported -> /elsewhere`): nothing is read
+            # or written through it, and the document is said, not placed
+            out.left_out.append((_said_path(dest), "under_a_link"))
+            continue
         if not os.path.lexists(here):
             out.documents.append(Placed(NEW, name, dest))
             continue
-        if here.is_file() and not here.is_symlink() and here.read_bytes() == data:
+        if not here.is_symlink() and here.is_file() and here.read_bytes() == data:
             out.documents.append(Placed(SAME, name, "", beside=dest))
             continue
         # SOMETHING IS ALREADY THERE — a different file, or a link: never written over, never
@@ -685,8 +755,48 @@ def _source(brought: Brought, number: int) -> Requirement:
     return next(r for r in brought.requirements if r.number == number)
 
 
+def _lineage(r: Requirement, brought: Brought | list[Requirement],
+             same: dict[int, Requirement]) -> list[Requirement]:
+    """The product's requirements `r`'s own history reaches: what its `Supersedes:` names, down
+    through the folder's retired texts, to the first one the product holds word for word (`same`)
+    — whatever that one's status. The folder's word is followed, never the product's: a lineage
+    the product continued on its own is the product's."""
+    folder = {x.number: x for x in (brought.requirements if isinstance(brought, Brought)
+                                    else brought)}
+    out: list[Requirement] = []
+    seen = {r.number}
+    todo = list(r.supersedes)
+    while todo:
+        n = todo.pop(0)
+        if n in seen:
+            continue
+        seen.add(n)
+        if n in same:
+            out.append(same[n])
+        elif n in folder and not folder[n].is_live:
+            todo += folder[n].supersedes
+    return out
+
+
+def _agreed(requirements: list[Requirement], same: dict[int, Requirement],
+            twins: dict[int, list[Requirement]]) -> dict[int, Requirement]:
+    """For each live requirement of the folder that is not already the product's word for word,
+    the ACCEPTED requirement of the product it would change — its slug's live twin, or one its
+    own history reaches (`_lineage`) — when there is one. Such a text lands BESIDE it: an import
+    never changes an agreed requirement."""
+    out: dict[int, Requirement] = {}
+    for r in requirements:
+        if not r.is_live or r.number in same:
+            continue
+        kept = next((t for t in [*twins.get(r.number, []), *_lineage(r, requirements, same)]
+                     if t.is_promise), None)
+        if kept is not None:
+            out[r.number] = kept
+    return out
+
+
 def _numbering(requirements: list[Requirement], same: dict[int, Requirement],
-               twins: dict[int, list[Requirement]], first: int) -> dict[int, int]:
+               agreed: dict[int, Requirement], first: int) -> dict[int, int]:
     """The folder's numbers in the product's: a requirement the product already holds keeps the
     twin's number (the same promise, or the agreed one it would change), every other one is minted
     from `first`, in the folder's own order."""
@@ -695,8 +805,8 @@ def _numbering(requirements: list[Requirement], same: dict[int, Requirement],
     for r in sorted(requirements, key=lambda x: x.number):
         if r.number in same:
             out[r.number] = same[r.number].number
-        elif r.is_live and any(t.status == ACCEPTED for t in twins.get(r.number, [])):
-            out[r.number] = next(t.number for t in twins[r.number] if t.status == ACCEPTED)
+        elif r.number in agreed:
+            out[r.number] = agreed[r.number].number
         else:
             out[r.number] = nxt
             nxt += 1
@@ -720,9 +830,10 @@ def _proposal(ident: str, number: int, slug: str) -> str:
 
 
 def _free(root: Path, path: str, planned: set[str]) -> str:
-    """`path`, or `-2`, `-3`… before its suffix when the product or this plan already has it."""
+    """`path`, or `-2`, `-3`… before its suffix when the product or this plan already has it — a
+    link counts as had, wherever it points."""
     candidate, n = path, 1
-    while (root / candidate).exists() or candidate in planned:
+    while os.path.lexists(root / candidate) or candidate in planned:
         n += 1
         stem = PurePosixPath(path)
         candidate = str(stem.with_name(f"{stem.stem}-{n}{stem.suffix}"))
@@ -798,11 +909,13 @@ def _set_field(lines: list[str], pattern: re.Pattern[str], label: str, value: st
 @dataclass
 class Landed:
     """What `land` wrote into a checkout: the paths to commit, and — when it could not write all
-    of it — why, as a key of `voice.import_said` (nothing is committed then)."""
+    of it — why, as a key of `voice.import_said` (nothing is committed then). `broken` names, for
+    `corpus_broken`, what the landing would have broken: `<file>: <finding's code>`."""
 
     paths: list[str] = field(default_factory=list)
     failed: str = ""
     record: dict = field(default_factory=dict)
+    broken: list[str] = field(default_factory=list)
 
 
 def land(the_plan: Plan, brought: Brought, *, root: Path, requirements_dir: str, by: str,
@@ -810,12 +923,19 @@ def land(the_plan: Plan, brought: Brought, *, root: Path, requirements_dir: str,
     """Write `the_plan` into the checkout at `root` — every file it lands, the old side of every
     revision, the rows that join, and the record. Writes nothing it did not plan; a requirement it
     must mark replaced and cannot fails the whole of it (half a supersession is the two-live-
-    versions state, committed on purpose)."""
+    versions state, committed on purpose).
+
+    AND CHECKS WHAT IT LEFT BEFORE ANYTHING IS COMMITTED (`_broken`): the corpus read again by its
+    own reader must hold no error the base did not hold, and every requirement accepted before
+    must still be accepted, with the same promise. A plan that would break either fails the whole
+    of it, the findings named — the plan's rules are meant to make that impossible, and this is
+    what says so when they did not."""
     from openfactory.policy.context_writes import import_record
     from openfactory.product.authoring import _mark_superseded, add_decision_row, fact_file
 
     folder = requirements_dir.strip("/") or "requirements"
     done = Landed()
+    before = load_corpus(root / folder)
     origin = the_plan.origin
     by_source = {r.number: r for r in brought.requirements}
     minted = {r.number for r in the_plan.requirements if r.kind in (NEW, REVISION, HISTORY)}
@@ -846,6 +966,8 @@ def land(the_plan: Plan, brought: Brought, *, root: Path, requirements_dir: str,
                     return done
                 done.paths += retired
             elif row.kind == SAME and row.rows:
+                if _linked(root, row.path):
+                    raise _Outside(row.path)
                 twin = root / row.path
                 text = twin.read_text(encoding="utf-8")
                 for day, decided, who in _joining(by_source[row.source],
@@ -866,6 +988,12 @@ def land(the_plan: Plan, brought: Brought, *, root: Path, requirements_dir: str,
             if placed.kind in (NEW, BESIDE):
                 _write(root, placed.path, brought.documents[placed.name])
                 done.paths.append(placed.path)
+        done.broken = _broken(before, load_corpus(root / folder), folder)
+        if done.broken:
+            log.error("OPENFACTORY_PRODUCT_IMPORT_WOULD_BREAK import=%s broken=%s — nothing was "
+                      "committed", the_plan.id, done.broken)
+            done.failed = "corpus_broken"
+            return done
         done.record = {"version": 1, **the_plan.as_dict(), "brought": brought.name, "by": by,
                        "landed_at": at, "token": the_plan.token, "landed": list(done.paths)}
         record = f"{import_record(the_plan.id)}{RECORD_FILE}"
@@ -883,6 +1011,38 @@ class _Outside(OSError):
     """A path the import would write that is a link, or reaches out of the checkout through one."""
 
 
+def _broken(before, after, folder: str) -> list[str]:
+    """What landing broke, as `<file>: <code>` — every error of the corpus `after` that `before`,
+    the base's, did not hold, and every requirement accepted in `before` that `after` no longer
+    holds accepted with the same promise (`agreed-changed`). Empty when the landing kept the
+    corpus's rules — which is every plan's, by construction."""
+    held = {(f.code, f.path) for f in before.errors}
+    out = [f"{folder}/{f.path}: {f.code}" for f in after.errors if (f.code, f.path) not in held]
+    for was in before.requirements:
+        if not was.is_promise:
+            continue
+        now = after.by_number(was.number)
+        if now is None or not now.is_promise or \
+                promise_of(now.body, {}) != promise_of(was.body, {}):
+            out.append(f"{folder}/{was.path}: agreed-changed")
+    return out
+
+
+def _linked(root: Path, rel: str) -> bool:
+    """Whether any part of `rel` under `root` is a link — each part asked with `lstat`, from the
+    root down, so the answer is never read through one. A part that is not there yet ends the
+    walk: nothing below it can be a link."""
+    here = Path(root)
+    for part in PurePosixPath(rel).parts:
+        here = here / part
+        try:
+            if stat.S_ISLNK(here.lstat().st_mode):
+                return True
+        except FileNotFoundError:
+            return False
+    return False
+
+
 def _as_requirement(path: Path, text: str) -> Requirement:
     from openfactory.product.corpus import parse_requirement
 
@@ -892,12 +1052,30 @@ def _as_requirement(path: Path, text: str) -> Requirement:
 
 def _write(root: Path, rel: str, data: bytes) -> None:
     """`data` at `rel` in the checkout — NEVER THROUGH A LINK. A context repository may hold a
-    committed link, and writing through one would put a file from outside wherever it points;
-    the folder the file goes in must resolve inside the checkout, and the file itself must not
-    be a link (`O_NOFOLLOW`)."""
+    committed link, and writing through one would put a file from outside wherever it points.
+
+    EVERY PART IS ASKED BEFORE ANYTHING IS MADE (review of PR #999: `mkdir(parents=True)` ran
+    before the check, so a committed `imported -> /x` made empty folders under `/x` before the
+    write was refused): each folder on the way is `lstat`-ed from the root down and made one at a
+    time only when it is not there; a link anywhere on the way, a part that climbs out, or a file
+    that is itself a link refuses the write (`O_NOFOLLOW` too)."""
     target = root / rel
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if not target.parent.resolve().is_relative_to(root.resolve()) or target.is_symlink():
+    parts = PurePosixPath(rel).parts
+    if not parts or ".." in parts or PurePosixPath(rel).is_absolute():
+        raise _Outside(rel)
+    here = Path(root)
+    for part in parts[:-1]:
+        here = here / part
+        try:
+            info = here.lstat()
+        except FileNotFoundError:
+            here.mkdir()
+            continue
+        if stat.S_ISLNK(info.st_mode):
+            raise _Outside(rel)
+    if os.path.lexists(target) and target.is_symlink():
+        raise _Outside(rel)
+    if not target.parent.resolve().is_relative_to(root.resolve()):
         raise _Outside(rel)
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
     with os.fdopen(os.open(target, flags, 0o644), "wb") as handle:
@@ -955,7 +1133,8 @@ def lines(the_plan: Plan, *, language: str | None = None) -> list[str]:
 #: can record.
 _REASONS = frozenset({"hidden", "a_link", "not_a_file", "too_large_a_file", "outside_the_folder",
                       "reserved", "not_a_requirement", "the_template", "inside_the_requirements",
-                      "no_fact", "a_retired_fact", "unreadable_manifest", "no_register"})
+                      "no_fact", "a_retired_fact", "unreadable_manifest", "no_register",
+                      "under_a_link"})
 
 
 def said(the_plan: Plan, *, landed: bool, language: str | None = None) -> str:
@@ -1035,13 +1214,15 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
         log.error("OPENFACTORY_PRODUCT_BRANCHES_UNREADABLE repo=%s — the proposal branches could "
                   "not be listed, so nothing was minted and the import %s wrote nothing",
                   docs_repo, ident)
-        return Imported(ok=False, detail=_w(language, "branches_unreadable"))
+        return Imported(ok=False, refusal=NOT_REFUSED,
+                        detail=_w(language, "branches_unreadable"))
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-import-"))
     try:
         rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
                         str(tmp)])
         if rc != 0:
-            return Imported(ok=False, detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
+            return Imported(ok=False, refusal=NOT_REFUSED,
+                            detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
         record = f"{import_record(ident)}{RECORD_FILE}"
         if record_of(tmp, ident) is not None:
             return Imported(ok=True, existed=True, ref=record,
@@ -1051,17 +1232,16 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
                         first=first_number(tmp, requirements_dir, branches), ident=ident,
                         origin=origin)
         if token and token != the_plan.token:
-            return Imported(ok=False, moved=True, plan=the_plan,
-                            detail=import_said("moved", language=language) + "\n\n"
-                            + said(the_plan, landed=False, language=language))
+            return Imported(ok=False, refusal=NOT_WAITING, moved=True, plan=the_plan,
+                            detail=_moved(the_plan, language=language))
         if not the_plan.lands_anything:
             return Imported(ok=True, existed=True, plan=the_plan,
                             detail=import_said("nothing_new", language=language, origin=origin))
         done = land(the_plan, brought, root=tmp, requirements_dir=requirements_dir, by=by,
                     at=now.isoformat(timespec="seconds"), language=language)
         if done.failed:
-            return Imported(ok=False, plan=the_plan,
-                            detail=import_said(done.failed, language=language))
+            return Imported(ok=False, refusal=NOT_REFUSED, plan=the_plan,
+                            detail=_land_failed(done, language=language))
         for path in done.paths:
             _git(["add", "--", path], cwd=tmp)
         # AN IMPORT LANDS WHAT IT EXISTS TO LAND (#265 §6.4): requirements, facts, the documents'
@@ -1071,7 +1251,7 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
         if staged:
             log.error("OPENFACTORY_PRODUCT_WRITE_OUTSIDE repo=%s writer=land_import staged=%s — "
                       "nothing was committed", docs_repo, staged)
-            return Imported(ok=False, plan=the_plan,
+            return Imported(ok=False, refusal=NOT_VALID, plan=the_plan,
                             detail=_w(language, "staged_outside", staged=", ".join(staged[:3])))
         message = import_said(
             "commit", language=language, id=ident, origin=origin, by=by or "—",
@@ -1079,7 +1259,7 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
                                 **{k: the_plan.count(k) for k in (NEW, REVISION, BESIDE, SAME)}))
         rc, out = _git(["commit", "-m", message], cwd=tmp)
         if rc != 0:
-            return Imported(ok=False, plan=the_plan,
+            return Imported(ok=False, refusal=NOT_REFUSED, plan=the_plan,
                             detail=f"nothing to commit: {_scrub(out)[-200:]}")
         rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)
         if rc != 0:
@@ -1089,7 +1269,7 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
             # is no longer there
             log.error("OPENFACTORY_PRODUCT_IMPORT_PUSH_REFUSED repo=%s base=%s import=%s — %s",
                       docs_repo, base, ident, _scrub(out)[-200:])
-            return Imported(ok=False, plan=the_plan,
+            return Imported(ok=False, refusal=NOT_REFUSED, plan=the_plan,
                             detail=import_said("push_refused", language=language))
         log.info("OPENFACTORY_PRODUCT_IMPORTED repo=%s base=%s import=%s requirements=%s",
                  docs_repo, base, ident,
@@ -1099,6 +1279,24 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
                         detail=said(the_plan, landed=True, language=language))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _moved(the_plan: Plan, *, language: str | None = None) -> str:
+    """A yes to a plan the product moved past: said, and the plan as it stands now."""
+    from openfactory.product.voice import import_said
+
+    return (import_said("moved", language=language) + "\n\n"
+            + said(the_plan, landed=False, language=language))
+
+
+def _land_failed(done: Landed, *, language: str | None = None) -> str:
+    """Why `land` wrote nothing to commit — a write tried and not made, never a decision: a
+    requirement it could not mark replaced, a link on the way, or a corpus it would have broken,
+    named."""
+    from openfactory.product.voice import import_said
+
+    return import_said(done.failed, language=language,
+                       broken="; ".join(done.broken[:5]) or "—")
 
 
 __all__ = [

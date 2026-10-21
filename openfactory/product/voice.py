@@ -2536,6 +2536,10 @@ _IMPORT_SAID = {
                               "da pasta não foram escritas"),
                     "en": ("the requirement has no decision register, so {rows} decision(s) "
                            "from the folder were not written")},
+    "under_a_link": {"pt-BR": ("o caminho dele no produto passa por um link, e não leio nem "
+                               "escrevo através de links"),
+                     "en": ("its way into the product passes through a link there, and I read "
+                            "and write through none")},
     # why nothing is imported
     "no_yes": {"pt-BR": ("nada foi importado sem `yes` — e o plano de uma importação só é mostrado "
                          "a quem pode dar o sim que a faz."),
@@ -2586,6 +2590,11 @@ _IMPORT_SAID = {
                           "escrevo através de links — nada entrou."),
                 "en": ("a file the import would write is a link in the repository, and I write "
                        "through none — nothing landed.")},
+    "corpus_broken": {
+        "pt-BR": ("importar isto deixaria os requisitos do produto inconsistentes ({broken}), "
+                  "então nada entrou."),
+        "en": ("importing this would leave the product's requirements inconsistent ({broken}), so "
+               "nothing landed.")},
     "failed": {"pt-BR": "não consegui importar {origin} agora — nada foi escrito.",
                "en": "I could not import {origin} just now — nothing was written."},
 }

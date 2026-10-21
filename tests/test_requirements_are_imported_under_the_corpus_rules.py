@@ -294,6 +294,263 @@ def test_the_same_slug_is_the_same_promise(tmp_path, status, same_text):
         assert {p.name for p in (root / "requirements").iterdir()} == before
 
 
+# ── 2b. an import never changes an agreed requirement ───────────────────────────────────────────
+
+#: The product a folder's lineage of "Sign in" meets: REQ-0007 "Sign in" — the text the folder's
+#: first file holds word for word — and, when present, REQ-0008 "Sign in v2", the product's own
+#: second thought; REQ-0009 is agreed and nothing names it, the successor a retired one points at.
+P, Q, ANCHOR = 7, 8, 9
+
+
+def _status_line(status: str) -> str:
+    return f"superseded-by {ANCHOR:04d}" if status == SUPERSEDED else status
+
+
+def _the_product(p_status: str, q_status: str | None) -> dict[str, str]:
+    files = {_file(ANCHOR, "Sign in for good"): _requirement(ANCHOR, "Sign in for good",
+                                                             status=ACCEPTED),
+             _file(P, "Sign in"): _requirement(P, "Sign in", status=_status_line(p_status))}
+    if q_status is not None:
+        files[_file(Q, "Sign in v2")] = _requirement(Q, "Sign in v2", why="the product's own",
+                                                     status=_status_line(q_status))
+    return files
+
+
+#: The shapes a folder's own history of "Sign in" takes — each valid by the corpus's rules — as
+#: `(files, its live text's number or None, the product's requirements that text reaches: by its
+#: slug, then through its history)`.
+def _the_folder(shape: str, tip: str) -> tuple[dict[str, str], int | None, list[int]]:
+    retired = {_file(1, "Sign in"): _requirement(1, "Sign in", status="superseded-by 0002")}
+    if shape == "a live twin":
+        return {_file(1, "Sign in"): _requirement(1, "Sign in", why="with a code",
+                                                  status=tip)}, 1, [P]
+    if shape == "a retired twin and its successor":
+        return {**retired, _file(2, "Sign in v2"): _requirement(
+            2, "Sign in v2", why="with a code", supersedes=[1], status=tip)}, 2, [Q, P]
+    if shape == "a chain":
+        return {**retired,
+                _file(2, "Sign in v2"): _requirement(2, "Sign in v2", why="with a code",
+                                                     supersedes=[1],
+                                                     status="superseded-by 0003"),
+                _file(3, "Sign in v3"): _requirement(3, "Sign in v3", why="with a passkey",
+                                                     supersedes=[2], status=tip)}, 3, [P]
+    assert shape == "a dropped successor"
+    return {**retired, _file(2, "Sign in v2"): _requirement(
+        2, "Sign in v2", why="with a code", supersedes=[1], status=DROPPED)}, None, []
+
+
+def _lineage_cases() -> list:
+    shapes = [(shape, tip) for shape in ("a live twin", "a retired twin and its successor",
+                                         "a chain") for tip in LIVE]
+    shapes.append(("a dropped successor", PROPOSED))
+    return [pytest.param(p, q, shape, tip, id=f"P {p}-Q {q or 'absent'}-{shape}-tip {tip}")
+            for p in STATUSES for q in [None, *STATUSES] for shape, tip in shapes]
+
+
+@pytest.mark.parametrize("p_status,q_status,shape,tip", _lineage_cases())
+def test_an_import_never_changes_an_agreed_requirement(tmp_path, p_status, q_status, shape, tip):
+    """For every status the corpus knows, of the product's requirement the folder's history holds
+    word for word and of the one its live text's slug names, and over the folder's shapes — a live
+    twin, a retired twin and its successor, a chain, a successor the folder dropped — and whatever
+    status the folder claims for its live text: an accepted requirement is the same bytes after
+    the import, no `Supersedes:` landed names one, and the corpus holds no error it did not. A live
+    text that reaches an agreed one is kept beside it; one that reaches only texts nobody agreed
+    retires them, so no two versions are left standing (review of PR #999)."""
+    root = _tree(tmp_path / "product", _the_product(p_status, q_status))
+    files, tip_number, reaches = _the_folder(shape, tip)
+    brought = importing.read(_tree(tmp_path / "folder", files))
+    base = load_corpus(root / "requirements")
+    agreed = {r.number for r in base.requirements if r.is_promise}
+    kept = {r.number: (root / "requirements" / r.path).read_bytes() for r in base.requirements
+            if r.is_promise}
+
+    the_plan = importing.plan(brought, root=root, requirements_dir="requirements",
+                              first=importing.first_number(root, "requirements", []),
+                              ident=importing.import_id(brought, DAY), origin="round two")
+    done = importing.land(the_plan, brought, root=root, requirements_dir="requirements",
+                          by=ADMIN, at=DAY)
+
+    assert not done.failed, (done.failed, done.broken, the_plan.as_dict())
+    after = load_corpus(root / "requirements")
+    held = {(f.code, f.path) for f in base.errors}
+    assert [f.message for f in after.errors if (f.code, f.path) not in held] == []
+    for number, data in kept.items():
+        assert (root / "requirements" / base.by_number(number).path).read_bytes() == data, number
+    assert [r.as_dict() for r in the_plan.requirements if set(r.replaces) & agreed] == []
+    if tip_number is None:
+        return
+    row = next(r for r in the_plan.requirements if r.source == tip_number)
+    reached = {n for n in reaches if base.by_number(n) is not None}
+    if reached & agreed:
+        assert (row.kind, row.number in reached & agreed) == (importing.BESIDE, True), row
+        return
+    assert row.kind != importing.BESIDE, row
+    stood = {n for n in reached if base.by_number(n).is_live}
+    assert {n for n in stood if after.by_number(n).is_live} == set(), the_plan.as_dict()
+
+
+@pytest.mark.parametrize("with_q", [True, False], ids=["REQ-0008 proposed", "no REQ-0008"])
+def test_a_retired_twin_of_an_accepted_requirement_never_makes_its_successor_retire_it(
+        deployment, with_q):
+    """The review's own case, on the context repository through the action: REQ-0007 "Sign in"
+    accepted (and REQ-0008 "Sign in v2" proposed); the folder's 0001 "Sign in", superseded by its
+    0002 "Sign in v2". Measured on 6e8c1d36: the plan read `revision 2→9 replaces (7, 8)` and
+    REQ-0007 was stamped superseded — and without REQ-0008 the push landed a `supersede-not-mutual`
+    error on the base. Now 0002 is kept beside REQ-0007, and the base is valid."""
+    deployment.bare = _bare(deployment.tmp, _the_product(ACCEPTED, PROPOSED if with_q else None))
+    files, _tip, _reaches = _the_folder("a retired twin and its successor", PROPOSED)
+    folder = _tree(deployment.tmp / "folder", files)
+    before = {n: _main(deployment.bare, _file(n, t))
+              for n, t in ((P, "Sign in"), (Q, "Sign in v2")) if with_q or n == P}
+
+    said = _act(source=str(folder), yes=True)
+
+    assert said.ok, said
+    rows = {r["source"]: r for r in said.data["plan"]["requirements"]}
+    assert (rows[1]["kind"], rows[1]["number"]) == (importing.SAME, P)
+    assert (rows[2]["kind"], rows[2]["number"], rows[2]["replaces"]) == (importing.BESIDE, P, [])
+    for n, text in before.items():
+        assert _main(deployment.bare, _file(n, "Sign in" if n == P else "Sign in v2")) == text
+    after = load_corpus(_checkout(deployment.bare, deployment.tmp / "after") / "requirements")
+    assert after.errors == [] and after.by_number(P).status == ACCEPTED
+    assert "with a code" in _main(deployment.bare, rows[2]["path"])
+
+
+# ── 2c. what `land` leaves is checked before anything is committed ──────────────────────────────
+
+def _forced(the_plan, kind: str, replaces: tuple[int, ...]):
+    """`the_plan` with its one row forced to `kind` and `replaces` — a plan the rules never make."""
+    import dataclasses
+
+    row = the_plan.requirements[0]
+    the_plan.requirements[0] = dataclasses.replace(row, kind=kind, replaces=replaces)
+    return the_plan
+
+
+@pytest.mark.parametrize("status,kind,code", [
+    (PROPOSED, importing.NEW, "supersede-not-mutual"),
+    (DROPPED, importing.REVISION, "supersede-not-mutual"),
+    (ACCEPTED, importing.REVISION, "agreed-changed")],
+    ids=["a claim nobody marked", "a claim on a dropped one", "an agreed one retired"])
+def test_a_landing_that_would_break_the_corpus_is_refused_by_name(tmp_path, status, kind, code):
+    """The net under the plan's rules: a plan that would leave an error the base did not hold, or a
+    requirement accepted before no longer accepted with its promise, writes nothing to commit and
+    says which file, and what — the three ways a supersession goes wrong, forced past the plan."""
+    root = _tree(tmp_path / "product", {_file(4, "Login"): _requirement(4, "Login",
+                                                                        status=status)})
+    brought = importing.read(_tree(tmp_path / "folder", {_file(1, "Totals"): _requirement(
+        1, "Totals")}))
+    the_plan = _forced(importing.plan(brought, root=root, requirements_dir="requirements",
+                                      first=5, ident=importing.import_id(brought, DAY),
+                                      origin="round two"), kind, (4,))
+
+    done = importing.land(the_plan, brought, root=root, requirements_dir="requirements",
+                          by=ADMIN, at=DAY)
+
+    assert done.failed == "corpus_broken" and not done.record, done
+    assert any(b.startswith("requirements/") and b.endswith(code) for b in done.broken), \
+        done.broken
+    said = importing._land_failed(done)
+    assert code in said and "nothing landed" in said, said
+
+
+def test_a_broken_landing_is_never_committed(deployment, monkeypatch):
+    """Through the action: the forced plan is refused, said with what it would break, and the base
+    has one commit — the seed."""
+    deployment.bare = _bare(deployment.tmp, {_file(4, "Login"): _requirement(4, "Login",
+                                                                             status=ACCEPTED)})
+    real = importing.plan
+    monkeypatch.setattr(importing, "plan", lambda *a, **kw: _forced(real(*a, **kw),
+                                                                    importing.REVISION, (4,)))
+
+    said = _act(source=str(_tree(deployment.tmp / "folder", {_file(1, "Totals"): _requirement(
+        1, "Totals")})), yes=True)
+
+    assert not said.ok and said.code == actions.FAILED, said
+    assert "agreed-changed" in said.message and _commits(deployment.bare) == 1
+
+
+# ── 2d. nothing is read or made through a link of the product ───────────────────────────────────
+
+@pytest.mark.parametrize("linked", ["imported", "imported/design"])
+def test_nothing_is_made_or_read_through_a_link_on_the_way(tmp_path, linked):
+    """Each folder on a document's way into the product, a committed link to outside: the write
+    makes nothing there and is refused, and the plan reads nothing through it — the same bytes
+    outside are not "already here", the document is said as left out."""
+    outside = tmp_path / "outside"
+    (outside / "design").mkdir(parents=True)
+    (outside / "flow.md").write_text("the flow\n")
+    (outside / "design" / "flow.md").write_text("the flow\n")
+    root = tmp_path / "product"
+    (root / linked).parent.mkdir(parents=True, exist_ok=True)
+    (root / linked).symlink_to(outside)
+    before = sorted(p.relative_to(outside).as_posix() for p in outside.rglob("*"))
+
+    with pytest.raises(importing._Outside):
+        importing._write(root, "imported/design/deeper/flow.md", b"the flow\n")
+    brought = importing.read(_tree(tmp_path / "folder", {"design/flow.md": "the flow\n"}))
+    the_plan = importing.plan(brought, root=root, requirements_dir="requirements", first=1,
+                              ident=f"{DAY}-0123456789", origin="round two")
+
+    assert sorted(p.relative_to(outside).as_posix() for p in outside.rglob("*")) == before
+    assert the_plan.documents == []
+    assert ("imported/design/flow.md", "under_a_link") in the_plan.left_out
+
+
+# ── 2e. what is left out is bounded like what is read ───────────────────────────────────────────
+
+def _left_out_kinds(folder: Path, n: int) -> None:
+    """`n` entries of each kind a folder's reader leaves out: hidden files, hidden folders, links,
+    devices (a FIFO) and files past the per-file limit (`documents.ingest.max_bytes`, set to 4)."""
+    for i in range(n):
+        (folder / f".hidden-{i}").write_text("x")
+        (folder / f".folder-{i}").mkdir()
+        (folder / f"link-{i}").symlink_to(folder / f".hidden-{i}")
+        os.mkfifo(folder / f"fifo-{i}")
+        (folder / f"big-{i}.md").write_text("x" * 10)
+
+
+def test_what_is_left_out_counts_toward_the_bound(tmp_path, monkeypatch):
+    """A folder of nothing but entries left out — every kind its reader leaves out, and an
+    archive's members that lead out or link — is past `MAX_FILES` like a folder of files: refused
+    before anything is planned, so the plan and the record never list without a bound."""
+    from openfactory.product.documents import ingest
+
+    monkeypatch.setenv(ingest.MAX_BYTES_ENV, "4")
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    _left_out_kinds(folder, 2)
+    monkeypatch.setattr(importing, "MAX_FILES", 9)
+    with pytest.raises(importing.NotImportable) as loose:
+        importing.read(folder)
+    monkeypatch.setattr(importing, "MAX_FILES", 10)
+    assert len(importing.read(folder).left_out) == 10
+
+    out = tmp_path / "evil.tar"
+    with tarfile.open(out, "w") as t:
+        for i in range(6):
+            link = tarfile.TarInfo(f"../out-{i}" if i % 2 else f"ok/link-{i}")
+            link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
+            t.addfile(link)
+    monkeypatch.setattr(importing, "MAX_FILES", 5)
+    with pytest.raises(importing.NotImportable) as packed:
+        importing.read(out)
+
+    assert loose.value.reason == packed.value.reason == "too_many"
+
+
+def test_a_path_the_record_says_is_bounded(tmp_path):
+    out = tmp_path / "long.tar"
+    with tarfile.open(out, "w") as t:
+        link = tarfile.TarInfo("ok/" + "x" * 5000)
+        link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
+        t.addfile(link)
+
+    brought = importing.read(out)
+
+    assert [len(p) <= importing.MAX_PATH_CHARS for p, _why in brought.left_out] == [True]
+
+
 # ── 3. the decisions of the same promise join its register, by day and text ────────────────────
 
 def test_the_same_promise_brings_only_the_decisions_its_register_lacks(tmp_path):
@@ -491,7 +748,8 @@ def _left_out_cases() -> list[tuple[str, str]]:
 def test_every_reason_a_file_is_left_out_is_one_the_plan_can_say():
     cases = {why for _path, why in _left_out_cases()}
     assert cases | {"a_link", "not_a_file", "too_large_a_file", "outside_the_folder",
-                    "a_retired_fact", "unreadable_manifest", "no_register"} == importing._REASONS
+                    "a_retired_fact", "unreadable_manifest", "no_register",
+                    "under_a_link"} == importing._REASONS
 
 
 @pytest.mark.parametrize("path,why", _left_out_cases())

@@ -12,6 +12,13 @@ THE CLAIMS, each a rule a family test in the guard states over cases read from t
   5. **Only the command line names any path**; every other caller, the product's import inbox.
   6. **A yes lands the plan it was given, and a refused push is said once.**
   7. **The next search finds what landed.**
+  8. **An import never changes an agreed requirement** (review of PR #999): a text whose slug or
+     own history reaches an accepted one is kept beside it; the folder's dead texts touch nothing;
+     a text nobody agreed that the folder's history replaced is retired, never left standing.
+  9. **What `land` leaves is checked before the commit**: no error the base did not hold, no
+     agreed requirement retired — or nothing is committed, the findings named.
+ 10. **Nothing is made or read through a link of the product**, and **what is left out counts
+     toward the bound**, its paths cut to a length.
 
 The guard under test is `tests/test_requirements_are_imported_under_the_corpus_rules.py`, whose git,
 corpus, semaphore, documents' pass and index are real.
@@ -37,11 +44,71 @@ MUTATIONS = [
      "            out[r.number] = r.number"),
 
     # ── 2. the same slug is the same promise ───────────────────────────────────────────────────
+    # RE-PINNED 2026-10-21 (review of PR #999): the accepted twin is found with every other agreed
+    # requirement a text would change, in `_agreed`, instead of inline in `plan`'s rows
     ("a new text for an ACCEPTED requirement revises it — a promise retired by a file from "
      "outside", IMPORTING,
-     "        elif any(t.status == ACCEPTED for t in twins[r.number]):\n"
-     "            agreed = next(",
-     "        elif False:\n            agreed = next("),
+     "        if kept is not None:\n            out[r.number] = kept",
+     "        if False:\n            out[r.number] = kept"),
+
+    # ── 2b. an import never changes an agreed requirement (review of PR #999) ──────────────────
+    ("a text whose own history reaches an accepted requirement is not kept beside it — its "
+     "successor retires the promise (the review's REQ-0007)", IMPORTING,
+     "                     if t.is_promise), None)\n        if kept is not None:",
+     "                     if t.is_promise), None)\n"
+     "        kept = next((t for t in twins.get(r.number, []) if t.is_promise), None)\n"
+     "        if kept is not None:"),
+
+    ("the folder's history is followed one step only, so a chain's live text never meets the "
+     "promise its first text holds", IMPORTING,
+     "        elif n in folder and not folder[n].is_live:\n"
+     "            todo += folder[n].supersedes",
+     "        elif False:\n            todo += folder[n].supersedes"),
+
+    ("a folder's dead text claims what its `Supersedes:` names in the product, so a retired twin "
+     "of a promise lands a supersession nobody marked", IMPORTING,
+     "        own = sorted({renumbered[n] for n in r.supersedes\n"
+     "                      if n in renumbered and renumbered[n] in minted})",
+     "        own = sorted({renumbered[n] for n in r.supersedes if n in renumbered})"),
+
+    ("a live text the folder's history makes a successor of a text nobody agreed leaves it "
+     "standing — two versions live", IMPORTING,
+     "            retired = {t.number for t in [*twins[r.number], *_lineage(r, brought, same)]\n"
+     "                       if t.is_live and not t.is_promise}",
+     "            retired = {t.number for t in twins[r.number]\n"
+     "                       if t.is_live and not t.is_promise}"),
+
+    # ── 2c. the landing is checked before the commit ───────────────────────────────────────────
+    ("a landing that breaks the corpus — or retires an agreed requirement — is committed",
+     IMPORTING,
+     "        done.broken = _broken(before, load_corpus(root / folder), folder)\n"
+     "        if done.broken:",
+     "        done.broken = []\n        if done.broken:"),
+
+    ("the check counts the corpus's errors and never an agreed requirement retired with a valid "
+     "supersession", IMPORTING,
+     "            out.append(f\"{folder}/{was.path}: agreed-changed\")",
+     "            pass"),
+
+    # ── 2d. nothing through a link ─────────────────────────────────────────────────────────────
+    ("the import's writer makes every folder on the way before it asks whether one is a link",
+     IMPORTING,
+     "    here = Path(root)\n    for part in parts[:-1]:\n        here = here / part\n",
+     "    target.parent.mkdir(parents=True, exist_ok=True)\n    here = Path(root)\n"
+     "    for part in parts[:-1]:\n        here = here / part\n"),
+
+    ("the plan reads a document already in the product through a link on its way", IMPORTING,
+     "        if _linked(root, str(PurePosixPath(dest).parent)):",
+     "        if False:"),
+
+    # ── 2e. the bound counts what is left out ──────────────────────────────────────────────────
+    ("what is left out is listed without a bound, and the record with it", IMPORTING,
+     "        self.take(0)\n        left_out.append((_said_path(path), why))",
+     "        left_out.append((_said_path(path), why))"),
+
+    ("a member's name is said whole, however long the archive made it", IMPORTING,
+     "    return text if len(text) <= MAX_PATH_CHARS else text[:MAX_PATH_CHARS - 1] + \"…\"",
+     "    return text"),
 
     ("a revision lands beside the text it replaces and never marks it, so one promise stands "
      "under two numbers", IMPORTING,

@@ -3583,7 +3583,7 @@ class ProductModule:
         if not ctx.available or not ctx.docs_path:
             return self._cannot_see_the_product()
         if brought.refusals:
-            return WriteResult(ok=False, detail=import_said(
+            return WriteResult(ok=False, refusal=NOT_VALID, detail=import_said(
                 "contradicts_itself", language=getattr(self.project, "language", None),
                 errors="; ".join(brought.refusals[:3])))
         return None
@@ -3600,7 +3600,8 @@ class ProductModule:
 
         lang = getattr(self.project, "language", None)
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, refusal=NOT_YOURS,
+                               detail=unauthorized_message(self.project))
         bad = self._may_import(brought)
         if bad is not None:
             return bad
@@ -3609,7 +3610,8 @@ class ProductModule:
         try:
             branches = _requirement_branches(self._forge(), ctx.link.docs_repo)
             if branches is None:
-                return WriteResult(ok=False, detail=_w(lang, "branches_unreadable"))
+                return WriteResult(ok=False, refusal=NOT_REFUSED,
+                                   detail=_w(lang, "branches_unreadable"))
             root = Path(ctx.docs_path)
             ident = importing.import_id(brought, _today())
             if importing.record_of(root, ident) is not None:
@@ -3641,7 +3643,8 @@ class ProductModule:
 
         lang = getattr(self.project, "language", None)
         if not may_act(self.project, actor, via=self._via):
-            return WriteResult(ok=False, detail=unauthorized_message(self.project))
+            return WriteResult(ok=False, refusal=NOT_YOURS,
+                               detail=unauthorized_message(self.project))
         bad = self._may_import(brought)
         if bad is not None:
             return bad

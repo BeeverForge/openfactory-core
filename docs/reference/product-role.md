@@ -196,13 +196,26 @@ where it came from (`origin`), the order to review it in (`order`), where the de
   requirement nobody agreed is a revision that supersedes it; a new text for an `accepted` one
   touches nothing — it is kept in the import's record as a proposal to change a promise, which
   only a person's yes makes;
+- **an import never changes an agreed requirement**: a text whose own history reaches an
+  `accepted` requirement — its `Supersedes:` names a retired text the product holds word for word
+  as an agreed one — is kept beside that one too, and no landed `Supersedes:` ever names an
+  accepted requirement. The folder's own retired texts land as history and touch nothing of the
+  product's. Before anything is committed the corpus is read again: an error the base did not
+  hold, or an agreed requirement no longer agreed with its promise, refuses the whole import,
+  named;
 - **an import never lands a promise**: what it brings lands `proposed` (or `observed`), whatever
   its file said;
 - a fact whose term the product has is never rewritten; a new one lands as `aprendido`, with its
   source. Documents land under `imported/`, keeping their own paths there, and never over a file
   that exists — a different one is kept beside it;
 - nothing hidden (`.git/`, `.openfactory/`, `.okf/`), no link, and nothing under `capabilities/`
-  or `conversations/` — which only a person's confirmation and the distiller write — ever lands.
+  or `conversations/` — which only a person's confirmation and the distiller write — ever lands;
+  nothing is read or written through a link the context repository holds, and what is left out
+  counts toward the import's bound of files like what is read.
+
+What is imported lands **as it came, not scrubbed**: the person said yes to that plan, and a scrub
+would land another text. What reaches a model from the context repository is withheld where it is
+read — the facts pack withholds credentials.
 
 Each import keeps a record in `.openfactory/imports/<id>/` — where it came from, the plan, and
 what landed — the one path under `.openfactory/` the import may write. Afterwards the documents it
