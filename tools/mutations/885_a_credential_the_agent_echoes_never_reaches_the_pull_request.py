@@ -120,6 +120,7 @@ MUTATIONS = [
     ("AWS4-HMAC-SHA256's Signature is quoted", MODEL,
      '\\bSignature[',
      '\\bSignature_never['),
+    ("Digest is read in one case only", MODEL, '[0-9a-f]{64}", re.IGNORECASE)', '[0-9a-f]{64}")'),
     ("Digest is read as a one-token scheme, its first parameter's name withheld", MODEL,
      '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',
      '(?:Bearer|Basic|Digest|token|Bot|Negotiate|NTLM)'),

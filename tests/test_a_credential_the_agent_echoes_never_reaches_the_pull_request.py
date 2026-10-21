@@ -155,7 +155,10 @@ def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_
      f"Credential=AKIDEXAMPLE/20261021/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, "
      f"Signature={AWS_SIGNATURE}", AWS_SIGNATURE,
      "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20261021/us-east-1/s3/aws4_request"),
-], ids=["digest", "aws4-hmac-sha256"])
+    # review on cfe48e02: the scheme in lowercase, as a header name may be written
+    (f'{SENTINEL}: it sent authorization: digest username="ann", response="{DIGEST_RESPONSE}"',
+     DIGEST_RESPONSE, 'digest username="ann"'),
+], ids=["digest", "aws4-hmac-sha256", "digest-lowercase"])
 def test_a_signed_header_withholds_its_secret_parameter_and_keeps_the_rest(
         repo: Path, tmp_path: Path, said: str, secret: str, kept: str):
     """Review on 5fe330d2, decision 3: a `Digest` or SigV4 header is a parameter list. At d892b0a3
