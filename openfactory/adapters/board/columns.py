@@ -156,10 +156,29 @@ def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
     # renamed key beat a default (22f1cc53) read `{"needs_review": "In review"}` as `needs_review`
     # on GitHub, whose map merges the defaults, so the factory's own review read as a person's
     # wait (#753's re-review, measured 2026-10-21). Only the optional key's default name yields.
-    return next((key for key in hits
-                 if key not in YIELDS_ITS_DEFAULT_NAME
-                 or CANONICAL_COLUMNS[key].casefold() != wanted),
+    return next((key for key in hits if not yields_its_name(key, name, renamed=renamed)),
                 hits[0] if hits else "")
+
+
+def yields_its_name(key: str, name: str, *, renamed: dict[str, str] | None = None) -> bool:
+    """Whether `key` gives up the column `name` to another key that carries it — the ONE rule
+    `key_for` reads by and a board's write takes, so a card is never moved to a column it then
+    reads back as another key's.
+
+    True only for a key in `YIELDS_ITS_DEFAULT_NAME` whose `name` is its DEFAULT spelling while
+    another key of the deployment's map (merged over the defaults, as `key_for` merges it) spells
+    it too. A GitHub board with `columns: {in_review: "Needs Review"}` carries "Needs Review" as its
+    review column; `needs_review`'s default claimed that option on the write, and the card a person
+    must review landed in the factory's review (PR #1040's review, 2026-10-21; `main` sent it to
+    Needs Action)."""
+    wanted = (name or "").strip().casefold()
+    if not wanted or key not in YIELDS_ITS_DEFAULT_NAME:
+        return False
+    if CANONICAL_COLUMNS.get(key, "").casefold() != wanted:
+        return False
+    merged = {**CANONICAL_COLUMNS, **(renamed or {})}
+    return any(other != key and str(spelled).strip().casefold() == wanted
+               for other, spelled in merged.items())
 
 
 def has_started(key: str) -> bool:

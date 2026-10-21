@@ -651,16 +651,24 @@ class GitHubProjectBoard:
         `FALLS_BACK_TO`, on one that does not — every board made before 0.7. The options are READ,
         and a board whose options could not be read raises out of `_ensure_meta` as it always
         did: unreadable is not "has no Needs Review", and is never answered with the fallback.
+        `needs_review`'s DEFAULT name is no candidate when the deployment gave it to another key
+        (`columns.yields_its_name`, the rule `stage_key` reads by), so a card is never moved to a
+        column it then reads back as someone else's.
 
         If the last candidate's column doesn't exist on this board either (e.g. 'Needs Action'
         before the owner adds it in the UI — GitHub has no API to create it), `set_column` falls
         back to Backlog so a parked ticket still leaves the active columns instead of getting
         stuck showing 'In progress'."""
+        from openfactory.adapters.board.columns import yields_its_name
         from openfactory.adapters.tracker.base import column_keys
 
-        names = [name for name in (self._columns.get(key, "")
-                                   for key in column_keys(state, needs_person=needs_person))
-                 if name]
+        # `_columns` merges the defaults, so `needs_review`'s "Needs Review" is a candidate on
+        # every board; on one whose `in_review` the deployment called "Needs Review", that option
+        # is the factory's review and the card read back as RUNNING (PR #1040's review,
+        # 2026-10-21). The default name yields there, as `key_for` reads it.
+        names = [name for key, name in ((key, self._columns.get(key, ""))
+                                        for key in column_keys(state, needs_person=needs_person))
+                 if name and not yields_its_name(key, name, renamed=self._columns)]
         if not names:
             return False
         self._ensure_meta()

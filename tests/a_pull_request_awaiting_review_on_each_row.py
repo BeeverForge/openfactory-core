@@ -140,6 +140,46 @@ def github_projects(maps_review: bool, tmp_path, monkeypatch) -> Landing:
     return Landing(sent[-1] if sent else "", "OPT_AWAITING_REVIEW", "OPT_NEEDS_ACTION")
 
 
+def github_person_gated_move(monkeypatch, options, *, columns=None):
+    """Move issue 7 as a pull request a person must review, on a GitHub board whose Status
+    options are `options` and whose deployment declared `columns`, through `gh` answered from a
+    script: `(moved, the option ids the move mutation sent, the board)`. For the cases the
+    parametrized rows do not cover: a board with neither park nor review option, and one whose
+    review column carries another key's default name."""
+    from openfactory.adapters.tracker.github_project import GitHubProjectBoard
+
+    script = [
+        ("field-list", json.dumps({"fields": [{"name": "Status", "id": "FID", "options": options}]})),
+        ("project view", json.dumps({"id": "PID"})),
+        ("repository(owner:", json.dumps({"data": {"repository": {"issue": {"id": "NODE7"}}}})),
+        ("addProjectV2ItemById",
+         json.dumps({"data": {"addProjectV2ItemById": {"item": {"id": "ITEM7"}}}})),
+        ("updateProjectV2ItemFieldValue",
+         json.dumps({"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "ITEM7"}}}})),
+        ("api graphql", json.dumps({"data": {"organization": {"projectV2": {"items": {
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+            "nodes": [{"id": "ITEM7", "content": {"number": 7},
+                       "fieldValueByName": {"name": "In review"}}]}}}}})),
+    ]
+    calls = []
+
+    def gh(argv, **kw):
+        calls.append(list(argv))
+        joined = " ".join(argv)
+        out = next((o for marker, o in script if marker in joined), "")
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", gh)
+    board = GitHubProjectBoard("org", "6", token="t", columns=columns)
+
+    moved = board.set_status(issue="7", issue_url="https://github.com/o/r/issues/7",
+                             state=JobState.PR_OPEN, needs_person=True)
+
+    sent = [a.split("=", 1)[1] for argv in calls if "updateProjectV2ItemFieldValue" in " ".join(argv)
+            for a in argv if a.startswith("option=")]
+    return moved, sent, board
+
+
 # ── Jira: the REST call replaced on the real tracker, as `test_a_jira_project_is_a_board.py` ────
 
 #: A site's whole map, as a deployment writes it; `needs_review` joins it only when mapped.

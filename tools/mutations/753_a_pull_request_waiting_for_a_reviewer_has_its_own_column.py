@@ -42,6 +42,11 @@ THE CLAIMS, each with a red twin below:
      new row ties with Needs Action and sorts after it; row 40 restores the platform's names on a
      re-run; row 41 back-fills the parked cards into the new column; rows 42-43 make the re-run
      silent about what it added, and loud about what it did not.
+  9. **A board's write takes the rule its read takes (PR #1040's review).** Row 44 lets GitHub's
+     `set_status` hand `needs_review`'s default "Needs Review" to a board whose `in_review` the
+     deployment called that, so the card a person must review reads back as RUNNING; row 45 makes
+     the default name yield on every board, so a GitHub board that HAS a Needs Review option sends
+     the pull request to Needs Action.
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -302,4 +307,16 @@ MUTATIONS = [
      "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if now != attached",
      "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if True",
      f"{RERUN}::test_a_second_rerun_on_the_seven_row_board_changes_nothing"),
+
+    # ── 9. the write takes the rule the read takes ──────────────────────────────────────────────
+    ("GitHub moves a person-gated pull request to an `in_review` the deployment called "
+     "\"Needs Review\"", GHP,
+     "                 if name and not yields_its_name(key, name, renamed=self._columns)]",
+     "                 if name]",
+     f"{AC3}::test_a_github_board_whose_review_column_is_called_needs_review_parks_the_pull_request"),
+
+    ("`needs_review`'s default name yields even when no other key carries it", COLUMNS,
+     "    return any(other != key and str(spelled).strip().casefold() == wanted",
+     "    return any(str(spelled).strip().casefold() == wanted",
+     f"{AC2}::test_a_github_board_the_platform_made_gets_the_pull_request_in_its_needs_review"),
 ]

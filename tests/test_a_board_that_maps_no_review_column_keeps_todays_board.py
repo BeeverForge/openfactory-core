@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.a_pull_request_awaiting_review_on_each_row import ROWS
+from tests.a_pull_request_awaiting_review_on_each_row import ROWS, github_person_gated_move
 
 
 @pytest.mark.parametrize("row", list(ROWS))
@@ -67,42 +67,35 @@ def test_a_github_board_with_neither_column_still_sends_the_pull_request_to_back
     handed on is "Needs Review", which `set_column` does not map, and the card moves nowhere
     (`AssertionError: (False, [])`). That cut survived the 36 GitHub test modules (#753's review,
     point 2)."""
-    import json
-    import subprocess
-
-    from openfactory.adapters.tracker.github_project import GitHubProjectBoard
-    from openfactory.contracts import JobState
-
     options = [{"name": "Backlog", "id": "OPT_BACKLOG"}, {"name": "TO-DO", "id": "OPT_TODO"},
                {"name": "In progress", "id": "OPT_PROG"}, {"name": "In review", "id": "OPT_REVIEW"},
                {"name": "Done", "id": "OPT_DONE"}]
-    script = [
-        ("field-list", json.dumps({"fields": [{"name": "Status", "id": "FID", "options": options}]})),
-        ("project view", json.dumps({"id": "PID"})),
-        ("repository(owner:", json.dumps({"data": {"repository": {"issue": {"id": "NODE7"}}}})),
-        ("addProjectV2ItemById",
-         json.dumps({"data": {"addProjectV2ItemById": {"item": {"id": "ITEM7"}}}})),
-        ("updateProjectV2ItemFieldValue",
-         json.dumps({"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "ITEM7"}}}})),
-        ("api graphql", json.dumps({"data": {"organization": {"projectV2": {"items": {
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-            "nodes": [{"id": "ITEM7", "content": {"number": 7},
-                       "fieldValueByName": {"name": "In review"}}]}}}}})),
-    ]
-    calls = []
 
-    def gh(argv, **kw):
-        calls.append(list(argv))
-        joined = " ".join(argv)
-        out = next((o for marker, o in script if marker in joined), "")
-        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+    moved, sent, _board = github_person_gated_move(monkeypatch, options)
 
-    monkeypatch.setattr(subprocess, "run", gh)
-    board = GitHubProjectBoard("org", "6", token="t")
-
-    moved = board.set_status(issue="7", issue_url="https://github.com/o/r/issues/7",
-                             state=JobState.PR_OPEN, needs_person=True)
-
-    sent = [a.split("=", 1)[1] for argv in calls if "updateProjectV2ItemFieldValue" in " ".join(argv)
-            for a in argv if a.startswith("option=")]
     assert moved and sent == ["OPT_BACKLOG"], (moved, sent)
+
+
+def test_a_github_board_whose_review_column_is_called_needs_review_parks_the_pull_request(
+        monkeypatch):
+    """A GitHub deployment that renamed its review column to "Needs Review" (`columns:
+    {in_review: "Needs Review"}`) and never mapped `needs_review` keeps sending a person-gated
+    pull request to Needs Action, where `main` sent it, and reads the card back as a park.
+
+    RED ON 374ef5cd (PR #1040's review, @hermesfelipe, 2026-10-21): `_columns` merges the
+    defaults, so `needs_review`'s default "Needs Review" matched that board's `in_review` option,
+    `set_status` moved the card there, and `key_for` read it back as `in_review` — RUNNING, the
+    #166 defect again for that deployment. `needs_review`'s default name yields to a key the
+    deployment gave it (`columns.YIELDS_ITS_DEFAULT_NAME`), on the write as on the read."""
+    options = [{"name": "Backlog", "id": "OPT_BACKLOG"}, {"name": "TO-DO", "id": "OPT_TODO"},
+               {"name": "In progress", "id": "OPT_PROG"},
+               {"name": "Needs Review", "id": "OPT_THEIR_REVIEW"},
+               {"name": "Needs Action", "id": "OPT_ACTION"}, {"name": "Done", "id": "OPT_DONE"}]
+
+    moved, sent, board = github_person_gated_move(monkeypatch, options,
+                                                   columns={"in_review": "Needs Review"})
+
+    named = {o["id"]: o["name"] for o in options}
+    assert moved and sent == ["OPT_ACTION"], (moved, [named.get(o) for o in sent])
+    assert board.stage_key(named[sent[0]]) == "needs_action"
+

@@ -225,8 +225,11 @@ Backlog · TO-DO · In progress · In review · Needs Review · Needs Action · 
 - **In review** — PR open
 - **Needs Review** — PR open and waiting only for a person to review it. Optional: a board without
   this option puts those pull requests in Needs Action, as boards made before it did. A board
-  that has an option of this name uses it, with or without a `columns:` entry for `needs_review`;
-  on an existing board, add it by hand in the GitHub UI, between In review and Needs Action
+  that has an option of this name uses it, with or without a `columns:` entry for `needs_review`,
+  unless `columns:` gives that name to another key: a board whose review column is
+  `{"in_review": "Needs Review"}` keeps it as the factory's review and puts these pull requests in
+  Needs Action. On an existing board, add it by hand in the GitHub UI, between In review and
+  Needs Action
 - **Needs Action** — parked, waiting for a person, with the reason on the ticket
 - **Done** — merged
 

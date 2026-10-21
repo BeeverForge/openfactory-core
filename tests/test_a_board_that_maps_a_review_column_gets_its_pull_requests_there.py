@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.a_pull_request_awaiting_review_on_each_row import ROWS
+from tests.a_pull_request_awaiting_review_on_each_row import ROWS, github_person_gated_move
 
 
 @pytest.mark.parametrize("row", list(ROWS))
@@ -28,3 +28,22 @@ def test_the_pull_request_lands_in_the_review_column(row, tmp_path, monkeypatch)
         f"{row}: the deployment mapped a review column ({where.review!r}) and a pull request "
         f"waiting on a person's review landed in {where.landed or 'nothing'!r}"
         + (" — the column every park uses" if where.landed == where.needs_action else ""))
+
+
+def test_a_github_board_the_platform_made_gets_the_pull_request_in_its_needs_review(monkeypatch):
+    """A Projects board the platform created carries "Needs Review" under its default name, and
+    the deployment maps nothing: a pull request waiting on a person's review goes there. The
+    parametrized row above maps the key to a name of its own, so it cannot see the default.
+
+    GREEN ON 374ef5cd, as it must be: it holds `columns.yields_its_name` to its narrow case. With
+    the name made to yield even when no other key carries it, `set_status` skips the default
+    and sends the card to Needs Action (plan 753, row 45)."""
+    options = [{"name": "Backlog", "id": "OPT_BACKLOG"}, {"name": "TO-DO", "id": "OPT_TODO"},
+               {"name": "In progress", "id": "OPT_PROG"}, {"name": "In review", "id": "OPT_REVIEW"},
+               {"name": "Needs Review", "id": "OPT_NEEDS_REVIEW"},
+               {"name": "Needs Action", "id": "OPT_ACTION"}, {"name": "Done", "id": "OPT_DONE"}]
+
+    moved, sent, board = github_person_gated_move(monkeypatch, options)
+
+    assert moved and sent == ["OPT_NEEDS_REVIEW"], (moved, sent)
+    assert board.stage_key("Needs Review") == "needs_review"
