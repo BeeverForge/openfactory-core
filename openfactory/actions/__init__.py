@@ -312,7 +312,10 @@ async def perform(name: str, /, *, by: Actor, params: Mapping[str, object] | Non
        `audit.write`'s to answer, not this function's: it writes the record as a row of kind
        `audit` to the deployment's metrics store, off the event loop, or to `audit.db` beside
        `registry.yaml` when the deployment declares none (`audit.sink`); a person's words go in as
-       their length and digest, never as text.
+       their length and digest, never as text. WRITTEN AFTER THE ROW, AND NOT FAIL-CLOSED: the
+       record carries the outcome, so a process killed while a row runs leaves no record of it,
+       and a store that refuses records does not stop the action (it is said, and `/readyz`'s
+       `audit` check fails) — `docs/rotation-and-retention.md` §5.
 
     WHAT IT RAISES, PRECISELY. Nothing a row or the audit seam does: a row's exception becomes a
     `raised` refusal, and a record that could not be made or kept is said at WARNING while the

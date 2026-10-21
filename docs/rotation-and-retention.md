@@ -307,6 +307,13 @@ WARNING naming the action and the store, and makes the process's `/readyz` fail 
 until a record lands ([the front end's API](reference/the-front-end-api.md)); the action's outcome
 stands.
 
+**When the record is written: after the action, and it does not hold the action back.** The record
+is made once the row has answered (or raised, or been cancelled), so it carries the outcome. Two
+things follow, and neither is fail-closed: a process killed while a long row runs (a merge, a
+release) leaves that row's effect with no record, and a store that cannot take records lets
+actions go on, each with its WARNING and the `audit` readiness check failing. Nothing is recorded
+before a row runs.
+
 **Two command lines, two places.** `openfactory` run on the host, outside the compose environment,
 declares no store, so its records — and what `openfactory audit` there reads back — are in
 `audit.db` beside that host's `registry.yaml` (`~/.openfactory/audit.db` by default). Under compose,
