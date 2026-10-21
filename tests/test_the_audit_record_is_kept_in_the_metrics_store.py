@@ -13,12 +13,18 @@ store's `INSERT OR REPLACE` on `<ts>#<ticket>#<role>` would otherwise keep one);
 to the action is masked in the row and its bytes are in neither the database nor its `-wal`; and
 the INFO line is still written, once per call, beside the row; and a row is read for
 `audit.AUDIT_KEPT_DAYS` and not a day longer, the period stated with its value on the page that
-states every other retention.
+states every other retention. Append-only on the store's own terms: a row's key carries its
+record's own id, and nothing in `openfactory/` but `audit.write` makes or writes an audit row,
+nor forgets one — read off the parsed tree, never its text.
 """
 
 from __future__ import annotations
 
+import ast
+import dataclasses
+import functools
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -186,3 +192,181 @@ def test_the_period_is_stated_where_the_other_retentions_are():
     # while".
     assert any("AUDIT_KEPT_DAYS" in ln and str(AUDIT_KEPT_DAYS) in ln for ln in lines), (
         f"AUDIT_KEPT_DAYS is not documented with its value ({AUDIT_KEPT_DAYS}) in {doc.name}")
+
+
+def test_an_audit_rows_key_is_its_own_record_id():
+    """Criterion 3, "append-only", on the store's own terms: every sink keys a row by
+    `MetricRecord.dynamo_key()`'s `sk = <ts>#<ticket>#<role|kind>`, and both the sqlite sink
+    (`INSERT OR REPLACE`) and a DynamoDB `put_item` replace a row whose key they meet again. An
+    audit row's `ticket` is its record's own id, so its key is `<ts>#<record_id>#<action>` and no
+    other record, made in the same instant by the same person for the same action, shares it.
+    Before #694 there was no audit row and so no key; keyed by the action instead, two calls in one
+    instant would share one row."""
+    from openfactory.observability.audit import AuditRecord, metric_of
+
+    by = actions.Actor(id="alice", via="panel")
+    outcome = actions.done("ok")
+    first = AuditRecord.of("product_status", by, {"project": "x"}, outcome)
+    second = dataclasses.replace(first, record_id=AuditRecord.of(
+        "product_status", by, {"project": "x"}, outcome).record_id)
+
+    keys = [metric_of(r).dynamo_key()["sk"] for r in (first, second)]
+
+    assert keys[0] == f"{first.ts}#{first.record_id}#product_status", keys[0]
+    assert keys[0] != keys[1], f"two records of one instant share the key {keys[0]}"
+
+
+# ── nothing in the tree rewrites an audit row ───────────────────────────────────────────────────
+#
+# Read off the parsed source of `openfactory/`, never its text: a comment that explains the rule
+# beside its code ("never .forget(kind='audit')") would satisfy a text search (CONTRIBUTING, six
+# dated incidents). A `kind` given by name is resolved to its value — through the module's own
+# constants, an imported constant, or the literal a loop walks — so a constant named anything
+# that holds "audit" is caught; a `kind` the walk cannot resolve fails as unseen, never passes as
+# "not audit".
+
+_TREE = Path(__file__).resolve().parents[1] / "openfactory"
+_UNSEEN = object()
+
+
+def _module_of(path: Path) -> str:
+    return ".".join(path.relative_to(_TREE.parent).with_suffix("").parts).removesuffix(".__init__")
+
+
+@functools.cache
+def _parsed() -> dict[str, ast.Module]:
+    """Every module of `openfactory/`, parsed once, when the guard runs (not at collection)."""
+    return {_module_of(p): ast.parse(p.read_text(encoding="utf-8"))
+            for p in sorted(_TREE.rglob("*.py"))}
+
+
+@functools.cache
+def _constants(module: str) -> dict[str, object]:
+    """The module-level names `module` binds to a literal, and what it imports by name."""
+    out: dict[str, object] = {}
+    for node in _parsed().get(module, ast.Module(body=[])).body:
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) and node.value else [])
+        for t in targets:
+            if isinstance(t, ast.Name):
+                try:
+                    out[t.id] = ast.literal_eval(node.value)
+                except ValueError:
+                    out[t.id] = _UNSEEN
+    # IMPORTS ANYWHERE IN THE MODULE, not only at its top: this tree imports inside the function
+    # that needs a name (`forget.py` reads `LEDGER_KIND` that way), and a constant imported there
+    # is as much the `kind` as one imported above.
+    for node in ast.walk(_parsed().get(module, ast.Module(body=[]))):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                out.setdefault(alias.asname or alias.name, ("import", node.module, alias.name))
+        if isinstance(node, ast.Import):  # `import a.b as m`: `m.NAME` is read in `a.b`
+            for alias in node.names:
+                if alias.asname:
+                    out.setdefault(alias.asname, ("module", alias.name, ""))
+    return out
+
+
+def _bound(expr: ast.expr, module: str) -> object:
+    """The literal `expr` names — a constant, a module's constant, an imported one — or
+    `_UNSEEN`."""
+    if isinstance(expr, ast.Constant):
+        return expr.value
+    name, where = ((expr.id, module) if isinstance(expr, ast.Name)
+                   else (expr.attr, _constants(module).get(expr.value.id, ("", "", ""))[1])
+                   if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name)
+                   else (None, None))
+    for _ in range(8):  # follow imports of imports; the tree has no longer chain
+        bound = _constants(where).get(name, _UNSEEN) if name and where else _UNSEEN
+        if isinstance(bound, tuple) and len(bound) == 3 and bound[0] == "import":
+            _, where, name = bound
+            continue
+        return bound
+    return _UNSEEN
+
+
+def _values(expr: ast.expr, module: str, loops: dict[str, ast.expr]) -> set | object:
+    """Every value `expr` can hold, or `_UNSEEN`."""
+    if isinstance(expr, ast.Name) and expr.id in loops:  # a loop's target: what the loop walks
+        walked = loops[expr.id]
+        if (isinstance(walked, ast.Call) and isinstance(walked.func, ast.Attribute)
+                and walked.func.attr in ("items", "keys", "values") and not walked.args):
+            walked, part = walked.func.value, walked.func.attr
+        else:
+            part = "keys"
+        held = _bound(walked, module)
+        if not isinstance(held, (dict, list, tuple, set, frozenset)):
+            return _UNSEEN
+        return set(held.values()) if part == "values" and isinstance(held, dict) else set(held)
+    held = _bound(expr, module)
+    return {held} if isinstance(held, str) else _UNSEEN
+
+
+def _kind_of(call: ast.Call, positional: int | None) -> ast.expr | None:
+    for kw in call.keywords:
+        if kw.arg == "kind":
+            return kw.value
+    if positional is not None and len(call.args) > positional:
+        return call.args[positional]
+    return None
+
+
+def _visit(node: ast.AST, module: str, function: str, loops: dict[str, ast.expr],
+           found: list[str]) -> None:
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        function = node.name
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        names = [n.id for n in ast.walk(node.target) if isinstance(n, ast.Name)]
+        loops = {**loops, **{n: node.iter for n in names}}
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        for gen in node.generators:
+            names = [n.id for n in ast.walk(gen.target) if isinstance(n, ast.Name)]
+            loops = {**loops, **{n: gen.iter for n in names}}
+    if isinstance(node, ast.Call):
+        callee = (node.func.attr if isinstance(node.func, ast.Attribute)
+                  else node.func.id if isinstance(node.func, ast.Name) else "")
+        where = f"{module}:{node.lineno}"
+        # Each way a row is made or removed: built (`MetricRecord(kind=…)`), removed
+        # (`<sink>.forget(project, kind=…)`), or an audit record's row written again
+        # (`metric_of`, whose row `.record`/`record_if_absent` would replace in place
+        # under the same key). NOT `<row>.model_copy(update={"kind": …})`: the walk cannot
+        # tell a metrics row from the other models copied that way (`product/case.py`
+        # copies a draft's `kind`), and no copy in the tree changes a row's kind.
+        checked = {"MetricRecord": None, "forget": 1}.get(callee, "skip")
+        if checked != "skip":
+            kind = _kind_of(node, checked)
+            if kind is not None:
+                values = _values(kind, module, loops)
+                allowed = (module, function) == ("openfactory.observability.audit",
+                                                 "metric_of") and callee == "MetricRecord"
+                if values is _UNSEEN:
+                    found.append(f"{where} {callee}(kind={ast.unparse(kind)}) unseen")
+                elif "audit" in values and not allowed:
+                    found.append(f"{where} {callee}(kind={ast.unparse(kind)})")
+        if callee == "metric_of" and (module, function) != (
+                "openfactory.observability.audit", "_keep"):
+            found.append(f"{where} metric_of(…) outside audit._keep")
+    for child in ast.iter_child_nodes(node):
+        _visit(child, module, function, loops, found)
+
+
+def _rewrites_of_an_audit_row() -> list[str]:
+    """`<module>:<line> <what>` for each place outside `audit.metric_of`/`audit._keep` that
+    makes, re-writes or forgets a row of kind `audit`, or whose `kind` the walk cannot see."""
+    found: list[str] = []
+    for module, tree in _parsed().items():
+        _visit(tree, module, "", {}, found)
+    return found
+
+
+def test_nothing_rewrites_an_audit_row():
+    """Criterion 3, "append-only": the one place a row of kind `audit` is made is
+    `audit.metric_of`, the one place it is handed to a store is `audit._keep` (behind
+    `audit.write`, once per call), and nothing in `openfactory/` forgets one — only the store's
+    TTL removes it, after `audit.AUDIT_KEPT_DAYS`. A second writer of an audit row would replace a
+    record under its own key; a `forget` of the kind would erase who did what. Before #694 no row
+    of kind `audit` existed, so there was nothing to guard."""
+    found = _rewrites_of_an_audit_row()
+
+    assert found == [], "an audit row is made, written again or forgotten outside audit.write:\n" + (
+        "\n".join(found))
