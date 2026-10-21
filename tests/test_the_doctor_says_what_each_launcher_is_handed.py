@@ -125,7 +125,8 @@ def test_a_stored_secret_for_a_launcher_that_declares_nothing_fails_before_the_f
     assert SECRET not in finding.message + finding.remedy
 
     # …and the same deployment on a launcher that declares is not failed
-    _serve_remote_runner(tmp_path, monkeypatch, _TakesReferences())
+    (tmp_path / "declares").mkdir()
+    _serve_remote_runner(tmp_path / "declares", monkeypatch, _TakesReferences())
     assert _line(stored).ok
 
 

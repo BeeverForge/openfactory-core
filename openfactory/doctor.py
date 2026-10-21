@@ -424,6 +424,11 @@ class Probes:
     #: axes' `token_env`, its box image's pull credential), each by reference and by the store
     #: that answers, never by value (#742). None = an older Probes; the check is skipped.
     credential_store: Callable[[], tuple[bool, str, str]] | None = None
+    #: `(ok, message, remedy)`: what each remote box's launcher is handed for a secret the
+    #: credential store holds — the reference, or minted tokens only — and a FAIL when this
+    #: deployment's box would refuse one of the project's stored secrets at the first job (#903).
+    #: None = an older Probes; the check is skipped.
+    launcher_credentials: Callable[[], tuple[bool, str, str]] | None = None
     #: What the project's OWN CI runs, as `{key: (command, "path:line")}` — or None when this
     #: deployment cannot look (no checkout, no reader). #176.
     #:
@@ -633,6 +638,10 @@ def diagnose(probes: Probes) -> Report:
     if probes.credential_store:
         findings.append(_guarded(
             "credential_store", lambda: Finding("credential_store", *probes.credential_store())))
+    if probes.launcher_credentials:
+        findings.append(_guarded(
+            "launcher_credentials",
+            lambda: Finding("launcher_credentials", *probes.launcher_credentials())))
     findings.append(_guarded("manifest", lambda: _manifest(probes)))
     findings.append(_guarded("guidelines", lambda: _guidelines(probes)))
     if probes.operator_guidelines:
@@ -3237,6 +3246,7 @@ def probes_for(project) -> Probes:
         product_link=lambda: _resolve_link(project),
         agent_credential=_agent_credential_probe,
         credential_store=lambda: credential_store_line(project),
+        launcher_credentials=lambda: launcher_credentials_line(project),
         # THE SAME READER THE POLLER USES. `_box_gate` above already asks `default_sandbox()` for
         # its question; a second way of deciding which box this is would be a second answer.
         sandbox=_sandbox,
@@ -3351,6 +3361,81 @@ def credential_store_line(project) -> tuple[bool, str, str]:
                 f"in the project's registry entry or where the store keeps it")
     return (True, f"{order}; " + ("; ".join(said) or "this project names no credential of its own"),
             "")
+
+
+#: What the `launcher_credentials` line says of a remote box, for each answer of
+#: `adapters.sandbox.registry.launcher_receives` but "local" (a local box has no launcher). Exported
+#: so the tests and the docs read the words the line prints.
+LAUNCHER_SAID = {
+    "references": "is handed references to stored secrets and resolves them on its own side",
+    "values": "is handed values: short-lived minted tokens only",
+    "not installed": "has no runner installed here, so what its launcher declares cannot be seen "
+                     "(a launcher that declares nothing is handed minted tokens only)",
+}
+
+
+def launcher_credentials_line(project) -> tuple[bool, str, str]:
+    """`(ok, message, remedy)` for the `launcher_credentials` line (#903): what each remote box's
+    launcher is handed for a secret the credential store holds, in `LAUNCHER_SAID`'s words.
+
+    IT FAILS IN ONE CASE, the refusal the first job would meet (`credentials.
+    box_launch_credentials`): this deployment's box (`default_sandbox()`) is remote, its launcher
+    declares nothing, and one of `project`'s axes is held in a store. The message names the axis's
+    reference, never its value. A box whose runner is not installed here is said and not failed:
+    nothing on this machine can see what its launcher declares, and a deployment that has the
+    add-on must not be told a guess (docs/engineering-lessons.md §2)."""
+    from openfactory import credentials, plugins
+    from openfactory.adapters.sandbox import registry
+    from openfactory.runtime.temporal.io import default_sandbox
+
+    box = registry._key(default_sandbox())
+    # AN UNKNOWN BOX RAISES here, naming the known ones, and `_guarded` makes that the finding: a
+    # typo in OPENFACTORY_SANDBOX is not a box "which has no launcher".
+    remote = registry.installed_box_traits(box).remote
+    said: list[str] = []
+    answers: dict[str, str] = {}
+    for kind in plugins.known(registry.AXIS, registry.BOXES):
+        try:
+            answer = registry.launcher_receives(kind)
+        except Exception as exc:  # noqa: BLE001 — one row's broken runner is said, not a crash
+            # NOT "values": a runner `_checked_runner` refuses (it declares and cannot take
+            # `references`) is refused at every launch, which is a different fact from one that
+            # declares nothing.
+            said.append(f"`{kind}`'s launcher could not be asked: {exc}")
+            if kind == box:
+                return (False, "; ".join(said),
+                        f"this deployment's jobs run in the `{kind}` box: fix its runner, or set "
+                        f"OPENFACTORY_SANDBOX to another box")
+            continue
+        if answer != "local":
+            answers[kind] = answer
+            said.append(f"`{kind}` {LAUNCHER_SAID[answer]}")
+    if not answers and not said:
+        said.append("no remote box is installed here")
+    where = (f"this deployment's jobs run in the `{box}` box"
+             + ("" if remote else ", which has no launcher"))
+    if answers.get(box) == "values":
+        held = []
+        for axis in credentials.BOX_TOKEN_ENV:
+            # THE SAME TWO QUESTIONS, IN THE SAME ORDER, AS `box_launch_credentials`: an axis that
+            # declares the machine's identity (or declares it wrongly) is minted for, and never
+            # asked of the store.
+            declared, problem = credentials._declared(getattr(project, axis, None))
+            if not (declared or problem) and (reference := credentials._held_in_a_store(
+                    project, axis)):
+                held.append(f"{axis} credential `{reference}`")
+        if held:
+            return (False,
+                    f"{where}, and its launcher does not declare that "
+                    f"{credentials.RESOLVES_REFERENCES}, while {project.name}'s "
+                    f"{' and '.join(held)} {'is' if len(held) == 1 else 'are'} held in the "
+                    f"credential store: the first job will be refused before it launches; "
+                    + "; ".join(said),
+                    f"hold the secret in a variable the box reads for itself (`env:<NAME>`), which "
+                    f"is handed over by name, declare the machine's own identity "
+                    f"(`identity: workload`), or run on a box whose launcher declares "
+                    f"`{registry.RESOLVES_REFERENCES_ATTR} = True`")
+    return (True, f"{where}; " + "; ".join(said), "")
 
 
 def _declares_a_machine_identity(project) -> bool:
