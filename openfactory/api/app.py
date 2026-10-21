@@ -1541,7 +1541,14 @@ def read_address(repo_path: str = "", repo: str = "", provider: str = "") -> dic
 
 
 @app.post("/api/projects", dependencies=_AUTH)
-def add_project(body: NewProject) -> dict:
+def add_project(body: NewProject, request: Request) -> dict:
+    """Register a project. Leaves one audit record, `project_add`, however it ends: this door
+    calls no catalog row (`actions.door_recorded`, PR #1039 review)."""
+    with actions.door_recorded("project_add", by=_actor(request), params=body.model_dump()):
+        return _add_project(body)
+
+
+def _add_project(body: NewProject) -> dict:
     options: dict[str, str] = {}
     if body.board_owner and body.board_number:
         options = {"board_owner": body.board_owner, "board_number": body.board_number}
@@ -2453,6 +2460,16 @@ def _staged_suggestion(project: str, channel) -> dict | None:
 
 @app.post("/api/messages/{project}/answer", dependencies=_AUTH)
 def answer_channel_message(project: str, body: dict, request: Request) -> dict:
+    """A person answering a question the factory asked on the panel — `_answer_channel_message`,
+    with one audit record, `message_answer`, however it ends: this door calls no catalog row
+    (`actions.door_recorded`, PR #1039 review). The question's `token` is masked in the record and
+    the `answer` kept as its digest, as any parameter of those names is."""
+    params = {**(body if isinstance(body, dict) else {}), "project": project}
+    with actions.door_recorded("message_answer", by=_actor(request), params=params):
+        return _answer_channel_message(project, body, request)
+
+
+def _answer_channel_message(project: str, body: dict, request: Request) -> dict:
     """A person answering a question the factory asked on the panel.
 
     THE TOKEN IS THE SUBJECT, not the position in a list. It identifies what the reader was SHOWN,

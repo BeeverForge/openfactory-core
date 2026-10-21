@@ -81,7 +81,10 @@ MUTATIONS = [
      _T + "test_the_cli_generates_one_per_call"),
     # ── C. perform ─────────────────────────────────────────────────────────────────────────────
     ("perform mints no id for a caller that carries none", _ACTIONS,
+     # Re-pinned 2026-10-21: `door_recorded` mints the same way; the cut is `perform`'s own.
+     "        # is written instead, the yes and the skip it caused would carry two unrelated ids.\n"
      "        by = dataclasses.replace(by, correlation=audit.new_correlation_id())\n",
+     "        # is written instead, the yes and the skip it caused would carry two unrelated ids.\n"
      "        pass\n",
      _T + "test_a_caller_that_carries_none_still_gets_one"),
     ("perform mints a fresh id even for a call that already carries one (a relay)", _ACTIONS,

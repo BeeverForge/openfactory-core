@@ -151,7 +151,31 @@ components: {}
 """
 
 
+def _door(action: str):
+    """A command that changes the deployment without a catalog row, recorded: its body runs inside
+    `actions.door_recorded(action, …)` as the shell's own user, the parameters it was called with
+    being the record's (PR #1039 review: `project add`, `project init`, `init`, `product init` and
+    `approver add` left no record). `functools.wraps` keeps the signature typer reads."""
+    import functools
+    import getpass
+
+    def wrap(command):
+        @functools.wraps(command)
+        def recorded(*args, **kwargs):
+            from openfactory import actions as act_layer
+
+            try:
+                who = getpass.getuser()
+            except (KeyError, OSError):
+                who = "unknown"
+            with act_layer.door_recorded(action, by=_cli_actor(who), params=kwargs):
+                return command(*args, **kwargs)
+        return recorded
+    return wrap
+
+
 @project_app.command("add")
+@_door("project_add")
 def project_add(
     name: str,
     repo_path: str = typer.Argument(..., help="Local path or clone URL of the repo"),
@@ -604,6 +628,7 @@ def project_remove(name: str) -> None:
 
 
 @project_app.command("init")
+@_door("project_init")
 def project_init(
     name: str,
     repo_path: str = typer.Argument(None, help="Local path or clone URL (only needed when the "
@@ -892,6 +917,7 @@ def _foreign_refusal(foreign: str, provider: str | None) -> str:
 
 
 @app.command("init")
+@_door("init")
 def init_deployment(
     runtime: str = typer.Option(None, help="Where the FACTORY runs — `local` (three processes on "
                                            "this machine) or `compose` (Docker), plus whatever an "
@@ -3096,6 +3122,7 @@ app.add_typer(approver_app, name="approver")
 
 
 @approver_app.command("add")
+@_door("approver_add")
 def approver_add(login: str) -> None:
     """Add/update an approver; prompts for a password (stored only as a hash)."""
     from openfactory import approvals
@@ -4980,6 +5007,7 @@ def product_declare(name: str, docs_repo: str) -> None:
 
 
 @product_app.command("init")
+@_door("product_init")
 def product_init(
     name: str,
     source: list[str] = typer.Option(None, "--source",  # noqa: B008 — typer's own idiom

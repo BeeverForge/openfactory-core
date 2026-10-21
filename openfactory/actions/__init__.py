@@ -42,10 +42,11 @@ implemented by none of them.**
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 
 from openfactory.actions.base import (
     AROUND_EVERY_ROW,
@@ -445,6 +446,66 @@ async def _decide(name: str, key: str, by: Actor, params: dict[str, object]) -> 
         log.error("action %s refused with an undeclared reason %r — it declares %s", key,
                   outcome.data.get("reason"), ", ".join(reasons(key)))
     return outcome
+
+
+#: What a door's HTTP refusal is, as a code (`door_recorded`): the status's meaning in the layer's
+#: own words; any other status is `failed`.
+_DOOR_STATUS = {400: INVALID, 401: DENIED, 403: DENIED, 404: NOT_FOUND, 409: CONFLICT,
+                422: INVALID, 503: UNAVAILABLE}
+
+
+def _door_outcome(exc: BaseException) -> Outcome:
+    """How a door that did not return ended, as the record keeps it: an HTTP refusal by its
+    status (`http_<status>`), a command's exit by its code (`exit_<code>`, `ok` when 0), an abort
+    at a prompt as `aborted`, anything else as `raised`. Read by attribute, so this module imports
+    neither the panel's framework nor the command line's."""
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        if status < 400:
+            return done(f"answered {status}")
+        return Outcome(ok=False, code=_DOOR_STATUS.get(status, FAILED),
+                       message=str(getattr(exc, "detail", "") or status),
+                       data={"reason": f"http_{status}"})
+    code = getattr(exc, "exit_code", None)
+    if code is None and isinstance(exc, SystemExit):
+        code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+    if isinstance(code, int):
+        if code == 0:
+            return done("exited 0")
+        return Outcome(ok=False, code=FAILED, message=f"exited {code}",
+                       data={"reason": f"exit_{code}"})
+    if type(exc).__name__ == "Abort" or isinstance(exc, KeyboardInterrupt):
+        return Outcome(ok=False, code=FAILED, message="aborted", data={"reason": "aborted"})
+    return Outcome(ok=False, code=FAILED, message=f"raised {type(exc).__name__}",
+                   data={"reason": RAISED})
+
+
+@contextlib.contextmanager
+def door_recorded(name: str, *, by: Actor, params: Mapping[str, object]) -> Iterator[None]:
+    """The record of a door that changes the deployment without a catalog row — `POST
+    /api/projects`, `POST /api/messages/{project}/answer`, `openfactory project add`, `project
+    init`, `init`, `product init`, `approver add` — left once, as `perform` leaves its own: the
+    INFO line and the `AuditRecord`, through the same `_leave_record`, whatever way the door ends
+    (`_door_outcome`). The exception, if any, goes on unchanged.
+
+    WHY. These doors call no row, so on c310ba28 they left no record at all: `openfactory project
+    add demo <repo>` registered the project, and `openfactory audit` then said the store held no
+    record (PR #1039 review, hermesfelipe). A catalog row for each would move seven doors' code
+    for what is, to the audit, one line; the record is the same shape either way.
+
+    For a door with no running event loop (a command, a FastAPI `def` route on its threadpool):
+    the record is written with `asyncio.run`, as the command line's `perform` calls are."""
+    if not by.correlation:
+        by = dataclasses.replace(by, correlation=audit.new_correlation_id())
+    outcome: Outcome | None = None
+    try:
+        yield
+        outcome = done(f"{name} done")
+    except BaseException as exc:
+        outcome = _door_outcome(exc)
+        raise
+    finally:
+        asyncio.run(_leave_record(name, name, by, dict(params), outcome or done(f"{name} done")))
 
 
 async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object],

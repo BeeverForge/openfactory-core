@@ -307,6 +307,13 @@ WARNING naming the action and the store, and makes the process's `/readyz` fail 
 until a record lands ([the front end's API](reference/the-front-end-api.md)); the action's outcome
 stands.
 
+**Which calls leave one.** Every call into the action layer (`perform`), from the panel, the
+command line, the product chat or the factory itself; and the doors that change the deployment
+without a catalog row: `POST /api/projects` and `POST /api/messages/{project}/answer` on the
+panel, and `openfactory project add`, `project init`, `init`, `product init` and `approver add`.
+Each of those leaves one record named for it (`project_add`, `message_answer`, …), `ok`, or
+`failed` with the HTTP status (`http_400`) or the exit code (`exit_2`) it ended with.
+
 **When the record is written: after the action, and it does not hold the action back.** The record
 is made once the row has answered (or raised, or been cancelled), so it carries the outcome. Two
 things follow, and neither is fail-closed: a process killed while a long row runs (a merge, a
