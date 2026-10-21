@@ -3259,18 +3259,24 @@ def probes_for(project) -> Probes:
 def _the_forges_own_token(project, reference: str) -> bool:
     """Whether `reference` — the box image's pull credential — is the forge's own token: the
     forge's `token_env`, or the deployment's `OPENFACTORY_FORGE_TOKEN` / `OPENFACTORY_BOT_TOKEN`,
-    bare or as `env:` (review of 256c5b0 for #742). Those write, and a pull needs read scope only;
-    said beside the pull's line, never failed, because the pull works."""
+    bare or as a reference (review of 256c5b0 for #742). Those write, and a pull needs read scope
+    only; said beside the pull's line, never failed, because the pull works.
+
+    A BARE NAME IS ASKED OF TWO STORES, the declared one and then the environment, so it is the
+    same credential as a reference to either (review of bd178211): under a `file` store, a bare
+    `acme-forge` is `file:acme-forge` when that file is there and `env:acme-forge` when not."""
     from openfactory.adapters.credential_store import registry as store
 
     forge = str((getattr(getattr(project, "forge", None), "options", None) or {})
                 .get("token_env") or "")
 
+    def kinds(kind: str) -> set[str]:
+        return {kind} if kind else {store.ENV, store.deployment_store()}
+
     def same(one: str, other: str) -> bool:
         kind, name = store.parse(one)
         other_kind, other_name = store.parse(other)
-        return (bool(name) and name == other_name
-                and (kind or store.ENV) == (other_kind or store.ENV))
+        return bool(name) and name == other_name and bool(kinds(kind) & kinds(other_kind))
 
     return any(same(reference, other)
                for other in (forge, "OPENFACTORY_FORGE_TOKEN", "OPENFACTORY_BOT_TOKEN"))

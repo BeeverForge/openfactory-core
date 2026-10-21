@@ -730,6 +730,42 @@ def test_the_doctor_says_when_the_pull_credential_is_the_forges_own_token(secret
     assert ok and "the forge's own token" not in said, said
 
 
+#: `(the forge's token_env, the pull credential, the declared store, whether they are one)`. A
+#: bare name is asked of the declared store and then of the environment, so it is the same
+#: credential as a reference to either; a reference to one store is never one to another.
+FORGE_AND_PULL = [
+    ("acme-forge", "file:acme-forge", "file", True),
+    ("file:acme-forge", "acme-forge", "file", True),
+    (None, "file:OPENFACTORY_BOT_TOKEN", "file", True),
+    ("acme-forge", "env:acme-forge", "file", True),
+    ("acme-forge", "file:acme-forge", None, False),
+    ("env:acme-forge", "file:acme-forge", "file", False),
+]
+
+
+@pytest.mark.parametrize(("forge", "pull", "declared", "one"), FORGE_AND_PULL)
+def test_a_bare_name_is_the_forges_own_token_in_either_store_it_is_asked_of(
+        forge, pull, declared, one, secrets, monkeypatch):
+    """Under a `file` store a bare `acme-forge` is the file `acme-forge` when it is there, so a
+    pull credential naming that file is the forge's own token (review of bd178211); with no store
+    declared, the bare name is the variable alone, and the file is another credential."""
+    from openfactory.doctor import credential_store_line
+
+    secrets("acme-forge", SECRET)
+    secrets("OPENFACTORY_BOT_TOKEN", SECRET)
+    monkeypatch.setenv("acme-forge", SECRET)
+    if declared:
+        monkeypatch.setenv(STORE_VAR, declared)
+    project = Project(name="acme", repo_path="/tmp/acme",
+                      forge=(ProviderRef(kind="github", repo="acme/web",
+                                         options={"token_env": forge}) if forge else None),
+                      box=BoxConfig(pull_credential=pull, pull_username="ci-bot"))
+    ok, said, _ = credential_store_line(project)
+    assert ok, said
+    assert ("the forge's own token" in said) is one, said
+    assert SECRET not in said
+
+
 #: Each way a project's credential configuration cannot work, and what the line names.
 DOCTOR_FAILURES = {
     "a declared store nobody installed": (dict(store="vault"), {}, "unknown credential store"),

@@ -3,6 +3,10 @@
 `resolve(name)` is the secret, read NOW; `describe(name)` is where it is looked for and whether it
 is there, for `openfactory doctor`, and never the value. `name` is the part of a reference after
 `<kind>:` — a variable for `env`, a file for `file`, whatever an add-on's store calls an entry.
+
+A row is built by a zero-argument builder that reads its own settings. One that raises — a vault
+whose address was never set — is a store that cannot be built (`registry.build_store`): refused by
+name wherever it is named, and passed over by a reader that walks every installed store.
 """
 
 from __future__ import annotations

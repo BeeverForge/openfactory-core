@@ -150,7 +150,11 @@ stranger's), and a deployment names the store its own credentials are asked of f
 (`OPENFACTORY_CREDENTIAL_STORE`). The `credential` axis above says how a vendor turns what it holds
 into a token; this one says where a held secret is read from, and every credential the core reads
 by a name it spells asks it, from the environment or through any other mapping
-(`tests/test_every_stored_credential_is_read_through_the_store.py`).*
+(`tests/test_every_stored_credential_is_read_through_the_store.py`). A row's builder takes no
+argument and reads its own settings; one that raises — a vault whose address was never set — is
+a store that cannot be built: a reference to it is refused by name, and a reader that walks every
+installed store, as the product's facts and the certify pack do to withhold what they hold, passes
+it over (`tests/test_a_store_that_cannot_be_built_takes_no_reader_down.py`).*
 
 **The code is small; the commitment is not.** Adopting in-process as *the* extension model
 closes the door on providers written in C# or Go, and on plugging one in without a

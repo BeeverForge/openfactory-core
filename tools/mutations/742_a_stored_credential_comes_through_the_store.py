@@ -17,8 +17,10 @@ provider after it, the harness, both boxes, the gate and preview keys, the engin
 doctor, readiness and onboarding line that asks whether a credential is configured (the family
 test, `tests/test_a_refused_credential_opens_no_door.py`). Then the file store on a read-only
 mount, its repairs and a byte-order mark; the pull's redaction, a job that pulls first, and the
-pull reaching the box's daemon; and the sweep reading tables. Last, every `gh` the package starts,
-and every link on a name's way.
+pull reaching the box's daemon; and the sweep reading tables. Then every `gh` the package starts,
+and every link on a name's way; the product's facts withholding what the stores hold. Last, an
+installed store that cannot be built, which takes no reader down, and what `held_values` asks and
+how quietly (the review of bd178211).
 """
 
 TEST = "tests/test_a_stored_credential_comes_through_the_store.py"
@@ -26,6 +28,7 @@ SWEEP = "tests/test_every_stored_credential_is_read_through_the_store.py"
 KNOBS = "tests/test_the_box_claims_only_what_it_does.py"
 FAMILY = "tests/test_a_refused_credential_opens_no_door.py"
 GATE = "tests/test_a_refused_gate_key_is_said_as_itself.py"
+NOT_BUILT = "tests/test_a_store_that_cannot_be_built_takes_no_reader_down.py"
 
 CREDENTIALS = "openfactory/credentials.py"
 ADAPTER = "openfactory/adapters/agent/claude_code.py"
@@ -604,8 +607,55 @@ MUTATIONS = [
      "    if not found and not refused and provider is not None:",
      "    if False:",
      "tests/test_an_app_key_refused_after_the_adapter_was_built_is_final_too.py"),
+    # re-pinned 2026-10-21 (review of bd178211): a bare name stands for both stores it is asked of
     ("the doctor does not say that the pull credential is the forge's own token",
      "openfactory/doctor.py",
-     "        return (bool(name) and name == other_name",
-     "        return (False and name == other_name"),
+     "        return bool(name) and name == other_name and bool(kinds(kind) & kinds(other_kind))",
+     "        return False"),
+
+    # ── the review of bd178211: a store that cannot be built takes no reader down; what
+    #    `held_values` asks, and how quietly; the doctor's bare name ──────────────────────────────
+    ("a builder that raises anything but `ValueError` takes the product's facts down", REGISTRY,
+     "    try:\n        return builder()\n    except ValueError:\n        raise\n"
+     "    except Exception as exc:  # noqa: BLE001 — an add-on's store may not take a reader down\n"
+     "        raise ValueError(f\"the {key} credential store could not be built \"\n"
+     "                         f\"({type(exc).__name__}) — see the settings its add-on reads\") "
+     "from exc\n",
+     "    return builder()\n", "tests/test_the_read_model.py"),
+    ("a builder's failure is a store that cannot be built only when it is a `RuntimeError`",
+     REGISTRY,
+     "    except Exception as exc:  # noqa: BLE001 — an add-on's store may not take a reader down",
+     "    except RuntimeError as exc:  # noqa: BLE001 — an add-on's store may not take a reader down",
+     NOT_BUILT),
+    ("a builder's own `ValueError` is said in the registry's words instead of its own", REGISTRY,
+     "    except ValueError:\n        raise\n    except Exception as exc:  # noqa: BLE001 — an add-on's",
+     "    except Exception as exc:  # noqa: BLE001 — an add-on's", NOT_BUILT),
+    ("a declared store that cannot be built is not refused: every consumer goes down", REGISTRY,
+     "    try:\n        return builder()\n    except ValueError:\n        raise\n",
+     "    try:\n        return builder()\n    except ValueError:\n        raise\n"
+     "    except RuntimeError:\n        raise\n", FAMILY),
+    ("X1: a declared store that cannot list is asked for nothing", REGISTRY,
+     "        elif kind == declared:\n"
+     "            asked |= {n for n in environ.names_read() if environ.holds_a_credential(n)}\n",
+     "", "tests/test_the_read_model.py"),
+    ("X2: `held_values` ignores the references it is handed", REGISTRY,
+     "    asked: set[object] = set(named)\n",
+     "    asked: set[object] = set()\n", "tests/test_the_read_model.py"),
+    ("X3: `held_values` reads loudly, a warning per refused entry per scrub", REGISTRY,
+     "(v := look(ref, quiet=True).value)",
+     "(v := look(ref, quiet=False).value)", "tests/test_the_read_model.py"),
+    ("X4: `held_values` asks a store to list what it holds before asking whether it can be read",
+     REGISTRY,
+     "        if kind == ENV or unusable(kind):\n            continue\n",
+     "        if kind == ENV:\n            continue\n", "tests/test_the_read_model.py"),
+    ("a quiet read of a store that fails is a warning", REGISTRY,
+     "        log.log(logging.DEBUG if quiet else logging.WARNING,",
+     "        log.log(logging.WARNING,", "tests/test_the_read_model.py"),
+    ("a quiet read of a store that fails carries its traceback", REGISTRY,
+     "\"nothing is used in its place\", kind, name, exc_info=not quiet)",
+     "\"nothing is used in its place\", kind, name, exc_info=True)", "tests/test_the_read_model.py"),
+    ("a bare name stands for the environment alone, whatever store is declared",
+     "openfactory/doctor.py",
+     "        return {kind} if kind else {store.ENV, store.deployment_store()}",
+     "        return {kind or store.ENV}"),
 ]
