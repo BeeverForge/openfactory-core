@@ -256,6 +256,7 @@ def test_box_prove_builds_its_box_with_the_operator_directory_the_job_mounts(tmp
                         lambda _kind: SimpleNamespace(honours_image=True))
     monkeypatch.setattr(sandboxes, "build_sandbox",
                         lambda *_a, **kw: handed.append(kw) or _Box())
+    monkeypatch.setattr(box_prove, "PROOF_DIR", tmp_path / "proofs")  # its lock, never /var/lib
 
     with box_prove.box_probes(SimpleNamespace(name="acme", box=None), "img", repo_path=tmp_path,
                               manifest=Manifest(), key="acme", sandbox="container"):
@@ -291,6 +292,7 @@ def test_box_proves_fit_leaves_out_what_its_box_can_open(tmp_path, monkeypatch):
     monkeypatch.setattr(sandboxes, "installed_box_traits",
                         lambda _kind: SimpleNamespace(honours_image=True))
     monkeypatch.setattr(sandboxes, "build_sandbox", lambda *_a, **_kw: _Box())
+    monkeypatch.setattr(box_prove, "PROOF_DIR", tmp_path / "proofs")  # its lock, never /var/lib
     with box_prove.box_probes(SimpleNamespace(name="acme", box=None), "img", repo_path=tmp_path,
                               manifest=Manifest(), key="acme", sandbox="container") as probes:
         _per_role, _note, fit = probes.inlined_documents()

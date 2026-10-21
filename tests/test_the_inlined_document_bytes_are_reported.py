@@ -288,6 +288,7 @@ def test_box_prove_reports_the_refusal_the_pass_will_make(tmp_path: Path, monkey
     monkeypatch.setattr(sandboxes, "installed_box_traits",
                         lambda _kind: SimpleNamespace(honours_image=True))
     monkeypatch.setattr(sandboxes, "build_sandbox", lambda *_a, **_kw: _NoChannelBox())
+    monkeypatch.setattr(box_prove, "PROOF_DIR", tmp_path / "proofs")  # its lock, never /var/lib
 
     with box_prove.box_probes(SimpleNamespace(name="acme", box=None), "img", repo_path=tmp_path,
                               manifest=manifest, key="acme", sandbox="container") as probes:
@@ -480,6 +481,7 @@ def test_box_prove_hands_the_sizer_the_projects_resolved_profile(tmp_path: Path,
                         lambda _kind: SimpleNamespace(honours_image=True))
     monkeypatch.setattr(sandboxes, "build_sandbox", lambda *_a, **_kw: _Box())
     monkeypatch.delenv(og.ENV_VAR, raising=False)
+    monkeypatch.setattr(box_prove, "PROOF_DIR", tmp_path / "proofs")  # its lock, never /var/lib
 
     with box_prove.box_probes(SimpleNamespace(name="acme", box=None), "img", repo_path=tmp_path,
                               manifest=Manifest(profile="prototype"), key="acme",
