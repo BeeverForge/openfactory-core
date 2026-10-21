@@ -14,6 +14,13 @@ masked, a person's words as their length and digest, every other value bounded �
 in the record, so there is no second list of secrets or of free-text names to forget to update.
 `redact` alone (secrets only) is what the denial warnings print (`actions._loggable`).
 
+NO CREDENTIAL, HOWEVER SENT. Both views mask a value by its name's pattern (`is_secret`), at every
+depth of a mapping or a list (`_clean`), and scrub every string of credentials before it is cut
+(`product.model.scrub_credentials`: a URL's userinfo, a credential's shape, this process's
+secrets). On c310ba28 four exact names were masked at the top level only, and the PR #1039 review
+read a GitHub token in a URL, `api_key`, `Password`, `github_pat` and a nested `password` back out
+of `audit.db` (2026-10-21).
+
 WHERE IT IS KEPT. `write` hands each record to `sink()` as one row of kind `audit` in the metrics
 store, off the event loop; a deployment that declares no store keeps them in `audit.db` beside
 `registry.yaml`. A person's words are kept as their length and digest, never as text (ADR-0024),
@@ -51,10 +58,27 @@ log = logging.getLogger(__name__)
 
 #: Parameters whose VALUE must never reach a log line or an audit record. `approve_prod` and
 #: `promote` take the approver's password, and `perform` writes its line and its record on every
-#: call including the refusals — which is precisely the path a wrong password takes. Read by
-#: `redact`, which `_kept` (the line's and the record's view) and the denial warnings
-#: (`actions._loggable`) call.
+#: call including the refusals — which is precisely the path a wrong password takes. The catalog's
+#: own secret names, exactly: `actions._ADDRESSABLE` is held apart from them. What masks a value is
+#: `is_secret`, which matches these and every name of their shape; `redact` and `_kept` read it.
 SECRET = frozenset({"password", "token", "secret", "key"})
+
+#: What makes a parameter's name a secret's wherever it sits in the name, in any case (`api_key`,
+#: `Password`, `x-auth-token`, `client_secret`). Measured on c310ba28 (PR #1039 review): with four
+#: exact names, a refused `product_status` sent `api_key`, `Password` and `github_pat` and the
+#: record kept all three values — the panel hands `perform` every name a request body holds.
+SECRET_WORDS = ("passw", "secret", "token", "key")
+
+#: What makes a name a secret's only as a WORD of it (`pat`, `github_pat`, `githubPat`): as a
+#: substring, `pat` is in `path` (`product_ingest`) and `repo_path` (`product_first_source`), two
+#: parameters the catalog takes whose values are file names, not credentials — read off every
+#: catalog row's parameters on 2026-10-21. No other word of `SECRET_WORDS` meets a catalog name;
+#: `token_env` (`product_start`) is masked, and loses only the name of a variable a person could
+#: as easily have pasted the token into.
+SECRET_TOKENS = frozenset({"pat"})
+
+#: A name split into its words: a run of letters or digits, a capital starting a new one.
+_WORD = re.compile(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])")
 
 #: What a masked value reads as, in the line and in the record alike.
 MASK = "***"
@@ -87,6 +111,13 @@ VALUE_CHARS = 2_000
 #: and a 10 MB `audit.db` (branch review round 2, 2026-10-21, a real `openfactory serve`).
 PARAMS_KEPT = 32
 NAME_CHARS = 64
+
+#: How many mappings or lists deep a parameter's value is read (`_clean`): `product_say`'s
+#: `context` is one level, and nothing the catalog takes is more than two. What sits deeper is
+#: not kept — it is `TOO_DEEP` in its place — because the record cannot read the names under it,
+#: and a secret's name it cannot read is a secret it would keep.
+NESTED_DEPTH = 4
+TOO_DEEP = f"[nested deeper than {NESTED_DEPTH} levels; not kept]"
 
 #: How long a record is read, in days (#694 Q3): who did what, when, and on which deployment is
 #: a question a security review asks of the last year, not forever — the precedent of the board's
@@ -140,10 +171,79 @@ def correlation_or_new(value: object) -> str:
     return new_correlation_id()
 
 
+def is_secret(name: object) -> bool:
+    """Whether a parameter named `name` holds a secret: a `SECRET_WORDS` word anywhere in it, or a
+    `SECRET_TOKENS` word as one of its words, whatever the case."""
+    text = str(name)
+    lowered = text.lower()
+    if any(word in lowered for word in SECRET_WORDS):
+        return True
+    return any(word.lower() in SECRET_TOKENS for word in _WORD.findall(text))
+
+
+def _scrub(text: str) -> str:
+    """`text` with every credential withheld, as a facts file is (`product.model.
+    scrub_credentials`): a URL's userinfo, a credential's shape, a value of this process's secrets.
+    Imported here: `openfactory.product` costs 64 ms to import (measured 2026-10-21), and the panel
+    imports this module at start."""
+    from openfactory.product.model import scrub_credentials
+
+    return scrub_credentials(text)
+
+
+def _name(name: object) -> str:
+    """A parameter's name as a record keeps it: scrubbed, and cut to `NAME_CHARS` with the cut
+    said in it — a name is whatever a caller's body held, a token included."""
+    text = _scrub(str(name))
+    if len(text) <= NAME_CHARS:
+        return text
+    return f"{text[:NAME_CHARS]}… [{len(text) - NAME_CHARS} more characters not kept]"
+
+
+def _clean(value: object, *, depth: int, words: bool) -> object:
+    """`value` with no credential in it, at every depth: each string scrubbed (`_scrub`); each
+    mapping's names read as a parameter's are — a secret's masked, and, when `words`, a person's
+    words (`FREE_TEXT`) as their length and digest — and its values cleaned in turn; each list's
+    items cleaned. At most `PARAMS_KEPT` names or items of each, the rest counted; nothing past
+    `NESTED_DEPTH` levels. Numbers, booleans and None as they are; anything else as its scrubbed
+    `str`."""
+    from itertools import islice
+
+    from openfactory.actions.base import FREE_TEXT
+
+    if isinstance(value, str):
+        return _scrub(value)
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, Mapping | list | tuple | set | frozenset) and depth >= NESTED_DEPTH:
+        return TOO_DEEP
+    if isinstance(value, Mapping):
+        cleaned: dict[str, object] = {}
+        for name, inner in islice(value.items(), PARAMS_KEPT):
+            if is_secret(name):
+                cleaned[_name(name)] = MASK
+            elif words and name in FREE_TEXT and inner is not None:
+                cleaned[_name(name)] = _words(inner)
+            else:
+                cleaned[_name(name)] = _clean(inner, depth=depth + 1, words=words)
+        if len(value) > PARAMS_KEPT:
+            cleaned["…"] = f"{len(value) - PARAMS_KEPT} more entries not kept"
+        return cleaned
+    if isinstance(value, list | tuple | set | frozenset):
+        items = [_clean(inner, depth=depth + 1, words=words)
+                 for inner in islice(value, PARAMS_KEPT)]
+        if len(value) > PARAMS_KEPT:
+            items.append(f"… {len(value) - PARAMS_KEPT} more items not kept")
+        return items
+    return _scrub(str(value))
+
+
 def redact(params: Mapping[str, object]) -> dict[str, object]:
-    """`params` with the value of every `SECRET` name replaced by `MASK`; the names stay, so the
-    line and the record still say that a password was given."""
-    return {k: (MASK if k in SECRET else v) for k, v in params.items()}
+    """`params` with the value of every secret's name (`is_secret`) replaced by `MASK`, at every
+    depth, and every string scrubbed (`_clean`); the names stay, so the line and the record still
+    say that a password was given. What the denial warnings print (`actions._loggable`)."""
+    return {_scrub(str(k)): (MASK if is_secret(k) else _clean(v, depth=1, words=False))
+            for k, v in params.items()}
 
 
 def _words(value: object) -> dict[str, object]:
@@ -167,32 +267,37 @@ def _cut(text: str) -> str:
 
 
 def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
-    """`params` as a record keeps them, and as `perform`'s INFO line prints them: `SECRET` values
-    masked (`redact`), each `FREE_TEXT` value as its length and digest, and every other value cut
-    to `VALUE_CHARS` with the cut said — in the value, and in one INFO line naming the action and
-    the parameter. At most `PARAMS_KEPT` parameters are kept, `project` first, each name cut to
-    `NAME_CHARS`; the parameters not kept are counted under the name `…` and said in one INFO
-    line. Called once per call, so each INFO line is written once."""
+    """`params` as a record keeps them, and as `perform`'s INFO line prints them: every secret's
+    name (`is_secret`) masked, each `FREE_TEXT` value as its length and digest, and every other
+    value cleaned (`_clean`: scrubbed, at every depth, under the same rules) and then cut to
+    `VALUE_CHARS` with the cut said — in the value, and in one INFO line naming the action and the
+    parameter. At most `PARAMS_KEPT` parameters are kept, `project` first, each name scrubbed and
+    cut to `NAME_CHARS`; the parameters not kept are counted under the name `…` and said in one
+    INFO line. Called once per call, so each INFO line is written once."""
     from openfactory.actions.base import FREE_TEXT
 
     kept: dict[str, object] = {}
-    given = redact(params)
     # `project` first, so the parameters the record lists still name it: a caller's extra names
     # must not push it out of the `PARAMS_KEPT` kept.
-    names = sorted(given, key=lambda n: n != "project")
+    names = sorted(params, key=lambda n: n != "project")
     for name in names[:PARAMS_KEPT]:
-        value = given[name]
-        if name in FREE_TEXT and name not in SECRET and value is not None:
-            kept[name] = _words(value)
+        value = params[name]
+        shown = _name(name)
+        if is_secret(name):
+            kept[shown] = MASK
             continue
-        if len(name) > NAME_CHARS:
-            name = f"{name[:NAME_CHARS]}… [{len(name) - NAME_CHARS} more characters not kept]"
-        text = value if isinstance(value, str) else str(value)
+        if name in FREE_TEXT and value is not None:
+            kept[shown] = _words(value)
+            continue
+        # SCRUBBED WHOLE, THEN CUT: cut first, a token that began just before `VALUE_CHARS` kept
+        # its first characters — `ghp_A1b2C3`, which no credential's shape matches once cut.
+        clean = _clean(value, depth=1, words=True)
+        text = clean if isinstance(clean, str) else str(clean)
         if len(text) <= VALUE_CHARS:
-            kept[name] = value
+            kept[shown] = clean
             continue
-        kept[name] = _cut(text)
-        log.info("audit: %s's %s was %d characters; the record keeps the first %d", action, name,
+        kept[shown] = _cut(text)
+        log.info("audit: %s's %s was %d characters; the record keeps the first %d", action, shown,
                  len(text), VALUE_CHARS)
     if len(names) > PARAMS_KEPT:
         kept["…"] = f"{len(names) - PARAMS_KEPT} more parameters not kept"
@@ -256,11 +361,13 @@ class AuditRecord:
     #: Which transport carried the request (`Actor.via`: `panel`, `slack`, `cli`, …).
     via: str
     #: The action as `perform` resolved it (lower-cased, stripped), or as asked when no row has
-    #: it — cut to `VALUE_CHARS`, a lone surrogate written as its escape (it is in the row's key).
+    #: it — scrubbed of credentials, a lone surrogate written as its escape (it is in the row's
+    #: key), cut to `VALUE_CHARS`.
     action: str
-    #: What was passed, as `_kept` keeps it: every `SECRET` value masked by `redact`, a person's
-    #: words (`actions.base.FREE_TEXT`) as `{"chars", "sha256"}`, other values cut to `VALUE_CHARS`;
-    #: at most `PARAMS_KEPT` of them, `project` first, each name cut to `NAME_CHARS`. Read-only.
+    #: What was passed, as `_kept` keeps it: every secret's name (`is_secret`) masked at every
+    #: depth, a person's words (`actions.base.FREE_TEXT`) as `{"chars", "sha256"}`, every string
+    #: scrubbed of credentials, other values cut to `VALUE_CHARS`; at most `PARAMS_KEPT` of them,
+    #: `project` first, each name cut to `NAME_CHARS`, nothing past `NESTED_DEPTH`. Read-only.
     params: Mapping[str, object]
     ok: bool
     #: `Outcome.code` (one of `actions.CODES`), and the refusal's `reason` (`""` when it worked).
@@ -273,9 +380,9 @@ class AuditRecord:
     #: Which deployment wrote the record (`deployment()`): the operator's name for it, else the
     #: engine's namespace.
     deployment: str
-    #: The `project` parameter, each lone surrogate written as its escape and then cut to
-    #: `VALUE_CHARS` as `_kept` cuts a value, because it is also the row's key (`""` when the
-    #: action takes none) — and its product.
+    #: The `project` parameter, scrubbed of credentials, each lone surrogate written as its
+    #: escape and then cut to `VALUE_CHARS` as `_kept` cuts a value, because it is also the row's
+    #: key (`""` when the action takes none) — and its product.
     project: str
     product: str
     #: When, ISO-8601 in UTC.
@@ -307,13 +414,15 @@ class AuditRecord:
         # escape is six characters, and a project cut first and escaped after gave 1,000,000 ×
         # `\ud800` a `pk` of 12,035 characters (branch review round 2). `_kept` has already said
         # in its INFO line that a long project was cut, so this cut is not said again.
-        asked = (name or "").strip().lower() or name
+        # SCRUBBED AS A PARAMETER IS, before it is lower-cased (an `AKIA…` key's shape is upper
+        # case): both are whatever a caller typed, and both are in the row's key.
+        asked = _scrub((name or "").strip()).lower() or _scrub(name or "")
         action = _storable(asked)[:VALUE_CHARS]
         if len(asked) > VALUE_CHARS:
             log.info("audit: an action name of %d characters was asked; the record keeps the "
                      "first %d", len(asked), VALUE_CHARS)
         view = dict(kept) if kept is not None else _kept(action, params)
-        project = _cut(_storable(str(params.get("project") or "")))
+        project = _cut(_storable(_scrub(str(params.get("project") or ""))))
         return cls(
             record_id=uuid.uuid4().hex,
             actor_id=by.id,
@@ -360,7 +469,38 @@ def sink() -> MetricsSink:
         return deployment_metrics_sink()
     from openfactory.observability.sqlite_metrics import SqliteMetricsSink
 
-    return SqliteMetricsSink(audit_path())
+    return SqliteMetricsSink(_private(audit_path()))
+
+
+def _private(path: Path) -> Path:
+    """`path`, created readable and writable by its owner alone (`0600`) when it does not exist,
+    and made so when it exists with wider bits — said once at INFO, naming the file and the mode
+    it had; one this process cannot change is said at WARNING and used as it is.
+
+    WHY. `SqliteMetricsSink` lets `sqlite3.connect` create its file, which under the usual umask
+    `0022` is `0644`: on c310ba28 the fallback `audit.db`, who did what for a year, was readable by
+    every account on the host (PR #1039 review, 2026-10-21). SQLite creates the `-wal` and `-shm`
+    beside a database with the database's own mode, so they follow it. Only this fallback file:
+    a deployment's own metrics store is the store's to set, and it already holds client messages
+    (`kind="message"`) as text on `main`."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = os.open(path, os.O_RDONLY | os.O_CREAT, 0o600)
+    except OSError as exc:  # the write that follows fails on the same cause, and says it
+        log.info("audit: could not create %s as its owner's alone (%s)", path, exc)
+        return path
+    had = 0
+    try:
+        had = os.fstat(handle).st_mode & 0o777
+        if had & 0o077:
+            os.fchmod(handle, 0o600)
+            log.info("audit: %s was mode %s, readable by others; it is now 0o600", path, oct(had))
+    except OSError as exc:
+        log.warning("audit: %s is mode %s, readable by others, and could not be made 0o600 (%s)",
+                    path, oct(had), exc)
+    finally:
+        os.close(handle)
+    return path
 
 
 def metric_of(record: AuditRecord) -> MetricRecord:

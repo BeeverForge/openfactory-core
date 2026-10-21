@@ -106,15 +106,16 @@ MUTATIONS = [
      _EVERY + "test_a_call_that_raises_outside_the_rows_guard_leaves_one_record_and_raises"),
 
     # 4. the secret reaches the record. Re-pinned 2026-10-21: `_kept` now orders the names before
-    # it bounds how many it keeps (branch review round 2).
-    ("the record keeps the parameters unmasked: dict(params), not redact(params)", _AUDIT,
-     "    given = redact(params)\n",
-     "    given = dict(params)\n",
+    # it bounds how many it keeps (branch review round 2), and masks by `is_secret` itself rather
+    # than through `redact` (PR #1039 review).
+    ("the record keeps the parameters unmasked: no name is a secret's", _AUDIT,
+     "        if is_secret(name):\n            kept[shown] = MASK\n",
+     "        if False:\n            kept[shown] = MASK\n",
      _STORE + "test_a_password_reaches_neither_the_record_nor_the_store_file"),
     # 17. a person's words, and the bound
     ("a free-text parameter is stored as its text", _AUDIT,
-     "        if name in FREE_TEXT and name not in SECRET and value is not None:\n",
-     "        if False and name in FREE_TEXT and name not in SECRET and value is not None:\n",
+     "        if name in FREE_TEXT and value is not None:\n",
+     "        if False and name in FREE_TEXT and value is not None:\n",
      _STORE + "test_a_clients_words_never_reach_the_audit_record"),
     ("`message` is no longer a free-text name", _BASE,
      '    "reason", "comment", "instruction", "message", "question",',
@@ -290,12 +291,12 @@ MUTATIONS = [
 
     # 15. the line beside the record
     ("the INFO line is not written", _ACTIONS,
-     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,\n',
-     '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", key, by,\n',
+     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
+     '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
      _STORE + "test_the_info_line_is_still_written_beside_the_record"),
     ("the INFO line is not written (the line's own password guard)", _ACTIONS,
-     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,\n',
-     '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", key, by,\n',
+     '    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
+     '    log.debug("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,\n',
      "tests/test_the_action_layer.py::test_a_password_never_reaches_a_log_line"),
     # 15, the human's decision of 2026-10-21: the line prints what the record keeps, made once.
     ("the INFO line logs redact(params): a person's words in full", _ACTIONS,
@@ -382,16 +383,16 @@ MUTATIONS = [
     # 2026-10-21 — a lone surrogate in it left no record; a million characters of it were kept)
     # Re-pinned 2026-10-21: the project is escaped and then cut (branch review round 2).
     ("a lone surrogate in the project reaches the row's key", _AUDIT,
-     '        project = _cut(_storable(str(params.get("project") or "")))\n',
-     '        project = _cut(str(params.get("project") or ""))\n',
+     '        project = _cut(_storable(_scrub(str(params.get("project") or ""))))\n',
+     '        project = _cut(_scrub(str(params.get("project") or "")))\n',
      _STORE + "test_a_lone_surrogate_in_the_rows_key_still_leaves_the_record"),
     ("a lone surrogate in the action reaches the row's key", _AUDIT,
      "        action = _storable(asked)[:VALUE_CHARS]\n",
      "        action = asked[:VALUE_CHARS]\n",
      _STORE + "test_a_lone_surrogate_in_the_rows_key_still_leaves_the_record"),
     ("the record's project is the parameter as sent, uncut", _AUDIT,
-     '        project = _cut(_storable(str(params.get("project") or "")))\n',
-     '        project = _storable(str(params.get("project") or ""))\n',
+     '        project = _cut(_storable(_scrub(str(params.get("project") or ""))))\n',
+     '        project = _storable(_scrub(str(params.get("project") or "")))\n',
      _STORE + "test_the_project_a_caller_typed_is_kept_to_the_bound_like_any_value"),
     ("the record's action is the name as asked, uncut", _AUDIT,
      "        action = _storable(asked)[:VALUE_CHARS]\n",
@@ -404,8 +405,8 @@ MUTATIONS = [
      "            pass\n",
      _STORE + "test_an_action_name_cut_to_the_bound_is_said_once_at_INFO"),
     ("the project is cut and then escaped, so its key is six times the bound", _AUDIT,
-     '        project = _cut(_storable(str(params.get("project") or "")))\n',
-     '        project = _storable(_cut(str(params.get("project") or "")))\n',
+     '        project = _cut(_storable(_scrub(str(params.get("project") or ""))))\n',
+     '        project = _storable(_cut(_scrub(str(params.get("project") or ""))))\n',
      _STORE + "test_a_project_of_lone_surrogates_is_kept_to_the_bound_once_it_is_escaped"),
     # the number of parameters and their names are a caller's too (branch review round 2,
     # 2026-10-21 — 5,000 parameters in one refused request wrote a 10 MB row)
@@ -415,8 +416,8 @@ MUTATIONS = [
      _STORE + "test_the_parameters_a_caller_sent_are_kept_to_a_bound_however_many_and_however_"
               "named[five_thousand_parameters]"),
     ("a parameter's name is kept whole, however long", _AUDIT,
-     "        if len(name) > NAME_CHARS:\n",
-     "        if False:\n",
+     "    if len(text) <= NAME_CHARS:\n        return text\n",
+     "    if True:\n        return text\n",
      _STORE + "test_the_parameters_a_caller_sent_are_kept_to_a_bound_however_many_and_however_"
               "named[one_name_of_a_million_characters]"),
     # what the bound leaves out is said, and the project is never what it leaves out: four
@@ -424,8 +425,8 @@ MUTATIONS = [
     # 2026-10-21) — the record's `project` field is read from the parameters as sent, so only the
     # list the record keeps can show the order
     ("the project is not put first among the parameters kept", _AUDIT,
-     '    names = sorted(given, key=lambda n: n != "project")\n',
-     "    names = list(given)\n",
+     '    names = sorted(params, key=lambda n: n != "project")\n',
+     "    names = list(params)\n",
      _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
     ("the parameters left out are not counted in the record", _AUDIT,
      '        kept["…"] = f"{len(names) - PARAMS_KEPT} more parameters not kept"\n',
@@ -438,9 +439,8 @@ MUTATIONS = [
      "        pass\n",
      _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
     ("a long parameter name is cut without the note", _AUDIT,
-     '            name = f"{name[:NAME_CHARS]}… [{len(name) - NAME_CHARS} more characters not '
-     'kept]"\n',
-     "            name = name[:NAME_CHARS]\n",
+     '    return f"{text[:NAME_CHARS]}… [{len(text) - NAME_CHARS} more characters not kept]"\n',
+     "    return text[:NAME_CHARS]\n",
      _STORE + "test_the_parameters_a_record_leaves_out_are_counted_in_it_and_said_once"),
 
     # documented behaviours no test held: each survived the branch review's own cut (round 1,
@@ -455,7 +455,7 @@ MUTATIONS = [
      '        if action is not None and r.get("action") != action:\n',
      _LIST + "::test_an_action_asked_in_capitals_is_recorded_and_listed_by_its_name"),
     ("the record keeps the action as asked, not as resolved", _AUDIT,
-     '        asked = (name or "").strip().lower() or name\n',
+     '        asked = _scrub((name or "").strip()).lower() or _scrub(name or "")\n',
      '        asked = name\n',
      _LIST + "::test_an_action_asked_in_capitals_is_recorded_and_listed_by_its_name"),
     ("an unreadable registry gives the product no product has", _AUDIT,

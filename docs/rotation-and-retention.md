@@ -299,7 +299,9 @@ call shares its caller's id, and a job the call starts carries it in its journal
 **Where the rows go.** The deployment's metrics store (`OPENFACTORY_METRICS_SINK`) when it declares
 one. A deployment that declares none (`null`, a host CLI with no compose environment) keeps them in
 a sqlite file instead: `OPENFACTORY_METRICS_DB` when set, else `audit.db` beside `registry.yaml` —
-never a file relative to wherever the shell stood. A store that refuses a row is said in one
+never a file relative to wherever the shell stood. That file is created readable by its owner alone
+(`0600`, its `-wal` and `-shm` with it), and one an earlier version left wider is made `0600` by
+the next record, said once at INFO. A store that refuses a row is said in one
 WARNING naming the action and the store; the action's outcome stands.
 
 **Two command lines, two places.** `openfactory` run on the host, outside the compose environment,
@@ -315,11 +317,21 @@ are one list. A host command line does not see a compose deployment's records, n
 comment, an instruction, an answer) is kept as its length and its sha256 (ADR-0024). That digest
 proves a known text, and it reveals a short one: it is not salted, so a six-digit code, a "yes" or
 an "approve" is read back by trying the candidates (a six-digit message took 0.22 s of plain
-Python, measured 2026-10-21). Passwords, tokens and keys are masked, and any other
-value is cut at 2,000 characters, the cut said in the value. A record keeps at most 32 parameters,
-the project first, and 64 characters of each one's name; what is left out is counted in the
-record. The action's INFO line prints the
-parameters exactly as the record keeps them, so a person's words reach neither.
+Python, measured 2026-10-21). Any other value is cut at 2,000 characters, the cut said in the
+value. A record keeps at most 32 parameters, the project first, and 64 characters of each one's
+name; what is left out is counted in the record. The action's INFO line prints the parameters
+exactly as the record keeps them, so a person's words reach neither.
+
+**What a record holds of a credential.** Nothing, however it is sent. A parameter whose name holds
+`password` (or `passw`), `secret`, `token` or `key` in any case, or has `pat` as one of its words
+(`github_pat`, `githubPat` — but not `path` or `repo_path`, which the catalog takes as file names),
+is kept as `***`. The same rule reads every name inside a mapping or a list a parameter carries,
+four levels deep; what is deeper is not kept. Every string — a value, a name, the project, the
+action — is scrubbed before it is cut: a URL's `user:token@` is dropped, a string shaped like a
+forge, chat, cloud or model vendor's credential is `[credential withheld]`, and so is the value of
+any secret-named variable of the process that writes the record. A name that matches the rule
+and is no credential (`token_env`, the name of a variable) is masked too. The denial warnings
+(`DENIED`, `DENIED_SCOPE`, `NO_CODE_YET`) mask and scrub the same way.
 
 **`openfactory project forget` keeps the records.** An audit trail that forgetting a project erases
 is no audit trail, and the records hold no client's words as text. They do hold the digest of

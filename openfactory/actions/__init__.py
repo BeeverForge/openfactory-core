@@ -292,8 +292,9 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
        `action=… by=… ok=… code=… params=…`, now on every way out including the refusals, and one
        `observability.audit.AuditRecord` handed to `audit.write` — who asked (the `Subject` and
        the provider that named them), what, with which parameters (as `audit._kept` keeps them,
-       made once and printed in the line too: `SECRET` values masked, a person's words as their
-       length and digest, other values bounded), the answer, the deployment, the product, and the
+       made once and printed in the line too: a secret's name (`audit.is_secret`) masked at
+       every depth, every string scrubbed of credentials, a person's words as their length and
+       digest, other values bounded), the answer, the deployment, the product, and the
        correlation id that ties it to the request that caused it — `by.correlation`, or one minted
        here before the row runs when the caller carried none, so a relayed call shares it. A call
        cancelled before it answered is recorded as `failed`/`cancelled`. Who asked for a thing is
@@ -454,7 +455,9 @@ async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object
     except Exception as exc:  # noqa: BLE001 — the line is written on every way out
         kept, unread = None, exc
         shown = f"<not shown: they could not be read ({exc})>"
-    log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,
+    # THE ACTION AS THE RECORD KEEPS IT TOO: an unknown one is whatever a caller typed, a token
+    # included (PR #1039 review, 2026-10-21).
+    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit._scrub(key), by,
              f" label={label!r}" if label else "", outcome.ok, outcome.code or "-",
              shown)
     try:
@@ -472,8 +475,9 @@ async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object
         log.warning("audit: the record of %s by %s was not kept (%s)", key or name, by, exc)
 
 
-#: Parameters whose VALUE must never reach a log line: one set, `audit.SECRET`, so the line and the
-#: audit record mask the same names (#694).
+#: The catalog's own secret names, `audit.SECRET`, which `_ADDRESSABLE` is held apart from. What
+#: masks a value in the line, the record and the denial warnings is `audit.is_secret`, which
+#: matches these and every name of their shape (#694).
 _SECRET = SECRET
 
 
@@ -500,9 +504,10 @@ def _why(exc: Exception) -> str:
     return first_message(exc)
 
 
-#: What the denial warnings (`DENIED_SCOPE`, `DENIED`) print of the parameters: `audit.redact`,
-#: secrets masked. The INFO line prints what the record keeps instead (`audit._kept`, in
-#: `_leave_record`).
+#: What the denial warnings (`DENIED_SCOPE`, `DENIED`, `NO_CODE_YET`) print of the parameters:
+#: `audit.redact` — every secret's name masked at every depth and every string scrubbed of
+#: credentials, by the record's own rule. The INFO line prints what the record keeps instead
+#: (`audit._kept`, in `_leave_record`).
 _loggable = redact
 
 
