@@ -259,7 +259,7 @@ def _prove_in_box(view, key: str, checkout: Path, manifest, *, sandbox: str,
     the why; gates that ran and failed are `failed`, each finding a line the PR body carries.
     The proof is SAVED under the repo's own key either way it completes — see the module
     docstring for why a saved failing proof is correct (the gate holds pickup and says so)."""
-    from openfactory.box_prove import box_probes, prove, save
+    from openfactory.box_prove import ProveBusy, box_probes, prove, save
     from openfactory.factory import resolve_box_image
     from openfactory.onboarding.propose_manifest import scrub
 
@@ -289,6 +289,12 @@ def _prove_in_box(view, key: str, checkout: Path, manifest, *, sandbox: str,
                 line += f"\n  → {scrub(f.remedy)}"
             failures.append(line)
         return "failed", failures, advisories
+    except ProveBusy as exc:
+        # THE WHOLE SENTENCE, not the generic first 160 characters below: it is 113 characters
+        # plus the key, so a key longer than 47 characters lost its remedy (measured). Not a
+        # failure either, so no traceback in the log; and nothing is saved over the running proof.
+        log.info("did not prove %s's box during onboarding: %s", key, exc.sentence)
+        return f"skipped: {scrub(exc.sentence)}", [], []
     except Exception as exc:  # noqa: BLE001 — an unprovable environment must not hide the PR
         log.warning("could not prove %s's box during onboarding", key, exc_info=True)
         return f"skipped: {scrub(str(exc))[:160]}", [], []

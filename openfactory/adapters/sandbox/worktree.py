@@ -874,7 +874,10 @@ class WorktreeSandbox(SandboxAdapter):
         ANYTHING ELSE AT `wt` IS LEFT ALONE. The default root is `.openfactory-worktrees` beside
         the served checkouts, shared by every project the process serves, so `wt` can be another
         repository's worktree of a branch with the same name, or a person's directory; `prepare`
-        refuses by name over it rather than this deleting it."""
+        refuses by name over it rather than this deleting it. A job's branch can meet that case;
+        a proof's no longer does, since each key proves on a branch of its own (`box_probes`),
+        and a second proof of one key, which would take the first one's live tree for its own
+        here, is refused before it reaches `prepare` (#745)."""
         if wt.is_symlink():
             # A LINK AT `wt` IS NEVER THE BOX'S OWN: git lists the real path and `_same_dir`
             # resolves through the link, and `worktree remove --force <link>` removes the linked
