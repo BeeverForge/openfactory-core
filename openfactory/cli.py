@@ -3884,7 +3884,8 @@ def audit_cmd(
     project: str = typer.Option(None, "--project", "-p", help="Only what was done on this project"),
     outcome: str = typer.Option(
         None, "--outcome",
-        help="ok, refused, or a refusal's code or reason (denied, not_found, not_admin, …)"),
+        help="ok, refused, failed (a row that raised, a call cancelled), or a code or reason "
+             "(denied, not_found, not_admin, …)"),
     since: str = typer.Option(None, "--since", help="From this UTC date on, YYYY-MM-DD, inclusive"),
     until: str = typer.Option(None, "--until", help="Up to this UTC date, YYYY-MM-DD, inclusive"),
     limit: int = typer.Option(500, "--limit", min=1,
@@ -3894,12 +3895,14 @@ def audit_cmd(
     """List who asked the factory to do what, on which project, what came of it and when.
 
     One line per record, oldest first, in UTC: the time, who asked (their id), the action, the
-    project (`-` for either when none) and `ok`, or `refused` with its code and reason. Reads the
+    project (`-` for either when none) and `ok`, `refused` with its code and reason, or `failed`
+    with its reason (a row that raised, a call cancelled: it may have done its work). Reads the
     store every action writes its record to. Exits 2 naming the store when it cannot be read, or
     when this deployment's metrics sink keeps nothing that can be read back."""
     import json as _json
     from datetime import UTC, datetime, time, timedelta
 
+    from openfactory.actions.base import FAILED
     from openfactory.observability import audit
     from openfactory.observability.metrics import KindPagingSink, ReadableSink
     from openfactory.observability.registry import metrics_sink_kind
@@ -3964,7 +3967,7 @@ def audit_cmd(
             return False
         if outcome == "ok" and not r.get("ok"):
             return False
-        if outcome == "refused" and r.get("ok"):
+        if outcome == "refused" and (r.get("ok") or r.get("code") == FAILED):
             return False
         if outcome not in (None, "ok", "refused") and (
                 r.get("ok") or outcome not in (r.get("code"), r.get("reason"))):
@@ -4004,8 +4007,13 @@ def audit_cmd(
         typer.echo(f"audit: no audit record in {audit._named(store)} matches what was asked",
                    err=True)
     for r in [] if as_json else found:
+        # A CALL THAT FAILED IS NOT A REFUSAL (PR #1039 review N5): a row that raised after its
+        # side effect, or a call cancelled mid-row, may have done what it was asked, and on
+        # c310ba28 the listing called it `refused`. Code `failed` reads `failed <reason>`.
+        code = r.get("code") or ""
         said = "ok" if r.get("ok") else " ".join(
-            w for w in ("refused", r.get("code") or "", r.get("reason") or "") if w)
+            w for w in ("failed" if code == FAILED else "refused",
+                        "" if code == FAILED else code, r.get("reason") or "") if w)
         # A caller the panel could not name has an empty `actor_id`; printed bare it left an empty
         # column and `split()` read the action as who asked (by hand on 2026-10-21, one curl to
         # `openfactory serve`). `-` holds the place, as for a record with no project.

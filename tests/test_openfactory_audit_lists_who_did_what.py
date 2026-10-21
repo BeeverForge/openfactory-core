@@ -517,3 +517,48 @@ def test_a_store_that_cannot_ask_by_kind_is_still_listed_through_its_scan(tmp_pa
         extra={"ts": ts, "actor_id": "alice", "action": "skip", "project": "alpha", "ok": True}))
 
     assert [p for _a, _b, p in _listed("--limit", "2")] == ["two", "three"]
+
+
+# ── a call that failed is not a refusal (PR #1039 review N5) ───────────────────────────────────
+
+def _a_store_of_three_ends(tmp_path, monkeypatch):
+    """A refusal, a row that raised, and a call cancelled mid-row, as `perform` records each."""
+    from openfactory.observability import audit
+    from openfactory.observability.sqlite_metrics import SqliteMetricsSink
+
+    db = tmp_path / "metrics.db"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(db))
+    ends = [actions.refused(actions.NOT_FOUND, "no such project", reason=actions.NOT_FOUND),
+            actions.Outcome(ok=False, code=actions.FAILED, message="raised",
+                            data={"reason": actions.RAISED}),
+            actions.Outcome(ok=False, code=actions.FAILED, message="cancelled",
+                            data={"reason": audit.CANCELLED})]
+    for i, outcome in enumerate(ends):
+        record = audit.AuditRecord.of("merge", actions.SYSTEM, {"project": f"p{i}"}, outcome,
+                                      product_of=lambda _name: "")
+        record = dataclasses.replace(record, ts=(TODAY + timedelta(minutes=i)).isoformat())
+        assert SqliteMetricsSink(db).record(audit.metric_of(record))
+
+
+def test_a_call_that_raised_or_was_cancelled_is_listed_as_failed_not_refused(tmp_path,
+                                                                            monkeypatch):
+    """N5: a row that raised after its side effect, or a call cancelled mid-row, may have done
+    what it was asked; "refused" told an auditor it did not. Code `failed` is listed `failed`,
+    with its reason; a refusal is still `refused`. On c310ba28 all three read `refused …`."""
+    _a_store_of_three_ends(tmp_path, monkeypatch)
+
+    said = [" ".join(line.split()[4:]) for line in _audit().stdout.splitlines()]
+
+    assert said == ["refused not_found not_found", "failed raised", "failed cancelled"], said
+
+
+def test_outcome_refused_lists_refusals_and_outcome_failed_lists_failures(tmp_path,
+                                                                         monkeypatch):
+    """`--outcome refused` is the refusals alone, and `--outcome failed` the calls that failed:
+    the listing's two words are the filter's two words. On c310ba28 `refused` listed all three."""
+    _a_store_of_three_ends(tmp_path, monkeypatch)
+
+    assert [p for _a, _b, p in _listed("--outcome", "refused")] == ["p0"]
+    assert [p for _a, _b, p in _listed("--outcome", "failed")] == ["p1", "p2"]
