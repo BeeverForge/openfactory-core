@@ -11,7 +11,9 @@ WHAT HOLDS NOW, in this file, read off the sqlite file itself rather than a mock
 row of kind `audit` under its project; two records made in the same instant are two rows (the
 store's `INSERT OR REPLACE` on `<ts>#<ticket>#<role>` would otherwise keep one); a password passed
 to the action is masked in the row and its bytes are in neither the database nor its `-wal`; and
-the INFO line is still written, once per call, beside the row.
+the INFO line is still written, once per call, beside the row; and a row is read for
+`audit.AUDIT_KEPT_DAYS` and not a day longer, the period stated with its value on the page that
+states every other retention.
 """
 
 from __future__ import annotations
@@ -121,3 +123,66 @@ async def test_the_info_line_is_still_written_beside_the_record(store, caplog):
     assert all(" by=" in line for line in lines), lines
     rows = _audit_rows(store)
     assert sorted(row["extra"]["action"] for row in rows) == sorted(n for n, _ in calls), rows
+
+
+# ── how long a record is kept, and where that is said ───────────────────────────────────────────
+
+_DAY = 24 * 60 * 60
+
+
+async def test_a_record_is_still_read_the_day_before_its_period_ends_and_not_after(store,
+                                                                                    monkeypatch):
+    """Criterion 3, "they survive the store's retention rules for a documented period": a record
+    written at a known instant is read back on the last day of `audit.AUDIT_KEPT_DAYS` and is
+    gone the day after; a purge run on that last day deletes none of it. The store honours a row's
+    `expires_at` on every read (`sqlite_metrics.py`), so the period is the one the record carries.
+    Before #694 there was no period at all: `AUDIT_KEPT_DAYS` did not exist, and the store held no
+    row of kind `audit` to keep or to expire."""
+    from openfactory.observability import events, sqlite_metrics
+    from openfactory.observability.audit import AUDIT_KEPT_DAYS
+
+    instant = datetime(2026, 10, 20, 9, 30, tzinfo=UTC)
+
+    class _Stopped(datetime):
+        @classmethod
+        def now(cls, tz=None):  # the record's `ts` is this instant
+            return instant
+
+    monkeypatch.setattr(events, "datetime", _Stopped)
+    await actions.perform("product_status", by=actions.Actor(id="alice", via="panel"),
+                          project="nosuch")
+    written = int(instant.timestamp())
+    last_day = written + AUDIT_KEPT_DAYS * _DAY - _DAY
+    day_after = written + AUDIT_KEPT_DAYS * _DAY + _DAY
+
+    monkeypatch.setattr(sqlite_metrics.time, "time", lambda: last_day)
+    assert len(store.records_of_kind("nosuch", "audit")) == 1, (
+        f"a record written {AUDIT_KEPT_DAYS - 1} days ago is no longer read "
+        f"(its period is {AUDIT_KEPT_DAYS} days)")
+    assert store.purge_expired(now=last_day) == 0, (
+        "a purge on the last day of the period deleted a record still inside it")
+
+    monkeypatch.setattr(sqlite_metrics.time, "time", lambda: day_after)
+    assert store.records_of_kind("nosuch", "audit") == [], (
+        f"a record written {AUDIT_KEPT_DAYS + 1} days ago is still read "
+        f"(its period is {AUDIT_KEPT_DAYS} days)")
+
+
+def test_the_period_is_stated_where_the_other_retentions_are():
+    """Criterion 3, "a documented period": `docs/rotation-and-retention.md` is the page that says
+    how long everything this tree keeps is kept, and a person asking how long the record of who
+    did what lasts must find `AUDIT_KEPT_DAYS` there with its value. Before #694 the page named no
+    audit record, and the constant did not exist."""
+    from pathlib import Path
+
+    from openfactory.observability.audit import AUDIT_KEPT_DAYS
+
+    doc = Path(__file__).resolve().parents[1] / "docs" / "rotation-and-retention.md"
+    lines = doc.read_text(encoding="utf-8").splitlines()
+
+    # THE CONSTANT AND ITS VALUE ON ONE LINE, as the conversation's retention is guarded
+    # (`test_a_staged_decision_survives_a_refresh.py`): checked apart, the name in the "where it
+    # lives" list and the number anywhere else on the page would pass while the period read "a
+    # while".
+    assert any("AUDIT_KEPT_DAYS" in ln and str(AUDIT_KEPT_DAYS) in ln for ln in lines), (
+        f"AUDIT_KEPT_DAYS is not documented with its value ({AUDIT_KEPT_DAYS}) in {doc.name}")
