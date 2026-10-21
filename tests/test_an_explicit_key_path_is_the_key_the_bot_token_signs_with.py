@@ -165,8 +165,13 @@ def test_an_unreadable_key_path_refuses_naming_the_path_and_does_not_use_the_env
 
     Before the fix the path was ignored and the command minted with the environment's key B,
     exit 0. The reason is checked against the error this process gets reading the same path
-    (class, errno, and its `strerror` in this process's locale), not against English text: libc
-    localises `strerror` (this machine runs pt_BR), so "No such file" would hold only in C.
+    (class, errno, and its `strerror` in this process's locale), not against English text. The
+    reason's language is the process's, not the shell's: Python sets only LC_CTYPE at startup, so
+    under `LC_ALL=pt_BR.UTF-8` the CLI still says "No such file or directory"; once anything in
+    the process calls `locale.setlocale(locale.LC_ALL, "")` it says "Arquivo ou diretório
+    inexistente" (both measured 2026-10-21, Ubuntu 24.04, glibc 2.39, Python 3.12.3). This test
+    passes in all three (LC_ALL=C, LC_ALL=pt_BR.UTF-8, and pt_BR after that call); "No such
+    file" in the assertion would fail the third.
     """
     monkeypatch.setenv("OPENFACTORY_GH_APP_ID", "12345")
     monkeypatch.setenv("OPENFACTORY_GH_APP_INSTALLATION_ID", "67890")
