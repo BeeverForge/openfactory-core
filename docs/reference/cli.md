@@ -140,6 +140,10 @@ The proof is pinned to the commands — `setup:`, `validate:`, the toolchain —
 they ran green when it was taken; it is not re-run per ticket. A suite that goes red afterwards
 (a machine that lost its registry, a test added since) fails in the job's gate, not in the proof:
 a valid proof is not a green suite, and `box prove` again is how to find out.
+Each project is proven on a branch and in a working tree of its own, so two projects proved at
+once never meet. A second `box prove` or `box answer` of a project while a proof of it is running
+(onboarding's included, from this process or any other on the machine) is refused with one
+sentence and exit 1, and records nothing: run it again when that one ends.
 
 ---
 

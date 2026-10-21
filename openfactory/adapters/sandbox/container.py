@@ -515,7 +515,12 @@ class ContainerSandbox(SandboxAdapter):
         # other cause; for this one it turned a self-healing resume into a second park on the
         # pilot, with the orphan still burning an agent unsupervised. The name is derived from
         # (project, issue) and attempts are serial by construction (single-line floor), so a
-        # container wearing it as we start CANNOT be a live sibling. Reattaching is not an option
+        # container wearing it as we start CANNOT be a live sibling. A PROOF is not an attempt and
+        # no floor serializes it: its name comes from the key's own branch, and what keeps a
+        # second proof of one key off it is the per-key lock `box_probes` takes before it builds
+        # a box. Without that lock, a second proof of one key reaches this line wearing the first
+        # one's name and removes its live container (#745, read here; the worktree box's twin,
+        # its tree removed, was measured). Reattaching is not an option
         # on a non-idempotent box (it may be mid-write on the same branch this attempt will use) —
         # remove it, out loud.
         probe_rc, _ = _host(["docker", "inspect", "--format", "{{.Id}}", cname])
