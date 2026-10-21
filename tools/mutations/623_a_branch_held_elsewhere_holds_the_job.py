@@ -173,8 +173,8 @@ MUTATIONS = [
     # row survives with nothing broken. It is not a weak guard there; there is no defect to hold.
     ("_same_dir catches only OSError, so on 3.12 a symlink loop at a working tree's path is a "
      "traceback out of prepare", BOX,
-     "    except (OSError, RuntimeError):  # 3.12's resolve()",
-     "    except OSError:  # 3.12's resolve()"),
+     "    except (OSError, RuntimeError):  # 3.12's resolve() raises RuntimeError on a symlink loop",
+     "    except OSError:  # 3.12's resolve() raises RuntimeError on a symlink loop"),
 
     ("_same_dir takes a path it cannot resolve for the box's own, so a person's looped tree is "
      "called the job's own and the box tries to remove it", BOX,
