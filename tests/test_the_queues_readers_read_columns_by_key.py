@@ -357,6 +357,20 @@ def test_a_pull_request_left_unreviewed_on_a_renamed_jira_board_is_waiting_too_l
         "DAR-1": "waiting-too-long", "DAR-2": "waiting-too-long"}
 
 
+def test_a_pull_request_waiting_for_review_is_not_in_the_parked_review(site, jira):
+    """The parked review stays Needs Action alone (ADR-0019 §6: Needs Action holds what needs a
+    decision). A pull request waiting for its review has no diagnosis to read and nothing for the
+    product role to decide, so it is not listed there, on a board that maps `needs_review`."""
+    from openfactory.product.board import parked_with_diagnosis
+
+    site.put("DAR-1", WAITING)
+    site.put("DAR-2", REVIEWING)
+    project, _module_, tracker, _board = jira({**RENAMED, "needs_review": REVIEWING})
+
+    items, error = parked_with_diagnosis(project, token="t", tracker=tracker)
+
+    assert error == "" and [i.number for i in items] == ["DAR-1"]
+
 
 # ── 3. the sentences name the board's own columns ───────────────────────────────────────────────
 
