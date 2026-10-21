@@ -541,6 +541,31 @@ async def test_a_store_that_refuses_the_write_is_said_and_the_outcome_stands(
                             f"{[r.getMessage() for r in caplog.records]}")
 
 
+async def test_a_sink_that_cannot_be_built_is_said_and_the_outcome_stands(store, monkeypatch,
+                                                                         caplog):
+    """Criterion 3, §6, before any store is reached: a deployment whose `OPENFACTORY_METRICS_SINK`
+    names a kind nothing answers to cannot build the store the record goes to, so `audit.write`
+    raises — and `perform` says, once, at WARNING, that the record of this action by this caller
+    was not kept, and answers exactly what it would have answered. Written with the mutation plan
+    (2026-10-20): the WARNING in `_leave_record` had no test, and removing it left the suite
+    green."""
+    by = actions.Actor(id="alice", via="panel")
+    stood = await actions.perform("product_status", by=by, project="nosuch")
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlit")
+
+    with caplog.at_level("WARNING"):
+        outcome = await actions.perform("product_status", by=by, project="nosuch")
+
+    assert (outcome.ok, outcome.code, outcome.data, outcome.message) == (
+        stood.ok, stood.code, stood.data, stood.message), outcome
+    said = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"
+            and "product_status" in r.getMessage() and "alice" in r.getMessage()
+            and "not kept" in r.getMessage()]
+    assert len(said) == 1, ("a record no store could be built for was said "
+                            f"{len(said)} times naming the action and the caller (1 expected): "
+                            f"{[r.getMessage() for r in caplog.records]}")
+
+
 async def test_the_audit_write_does_not_run_on_the_event_loop(store, monkeypatch):
     """Criterion 3, and the #748 lesson: the panel performs on its event loop, and a sqlite write
     waits on the file's lock for up to its busy timeout, so a write on the loop would hold every

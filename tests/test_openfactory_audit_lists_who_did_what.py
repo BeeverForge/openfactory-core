@@ -153,6 +153,21 @@ def test_it_lists_by_period(deployment):
                                                        ("bob", "product_status", "beta")]
 
 
+@pytest.mark.parametrize("flag", ["--since", "--until"])
+@pytest.mark.parametrize("text", ["2026-13-01", "yesterday"])
+def test_a_date_that_is_not_one_is_refused_by_name_rather_than_read_as_no_bound(deployment, flag,
+                                                                                text):
+    """Criterion 4's period, and "failures speak by name": a `--since` or `--until` that is not a
+    UTC date exits 2 naming the flag and what was given, and lists nothing — never read as "no
+    bound", which would list the whole kept year as if it were the period asked for. Written with
+    the mutation plan (2026-10-20): the refusal was driven only by hand when the command landed."""
+    result = _audit(flag, text)
+
+    assert result.exit_code == 2, (result.exit_code, result.output)
+    assert flag in result.stderr and repr(text) in result.stderr, result.stderr
+    assert result.stdout == "", result.stdout
+
+
 def test_each_record_is_one_line_oldest_first_in_utc(deployment):
     """Without `--json`, one line per record, oldest first, each starting with its UTC time and
     then who asked, the action and the project, and saying `ok` or `refused` with the code."""
@@ -256,6 +271,35 @@ def test_an_empty_store_says_it_holds_no_record_and_names_it(tmp_path, monkeypat
 
     assert result.exit_code == 0, (result.exit_code, result.output)
     assert "no audit record" in result.output and str(db) in result.output, result.output
+
+
+def test_rows_of_other_kinds_in_the_store_are_not_read_as_audit_records(tmp_path, monkeypatch):
+    """The store the records share holds every other kind too — a job's cost rows, the people
+    store's registrations under the same deployment-wide key. A store holding only those holds no
+    audit record, and says so, even when another kind's row carries the field names a record has:
+    nothing of it is listed. Written with the mutation plan (2026-10-20): every row this file
+    wrote was of kind `audit`, so listing every kind left the suite green."""
+    from openfactory.identity.people import PROJECT
+    from openfactory.observability.metrics import MetricRecord
+    from openfactory.observability.sqlite_metrics import SqliteMetricsSink
+
+    db = tmp_path / "metrics.db"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    monkeypatch.setenv("OPENFACTORY_METRICS_SINK", "sqlite")
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(db))
+    ts = TODAY.isoformat()
+    sink = SqliteMetricsSink(db)
+    assert sink.record(MetricRecord(kind="person", project=PROJECT, ticket="invited.1", ts=ts,
+                                    role="invited", extra={"event": "invited"}))
+    assert sink.record(MetricRecord(kind="agent_run", project="alpha", ticket="7", ts=ts,
+                                    extra={"ts": ts, "actor_id": "alice", "action": "skip",
+                                           "project": "alpha", "ok": True}))
+
+    result = _audit()
+
+    assert result.exit_code == 0, (result.exit_code, result.output)
+    assert result.stdout == "", result.stdout
+    assert "holds no audit record" in result.stderr, result.stderr
 
 
 def test_the_bound_is_said_when_it_is_hit(deployment):

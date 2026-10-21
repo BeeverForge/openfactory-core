@@ -410,3 +410,24 @@ async def test_a_cancelled_call_still_leaves_one_record(registry, stored, monkey
     assert len(rows) == 1, f"cancelled: {len(rows)} audit records for one call (1 expected)"
     assert (rows[0].extra["ok"], rows[0].extra["code"], rows[0].extra["reason"]) == (
         False, actions.FAILED, "cancelled"), rows[0].extra
+
+
+async def test_a_call_that_raises_outside_the_rows_guard_leaves_one_record_and_raises(
+        registry, stored, monkeypatch):
+    """Criterion 2, the last way out: an exception `_decide` raises outside the row's own guard
+    (here the catalog failing to load) is no answer, so `perform` lets it go on to the caller —
+    and still leaves one record of the call, `ok` false, code `failed`, reason `raised`, so the
+    trail holds the call that failed rather than nothing. Written with the mutation plan
+    (2026-10-20): `perform`'s `outcome is None` branch had no test, and returning from the
+    `finally` there without a record left the suite green."""
+    def broken() -> dict:
+        raise RuntimeError("the catalog did not load")
+
+    monkeypatch.setattr(actions, "_catalog", broken)
+
+    with pytest.raises(RuntimeError, match="the catalog did not load"):
+        await actions.perform("skip", by=_ADMIN, project="demo", issue="1")
+    rows = _audit_rows(stored)
+    assert len(rows) == 1, f"raised outside the guard: {len(rows)} audit records (1 expected)"
+    assert (rows[0].extra["ok"], rows[0].extra["code"], rows[0].extra["reason"]) == (
+        False, actions.FAILED, actions.RAISED), rows[0].extra
