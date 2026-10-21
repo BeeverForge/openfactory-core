@@ -649,10 +649,12 @@ async def test_a_call_cancelled_while_its_record_is_made_still_leaves_it(store, 
             await call
     finally:
         release.set()
-    for _ in range(200):
-        if _audit_rows(store):
-            break
-        await asyncio.sleep(0.01)
+    # Waited for, not polled: the record goes on in the task `asyncio.shield` made, and a 2 s poll
+    # missed it once in a whole ordered `-n auto` run at load 8-20 (17 min against 11 random,
+    # 2026-10-21) while it passed 10 of 10 alone. A record the cancel did reach leaves no task.
+    others = asyncio.all_tasks() - {asyncio.current_task()}
+    if others:
+        await asyncio.wait(others, timeout=10)
 
     assert [row["extra"]["action"] for row in _audit_rows(store)] == ["teleport"], (
         "a cancel while the record was made left no record")
