@@ -1260,14 +1260,18 @@ def _actor_of(connection, subject, *, label: str = "") -> actions.Actor:
     marked anonymous carries no id here even if it filled one in.
 
     `label` is what the request said about itself (`_label_of`): kept for an anonymous subject, as
-    a hint beside it, and dropped for a named one."""
+    a hint beside it, and dropped for a named one.
+
+    The subject itself rides on the actor (ADR-0057 D1), anonymous or not, so the audit record
+    names the provider that resolved the caller (`local`, `oidc`, `anonymous`) — before #694 it
+    was dropped here, and a record could not tell a token row from the shared token."""
     scopes = _scopes_of(subject)
     known = getattr(subject, "known", False)
     return actions.Actor(id=(subject.id or "") if known else "",
                          display=subject.display or subject.id or "panel",
                          via="panel", admin=True, scopes=scopes,
                          conversation=_conversation_of(connection, subject),
-                         label="" if known else label)
+                         label="" if known else label, subject=subject)
 
 
 #: The cookie a browser nobody has identified carries, so that ITS conversation with the product

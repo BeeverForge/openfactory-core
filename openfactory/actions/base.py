@@ -179,8 +179,9 @@ class Actor:
     #: WHO THE IDENTITY AXIS SAID THIS IS, as the transport resolved it (ADR-0057 D1: "`Actor`
     #: carries the `Subject`"). The audit record reads its provider off `subject.via` — `local`,
     #: `oidc`, `anonymous` on the panel, `cli` for a shell login — so there is no second field
-    #: naming the provider here. `None` when no subject was resolved: `SYSTEM`, a test, and every
-    #: transport (the Slack add-on included) that predates this field.
+    #: naming the provider here. The panel (`api/app.py::_actor_of`) and the CLI
+    #: (`cli.py::_cli_actor`) fill it. `None` when no subject was resolved: `SYSTEM`, a test, and
+    #: every transport (the Slack add-on included) that predates this field.
     subject: Subject | None = None
     #: THE ID THAT TIES THIS CALL TO THE REQUEST THAT CAUSED IT, and to what it caused. Not *who
     #: asked*, which is all ADR-0039 §2 says an `Actor` is — it sits here because the `Actor` is the

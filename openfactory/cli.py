@@ -3216,7 +3216,7 @@ def people_invite(
 
     voucher = by.strip() or getpass.getuser()
     outcome = asyncio.run(act_layer.perform(
-        "people_invite", by=act_layer.Actor(id=voucher, display=voucher, via="cli", admin=True),
+        "people_invite", by=_cli_actor(voucher),
         person=person, display=display, product="yes" if product else "",
         board="yes" if board else ""))
     if not outcome.ok:
@@ -3835,7 +3835,7 @@ def act_cmd(
         # branch instead of a swallow (`tests/test_no_silent_failures.py`).
         who = "unknown"
     outcome = asyncio.run(act_layer.perform(
-        name, by=act_layer.Actor(id=who, display=who, via="cli", admin=True), **params))
+        name, by=_cli_actor(who), **params))
     if as_json:
         typer.echo(_json.dumps({"ok": outcome.ok, "code": outcome.code,
                                 "message": outcome.message, "data": dict(outcome.data)}, indent=2))
@@ -3876,6 +3876,21 @@ _NAME_COL = 26
 _WIDTH = 96
 
 
+def _cli_actor(who: str):
+    """The actor every CLI verb acts as: the shell login `who`, carried as the subject the identity
+    axis would name for it — `Subject(id=<shell login>, via="cli")`, ADR-0057 D1 — so the audit
+    record writes `cli` as the provider. One helper for the three verbs that used to build it by
+    hand, so they cannot drift apart.
+
+    `admin=True` for the reason `openfactory act` gives: a shell where the factory runs already
+    outranks every gate in this layer."""
+    from openfactory import actions as act_layer
+    from openfactory.identity.base import Subject
+
+    return act_layer.Actor(id=who, display=who, via="cli", admin=True,
+                           subject=Subject(id=who, display=who, via="cli"))
+
+
 def _perform(name: str, **params: object):
     """Run one catalogued action as the shell's own user. The CLI's whole job in this sub-app.
 
@@ -3892,7 +3907,7 @@ def _perform(name: str, **params: object):
     except (KeyError, OSError):
         who = "unknown"
     return asyncio.run(act_layer.perform(
-        name, by=act_layer.Actor(id=who, display=who, via="cli", admin=True), **params))
+        name, by=_cli_actor(who), **params))
 
 
 def _show(value: object) -> list[str]:
