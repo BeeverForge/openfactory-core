@@ -3684,15 +3684,20 @@ class ProductModule:
                               act="import requirements", cause=exc)
         if result.ok and not result.existed:
             self._refresh_after_import(list(getattr(result, "landed", []) or []))
+        record = getattr(result, "record", None) or {}
+        if result.ok and record:
             # TOLD ONCE, TO THE ROOM (#994): what arrived, from where, and how many — after the
-            # knowledge is brought up to it, so a question asked on hearing it finds what arrived
+            # knowledge is brought up to it, so a question asked on hearing it finds what arrived.
+            # TOLD FROM THE RECORD, AND TOLD AGAIN WHEN IT NEVER WAS (review of PR #1000): the
+            # commit lands before the telling, and a crash between the two left an import nobody
+            # was told of — a retry of the same import finds its record on the base (`existed`),
+            # and tells it from that. Whether it was told is the events' own ledger's to say
+            # (`events._once`, by the import's id): told once, never twice, never lost.
             from openfactory.product import events
 
-            the_plan = getattr(result, "plan", None)
-            if the_plan is not None:
-                events.imported(self.project, ident=the_plan.id, origin=the_plan.origin,
-                                counts={k: the_plan.count(k) for k in ("new", "revision",
-                                                                       "beside")})
+            events.imported(self.project, ident=str(record.get("id") or ""),
+                            origin=str(record.get("origin") or ""),
+                            counts=dict(record.get("counts") or {}))
         return result
 
     def import_under_review(self):

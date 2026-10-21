@@ -1132,6 +1132,14 @@ def newest(root: Path) -> dict | None:
 #: agreed requirement, waiting for a yes.
 QUESTION, DECISION, CHANGE = "question", "decision", "change"
 
+#: How many open items one import's review carries, and how much of each (review of PR #1000):
+#: what is open is the folder's word — its questions, its titles, what its documents raise — and a
+#: manifest of a thousand questions must not become a pack, an agenda or a briefing of a thousand.
+#: The review counts every one (`Review.open_count`); it carries the first `MAX_OPEN`, a change to
+#: an agreed requirement first.
+MAX_OPEN = 20
+MAX_OPEN_CHARS = 300
+
 
 @dataclass(frozen=True)
 class Open:
@@ -1165,6 +1173,8 @@ class Review:
     order: list[int]
     design: str
     open: list[Open]
+    #: how many are open, the ones `MAX_OPEN` left out of `open` included
+    open_count: int = 0
 
     @property
     def under_review(self) -> bool:
@@ -1177,7 +1187,8 @@ class Review:
                 "counts": dict(self.counts), "landed": list(self.landed),
                 "proposed": list(self.proposed), "agreed": list(self.agreed),
                 "order": list(self.order), "design": self.design,
-                "under_review": self.under_review, "open": [o.as_dict() for o in self.open]}
+                "under_review": self.under_review, "open": [o.as_dict() for o in self.open],
+                "open_count": max(self.open_count, len(self.open))}
 
 
 def review(record: dict, corpus, *, decisions=None) -> Review:
@@ -1189,7 +1200,10 @@ def review(record: dict, corpus, *, decisions=None) -> Review:
     still waiting for its yes; a question about no requirement, and a document's decision, while
     the import is still a review — any requirement it landed still proposed; a text kept beside an
     agreed requirement while that requirement is still the agreed one. Nothing here is closed by a
-    clock or by a person ticking it: the corpus moving is what closes it."""
+    clock or by a person ticking it: the corpus moving is what closes it.
+
+    BOUNDED (`MAX_OPEN`, `MAX_OPEN_CHARS`): every open item is counted, the first `MAX_OPEN` are
+    carried — a yes to change an agreed requirement first — each on one line and cut."""
     from openfactory.product.corpus import _bullets, _section
 
     rows = [r for r in record.get("requirements") or [] if isinstance(r, dict)]
@@ -1231,12 +1245,22 @@ def review(record: dict, corpus, *, decisions=None) -> Review:
             for said in decisions(path) or []:
                 out.append(Open(DECISION, str(said), path=path))
     counts = dict(record.get("counts") or {})
+    every = len(out)
+    out.sort(key=lambda o: o.kind != CHANGE)
+    out = [Open(o.kind, _one_line(o.text), requirement=o.requirement, ask=o.ask, path=o.path)
+           for o in out[:MAX_OPEN]]
     return Review(id=str(record.get("id") or ""), origin=str(record.get("origin") or ""),
                   landed_at=str(record.get("landed_at") or ""),
                   counts={k: int(counts.get(k) or 0) for k in REQUIREMENT_KINDS},
                   landed=landed, proposed=proposed, agreed=agreed,
                   order=[n for n in record.get("order") or [] if n in proposed],
-                  design=str(record.get("design") or ""), open=out)
+                  design=str(record.get("design") or ""), open=out, open_count=every)
+
+
+def _one_line(text: str) -> str:
+    """An open item's text as it is carried: on one line, cut at `MAX_OPEN_CHARS`."""
+    said = " ".join(str(text or "").split())
+    return said if len(said) <= MAX_OPEN_CHARS else said[:MAX_OPEN_CHARS - 1] + "…"
 
 
 # ── said ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1304,6 +1328,10 @@ class Imported(WriteResult):
     moved: bool = False
     plan: Plan | None = None
     landed: list[str] = field(default_factory=list)
+    #: the import's record — the one this commit wrote, or the one a retry of the same import found
+    #: on the base (`existed`): what the import is told from (#994), so a retry can tell what a
+    #: crash between the commit and the telling never told
+    record: dict = field(default_factory=dict)
 
 
 #: What an import may stage: requirements, facts, and the folder documents land under. Its record
@@ -1365,8 +1393,9 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
             return Imported(ok=False, refusal=NOT_REFUSED,
                             detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
         record = f"{import_record(ident)}{RECORD_FILE}"
-        if record_of(tmp, ident) is not None:
-            return Imported(ok=True, existed=True, ref=record,
+        found = record_of(tmp, ident)
+        if found is not None:
+            return Imported(ok=True, existed=True, ref=record, record=found,
                             detail=import_said("already", language=language, origin=origin,
                                                id=ident))
         the_plan = plan(brought, root=tmp, requirements_dir=requirements_dir,
@@ -1416,7 +1445,7 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
                  docs_repo, base, ident,
                  {k: the_plan.count(k) for k in REQUIREMENT_KINDS})
         return Imported(ok=True, ref=record, merged=True, plan=the_plan, landed=done.paths,
-                        number=the_plan.count(NEW) + the_plan.count(REVISION),
+                        record=done.record, number=the_plan.count(NEW) + the_plan.count(REVISION),
                         detail=said(the_plan, landed=True, language=language))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

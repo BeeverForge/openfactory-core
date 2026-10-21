@@ -5229,7 +5229,11 @@ def card_owed(*, agent_name: str = "", in_backlog: bool = False,
 
 
 #: REQUIREMENTS ARRIVED FROM SOMEWHERE ELSE (#994): what came, from where, and how many — said
-#: once to the product's room, naming the origin and never a person.
+#: once to the product's room, naming the origin and never a person. The counts are the import's
+#: record's (`ProductModule.import_requirements` tells from it), and "a text nobody had agreed" is
+#: what every record says of its revisions: `importing.land` refuses, before the commit, a landing
+#: after which a requirement accepted before is not the same agreed promise, and a text that would
+#: change one is counted `beside` (review of PR #1000).
 _IMPORTED = {
     "pt-BR": ("{sig}Chegaram requisitos de *{origin}*: {new} novo(s), {revision} revisão(ões) de "
               "um texto que ninguém tinha acordado e {beside} guardado(s) ao lado de um acordado, "

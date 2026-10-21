@@ -245,13 +245,19 @@ def from_the_import(review, viewer: Viewer, *, language: str | None = None) -> l
     """What the newest import left open, as `viewer` may see it (#994): every item is the ROOM'S —
     an import is told there, and its review is the product's people's together — each an item to
     ask. When the record says who should answer, the item is "yours" to that person alone; to
-    everybody else it is the room's, and the person is named to nobody."""
+    everybody else it is the room's, and the person is named to nobody.
+
+    AT MOST `importing.MAX_OPEN` ITEMS (review of PR #1000): what an import left open is the
+    folder's word, and a folder of a thousand questions is not a Pending tab of a thousand — the
+    review carries the first ones, a yes to change an agreed requirement first, and the next come
+    up as these are answered."""
+    from openfactory.product.importing import MAX_OPEN
     from openfactory.product.voice import agenda_chip, agenda_said, agenda_when
 
     if review is None or not viewer.may_read_room:
         return []
     out: list[Item] = []
-    for item in review.open:
+    for item in review.open[:MAX_OPEN]:
         yours = bool(item.ask) and bool(viewer.person) and \
             _sealed(viewer.person) == _sealed(item.ask)
         number = f"{item.requirement:04d}" if item.requirement else ""

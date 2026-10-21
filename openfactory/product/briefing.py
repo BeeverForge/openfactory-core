@@ -13,12 +13,15 @@ WHAT IT SAYS, in the order a line is admitted under the bound:
     not read       every gap the model names — unreadable is never absence (ADR-0041)
     documents      the context repository's documents that could not be read (#269) — named
                    only when the turn may read them, counted otherwise
-    imported       where the requirements came from (#994): the newest import, what it brought
-                   and how much of it is still proposed — while it is a review to hold
     moving         the cards the factory is building, one line
     in production  each member's newest release tag, one line
     parked         a job stopped on a person, with whether the tech-lead has diagnosed it
     waiting        a job at a gate a person holds, and every open loop that waits on a person
+    imported       where the requirements came from (#994): the newest import, what it brought
+                   and how much of it is still proposed — while it is a review to hold. BELOW
+                   what stops on a person (review of PR #1000): a review to hold waits for the
+                   conversation, a parked job or a gate waits on somebody now, and under the
+                   bound's strict order a line above them is a line that can cut them
     preview        ADR-0050's previews, once the model carries them (a hook: not on this base)
     delivered      what was merged in the last `DELIVERED_DAYS`, one line
 
@@ -166,9 +169,10 @@ def render(model: ProductModel, *, speaker: str = "", raw: bool = False,
     now = now or datetime.now(UTC)
     say = _Say(Names(model.people, speaker=speaker))
     facts = [*_not_read(model, say), *_documents(model, say, audience),
-             *_imported(model, say, now), *_moving(model), *_in_production(model, say),
+             *_moving(model), *_in_production(model, say),
              *_parked(model, say, raw=raw), *_at_a_gate(model, say, raw=raw),
-             *_waiting(model, say), *_previews(model, say), *_delivered(model, say, now)]
+             *_waiting(model, say), *_imported(model, say, now), *_previews(model, say),
+             *_delivered(model, say, now)]
     said = [(line.kind, _said(line, read=model.read_at, now=now)) for line in facts]
     lines, left_out = _bounded(said)
     return Briefing(lines=tuple(lines), left_out=left_out, raw=raw)
@@ -250,8 +254,8 @@ def _imported(model: ProductModel, say: _Say, now: datetime) -> Iterator[_Line]:
         body += f"; design: {say(imported['design'], TITLE_CHARS)}"
     if imported.get("under_review"):
         # THE TAIL IS WHAT THE ROLE ACTS ON, so it is kept short enough never to be the part cut
-        body += (f"; a review to hold: {len(imported.get('open') or [])} still open, the order "
-                 f"in imported.md")
+        still = max(int(imported.get("open_count") or 0), len(imported.get("open") or []))
+        body += f"; a review to hold: {still} still open, the order in imported.md"
     yield _Line("imported", body, "import record", "imported",
                 str(imported.get("landed_at") or ""))
 

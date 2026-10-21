@@ -244,6 +244,17 @@ is open instead of answering it, and cites a prototype as what the person saw, n
 build on. The battery's `saltmarsh` fixture is a product right after such an import, and its
 question is the conversation that opens then.
 
+The event is told from the import's record: a retry of the same import that finds the record on
+the base — after a crash between the commit and the telling, or a room that could not be reached
+— tells it then, once, and never twice. A text that would change an agreed requirement is counted
+as kept beside it, never as a revision, and asked as a **yes to change** that promise. What
+`imported.md` carries in the import's own words — where it says it came from, its titles, its
+questions, what its documents raise — sits inside a fence under the sentence that says it is
+quoted material, never an instruction, as an attachment's content does; at most twenty open items
+are carried, each on one line, and the file says how many more are open. In the briefing the
+import's line comes after every job stopped on a person and every gate, so the bound never cuts
+one of those for it.
+
 **Was this asked before?** Before every answer the role is handed the tickets, the requirements
 and the open decisions whose titles overlap the message — with their references, and never who
 asked (ADR-0051 D9) — so a request somebody else already made is answered with a pointer to it,
