@@ -517,7 +517,9 @@ async def test_a_card_walks_the_requesters_whole_loop_through_its_door(
         assert gate["auto_but_for_the_look"] is True, gate
         assert _rows(project, ref)[-1][:1] == ("pr_opened",)
         assert _rows(project, ref)[-1][2] == "waiting_on_a_person"
-        assert _column(project, ref) == "needs_action"
+        # a pull request a person must look at sits in "Needs Review" on the board `project init`
+        # makes (#753); the production gates below are parks and stay in Needs Action
+        assert _column(project, ref) == "needs_review"
         assert _new(told, 0) == [(THEIRS, _ready(project, ref, title))]
         assert reading.step(_history(project, ref)).now == reading.PREVIEW_READY
 
@@ -537,7 +539,7 @@ async def test_a_card_walks_the_requesters_whole_loop_through_its_door(
             assert [r.event for r in _history(project, ref).rows[before:]] == [
                 "resumed", "pr_opened", "adjusted"]
             assert _rows(project, ref)[-1][2] == "waiting_on_a_person"
-            assert _column(project, ref) == "needs_action"
+            assert _column(project, ref) == "needs_review"
             [(where, text)] = _new(told, said)
             assert where == THEIRS, where
             assert text == voice.card_moved("pass_ready", ref=ref, title=title, language=LANG,
@@ -621,7 +623,7 @@ async def test_a_card_walks_the_requesters_whole_loop_through_its_door(
         assert _BOX[-1] == ("run", 1), _BOX
         assert _rows(project, ref)[-1] == ("pr_opened", "waiting_on_a_person",
                                            "waiting_on_a_person")
-        assert _column(project, ref) == "needs_action"
+        assert _column(project, ref) == "needs_review"
         assert _new(told, said) == [(THEIRS, _ready(project, ref, title))]
         assert reading.step(_history(project, ref)).now == reading.PREVIEW_READY
 

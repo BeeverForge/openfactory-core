@@ -181,11 +181,14 @@ def test_the_columns_say_which_of_them_mean_FINISHED():
     assert all(columns.has_started(k) for k in columns.AFTER_THE_FACTORY)
 
 
-def test_a_job_may_be_running_in_exactly_the_three_columns_between():
+def test_a_job_may_be_running_in_exactly_the_four_columns_between():
+    """Four since #753: a pull request waiting in "Needs Review" is still under the job's merge
+    watch (`_watch_to_merge` holds it until it merges or `merge_deadline_days` runs out), so a close
+    from there must ask the engine first, as from In review."""
     from openfactory.adapters.board import columns
 
     assert [k for k in columns.BOARD_ORDER if columns.may_be_running(k)] == [
-        "in_progress", "in_review", "needs_action"]
+        "in_progress", "in_review", "needs_review", "needs_action"]
     assert not columns.may_be_running("")
 
 

@@ -448,7 +448,8 @@ def _local_card(project, column: str) -> str:
 def test_the_local_board_HONOURS_the_option_its_refusal_names(local):
     """`stage_option = "columns"` is what the refusal offers as the repair, and this row wrote the
     platform's six verbatim and ignored that option. A remedy that changes nothing is the defect
-    this whole change is named after, so `project init` writes the client's words here too."""
+    this whole change is named after, so `project init` writes the client's words here too, and
+    the platform's own name for every key the client did not rename ("Needs Review" since #753)."""
     from openfactory.adapters.board import build_board
     from openfactory.adapters.board.base import stage_key
 
@@ -456,7 +457,7 @@ def test_the_local_board_HONOURS_the_option_its_refusal_names(local):
     board = build_board(project)
 
     assert board.column_names() == ["Backlog", "A Fazer", "In progress", "In review",
-                                    "Needs Action", "Entregue"]
+                                    "Needs Review", "Needs Action", "Entregue"]
     assert board.pickup_column() == "A Fazer"
     assert stage_key(board, "A Fazer") == "todo" and stage_key(board, "Entregue") == "done"
     assert _act("card_close", project="acme", issue=_local_card(project, "Entregue"),

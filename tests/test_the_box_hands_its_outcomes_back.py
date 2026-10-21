@@ -225,8 +225,12 @@ def test_a_release_hands_back_its_delivery_and_writes_its_steps():
 
 # ── the worker: each outcome through the door, once ──────────────────────────────────────────
 
+#: `deployment` is the board `project init` makes, and since #753 that board has a "Needs Review"
+#: column: a pull request a person must review lands there, apart from the parks, and the record
+#: still reads it as waiting on a person. A board without that column keeps Needs Action (AC3,
+#: held in `test_a_board_that_maps_no_review_column_keeps_todays_board.py`).
 OUTCOMES = [
-    (HandedBack(state=JobState.PR_OPEN, needs_person=True), "needs_action", "pr_opened",
+    (HandedBack(state=JobState.PR_OPEN, needs_person=True), "needs_review", "pr_opened",
      "waiting_on_a_person"),
     (HandedBack(state=JobState.PR_OPEN, needs_person=False), "in_review", "pr_opened", "running"),
     (HandedBack(state=JobState.MERGED), "in_review", "merged", "merged"),
@@ -362,7 +366,8 @@ def test_every_activity_that_runs_a_box_applies_what_it_handed_back(deployment, 
     result = asyncio.run(ActivityEnvironment().run(activity, inp.model_copy(update={"issue": ref})))
 
     assert [r.event for r in _history(deployment, ref)] == ["pr_opened"], name
-    assert _column(deployment, ref) == "needs_action"
+    # the board `project init` makes has "Needs Review" (#753), so a person's review lands there
+    assert _column(deployment, ref) == "needs_review"
     assert result.handed_back[0].event_id, "the result does not say which transition applied it"
 
 
@@ -383,7 +388,7 @@ def test_the_attended_driver_applies_what_the_box_handed_back(deployment, monkey
     cli._drive_one(deployment, ref, sandbox="worktree", image="")
 
     assert [r.event for r in _history(deployment, ref)] == ["pr_opened"]
-    assert _column(deployment, ref) == "needs_action"
+    assert _column(deployment, ref) == "needs_review"
 
 
 # ── the promise one card's filing opens, through its door (#414) ─────────────────────────────

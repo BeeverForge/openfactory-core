@@ -34,17 +34,28 @@ from openfactory.adapters.board.columns import (
 #: constant. These six strings are the platform's vocabulary as it stood before the move.
 BEFORE = ("Backlog", "TO-DO", "In progress", "In review", "Needs Action", "Done")
 
+#: The one name added since, between the review and the parks (#753): a pull request waiting on a
+#: person's review. Spelled out for the same reason as `BEFORE`.
+ADDED = "Needs Review"
+
+
+def _the_six_of_before(names) -> tuple[str, ...]:
+    return tuple(n for n in names if n != ADDED)
+
 
 def test_the_move_changed_no_name() -> None:
-    assert column_names() == BEFORE
-    assert sorted(CANONICAL_COLUMNS.values()) == sorted(BEFORE)
+    """Every name of `BEFORE` is still there, in its order, and the one addition is "Needs Review",
+    after "In review": a board created with the six keeps every column it has."""
+    assert _the_six_of_before(column_names()) == BEFORE
+    assert column_names().index(ADDED) == BEFORE.index("In review") + 1
+    assert sorted(CANONICAL_COLUMNS.values()) == sorted((*BEFORE, ADDED))
 
 
 def test_the_order_covers_the_map_exactly() -> None:
     """The two rotted apart once: the creating act listed six names in order and the runtime map
     five plus a sixth appended after it, so a reader comparing them saw two vocabularies."""
     assert set(BOARD_ORDER) == set(CANONICAL_COLUMNS)
-    assert len(BOARD_ORDER) == len(CANONICAL_COLUMNS) == 6
+    assert len(BOARD_ORDER) == len(CANONICAL_COLUMNS) == len(BEFORE) + 1   # + Needs Review, #753
 
 
 def test_a_key_the_platform_does_not_know_answers_empty() -> None:
@@ -107,13 +118,20 @@ def test_the_pollers_last_resort_follows_the_home_rather_than_a_literal() -> Non
 
 def test_the_github_rows_still_answer_what_they_answered() -> None:
     """The two vendor copies now READ the home. Their values are the ones a live board was
-    created with, so a change here is a change to somebody's existing board."""
+    created with, so a change here is a change to somebody's existing board.
+
+    The one addition is "Needs Review" (#753): a board created from now on gets that option, and
+    the runtime map names it. An existing board without the option is not moved by the map: the
+    row counts `needs_review` as mapped only when the board HAS the option, which
+    `test_a_board_that_maps_no_review_column_keeps_todays_board.py` holds."""
     from openfactory.adapters.tracker.github_board_setup import CANONICAL_COLUMNS as CREATED
     from openfactory.adapters.tracker.github_project import DEFAULT_COLUMNS as RUNTIME
 
-    assert CREATED == BEFORE
-    assert RUNTIME == {"todo": "TO-DO", "in_progress": "In progress", "in_review": "In review",
-                       "needs_action": "Needs Action", "done": "Done", "backlog": "Backlog"}
+    assert _the_six_of_before(CREATED) == BEFORE and ADDED in CREATED
+    assert {k: v for k, v in RUNTIME.items() if k != "needs_review"} == {
+        "todo": "TO-DO", "in_progress": "In progress", "in_review": "In review",
+        "needs_action": "Needs Action", "done": "Done", "backlog": "Backlog"}
+    assert RUNTIME["needs_review"] == ADDED
 
 
 def test_the_runtime_map_is_a_copy_nobody_can_reach_the_home_through() -> None:
