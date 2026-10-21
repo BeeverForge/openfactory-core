@@ -840,6 +840,22 @@ async def test_the_project_a_caller_typed_is_kept_to_the_bound_like_any_value(st
         f"the record's project is {len(row['extra']['project'])} characters")
 
 
+async def test_a_project_of_lone_surrogates_is_kept_to_the_bound_once_it_is_escaped(store):
+    """Q11, "every value is bounded", for the row's key: a lone surrogate is written as its
+    six-character escape so that sqlite can key the row, and the bound holds for what is written.
+    On bc41a86f the project was cut first and escaped after: 1,000,000 × `\\ud800` gave a `pk`
+    of 12,035 characters, six times `VALUE_CHARS` (branch review round 2)."""
+    from openfactory.observability.audit import VALUE_CHARS
+
+    await actions.perform("product_status", by=actions.Actor(id="eve", via="panel"),
+                          project="\ud800" * 1_000_000)
+
+    [row] = _audit_rows(store)
+    assert len(row["pk"]) <= VALUE_CHARS + 64, f"the row's key is {len(row['pk'])} characters"
+    assert len(row["extra"]["project"]) <= VALUE_CHARS + 64, (
+        f"the record's project is {len(row['extra']['project'])} characters")
+
+
 async def test_the_action_name_a_caller_typed_is_kept_to_the_bound_like_any_value(store):
     """Q11, "every value is bounded": an action nobody registered is recorded as asked, and the
     action is part of the row's key (`sk`) and a field of its own — a million characters of it are

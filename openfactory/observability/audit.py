@@ -153,6 +153,14 @@ def _words(value: object) -> dict[str, object]:
     return {"chars": len(text), "sha256": digest}
 
 
+def _cut(text: str) -> str:
+    """`text` as a record keeps it: whole up to `VALUE_CHARS`, else its first `VALUE_CHARS` and
+    how many characters were left out."""
+    if len(text) <= VALUE_CHARS:
+        return text
+    return f"{text[:VALUE_CHARS]}… [{len(text) - VALUE_CHARS} more characters not kept]"
+
+
 def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
     """`params` as a record keeps them, and as `perform`'s INFO line prints them: `SECRET` values
     masked (`redact`), each `FREE_TEXT` value as its length and digest, and every other value cut
@@ -177,8 +185,7 @@ def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
         if len(text) <= VALUE_CHARS:
             kept[name] = value
             continue
-        cut = len(text) - VALUE_CHARS
-        kept[name] = f"{text[:VALUE_CHARS]}… [{cut} more characters not kept]"
+        kept[name] = _cut(text)
         log.info("audit: %s's %s was %d characters; the record keeps the first %d", action, name,
                  len(text), VALUE_CHARS)
     if len(names) > PARAMS_KEPT:
@@ -260,9 +267,9 @@ class AuditRecord:
     #: Which deployment wrote the record (`deployment()`): the operator's name for it, else the
     #: engine's namespace.
     deployment: str
-    #: The `project` parameter as `_kept` keeps it — cut to `VALUE_CHARS`, a lone surrogate
-    #: written as its escape, because it is also the row's key (`""` when the action takes none) —
-    #: and its product.
+    #: The `project` parameter, each lone surrogate written as its escape and then cut to
+    #: `VALUE_CHARS` as `_kept` cuts a value, because it is also the row's key (`""` when the
+    #: action takes none) — and its product.
     project: str
     product: str
     #: When, ISO-8601 in UTC.
@@ -290,15 +297,17 @@ class AuditRecord:
         # (`"nosuch\ud800"`) made the store refuse the row, so the call left no record, and a
         # 1,000,000-character project wrote a 1,000,000-character `pk` and grew `audit.db` to
         # 7,041,024 bytes from one request (branch review of 2026-10-21, a real `openfactory
-        # serve`). So `project` is read from the view, which `_kept` has already cut to
-        # `VALUE_CHARS`, and `action` is cut the same way.
+        # serve`). So both are escaped and then cut to `VALUE_CHARS`: in that order, because an
+        # escape is six characters, and a project cut first and escaped after gave 1,000,000 ×
+        # `\ud800` a `pk` of 12,035 characters (branch review round 2). `_kept` has already said
+        # in its INFO line that a long project was cut, so this cut is not said again.
         asked = (name or "").strip().lower() or name
         action = _storable(asked)[:VALUE_CHARS]
         if len(asked) > VALUE_CHARS:
             log.info("audit: an action name of %d characters was asked; the record keeps the "
                      "first %d", len(asked), VALUE_CHARS)
         view = dict(kept) if kept is not None else _kept(action, params)
-        project = _storable(str(view.get("project") or ""))
+        project = _cut(_storable(str(params.get("project") or "")))
         return cls(
             record_id=uuid.uuid4().hex,
             actor_id=by.id,
