@@ -109,6 +109,14 @@ BEFORE_THE_FACTORY: tuple[str, ...] = ("backlog", "todo")
 #: under a live job. Nothing shipped yet, so a close there is never DELIVERED.
 AFTER_THE_FACTORY: tuple[str, ...] = ("done",)
 
+#: The keys a card sits in while the factory waits on a PERSON: a park (`needs_action`) and a pull
+#: request waiting for its review (`needs_review`, #753). `card_move` asks the engine whether a job
+#: still waits before it queues a card from either (`actions/catalog.py::_card_move`); with only
+#: `needs_action` named there, a card in "Needs Review" went back to TO-DO under a live merge
+#: watch. A NAMED SET, so no caller compares a key to a literal, the rule `AFTER_THE_FACTORY`
+#: states.
+WAITING_ON_A_PERSON_KEYS: tuple[str, ...] = ("needs_review", "needs_action")
+
 
 def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
     """The neutral key a board's own column NAME means, or `""` when nothing maps it.
