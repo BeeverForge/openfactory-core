@@ -73,6 +73,9 @@ BAD_REF = "bad_ref"
 OUT_OF_SCOPE = "out_of_scope"
 #: the row needs an admin and the actor is not one
 NOT_ADMIN = "not_admin"
+#: the row needs the project's code and the project started before it (#992): its product has a
+#: context repository and no code repository yet
+NO_CODE_YET = "no_code_yet"
 #: the durable engine did not answer in time
 ENGINE_UNREACHABLE = "engine_unreachable"
 #: the row's implementation raised — the answer's `data["reference"]` names its log line (#908)
@@ -82,9 +85,10 @@ REPORTED_NOTHING = "reported_nothing"
 
 #: What `perform` itself may refuse ANY row with, before or around its runner — in the order it
 #: checks them. `actions.reasons` narrows it per row: `bad_ref` only for a row that takes an
-#: `issue`, `not_admin` only for one that `needs_admin`.
-AROUND_EVERY_ROW = (BAD_PARAMETERS, BAD_REF, OUT_OF_SCOPE, NOT_ADMIN, ENGINE_UNREACHABLE, RAISED,
-                    REPORTED_NOTHING)
+#: `issue`, `not_admin` only for one that `needs_admin`, `no_code_yet` only for one that
+#: `needs_code` and takes a `project`.
+AROUND_EVERY_ROW = (BAD_PARAMETERS, BAD_REF, OUT_OF_SCOPE, NOT_ADMIN, NO_CODE_YET,
+                    ENGINE_UNREACHABLE, RAISED, REPORTED_NOTHING)
 
 #: Every reason a refusal may carry. Closed, like `CODES`, so a typo is an error at the refusal
 #: rather than a word no program was told to expect.
@@ -353,6 +357,14 @@ class ActionSpec:
     #: the area a scoped credential CANNOT reach. Same direction as `needs_admin`'s default: the
     #: forgetful case is the closed one.
     scope: str = FLOOR
+    #: WHETHER THIS ROW NEEDS THE PROJECT'S CODE (#992). A product may start before its code — a
+    #: context repository and no code repository (`contracts.project.before_its_code`) — and on
+    #: such a project `perform` refuses a row that needs one, by name and before it runs, rather
+    #: than letting it fail three layers down in a sentence about a clone. Default True, the
+    #: direction of `needs_admin`'s and `scope`'s: a row added without thinking about it waits for
+    #: the code, and the rows that work without it — the product owner's conversation, its
+    #: requirements, its context — say so on themselves.
+    needs_code: bool = True
     #: WHEN A PROPOSER SHOULD PICK THIS ROW over its neighbours — the judgment, not the definition
     #: (#172). `summary` says what the row does; this says when it is the right answer, which is a
     #: different question and the one that actually decides. It lived in a private map inside

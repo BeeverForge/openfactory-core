@@ -224,8 +224,9 @@ MUTATIONS = [
      "fingerprint=ex.fingerprint",
      'fingerprint=""'),
 
+    # RE-PINNED (#992): a product before its code stages the second yes with no card
     ("a draft that landed opens its card and asks for no second yes", CONFIRM,
-     '    if cards:\n        entry["next"] = {', '    if False:\n        entry["next"] = {'),
+     '    if cards or code_less:\n        entry["next"] = {', '    if False:\n        entry["next"] = {'),
 
     ("the second yes is not written on the card", CONFIRM,
      "    if cards:\n        return _stamped_on_the_cards(",

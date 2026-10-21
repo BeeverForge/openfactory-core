@@ -61,15 +61,16 @@ MUTATIONS = [
      '                 if host in owned), "")', SLICE),
 
     # ── 2. every axis ──────────────────────────────────────────────────────────────────────────
+    # RE-PINNED (#992): `project add`'s axes moved to `doors.axes_for`, which a product's first
+    # source writes too
     ("`project add` writes the tracker alone for a local project, so the forge inherits GitHub",
-     CLI,
+     DOORS,
      '        local = {"kind": "local", "repo": name, "options": {}}\n'
-     '        kwargs["tracker"] = ProviderRef(**local)\n'
-     '        kwargs["forge"] = ProviderRef(**local)\n'
-     '        kwargs["ci"] = ProviderRef(kind="none", repo=name, options={})',
-     '        kwargs["tracker"] = ProviderRef(kind="local", repo=name, options={})', SLICE),
+     '        return {"tracker": ProviderRef(**local), "forge": ProviderRef(**local),\n'
+     '                "ci": ProviderRef(kind="none", repo=name, options={})}',
+     '        return {"tracker": ProviderRef(kind="local", repo=name, options={})}', SLICE),
 
-    ("the local row carries no repo, and four consumers need it non-empty", CLI,
+    ("the local row carries no repo, and four consumers need it non-empty", DOORS,
      '        local = {"kind": "local", "repo": name, "options": {}}',
      '        local = {"kind": "local", "repo": None, "options": {}}', SLICE),
 

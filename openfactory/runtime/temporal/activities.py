@@ -3523,10 +3523,18 @@ async def scan_projects() -> list[dict]:
     knows what a board needs — so the filter asks IT rather than pattern-matching one vendor's
     configuration. The coordinates still travel, because the GitHub path reads them downstream."""
     from openfactory.adapters.board import build_board
+    from openfactory.contracts.project import before_its_code
 
     out: list[dict] = []
     for p in ProjectRegistry().list():
         if not p.enabled:
+            continue
+        if before_its_code(p):
+            # NOT PICKED UP, AND SAID (#992): a product that started before its code has no code
+            # repository for a job to work in, so a card would be claimed and then fail in a clone.
+            # Its first source (`openfactory product first-source`) puts it on this list.
+            activity.logger.info("OPENFACTORY_PICKUP_WAITS_FOR_CODE %s has no code repository "
+                                 "yet — not polled until its first source", p.name)
             continue
         bo = p.tracker.options.get("board_owner")
         bn = p.tracker.options.get("board_number")
@@ -4093,7 +4101,8 @@ async def product_role_break_down(inp: ProductBreakdownInput) -> list[dict]:
              "ref": str(getattr(r, "ref", "") or ""), "url": str(getattr(r, "url", "") or ""),
              "existed": bool(getattr(r, "existed", False)),
              "nothing_to_build": bool(getattr(r, "nothing_to_build", False)),
-             "refusal": str(getattr(r, "refusal", "") or "")}
+             "refusal": str(getattr(r, "refusal", "") or ""),
+             "waits_for_code": bool(getattr(r, "waits_for_code", False))}
             for r in (results or [])]
 
 
@@ -4857,6 +4866,12 @@ def _do_refresh_knowledge(inp: KnowledgeRefreshInput) -> str:
     docs_repo = (getattr(getattr(project, "product", None), "docs_repo", "") or "").strip()
     if not docs_repo:
         return "no-context"
+    # A PRODUCT THAT STARTED BEFORE ITS CODE (#992) has no code to map — "no-repo", before a
+    # clone: a local row names its own name as its `repo` whether or not a repository is behind it
+    from openfactory.contracts.project import before_its_code
+
+    if before_its_code(project):
+        return "no-repo"
 
     # SYNC BEFORE READING THE MANIFEST. `project.repo_path` is a REGISTRY value — on Fargate it is
     # where the entrypoint clones to; on the WORKER it names no real directory at all. Loading the

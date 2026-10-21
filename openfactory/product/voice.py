@@ -3316,6 +3316,44 @@ def nothing_to_build(*, number: int, language: str | None = None) -> str:
     return _pick(_NOTHING_TO_BUILD, language).format(number=number)
 
 
+#: A PRODUCT THAT STARTED BEFORE ITS CODE (#992): its requirements are written and agreed, and
+#: breaking one into tasks waits for the code repository the cards are worked in. Said by every door
+#: into a breakdown — the conversation, the product page, the command line — so it names no gesture
+#: of one surface: the way through is the operator's (the product's first source) and then the
+#: person's own request, which is the same words on all three.
+_WAITS_FOR_CODE = {
+    "pt-BR": ("Quebrar o *requisito {number}* em tarefas espera o código do produto, que ainda não "
+              "começou. Quando quem opera esta plataforma configurar onde o código vai ficar, peça "
+              "para quebrar o requisito {number} em tarefas."),
+    "en": ("Breaking *requirement {number}* into tasks waits for the product's code, which has not "
+           "started yet. Once whoever runs this platform sets up where the code lives, ask for "
+           "requirement {number} to be broken into tasks."),
+}
+
+#: …and what the conversation says when it has just written one: no card was opened for the second
+#: yes to be given on (ADR-0047 §2), so the yes is asked for on the requirement itself.
+_WRITTEN_BEFORE_CODE = {
+    "pt-BR": ("Ainda não há cartão para ele: o código do produto ainda não começou, então as "
+              "tarefas esperam por ele. O aceite não espera — diga sim e o requisito {number} fica "
+              "combinado agora."),
+    "en": ("There is no card for it yet: the product's code has not started, so its tasks wait "
+           "for it. Its acceptance does not wait — say yes and requirement {number} is agreed "
+           "now."),
+}
+
+
+def breakdown_waits_for_code(*, number: int, language: str | None = None) -> str:
+    """Why an agreed requirement got no cards on a product that started before its code, and the
+    way through — see `_WAITS_FOR_CODE`."""
+    return _pick(_WAITS_FOR_CODE, language).format(number=number)
+
+
+def written_before_code(*, number: int, language: str | None = None) -> str:
+    """What follows a written requirement on a product with no code repository yet — see
+    `_WRITTEN_BEFORE_CODE`."""
+    return _pick(_WRITTEN_BEFORE_CODE, language).format(number=number)
+
+
 #: A BREAKDOWN THE CONVERSATION STARTED, AND DOES NOT WAIT ON (#563 slice 18b, ADR-0051 D18). It
 #: drafts for minutes, so the reply says it began and where its cards will be said; the workflow
 #: tells this conversation what was filed when it ends. One already running is news, never "nothing

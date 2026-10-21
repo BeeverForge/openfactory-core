@@ -164,6 +164,9 @@ GREEN_ANSWERS: dict[str, Any] = {
     # names its own scope.
     "installation_scope": lambda: doctor.InstallationScope(by_owner={"acme": ["demo"]},
                                                            installed=("acme", "")),
+    # A project WITH its code (#992): no `code` line, and every line that reads the code is
+    # asked. A test about a product that started before its code names its own state.
+    "before_its_code": ("", ""),
 }
 
 

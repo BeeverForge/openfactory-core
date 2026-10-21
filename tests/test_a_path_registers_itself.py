@@ -160,7 +160,14 @@ def test_every_registering_door_asks_the_SAME_two_questions():
         assert "kind_for(" in src, f"{where} decides the kind on its own"
         assert "foreign_host(" in src, f"{where} does not ask whose host it is"
 
-    assert inspect.getsource(cli).count("doors.kind_for(") == 2, (
+    # `project add` ASKS THROUGH `doors.axes_for` since #992 — the axes a product's first source
+    # writes too — and that helper asks `kind_for` itself, so each of the two CLI doors still asks
+    # once, by one name or the other
+    from openfactory import doors
+
+    assert "kind_for(" in inspect.getsource(doors.axes_for), "axes_for decides the kind alone"
+    source = inspect.getsource(cli)
+    assert source.count("doors.kind_for(") + source.count("doors.axes_for(") == 2, (
         "the two CLI doors must each ask — a shared helper nobody calls twice is one door short")
 
 

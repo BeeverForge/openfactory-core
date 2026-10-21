@@ -117,10 +117,12 @@ MUTATIONS = [
      '            "refusal": str(getattr(result, "refusal", "") or "")}\n',
      '            "existed": bool(getattr(result, "existed", False))}\n',
      BOUNDARY),
+    # RE-PINNED 2026-10-21 (#992): the dict gained `waits_for_code` after `refusal`, so the cut
+    # drops the same key from the line that now ends with a comma
     ("the breakdown activity's dicts drop the refusal", ACTIVITIES,
      '             "nothing_to_build": bool(getattr(r, "nothing_to_build", False)),\n'
-     '             "refusal": str(getattr(r, "refusal", "") or "")}\n',
-     '             "nothing_to_build": bool(getattr(r, "nothing_to_build", False))}\n',
+     '             "refusal": str(getattr(r, "refusal", "") or ""),\n',
+     '             "nothing_to_build": bool(getattr(r, "nothing_to_build", False)),\n',
      BOUNDARY),
 
     # 4. a failure is a failure, with a reference

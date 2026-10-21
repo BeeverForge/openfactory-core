@@ -278,6 +278,63 @@ def context_clone_url(project, docs_repo: str) -> str:
     return clone_url_for(project, docs_repo, token=_context_token(project))
 
 
+def seed_context_repository(project, docs: str, *, sources: list[str]) -> tuple[bool, str]:
+    """Create the context repository `docs` on a forge that creates its own, and put its first
+    commit in it: `.openfactory/product.yaml` naming this product and `sources`. `(created,
+    where)` — `where` is `""` when there was nothing to do: a forge that does not create
+    repositories, or a base branch that already has a commit. RAISES when it could not; the
+    caller says so and keeps the registration.
+
+    ON THE RUNTIME WHOSE FORGE IS THIS MACHINE (ADR-0049 D9): the repository is a bare one the
+    installation owns, so there is nobody to ask and nothing to decide. Two doors seed it —
+    `project init`, whose project has code and is its own one source, and `product start`, whose
+    product started before its code and has none yet (#992): `sources: []` is a product that has
+    not started, which the module reads as such (`product.config.resolve_product_link`).
+
+    IDEMPOTENT ON BOTH HALVES (review of #106). `create_repository` already answers "already
+    there" normally, and the question that decides whether there is anything left to do is whether
+    the base branch has a COMMIT — not whether this run is the one that made the directory. A seed
+    that failed once left a bare repository with no commit and no way forward: the registry had the
+    `product:` section, so `create_context_repository`'s callers were shut out by their own `if not
+    docs_repo`, and this returned early for ever. The doctor then said the module was "enabled but
+    unusable" on a machine whose only problem was one failed push."""
+    import subprocess
+    import tempfile
+
+    from openfactory.adapters.forge.base import RepositoryCreatingForge
+    from openfactory.adapters.forge.registry import build_forge
+
+    forge = build_forge(project)
+    if not isinstance(forge, RepositoryCreatingForge):
+        return False, ""
+    _, created = forge.create_repository(name=docs)
+    where = forge.clone_url(docs)
+    has_a_commit = subprocess.run(["git", "-C", where, "rev-parse", "--verify", "main"],
+                                  capture_output=True, text=True, check=False)
+    if has_a_commit.returncode == 0:
+        return created, ""
+    name = getattr(project, "name", "")
+    listed = "".join(f"\n  - {s}" for s in sources) or " []"
+    with tempfile.TemporaryDirectory() as tmp:
+        def git(*args: str, cwd: str = tmp) -> None:
+            subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
+                           check=True, timeout=60)
+
+        subprocess.run(["git", "clone", "--no-local", "-q", where, tmp], capture_output=True,
+                       text=True, check=True, timeout=60)
+        seed = Path(tmp) / namespace.DIR / "product.yaml"
+        seed.parent.mkdir(parents=True, exist_ok=True)
+        seed.write_text(f"product: {name}\nsources:{listed}\n"
+                        f"requirements_dir: requirements\n", encoding="utf-8")
+        (Path(tmp) / "requirements").mkdir(exist_ok=True)
+        (Path(tmp) / "requirements" / ".gitkeep").write_text("", encoding="utf-8")
+        git("add", "-A")
+        git("-c", "user.email=bot@openfactory.local", "-c", "user.name=OpenFactory Bot",
+            "commit", "-qm", f"{name}: the product's own context repository")
+        git("push", "-q", "origin", "HEAD:main")
+    return created, where
+
+
 def create_context_repository(project, name: str) -> tuple[str, bool]:
     """Create (or find) this project's context repository and RECORD it. `(repo, created)`.
 

@@ -147,6 +147,12 @@ class WriteResult:
     #: reached for such an entry by anything other than a person asking.
     nothing_to_build: bool = False
 
+    #: THE PRODUCT STARTED BEFORE ITS CODE (#992), so a breakdown of this requirement files
+    #: nothing: the cards would be worked in a code repository the product does not have yet.
+    #: Not `ok` and not a failure, like `nothing_to_build`, and read the same way by every door —
+    #: `detail` says why and what to do, and no front is counted as left out (`unfiled`).
+    waits_for_code: bool = False
+
     #: WHAT THIS IS WAS SAVED MOMENTS AGO, in another conversation — found among what arrived
     #: after this proposal's own check, under the product's semaphore (ADR-0051 D7–D9, #266
     #: slice 3). Nothing was written; `ref`/`url` are the existing record's. The reply says the

@@ -99,18 +99,38 @@ def github_owners(project: Project) -> set[str]:
         factory_board        ADR-0027 puts the factory's OWN impediments on the factory's OWN board,
                              which is legitimately a different org from the client's — and the
                              shipped template does exactly that. `_warn_foreign_pointers` warns
-        product.docs_repo    same shape: a client's requirements repo may live anywhere
+        product.docs_repo    same shape: a client's requirements repo may live anywhere — once
+                             the project has code. BEFORE IT (#992) the context is the one
+                             repository a GitHub project's work touches: its requirements are
+                             written there and its first source is listed there, with this
+                             deployment's credential, and no axis names a repository for it
+                             (`repo: None`). Left out then, a project with no code was invisible
+                             to the one-organisation rule at `add` (review of 9f18a788), so its
+                             context's organisation is counted in the code's place, until the code
+                             takes it back.
     """
+    from openfactory.contracts.project import before_its_code
+
     owners: set[str] = set()
+    on_github = False
     for axis in (project.tracker, project.forge, project.ci):
         if axis is None or (axis.kind or "").strip().lower() != "github":
             continue
+        on_github = True
         repo = (axis.repo or "").strip()
         if "/" in repo:
             owners.add(repo.split("/", 1)[0])
         board_owner = (axis.options or {}).get("board_owner", "").strip()
         if board_owner:
             owners.add(board_owner)
+    if on_github and before_its_code(project):
+        from openfactory.doors import infer_repo
+
+        context = str(getattr(getattr(project, "product", None), "docs_repo", "") or "").strip()
+        if "://" in context or context.startswith("git@"):
+            context = infer_repo(context)
+        if "/" in context.strip("/"):
+            owners.add(context.strip("/").split("/", 1)[0])
     return owners
 
 
@@ -143,6 +163,35 @@ def spanning_message(by_owner: dict[str, list[str]]) -> str:
         "belongs to one org, so the projects outside it would 404 on every forge read. Run one "
         "deployment per organisation, or remove the projects that do not belong to this one."
     )
+
+
+def _given_its_code(raw: dict, name: str, project: Project) -> dict:
+    """The registry entry `name` becomes when `project` gives it its code (#992), or the refusal:
+    `KeyError` for a name nobody registered, `ValueError` for a project that has its code already
+    or for a registry that would span two GitHub organisations. ONE FUNCTION for
+    `ProjectRegistry.set_code`, which writes it, and `ProjectRegistry.check_code`, which asks it
+    before a first source pushes anything — so the two cannot disagree about what is refused."""
+    from openfactory.contracts.project import before_its_code
+
+    if name not in raw:
+        raise KeyError(name)
+    if not before_its_code(Project(**raw[name])):
+        raise ValueError(f"{name} already has its code repository "
+                         f"({raw[name].get('repo_path')!r}) — a project's code is given once")
+    entry = dict(raw[name])
+    entry["repo_path"] = project.repo_path
+    for axis in ("tracker", "forge", "ci"):
+        ref = getattr(project, axis, None)
+        if ref is not None:
+            entry[axis] = ref.model_dump(mode="json")
+    docs_repo = getattr(getattr(project, "product", None), "docs_repo", "") or ""
+    if docs_repo and isinstance(entry.get("product"), dict):
+        entry["product"] = {**entry["product"], "docs_repo": docs_repo}
+    would_be = [Project(**other) for key, other in raw.items() if key != name]
+    spanning = spanning_installations([*would_be, Project(**entry)])
+    if spanning:
+        raise ValueError(spanning_message(spanning))
+    return entry
 
 
 def installation_scope_line(by_owner: dict[str, list[str]],
@@ -467,6 +516,19 @@ class ProjectRegistry:
             raw = self._load_raw()
             if project.name in raw:
                 raise ValueError(f"project already registered: {project.name!r}")
+            # A PROJECT BEFORE ITS CODE HAS ITS CONTEXT, OR IT IS NOTHING (#992). No code
+            # repository is a state — the product started with its product owner, and
+            # `before_its_code` names it — but a project with neither a code repository nor a
+            # context repository is one every reader would have to guess about, and none should.
+            from openfactory.contracts.project import before_its_code
+
+            if before_its_code(project) and not str(getattr(
+                    getattr(project, "product", None), "docs_repo", "") or "").strip():
+                raise ValueError(
+                    f"project {project.name!r} names neither a code repository nor a context "
+                    "repository — register it with its code (`openfactory project add <name> "
+                    "<repository>`) or start its product before the code with its context "
+                    "repository (`openfactory product start <name> <context-repository>`)")
             # REFUSED HERE BECAUSE HERE IS WHERE THE MISTAKE IS MADE (#64). A human is in front of
             # this — `openfactory project add` or the panel's POST /api/projects, which already
             # renders a
@@ -691,6 +753,35 @@ class ProjectRegistry:
             clean = _without_foreign_tokens(project, everyone).preview
             raw[name]["preview"] = clean.model_dump(mode="json")
             self._save_raw(raw)
+
+    def set_code(self, name: str, project: Project) -> None:
+        """Give a project that started before its code its code repository (#992): `repo_path`
+        and the three axes of `project`, written over the entry's, and its context repository's
+        name as the code's forge addresses it (`product.docs_repo` — an Azure DevOps project
+        qualifies it when the code lives in another project) — everything else is kept.
+
+        ONLY THE FIRST. A project that has a code repository already is refused, under the lock,
+        because the question this answers is "where does the code go", and answering it a second
+        time would point the deployment's credential at another repository behind the back of the
+        jobs, branches and cards that live in the first. The registry is asked again as it would
+        be — one GitHub organisation per deployment (#64) — exactly as `add` asks."""
+        with self._locked():
+            raw = self._load_raw()
+            raw[name] = _given_its_code(raw, name, project)
+            self._save_raw(raw)
+
+    def check_code(self, name: str, project: Project) -> None:
+        """Every refusal `set_code` would make for `project`, asked now and written nowhere
+        (review of 9f18a788). RAISES `KeyError` and `ValueError` exactly as `set_code` does.
+
+        WHY IT IS ASKED BEFORE, AND AGAIN AFTER. A first source writes the product's context
+        before the registry (`product.before_code.first_source`), so a refusal that only `set_code`
+        made would leave a source listed in the context that every later run is refused again
+        over. Asked first with the same function, the registry's answer comes before anything is
+        pushed; `set_code` still asks under its own lock, for a registry somebody changed in the
+        seconds between."""
+        with self._locked():
+            _given_its_code(self._load_raw(), name, project)
 
     def set_enabled(self, name: str, enabled: bool) -> None:
         """Turn the framework on/off for a project's board — so it only starts picking up TODO

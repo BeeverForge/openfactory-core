@@ -253,7 +253,12 @@ def load_product_context(
         # the common case by far: no network, no clone, no cost. Most projects never enable this.
         return ProductContext(link=resolve_product_link(project=project))
 
-    claim = source_claim if source_claim is not None else _source_claim(project)
+    # NO SOURCE REPOSITORY, NO CLAIM TO READ (#992): a product that started before its code has
+    # no manifest anywhere, and asking for one would clone nothing to learn nothing
+    from openfactory.contracts.project import before_its_code
+
+    claim = (source_claim if source_claim is not None
+             else None if before_its_code(project) else _source_claim(project))
 
     try:
         # THROUGH THE FORGE REGISTRY, NOT `entrypoint.clone_url`. That helper spells `github.com`

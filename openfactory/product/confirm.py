@@ -619,6 +619,10 @@ def _confirm_breakdown(project, entry, *, module, user, lang) -> str:
         log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_NOT_STARTED project=%s req=%s — a person "
                       "said yes and nothing was filed", getattr(project, "name", "?"), number)
         return breakdown_not_begun(number=number, language=lang)
+    if how == breaking.WAITS:
+        from openfactory.product.voice import breakdown_waits_for_code
+
+        return breakdown_waits_for_code(number=number, language=lang)
     return breakdown_begun(number=number, running=how == breaking.RUNNING, language=lang)
 
 
@@ -675,8 +679,18 @@ def _confirm_draft(project, entry, *, module, user, lang) -> str:
     # THE OFFICIAL CARD, BEFORE THE PROMISE (ADR-0047 §2). The requester's second yes is given on
     # the thing that will be worked, so it is opened now — in Backlog, saying whose acceptance it
     # awaits — and the acceptance is staged as the next thing this conversation is waiting for.
-    said, cards = _the_official_cards(module, number, user, project, lang, said, entry=entry)
-    if cards:
+    # A PRODUCT BEFORE ITS CODE HAS NOTHING TO OPEN ONE IN (#992): the second yes is staged on the
+    # requirement itself, and the cards wait for the code — the acceptance does not.
+    from openfactory.contracts.project import before_its_code
+
+    code_less = before_its_code(project)
+    if code_less:
+        from openfactory.product.voice import written_before_code
+
+        said, cards = said + "\n\n" + written_before_code(number=number, language=lang), []
+    else:
+        said, cards = _the_official_cards(module, number, user, project, lang, said, entry=entry)
+    if cards or code_less:
         entry["next"] = {"kind": "accept", "number": number, "cards": cards,
                          "asked_by": entry.get("asked_by", ""),
                          "channel": entry.get("channel", ""),
@@ -956,6 +970,12 @@ def _also_broke_it_down(number: int, user: str, head: str, lang, project, *,
         said = _said(lang)
         return (f"{head}\n\n{said['no_breakdown']}{said['no_breakdown_now']}"
                 f"{said['agreement_holds']}")
+    if how == breaking.WAITS:
+        # AGREED NOW, BROKEN DOWN LATER (#992): the product started before its code, so the
+        # acceptance stands and the cards wait for the code repository they would be worked in
+        from openfactory.product.voice import breakdown_waits_for_code
+
+        return head + "\n\n" + breakdown_waits_for_code(number=number, language=lang)
     return head + "\n\n" + breakdown_begun(number=number, running=how == breaking.RUNNING,
                                            language=lang)
 
@@ -987,6 +1007,10 @@ def breakdown_told(project, number: int, results, *, asked_for: bool, module=Non
         from openfactory.product.voice import nothing_to_build
 
         return nothing_to_build(number=number, language=lang)
+    waiting = next((r for r in results if getattr(r, "waits_for_code", False)), None)
+    if waiting is not None:
+        # THE SINK'S OWN WAIT (#992), said as the module said it — never "nothing was filed"
+        return str(getattr(waiting, "detail", "") or "")
     if asked_for or any(getattr(r, "ok", False) for r in results):
         if module is None:
             from openfactory.product.module import ProductModule

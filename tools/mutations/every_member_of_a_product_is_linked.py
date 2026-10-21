@@ -15,15 +15,17 @@ CFG = "openfactory/product/config.py"
 
 MUTATIONS = [
     # 1. every member
+    # RE-PINNED (#992): the condition reads `code_less` first — a product before its code has no
+    # code repository for `sources:` to list, so only its name can admit it
     ("TODAY'S RUN: only the project named like the product is linked", CFG,
-     '    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and not _listed(\n'
-     "            project, docs):",
+     '    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and (\n'
+     "            code_less or not _listed(project, docs)):",
      '    if (docs.product or "").strip().lower() != str(project.name).strip().lower():'),
 
     # 2. the isolation
     ("the refusal no longer says the project is missing from `sources:`", CFG,
-     "f\"{project.name!r} and its code repository is not in that product's `sources:`. \"",
-     'f"{project.name!r}. "'),
+     "if code_less else \"its code repository is not in that product's `sources:`. \")",
+     'if code_less else ". ")'),
     ("a project is admitted as listed whether or not the context lists it", CFG,
      "    return bool(source) and any(\n"
      "        repo_match(source, normalize_repo(s)) == MATCH_EXACT for s in docs.sources)",
@@ -34,10 +36,10 @@ MUTATIONS = [
      "        repo_match(source, normalize_repo(s)) == MATCH_EXACT for s in docs.sources)",
      "        repo_match(source, normalize_repo(s)) for s in docs.sources)"),
     ("the product's name no longer decides where nothing is listed", CFG,
-     '    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and not _listed(\n'
-     "            project, docs):",
+     '    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and (\n'
+     "            code_less or not _listed(project, docs)):",
      "    if False:"),
     ("the name is compared as written, case and padding included", CFG,
-     '    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and not _listed(',
-     "    if (docs.product or \"\") != str(project.name) and not _listed("),
+     '    if (docs.product or "").strip().lower() != str(project.name).strip().lower() and (',
+     "    if (docs.product or \"\") != str(project.name) and ("),
 ]

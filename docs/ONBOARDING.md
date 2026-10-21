@@ -259,6 +259,8 @@ loop you actually turn on, and each is named at the step that needs it.
 
 ## 2 · Register the project
 
+**No code yet?** A product can start on its context repository alone — §9b.
+
 **Runs on: the WORKER** — the §0 prefix, and here is why it matters: the list of projects lives
 *inside* the stack, and the laptop CLI keeps a separate list of its own. Register only on the
 laptop and the factory never sees the project; nothing errors, no ticket is ever picked up, and
@@ -826,6 +828,75 @@ printed as a todo, not written, so that one line is yours to commit. And a legac
 existing requirements is adopted with `openfactory product baseline` — everything it writes
 arrives as `observed`, and a human flipping entries to `accepted` **is** the deliverable, not a
 formality.
+
+---
+
+## 9b · A product that starts before its code
+
+A product whose requirements and design come first — written with its product owner, imported, or
+brought in by any client — has no code repository yet, and does not need one to start. Do not
+create an empty repository so a command has something to point at: register the product on its
+**context repository** alone.
+
+```bash
+openfactory product start myapp <owner>/myapp-context      # GitHub
+openfactory product start myapp https://dev.azure.com/<org>/<project>/_git/myapp-context
+openfactory product start myapp myapp-context              # one machine: created if missing
+```
+
+It registers the project with no code repository, reads the context back with every credential
+that will open it, and says whether the product role is on. It is an action row
+(`product_start`), so a front end of your own reaches it at `POST /api/act/product_start`; run
+again, it finds the product it started rather than refusing it.
+
+**Where the context comes from — three ways, one command:**
+
+- **Created.** On one machine `product start` creates it, as `project init` does there: it is a
+  directory the installation owns, seeded with `.openfactory/product.yaml` naming the product and
+  `sources: []`. On a hosted forge it is your organisation's to create — the portal, your
+  provisioning process — and then started on; the core never creates a repository in an
+  organisation from a name it was handed, and never a placeholder code repository at all.
+- **Reused.** A context repository that already exists — written before the factory, with its own
+  structure — is started on as it is, and nothing in it is replaced. When it does not declare the
+  product yet, `product start` says so, and `openfactory product init myapp --write` proposes the
+  declaration (with `sources: []`) as a pull request on it.
+- **Brought in.** Requirements imported or written by another tool or client land in a context
+  repository that tool fills; started on, it is read like any other. `sources: []` is a product
+  that has not started, not an error.
+
+**A context that already lists sources is a product that has started.** A project with no code
+can vouch for nothing in it, so the product role stays off for it, saying why, until its first
+source is one of the listed repositories. A GitHub context counts as the project's organisation
+while it has no code: on a deployment of one organisation, `product start` refuses a context in
+another, as `project add` refuses code there.
+
+**What works, and what waits.** The product owner's conversation, writing and accepting
+requirements, the documents, decisions and facts — everything that lives in the context — work at
+once. Breaking a requirement into cards **waits for a source**: an acceptance records the promise
+and says, in the project's language, that its tasks wait for the code. Everything else that needs
+code refuses the project by name with the one way through — every action row that needs it
+(reason `no_code_yet`), pickup (the poller leaves it off its list), `box prove`, `run`, `poll`
+and `project init` — and `openfactory doctor myapp` says it once, as its `code` line, instead of a
+red line per reader of the code. The readiness check (`openfactory env check myapp`, the
+`env_check` row) answers too: NOT ready, held on that same line.
+
+**The first source.** When the code repository exists — made by hand, or by any scaffold — one
+act gives it to the product, on the forge its context is on:
+
+```bash
+openfactory product first-source myapp https://github.com/<owner>/myapp.git
+```
+
+It asks the registry first (a code repository is given once, and one deployment is one GitHub
+organisation), then adds the repository to `sources:` in the context, then records it in the
+registry — in that order, so a refusal comes before anything is pushed and an interrupted run is
+finished by running it again. A scaffold that already listed it is found, not written twice. A
+context that lists **other** repositories and not this one is refused, with nothing written: a
+repository joins a product that has sources by its context listing it, so list it there first
+(or start the product on a context of its own). Breaking a requirement into cards then needs no other step, and every
+acceptance files its own. The answer names the requirements accepted while the product waited;
+each is one `openfactory product break-down myapp <number> --yes` away, asked by its product
+owner. A board is attached as for any project (`openfactory project init myapp`).
 
 ---
 
