@@ -43,6 +43,7 @@ from pydantic import ValidationError
 
 from openfactory.contracts import aliases
 from openfactory.contracts.project import BoxConfig, Project
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.registry")
 
@@ -294,7 +295,7 @@ class ProjectRegistry:
         if not self.path.exists():
             return {}
         try:
-            data = yaml.safe_load(self.path.read_text()) or {}
+            data = yaml_io.load(self.path.read_text()) or {}
         except yaml.YAMLError as exc:
             raise ValueError(f"{self.path} is not valid YAML: {exc}") from exc
         if not isinstance(data, dict):
@@ -335,7 +336,7 @@ class ProjectRegistry:
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=".registry-", suffix=".tmp")
         try:
             with os.fdopen(fd, "w") as fh:
-                yaml.safe_dump({"projects": projects}, fh, sort_keys=True)
+                yaml_io.dump({"projects": projects}, fh, sort_keys=True)
                 fh.flush()
                 os.fsync(fh.fileno())  # the bytes are on disk before anything points at them
             os.replace(tmp, self.path)
@@ -863,7 +864,7 @@ def seed_registry(*, seed: Path | str | None = None, live: Path | str | None = N
         existing = ProjectRegistry(live_path)._load_raw()
         if existing:
             return False
-        projects = (yaml.safe_load(seed_path.read_text()) or {}).get("projects") or {}
+        projects = (yaml_io.load(seed_path.read_text()) or {}).get("projects") or {}
         if not projects:
             return False
         ProjectRegistry(live_path)._save_raw(projects)

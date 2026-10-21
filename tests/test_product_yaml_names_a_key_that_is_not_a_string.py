@@ -18,6 +18,10 @@ the rule is one sentence for all of them, in the shape the parse already uses fo
 cannot read, ending with the remedy. The guard against overreach is the same spellings quoted: a
 key that IS a string still loads.
 
+A KEY REACHED THROUGH AN ALIAS IS REFUSED BY THE ALIAS (#1005). The file is read without anchors or
+aliases, so the two layouts that need one (`THROUGH_AN_ALIAS`) are refused at the anchor, before
+any key is read, whatever the key is — a string included. Every spelling is still written in both.
+
 THE LOAD IS ASSEMBLED BY HAND, so what `yaml.safe_load` did by its name is held here too, through
 both readers of the file (the product module's and the preview's). A tag that would build a Python
 object is refused and never built, wherever it is written. That family is every tag a loader
@@ -82,14 +86,15 @@ LAYOUTS: dict[str, str] = {
     "complex-key": "product: books\n? {key}\n: x\n",
     "merged": "product: books\n<<: {{? {key} : x}}\n",
     "merged as a sequence": "product: books\n<<: [{{? {key} : x}}]\n",
-    "merged through an alias": "product: books\nx-base: &m {{? {key} : x}}\n<<: *m\n",
-    "an alias as a key": "product: books\nx-key: &k {key}\n*k : x\n",
     "a flow-style root": "{{product: books,\n {key}: x}}\n",
 }
 
-#: a layout that names the key otherwise than as it is spelled. An alias is named where its anchor
-#: writes the key: the composer hands back the anchored node, so where `*k` stands is gone.
-NAMED_AS = {"an alias as a key": "&k {key}"}
+#: the layouts that reach the top level through an anchor and an alias: each is refused at the
+#: anchor, on line 2, before any key is read (#1005)
+THROUGH_AN_ALIAS: dict[str, tuple[str, str]] = {
+    "merged through an alias": ("product: books\nx-base: &m {{? {key} : x}}\n<<: *m\n", "&m"),
+    "an alias as a key": ("product: books\nx-key: &k {key}\n*k : x\n", "&k"),
+}
 
 #: the layouts that cannot write an empty key: `: x` alone is not YAML, in block or in flow style
 NO_EMPTY_KEY = ("written", "a flow-style root")
@@ -109,7 +114,7 @@ def _shape(tag: str) -> str:
 def _named(key: str, layout: str) -> str:
     """How the sentence names a key in `layout`: as written and quoted, or `an empty key` when
     nothing is written."""
-    written = " ".join(NAMED_AS.get(layout, "{key}").format(key=key).split())
+    written = " ".join(key.split())
     return repr(written) if written else "an empty key"
 
 
@@ -217,6 +222,17 @@ def test_the_same_key_written_as_a_string_loads(tag, key, layout):
     docs, error = parse_docs_manifest(LAYOUTS[layout].format(key=json.dumps(key)))
     assert error == ""
     assert docs is not None and docs.product == "books"
+
+
+@pytest.mark.parametrize("layout", THROUGH_AN_ALIAS)
+@pytest.mark.parametrize("key", [*(k for _, k in SPELLED if k), *(json.dumps(k) for _, k in SPELLED),
+                                 "!foo x"])
+def test_a_key_reached_through_an_alias_is_refused_at_the_anchor(key, layout):
+    text, anchor = THROUGH_AN_ALIAS[layout]
+    docs, error = parse_docs_manifest(text.format(key=key))
+    assert docs is None
+    assert error == (f"{DOCS_MANIFEST} is not valid YAML: an anchor (`{anchor}`, line 2): this file "
+                     f"is read without anchors or aliases — write the value out where it is used")
 
 
 # --- what `yaml.safe_load` did by its name ------------------------------------------------------

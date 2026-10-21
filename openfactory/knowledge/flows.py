@@ -48,6 +48,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from openfactory.knowledge.contracts import Concept, ConceptSource, Gap, OkfManifest
+from openfactory.util import yaml_io
 
 _MODEL = ConfigDict(extra="ignore", populate_by_name=True)
 
@@ -289,8 +290,8 @@ def derived_key(flows: Flows) -> str:
 # ── writing and reading ─────────────────────────────────────────────────────────────────────────
 
 def _dump(data: object) -> str:
-    return yaml.safe_dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True,
-                          width=100)
+    return yaml_io.dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True,
+                        width=100)
 
 
 def write_flows(flows: Flows, concepts: list[Concept], into: str | Path) -> list[Path]:
@@ -323,7 +324,7 @@ def read_flows(flows_dir: str | Path | None) -> Flows | None:
     if got.text is None:
         return None
     try:
-        data = yaml.safe_load(got.text)
+        data = yaml_io.load(got.text)
         return Flows(**data) if isinstance(data, dict) else None
     except (yaml.YAMLError, ValueError, TypeError, RecursionError):
         return None

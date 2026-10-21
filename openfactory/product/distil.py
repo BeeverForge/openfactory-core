@@ -64,7 +64,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-import yaml
 from pydantic import BaseModel, Field
 
 from openfactory.contracts.document import CLIENT
@@ -77,6 +76,7 @@ from openfactory.product.documents.record import (
     distillate_path,
     span_marker_path,
 )
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.product.distil")
 
@@ -476,7 +476,7 @@ def render(span: Span, reading: Distilled, *, people) -> str:
             body += [f"## {heading}", "", *(f"- {item}" for item in items), ""]
     if not said:
         body += ["Nothing was agreed, asked or decided in it that is not recorded elsewhere.", ""]
-    return ("---\n" + yaml.safe_dump(front, sort_keys=False, allow_unicode=True) + "---\n\n"
+    return ("---\n" + yaml_io.dump(front, sort_keys=False, allow_unicode=True) + "---\n\n"
             + "\n".join(body).rstrip() + "\n")
 
 
@@ -492,7 +492,7 @@ def render_marker(span: Span) -> str:
             "— no agreement, request or decision the product's record does not already have, and "
             "no question left open. Marked read so it is never distilled again. It is not a "
             "document and nobody reads it; it holds none of what was said.")
-    return ("---\n" + yaml.safe_dump(front, sort_keys=False, allow_unicode=True) + "---\n\n"
+    return ("---\n" + yaml_io.dump(front, sort_keys=False, allow_unicode=True) + "---\n\n"
             + body + "\n")
 
 

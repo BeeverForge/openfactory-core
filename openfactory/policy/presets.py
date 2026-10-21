@@ -21,6 +21,8 @@ from pathlib import Path
 
 import yaml
 
+from openfactory.util import yaml_io
+
 log = logging.getLogger("openfactory.policy.presets")
 
 _PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
@@ -35,7 +37,7 @@ def load_preset(stack: str) -> dict:
     path = _PRESETS_DIR / f"{stack}.yaml"
     if not path.exists():
         return {}
-    return yaml.safe_load(path.read_text()) or {}
+    return yaml_io.load(path.read_text()) or {}
 
 
 def available_stacks() -> list[str]:
@@ -70,7 +72,7 @@ def floor_document() -> dict | None:
         # `encoding="utf-8"` explicitly, not the locale default: a worker container with no locale
         # set reads ASCII, and this file's comments carry non-ASCII characters — the same bytes
         # would then be "unreadable" on the worker and fine on a developer's machine.
-        raw = yaml.safe_load(ORG_FLOOR_FILE.read_text(encoding="utf-8"))
+        raw = yaml_io.load(ORG_FLOOR_FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:
         log.error(
             "OPENFACTORY_FLOOR_UNREADABLE the deployment's floor is missing at %s — no project "

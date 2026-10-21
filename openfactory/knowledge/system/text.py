@@ -1,10 +1,11 @@
 """What every format's reader shares: a safe YAML loader, comments blanked, a line from an offset.
 
 KEPT APART so that the one decision each makes is made once. `load_yaml` is the only way a YAML
-document is read in this layer — the safe loader, which refuses every tag that would build a Python
-object — and `blank_comments` is the only way a comment is taken out of a C-like text, keeping every
-offset and every line where it was, so a line number found in the blanked text is the line in the
-file.
+document is read in this layer — `yaml_io.CountingLoader`, which refuses every tag that would build
+a Python object and reads within the bounds every YAML file is read to, an alias counted at the
+size of what it repeats (the formats this layer reads, compose first, have anchors; #1005) — and
+`blank_comments` is the only way a comment is taken out of a C-like text, keeping every offset and
+every line where it was, so a line number found in the blanked text is the line in the file.
 """
 
 from __future__ import annotations
@@ -13,16 +14,18 @@ import bisect
 
 import yaml
 
+from openfactory.util import yaml_io
 
-class _Loader(yaml.SafeLoader):
-    """`yaml.SafeLoader`, plus the two tags the compose specification defines.
+
+class _Loader(yaml_io.CountingLoader):
+    """`yaml_io.CountingLoader`, plus the two tags the compose specification defines.
 
     `!reset` and `!override` only remove or replace a key while compose merges files; read on their
     own they are the value they carry. Every other tag — `!!python/object/apply:os.system` among
     them — is refused by the safe loader, and the file is reported as not parsed."""
 
 
-def _as_is(loader: yaml.SafeLoader, node: yaml.Node):
+def _as_is(loader: yaml_io.Loader, node: yaml.Node):
     if isinstance(node, yaml.MappingNode):
         return loader.construct_mapping(node, deep=True)
     if isinstance(node, yaml.SequenceNode):
@@ -35,9 +38,9 @@ _Loader.add_constructor("!override", _as_is)
 
 
 def load_yaml(text: str):
-    """One YAML document, safely. Raises `yaml.YAMLError` (and `RecursionError` on a document
-    nested deeper than the interpreter will follow) — the caller files either as a parse error."""
-    return yaml.load(text, Loader=_Loader)  # noqa: S506 — `_Loader` IS a SafeLoader
+    """One YAML document, safely and within bounds. Raises `yaml.YAMLError` — `yaml_io.YamlRefused`
+    among them, for a document past a bound — which the caller files as a parse error."""
+    return yaml_io.load(text, loader=_Loader)
 
 
 def documents(text: str) -> list[tuple[int, str]]:

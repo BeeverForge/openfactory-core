@@ -31,6 +31,7 @@ from pathlib import Path
 import yaml
 
 from openfactory.knowledge.system.contracts import SystemMap
+from openfactory.util import yaml_io
 
 SYSTEM_DIRNAME = "system"
 SYSTEM_FILE = "system.yaml"
@@ -51,19 +52,12 @@ SCOPE_LIMIT = (
     "directories are not read. It says where to look; the code says what is true.")
 
 
-class _NoAliases(yaml.SafeDumper):
-    """A dumper that writes every repeated value out again rather than as an anchor and an
-    alias: the files are read by people and by roles that grep them, and `*id001` is neither."""
-
-    def ignore_aliases(self, data):
-        return True
-
-
 def _dump(data: object) -> str:
     """Deterministic YAML — the contract `okf._dump` states: sorted keys, block style, no
-    aliases, unicode kept."""
-    return yaml.dump(data, Dumper=_NoAliases, sort_keys=True, default_flow_style=False,
-                     allow_unicode=True, width=100)
+    aliases (`yaml_io.dump` writes none: the files are read by people and by roles that grep them,
+    and `*id001` is neither), unicode kept."""
+    return yaml_io.dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True,
+                        width=100)
 
 
 def _plain(model) -> object:
@@ -128,7 +122,7 @@ def read_derived_key(root: str | Path, rel: str) -> str:
     if got.text is None:
         return ""
     try:
-        data = yaml.safe_load(got.text)
+        data = yaml_io.load(got.text)
     except (yaml.YAMLError, ValueError, RecursionError):
         return ""
     return str(data.get("derived_key") or "") if isinstance(data, dict) else ""

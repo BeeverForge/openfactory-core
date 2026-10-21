@@ -44,6 +44,7 @@ from pydantic import BaseModel, Field
 
 from openfactory.product.evaluation.battery import NO_QUESTIONS, Battery, BatteryRefused, Question
 from openfactory.product.evaluation.score import Judge, Tally, Verdict, score, totals
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.product.evaluation")
 
@@ -85,7 +86,7 @@ def fixture_name(fixture: str | Path) -> str:
     """The product the fixture is: the `product:` its context repository declares."""
     manifest = Path(fixture) / "context" / ".openfactory" / "product.yaml"
     try:
-        data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+        data = yaml_io.load(manifest.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:
         raise FixtureRefused(f"{manifest} could not be read: {exc}") from exc
     name = str(data.get("product") or "").strip() if isinstance(data, dict) else ""

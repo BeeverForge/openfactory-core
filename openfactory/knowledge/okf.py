@@ -39,6 +39,7 @@ from openfactory.knowledge.contracts import (
     Gap,
     OkfManifest,
 )
+from openfactory.util import yaml_io
 
 #: The bundle's own directory name, and the manifest inside it. `.okf/` rather than `knowledge/`
 #: so the name cannot collide with a client directory called `knowledge` — which
@@ -73,7 +74,7 @@ _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.DOTALL)
 def _dump(data: object) -> str:
     """Deterministic YAML — the same contract `bundle.py::_dump` states: keys sorted, block style,
     no aliases, unicode preserved, so one repository state serializes to identical bytes."""
-    return yaml.safe_dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True)
+    return yaml_io.dump(data, sort_keys=True, default_flow_style=False, allow_unicode=True)
 
 
 def slug(title: str) -> str:
@@ -186,7 +187,7 @@ def parse_concept(text: str) -> Concept | None:
     if match is None:
         return None
     try:
-        head = yaml.safe_load(match.group(1)) or {}
+        head = yaml_io.load(match.group(1)) or {}
     except yaml.YAMLError:
         return None
     if not isinstance(head, dict):
@@ -229,7 +230,7 @@ def render_manifest(manifest: OkfManifest) -> str:
 def parse_manifest(text: str) -> OkfManifest | None:
     """Read the bundle's account of itself back. `None` when it is not YAML or not a mapping."""
     try:
-        data = yaml.safe_load(text)
+        data = yaml_io.load(text)
     except yaml.YAMLError:
         return None
     if not isinstance(data, dict) or not data:

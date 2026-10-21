@@ -6659,10 +6659,10 @@ async def _env_apply_impl(*, project: str, by: Actor, yes: object = False,
     import tempfile
     from datetime import UTC, datetime
 
-    import yaml
     from pydantic import ValidationError
 
     from openfactory.contracts.manifest import Manifest
+    from openfactory.util import yaml_io
     from openfactory.util.causes import first_message
 
     where = _measured_on(by)
@@ -6962,7 +6962,7 @@ async def _env_apply_impl(*, project: str, by: Actor, yes: object = False,
             written=written, skipped=skipped, blocked_by=[s["name"] for s in blocked])
 
     when = datetime.now(UTC).date().isoformat()
-    body = _yaml_header(written, skipped, when=when, who=str(by)) + yaml.safe_dump(
+    body = _yaml_header(written, skipped, when=when, who=str(by)) + yaml_io.dump(
         document, sort_keys=False, allow_unicode=True, default_flow_style=False)
     destination = (Path(str(out)).expanduser() if out else checkout / found.manifest_path)
 

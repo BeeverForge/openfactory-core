@@ -41,6 +41,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from openfactory.util import yaml_io
+
 #: the product's template, inside the directory of the requirements it describes
 TEMPLATE_FILE = "template.yaml"
 
@@ -173,7 +175,7 @@ class RequirementTemplate(BaseModel):
 def read_template(text: str) -> RequirementTemplate:
     """The template in `text`; raises `ValueError` saying what is wrong."""
     try:
-        raw = yaml.safe_load(text)
+        raw = yaml_io.load(text)
     except yaml.YAMLError as error:
         raise ValueError(f"cannot be read as YAML: {' '.join(str(error).split())[:160]}") from None
     if raw is None:
