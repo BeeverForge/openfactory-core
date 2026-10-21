@@ -64,6 +64,9 @@ JWT = ("eyJ" + "hbGciOiJIUzI1NiJ9") + "." + ("eyJ" + "zdWIiOiIxMjM0In0") + "." +
 HEX_TOKEN = "5e" + "c4e7" * 9 + "a1"
 BARE_BEARER = "q7SECRET" * 4
 BASIC = "dXNl" + "cjpxN1NFQ1JFVA=="
+#: A SPNEGO and an NTLM negotiate message, base64 as the header carries them.
+SPNEGO = "YIIB" + "hwYGKwYBBQUCoIIBezCCAXeg"
+NTLM_MESSAGE = "TlRMTVNT" + "UAABAAAAB4IIog=="
 DB_PASSWORD = "q7" + "hunter" * 3
 OPAQUE = "q7" + "OPAQUE" * 5
 LINK_PASSWORD = "q7" + "linkpw" * 3
@@ -131,8 +134,10 @@ def test_a_github_token_in_the_agents_message_is_withheld_and_the_body_says_so(
     (f"{SENTINEL}: set Authorization=Basic {BASIC} in the env file", BASIC),
     # review on 5fe330d2: a scheme the comment names and nothing held (a Discord bot's header)
     (f"{SENTINEL}: sent Authorization: Bot {HEX_TOKEN}", HEX_TOKEN),
+    (f"{SENTINEL}: the proxy sent Authorization: Negotiate {SPNEGO} back", SPNEGO),
+    (f"{SENTINEL}: the proxy sent Authorization: NTLM {NTLM_MESSAGE} back", NTLM_MESSAGE),
 ], ids=["bearer-jwt", "curl-token-hex", "bare-bearer", "lowercase-header", "json-key", "equals",
-        "bot"])
+        "bot", "negotiate", "ntlm"])
 def test_the_value_of_an_authorization_header_in_the_agents_message_is_withheld_and_the_body_says_so(
         repo: Path, tmp_path: Path, said: str, secret: str):
     """At 620bb577 none of these values carries a vendor prefix, and `scrub_credentials` returned
