@@ -186,6 +186,9 @@ option of exactly that name is used without a `columns:` entry. The platform's o
 GitHub) gets it when you re-run `openfactory project init`, which adds the missing column in
 place and renames nothing; on Jira and Azure Boards the factory moves cards there only when
 `status_map` (Jira) or `columns` and `state_map` (Azure) name it for the `needs_review` key.
+Opting in moves no card: a pull request already in *Needs Action* waiting on a reviewer stays
+there until the factory next moves it (a re-review sends it to *Needs Review*, the merge to
+*Done*); on GitHub Projects, Jira or Azure Boards you can also move it there by hand.
 Triage's *waiting too long* finding covers a pull request left there as it covers a park; the
 product role's review of parked cards does not list it, because it has nothing to diagnose
 (ADR-0019 §6).
