@@ -125,7 +125,7 @@ MUTATIONS = [
      "                return None\n",
      NOT_OURS),
 
-    # #939: red on 3.12 only, which is what CI and the worker image run. 3.13.16 and 3.14.8 return
+    # #939: red on 3.12 only, which is what CI runs. 3.13.16 and 3.14.8 return
     # a looped path unchanged from a non-strict resolve() (measured 2026-10-20), so under 3.13+
     # this row survives with nothing broken; there is no defect to hold there.
     ("on 3.12 a `.git` file at the path naming a symlink loop is a traceback out of prepare, not "
