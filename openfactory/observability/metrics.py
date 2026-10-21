@@ -53,7 +53,14 @@ MetricKind = Literal["agent_run", "job", "product_sweep", "techlead_watch", "age
                      # What happened to a card, one row per transition and one per effect's
                      # outcome (ADR-0055 D4) — written only through `KeyedSink`, under keys the
                      # card's lifecycle chooses (`lifecycle/record.py`), never under a time.
-                     "card_transition"]
+                     "card_transition",
+                     # Who did what (#694): one row per `actions.perform` call on every way out
+                     # of it, written only by `observability/audit.write`. Append-only — each row
+                     # is keyed by its own record id, so two calls in one instant are two rows and
+                     # nothing rewrites one — and kept for `audit.AUDIT_KEPT_DAYS` through
+                     # `expires_at`. `project forget` keeps it: the record holds no client words,
+                     # and an audit trail a forget erased would be no audit trail.
+                     "audit"]
 
 
 class MetricRecord(BaseModel):

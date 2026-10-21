@@ -176,8 +176,8 @@ class AuditRecord:
 async def write(record: AuditRecord) -> bool:
     """Hand `record` to the deployment's store; True only when it was kept.
 
-    The one seam `actions.perform` writes through, once per call. The store does not know the
-    record's kind yet (`MetricKind` has no `audit`), so nothing is kept and this answers False —
+    The one seam `actions.perform` writes through, once per call. The store knows the record's
+    kind (`audit` in `MetricKind`), but nothing here writes it yet, so this answers False —
     said at DEBUG rather than WARNING, because it is every call, not a store that refused one."""
     log.debug("audit: no store keeps action records yet; %s by %s not kept", record.action,
               record.actor_id)
