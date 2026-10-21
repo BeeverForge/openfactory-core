@@ -3437,6 +3437,9 @@ def bot_token(
     it (2026-08-12), which is fair: `--help` showed only the export form below, so the command
     read as something that produces a credential you keep.
 
+    `--app-id`, `--installation-id` and `--key-path` override the deployment's values, so a newly
+    downloaded `.pem` can be proven before it is deployed.
+
     The export form is for a SHELL that needs a token for a one-off `gh` command:
 
         export OPENFACTORY_BOT_TOKEN=$(openfactory bot-token)
