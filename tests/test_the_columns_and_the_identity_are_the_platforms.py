@@ -80,9 +80,10 @@ def test_every_neutral_caller_reads_the_home_rather_than_a_literal() -> None:
     # the triage's three are KEYS since #502, and the board names each of them for itself
     defaults = inspect.signature(triage).parameters
     assert defaults["active_keys"].default == ("in_progress",)
-    assert defaults["waiting_key"].default == "needs_action"
+    # waiting on a person is a park or a pull request waiting for its review (#753)
+    assert defaults["waiting_keys"].default == ("needs_review", "needs_action")
     assert defaults["done_key"].default == "done"
-    assert {*defaults["active_keys"].default, defaults["waiting_key"].default,
+    assert {*defaults["active_keys"].default, *defaults["waiting_keys"].default,
             defaults["done_key"].default} <= set(CANONICAL_COLUMNS)
 
 

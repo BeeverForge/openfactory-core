@@ -338,6 +338,26 @@ def test_what_is_parked_on_a_renamed_jira_board_is_found(site, jira):
     assert error == "" and [i.number for i in items] == ["DAR-1"]
 
 
+#: The site's name for the review column a deployment maps (#753).
+REVIEWING = "Em revisão"
+
+
+def test_a_pull_request_left_unreviewed_on_a_renamed_jira_board_is_waiting_too_long(site, jira):
+    """A person's review is a person's wait (#753): on a board that maps `needs_review`, a card
+    left there is flagged like one left in the parks. Before, triage read only `needs_action` as
+    waiting, and DAR-2 produced no finding."""
+    site.put("DAR-1", WAITING, body=CRITERIA, updated=LONG_AGO)
+    site.put("DAR-2", REVIEWING, body=CRITERIA, updated=LONG_AGO)
+    _project, module, _tracker, _board = jira({**RENAMED, "needs_review": REVIEWING})
+
+    report, error = module.triage_board()
+
+    assert error == ""
+    assert {o.ticket: o.kind for o in report.observations} == {
+        "DAR-1": "waiting-too-long", "DAR-2": "waiting-too-long"}
+
+
+
 # ── 3. the sentences name the board's own columns ───────────────────────────────────────────────
 
 def test_a_card_filed_on_jira_is_said_to_be_in_the_boards_own_backlog(site, jira):
