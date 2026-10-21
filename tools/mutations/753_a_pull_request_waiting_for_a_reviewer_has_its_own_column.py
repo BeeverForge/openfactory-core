@@ -29,6 +29,12 @@ THE CLAIMS, each with a red twin below:
   7. **A status two keys share reads back as `in_review`** (the reporter's board maps both to "In
      Review"). Row 33 makes `key_for` answer the LAST key that spells a name, so the shared status
      reads as `needs_review` and the door would queue a card the factory may still be reviewing.
+  8. **A re-run of `project init` gives an existing local board its review column, in board order
+     (Q1, answer B).** Row 34 puts back `init`'s skip of `create` on an attached board; row 35 takes
+     the local row's say-so away; row 36 leaves the existing rows' positions as they were, so the
+     new row ties with Needs Action and sorts after it; row 37 restores the platform's names on a
+     re-run; row 38 back-fills the parked cards into the new column; rows 39-40 make the re-run
+     silent about what it added, and loud about what it did not.
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -53,6 +59,9 @@ AC3 = "tests/test_a_board_that_maps_no_review_column_keeps_todays_board.py"
 AC456 = "tests/test_a_card_in_the_review_column_is_one_the_platform_maps.py"
 VOCABULARY = "tests/test_the_columns_and_the_identity_are_the_platforms.py"
 QUEUE_READERS = "tests/test_the_queues_readers_read_columns_by_key.py"
+CLI = "openfactory/cli.py"
+L_SETUP = "openfactory/adapters/board_setup/local.py"
+RERUN = "tests/test_a_rerun_of_init_gives_an_existing_local_board_its_review_column.py"
 
 
 def _ac2(row: str) -> str:
@@ -232,4 +241,43 @@ MUTATIONS = [
      "    for key, spelled in {**CANONICAL_COLUMNS, **(renamed or {})}.items():",
      "    for key, spelled in reversed({**CANONICAL_COLUMNS, **(renamed or {})}.items()):",
      f"{AC456}::test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs"),
+
+    # ── 8. a re-run of init on an existing local board ──────────────────────────────────────────
+    ("init skips create on any attached board again", CLI,
+     '    elif attached and not getattr(create_board, "completes_an_attached_board", False):',
+     "    elif attached:",
+     f"{RERUN}::test_the_rerun_adds_needs_review_between_in_review_and_needs_action"),
+
+    ("the local row no longer says create completes an attached board", L_SETUP,
+     "    completes_an_attached_board = True",
+     "    completes_an_attached_board = False",
+     f"{RERUN}::test_the_rerun_adds_needs_review_between_in_review_and_needs_action"),
+
+    ("the existing rows keep their positions, so the new one ties", L_SETUP,
+     '                conn.execute("UPDATE columns SET position = ? WHERE project = ? AND key = ?",\n'
+     "                             (position, name, key))\n",
+     "",
+     f"{RERUN}::test_the_rerun_gives_every_column_a_position_of_its_own"),
+
+    ("a re-run restores the platform's names", L_SETUP,
+     '"INSERT OR IGNORE INTO columns(project, key, name, position) VALUES (?,?,?,?)",',
+     '"INSERT OR REPLACE INTO columns(project, key, name, position) VALUES (?,?,?,?)",',
+     f"{RERUN}::test_the_rerun_renames_no_column_the_deployment_had"),
+
+    ("a re-run back-fills the parked cards into the new column", L_SETUP,
+     "        return \"\", f\"{panel_url()}/p/{name}/board\"",
+     "            conn.execute(\"UPDATE cards SET column_key = 'needs_review' WHERE project = ?\"\n"
+     "                         \" AND column_key = 'needs_action'\", (name,))\n"
+     "        return \"\", f\"{panel_url()}/p/{name}/board\"",
+     f"{RERUN}::test_the_rerun_leaves_the_cards_where_they_were"),
+
+    ("a re-run that added a column says nothing about it", CLI,
+     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if now != attached",
+     "                typer.echo(f\"✓ board: the columns are there — {now}\" if now != attached",
+     f"{RERUN}::test_the_rerun_says_what_it_added"),
+
+    ("a re-run that added nothing says it added the columns", CLI,
+     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if now != attached",
+     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if True",
+     f"{RERUN}::test_a_second_rerun_on_the_seven_row_board_changes_nothing"),
 ]
