@@ -285,8 +285,34 @@ def metric_of(record: AuditRecord) -> MetricRecord:
                         extra=extra)
 
 
+def _named(store: object) -> str:
+    """How a WARNING names a store: its file (`SqliteMetricsSink.path`), else its table, else its
+    class — the thing an operator goes and looks at."""
+    for attr in ("path", "table"):
+        if where := getattr(store, attr, None):
+            return f"{type(store).__name__} at {where}"
+    return type(store).__name__
+
+
 def _keep(record: AuditRecord) -> bool:
-    return bool(sink().record(metric_of(record)))
+    """`write`'s body, on a worker thread: True only when the store took the row; a store that
+    answered False or raised is said here, once, naming the action and the store."""
+    row = metric_of(record)
+    store = sink()
+    try:
+        landed = bool(store.record(row))
+    except Exception as exc:  # noqa: BLE001 — said below and answered False; the call stands
+        log.warning("audit: the record of %s by %s was not kept: %s raised (%s)", record.action,
+                    record.actor_id, _named(store), exc)
+        return False
+    if not landed:
+        # A STORE'S False IS A WRITE THAT DID NOT LAND. The sqlite sink catches its own failures
+        # and answers False (a locked or unopenable file), and its own line names a project and a
+        # record id — not the action, not that it was the audit trail (#694: before this, that
+        # answer was dropped and the action layer said nothing).
+        log.warning("audit: the record of %s by %s was not kept: %s did not take it",
+                    record.action, record.actor_id, _named(store))
+    return landed
 
 
 async def write(record: AuditRecord) -> bool:
@@ -295,6 +321,7 @@ async def write(record: AuditRecord) -> bool:
 
     OFF THE EVENT LOOP (`asyncio.to_thread`): the panel performs on its loop, and a sqlite write
     waits on the file's lock for up to its busy timeout — every other request would wait with it
-    (the #748 lesson). What the sink raises is raised here, and `perform` says it at WARNING while
-    the outcome stands."""
+    (the #748 lesson). A store that answers False or raises is said here at WARNING, naming the
+    action and the store, and answered False; what fails before a store is reached (the sink
+    cannot be built) is raised, and `perform` says it at WARNING. Either way the outcome stands."""
     return await asyncio.to_thread(_keep, record)

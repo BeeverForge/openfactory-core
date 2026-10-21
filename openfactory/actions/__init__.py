@@ -424,8 +424,10 @@ async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object
                         outcome: Outcome) -> None:
     """The call's trace, once, on every way out of `perform`: the INFO line and the record.
 
-    Never raises: a record that could not be made or kept is said at WARNING and the outcome
-    stands, because `perform` never takes its caller down (its docstring)."""
+    The record is made and written off the event loop. Never raises: a record that could not be
+    made or kept is said at WARNING — by `audit.write` when a store refused it, here when it could
+    not be made or no store could be built — and the outcome stands, because `perform` never
+    takes its caller down (its docstring)."""
     # A LABEL IS PRINTED AS ONE (`Actor.label`): what an anonymous caller says it is, beside the
     # credential it used — never in `by=`, which is who that credential is.
     label = str(getattr(by, "label", "") or "")
@@ -433,7 +435,13 @@ async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object
              f" label={label!r}" if label else "", outcome.ok, outcome.code or "-",
              _loggable(params))
     try:
-        await audit.write(audit.AuditRecord.of(name, by, params, outcome))
+        # MADE OFF THE LOOP TOO, not only written: naming the product parses `registry.yaml`
+        # (`audit._product_of`) on every call that names a project — 0.95 ms with one project and
+        # 18.2 ms (p95 20.8) with twenty, measured 2026-10-20 — a read the panel keeps off its loop
+        # everywhere else (`asyncio.to_thread(lambda: ProjectRegistry().list())` in `api/app.py`).
+        # The hop costs 0.027 ms (`api/app.py` `_ask_the_gate`'s measurement).
+        record = await asyncio.to_thread(audit.AuditRecord.of, name, by, params, outcome)
+        await audit.write(record)
     except Exception as exc:  # noqa: BLE001 — the record must never take the call down
         log.warning("audit: the record of %s by %s was not kept (%s)", key or name, by, exc)
 

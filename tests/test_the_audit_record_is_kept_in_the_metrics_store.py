@@ -18,7 +18,11 @@ record's own id, and nothing in `openfactory/` but `audit.write` makes or writes
 nor forgets one — read off the parsed tree, never its text. `project forget` keeps a project's
 records (Q8) and may: a person's words are in a record only as their length and sha256 — for the
 one call driven here and for every free-text parameter the catalog takes — so the record is no
-second copy of what `forget-conversations` erases.
+second copy of what `forget-conversations` erases. A store that does not take a record is said
+at WARNING naming the action and the store, and the caller's outcome is unchanged; the record is
+made and written off the event loop, and a cancel while it is made still leaves it. A host CLI
+with no store named keeps its records in `audit.db` beside `registry.yaml`, and the deployment's
+own metrics sink is still inferred `null` there.
 """
 
 from __future__ import annotations
@@ -476,3 +480,194 @@ def test_every_free_text_parameter_in_the_catalog_is_hashed():
         if record.params.get(param) != _digest(_SENTINEL) or _SENTINEL in repr(record):
             verbatim.append(f"{name}.{param}")
     assert verbatim == [], f"a person's words are kept verbatim by {verbatim}"
+
+
+# ── a store that does not take the record is said; the loop never waits on one ──────────────────
+
+class _RaisingStore:
+    """A sink that raises from `record` — what an out-of-tree store does that, unlike the sqlite
+    one, does not catch its own failures. `path` is how the WARNING must name it."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def record(self, rec) -> bool:
+        raise RuntimeError("the store is gone")
+
+
+def _a_refusing_store(tmp_path: Path, monkeypatch) -> Path:
+    """`OPENFACTORY_METRICS_DB` naming a directory: the sqlite sink cannot open it, logs its own
+    line and returns False — a write that did not land, said by a value and not an exception."""
+    where = tmp_path / "not-a-file.db"
+    where.mkdir()
+    monkeypatch.setenv("OPENFACTORY_METRICS_DB", str(where))
+    return where
+
+
+def _a_raising_store(tmp_path: Path, monkeypatch) -> Path:
+    from openfactory.observability import audit
+
+    where = tmp_path / "raising-store"
+    monkeypatch.setattr(audit, "sink", lambda: _RaisingStore(where))
+    return where
+
+
+@pytest.mark.parametrize("failing", [_a_refusing_store, _a_raising_store],
+                         ids=["record_returns_false", "record_raises"])
+async def test_a_store_that_refuses_the_write_is_said_and_the_outcome_stands(
+        store, tmp_path, monkeypatch, caplog, failing):
+    """Criterion 3 under `docs/engineering-lessons.md` §6, "silence is a failure mode": a record
+    the store did not take is said, once, at WARNING, naming the action and the store, and the
+    caller is told exactly what it would have been told had the store taken it. Before this, a
+    store that answered False was silent at the action layer (the sqlite sink's own line names a
+    project and a record id, not the action, and the bool was dropped), and one that raised was
+    said without naming the store."""
+    by = actions.Actor(id="alice", via="panel")
+    stood = await actions.perform("product_status", by=by, project="nosuch")
+    assert len(_audit_rows(store)) == 1, "the working store did not take the first record"
+    where = failing(tmp_path, monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        outcome = await actions.perform("product_status", by=by, project="nosuch")
+
+    assert (outcome.ok, outcome.code, outcome.data, outcome.message) == (
+        stood.ok, stood.code, stood.data, stood.message), outcome
+    said = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"
+            and "product_status" in r.getMessage() and str(where) in r.getMessage()]
+    assert len(said) == 1, ("a record the store did not take was said "
+                            f"{len(said)} times naming the action and {where} (1 expected): "
+                            f"{[r.getMessage() for r in caplog.records]}")
+
+
+async def test_the_audit_write_does_not_run_on_the_event_loop(store, monkeypatch):
+    """Criterion 3, and the #748 lesson: the panel performs on its event loop, and a sqlite write
+    waits on the file's lock for up to its busy timeout, so a write on the loop would hold every
+    other request with it. The sink's `record` is called on a thread that is not the loop's."""
+    import threading
+
+    loop = threading.current_thread()
+    seen: list[threading.Thread] = []
+    real = SqliteMetricsSink.record
+
+    def spied(self, rec):
+        seen.append(threading.current_thread())
+        return real(self, rec)
+
+    monkeypatch.setattr(SqliteMetricsSink, "record", spied)
+
+    await actions.perform("product_status", by=actions.Actor(id="alice", via="panel"),
+                          project="nosuch")
+
+    assert len(seen) == 1, f"the sink was asked to record {len(seen)} times (1 expected)"
+    assert seen[0] is not loop, f"the audit write ran on the event loop's thread ({loop.name})"
+
+
+async def test_the_record_reads_the_registry_off_the_event_loop(store, monkeypatch):
+    """Criterion 3, the same lesson for the record's other file: naming a call's product reads
+    `registry.yaml` (`audit._product_of`), and the panel reads its registry off the loop
+    everywhere else (`api/app.py`, `asyncio.to_thread(lambda: ProjectRegistry().list())`). An
+    unknown action reads no registry of its own, so the one read here is the record's, and it is
+    not on the loop's thread. Before this the record was made on the loop, the read with it."""
+    import threading
+
+    from openfactory.registry import ProjectRegistry
+
+    loop = threading.current_thread()
+    seen: list[threading.Thread] = []
+    real = ProjectRegistry.get
+
+    def spied(self, name):
+        seen.append(threading.current_thread())
+        return real(self, name)
+
+    monkeypatch.setattr(ProjectRegistry, "get", spied)
+
+    await actions.perform("teleport", by=actions.Actor(id="alice", via="panel"), project="nosuch")
+
+    assert [row["extra"]["action"] for row in _audit_rows(store)] == ["teleport"]
+    assert seen, "the record named no product, so the registry was never read"
+    assert loop not in seen, f"the record read the registry on the event loop's thread ({loop.name})"
+
+
+async def test_a_call_cancelled_while_its_record_is_made_still_leaves_it(store, monkeypatch):
+    """Criterion 2, "every call": `perform` makes and writes its record under `asyncio.shield`, so
+    a cancel that arrives while the record is being made (a panel client hanging up, a worker
+    shutting down) is passed on to the caller and the record is still written. The registry read
+    the record makes is held until the cancel has landed; the row appears once it is let go."""
+    import asyncio
+    import threading
+
+    from openfactory.registry import ProjectRegistry
+
+    entered, release = threading.Event(), threading.Event()
+    real = ProjectRegistry.get
+
+    def held(self, name):
+        entered.set()
+        release.wait(10)
+        return real(self, name)
+
+    monkeypatch.setattr(ProjectRegistry, "get", held)
+    call = asyncio.create_task(
+        actions.perform("teleport", by=actions.Actor(id="alice", via="panel"), project="nosuch"))
+    try:
+        assert await asyncio.to_thread(entered.wait, 10), "the record never read the registry"
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+    finally:
+        release.set()
+    for _ in range(200):
+        if _audit_rows(store):
+            break
+        await asyncio.sleep(0.01)
+
+    assert [row["extra"]["action"] for row in _audit_rows(store)] == ["teleport"], (
+        "a cancel while the record was made left no record")
+
+
+# ── a host CLI with no store named still keeps its records, and the dashboard's store stays put ──
+
+def test_a_host_cli_with_no_store_configured_still_keeps_the_record(tmp_path, monkeypatch):
+    """Criterion 3 for the transport ADR-0039 §2 says outranks every gate (Q9, decided): on a host
+    with no `OPENFACTORY_METRICS_*` at all the deployment's metrics sink is `null` and keeps
+    nothing, so the record goes to `audit.db` beside `registry.yaml` (ADR-0049 D5's resolution) —
+    and to no file in the directory the shell stood in. `openfactory act product_status -p nosuch`
+    run as a person runs it leaves its one record there. Before #694 it left nothing anywhere."""
+    from typer.testing import CliRunner
+
+    from openfactory.cli import app
+
+    for name in ("OPENFACTORY_METRICS_SINK", "OPENFACTORY_METRICS_DB",
+                 "OPENFACTORY_METRICS_TABLE"):
+        monkeypatch.delenv(name, raising=False)
+    home = tmp_path / "operator"
+    home.mkdir()
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(home / "registry.yaml"))
+    shell = tmp_path / "where-the-shell-stood"
+    shell.mkdir()
+    monkeypatch.chdir(shell)
+
+    done = CliRunner().invoke(app, ["act", "product_status", "-p", "nosuch"])
+
+    assert done.exit_code == 1, done.output
+    kept = SqliteMetricsSink(home / "audit.db").records_of_kind("nosuch", "audit")
+    assert [(r["extra"]["action"], r["extra"]["via"]) for r in kept] == [
+        ("product_status", "cli")], f"no record in {home / 'audit.db'}"
+    assert sorted(p.name for p in shell.iterdir()) == [], "the CLI wrote into the shell's cwd"
+
+
+def test_the_metrics_sink_kind_inference_is_unchanged(monkeypatch):
+    """Q9's other half: the audit's fallback file is the audit's alone. With no
+    `OPENFACTORY_METRICS_*` set the deployment's metrics sink is still inferred `null`, and built
+    as the null sink, so a deployment's cost dashboard reads from where it read before #694
+    (`metrics_sink_kind`'s docstring: changing that inference would move a live dashboard)."""
+    from openfactory.observability.metrics import NullMetricsSink
+    from openfactory.observability.registry import deployment_metrics_sink, metrics_sink_kind
+
+    for name in ("OPENFACTORY_METRICS_SINK", "OPENFACTORY_METRICS_DB",
+                 "OPENFACTORY_METRICS_TABLE"):
+        monkeypatch.delenv(name, raising=False)
+
+    assert metrics_sink_kind() == "null"
+    assert isinstance(deployment_metrics_sink(), NullMetricsSink)
