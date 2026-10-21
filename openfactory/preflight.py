@@ -33,6 +33,7 @@ branch below is reachable in a test with no Docker, no network and no ports.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -47,6 +48,7 @@ from dataclasses import dataclass, field
 # above. `_fail`'s signature is the enforcement — you cannot construct a failing finding without
 # saying what to do about it — so importing it is importing the rule, while re-declaring three
 # one-line constructors here would be re-declaring the rule and letting it drift.
+from openfactory.adapters.credential_store.registry import ENV, STORE_VAR, STORES
 from openfactory.listeners import LISTENERS
 from openfactory.onboarding.deployment import UnusableHome, UnusableWorkDir
 from openfactory.onboarding.readiness import LOCAL, Finding, _fail, _ok, _unanswered
@@ -121,6 +123,8 @@ class Probes:
     #: that cannot be postponed, and the stack boots happily without it.
     #: `(visible, detail)`, and on a miss the REPAIR the harness names as a third item — its own
     #: words for how its credential is fixed, which the finding says where the file is (#582).
+    #: What it reads is the stack's settings, `.env.compose` under the environment: a credential
+    #: store the deployment declares is not among them (`credential_store` below).
     agent_credential: Callable[[], tuple[bool, str] | tuple[bool, str, str]]
     #: The published ports this deployment will actually use, after its own overrides.
     ports: Callable[[], tuple[tuple[str, int], ...]]
@@ -128,6 +132,10 @@ class Probes:
     #: deployment names, and how the panel reaches it. Empty = none named, previews off. A
     #: DEFAULT, so a probe set written before previews existed still builds.
     preview_rows: Callable[[], dict[str, str]] = lambda: {}
+    #: The credential store the stack's settings declare (`OPENFACTORY_CREDENTIAL_STORE`, #742),
+    #: as written there — `""` when they declare none. A DEFAULT, so a probe set written before
+    #: the store existed still builds, and reads as the deployment it was: one that declares none.
+    credential_store: Callable[[], str] = lambda: ""
 
 
 @dataclass
@@ -401,6 +409,8 @@ def _agent_credential(p: Probes) -> Finding:
     visible, detail, *repair = p.agent_credential()
     if visible:
         return _ok("agent_credential", f"an agent credential is visible ({detail})", on=LOCAL)
+    if store := _declared_store(p):
+        return _expected_in_the_store(store, detail)
     # A FAILURE AND NOT A WARNING, because the stack BOOTS without it and no ticket can run — the
     # exact shape `doctor` was given this check for: a fresh install with zero credentials read
     # "OK — can run a ticket" and failed at the first paid job. WHAT WAS READ is said (#582): a
@@ -412,6 +422,39 @@ def _agent_credential(p: Probes) -> Finding:
          "(or ANTHROPIC_API_KEY if you bill per token)")
         + ". The stack starts without it and no ticket can run — this is the one credential that "
           "cannot be postponed", on=LOCAL)
+
+
+def _declared_store(p: Probes) -> str:
+    """The credential store the deployment declares other than the environment, or `""` (#904).
+    `env` is the environment, as no declaration is: the variables `.env.compose` hands the stack
+    are the credentials, and this check reads them."""
+    kind = (p.credential_store() or "").strip().lower()
+    return "" if kind in ("", ENV) else kind
+
+
+def _expected_in_the_store(store: str, detail: str) -> Finding:
+    """What the agent credential line says when the deployment keeps its credentials in a store
+    this check cannot read (#904).
+
+    THE STORE IS THE STACK'S, AND THE STACK IS NOT UP. The `file` store reads a directory mounted
+    into the worker, and an add-on's store reads whatever its package reads; this check runs on
+    the host before either exists. So the credential is expected there, it cannot be checked
+    here, and the doctor checks it once the stack is up — which is what the line says, in place of
+    the `.env.compose` remedy it gave before: that one sent the person to put a credential in the
+    one place this deployment declared it does not keep them.
+
+    UNANSWERED, NOT FAILED. A failure here would be a claim that no credential is configured, made
+    about a place this check cannot see; `----` is this module's word for "no answer exists on
+    this machine", and it is never counted as a pass either."""
+    which = (f"the `{store}` credential store" if store in STORES
+             else f"the `{store}` credential store, which an installed add-on reads")
+    remedy = (f"the agent credential is expected in {which} this deployment declares "
+              f"({STORE_VAR}); it cannot be checked before the stack runs, and `openfactory "
+              f"doctor` checks it once the stack is up")
+    return dataclasses.replace(_unanswered(
+        "agent_credential",
+        f"no agent credential is in this deployment's settings ({detail}) — {remedy}", on=LOCAL),
+        remedy=remedy)
 
 
 def _preview(p: Probes) -> Finding:
@@ -720,6 +763,7 @@ def probes_for_this_machine() -> Probes:
         ports=_probe_ports,
         preview_rows=lambda: {k: v for k, v in _settings().items()
                               if k.startswith("OPENFACTORY_PREVIEW_")},
+        credential_store=lambda: _settings().get(STORE_VAR) or "",
     )
 
 
