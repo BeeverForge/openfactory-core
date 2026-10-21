@@ -102,6 +102,22 @@ def test_two_keys_are_proven_on_two_branches(tmp_path, monkeypatch):
         assert branch.startswith(f"{namespace.BRANCH_PREFIX}/box-prove-"), branch
 
 
+def test_two_repositories_of_one_project_are_proven_on_two_branches(tmp_path, monkeypatch):
+    """AC1, for one product that spans repositories: each is proven under its own `key`
+    (`box prove --repo`, onboarding), so the branch and the lock are the key's, not the project's
+    name. Before review round 1 of #745 every test passed `key == name`, and `subject =
+    project.name` left them all green while two repositories of acme shared one branch again."""
+    _proofs_here(tmp_path, monkeypatch)
+    branches = _recording_box(monkeypatch, tmp_path)
+
+    for key in ("acme", "acme--org--web"):
+        with box_prove.box_probes(_project("acme"), "img", repo_path=tmp_path,
+                                  manifest=_MANIFEST, key=key, sandbox="container"):
+            pass
+
+    assert len(set(branches)) == 2, f"two repositories of acme shared a branch: {branches}"
+
+
 def test_keys_a_branch_name_cannot_spell_still_get_a_branch_each_and_git_accepts_it(
         tmp_path, monkeypatch):
     """AC1, for registry names that are free text: a space, a slash, the `_checkout_key` shape

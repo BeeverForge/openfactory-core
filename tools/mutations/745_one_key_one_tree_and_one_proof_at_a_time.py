@@ -87,6 +87,12 @@ MUTATIONS = [
      '    readable = re.sub(r"[^A-Za-z0-9._-]+", "-", key).strip("-.").lower()',
      '    readable = key', APART),
 
+    ("the branch follows the project's name, not the key, so two repositories of one product "
+     "share a branch again",
+     PROVE,
+     "    subject = key or project.name\n",
+     "    subject = project.name\n", APART),
+
     # ── 2. one key at a time, and only that key, from any process ──────────────────────────────
     ("every key locks one file, so proving one project refuses every other",
      PROVE,
