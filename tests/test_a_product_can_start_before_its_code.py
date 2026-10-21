@@ -8,7 +8,8 @@ registered by halves:
      is a product that has not started, and the declarations that must agree still agree;
   2. every catalogue row that needs the code — READ FROM THE CATALOGUE, not listed here — refuses
      such a project by name and before it runs, naming the first source; every row that does not
-     need it runs; and a project with code is never asked;
+     need it runs; a project with code is never asked; and every product row that only writes
+     the context repository — READ FROM THE CODE — is one that runs;
   3. what works and what waits, end to end on the runtime whose forge is this machine: the act
      that starts it, an acceptance that records the promise and says its breakdown waits, every
      door into a breakdown saying the same, and the doors that are not rows yet — pickup, a box,
@@ -24,10 +25,13 @@ doubled and counted, so a case can say NOT STARTED where the rule says nothing m
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import dataclasses
+import inspect
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -325,6 +329,113 @@ def test_a_project_with_code_is_never_refused_for_it(deployment, spied, name):
 def test_a_row_says_it_may_wait_for_the_code_exactly_when_it_does(name):
     assert (base.NO_CODE_YET in actions.reasons(name)) == actions.waits_for_code(
         actions.spec(name))
+
+
+# ── the rows that only write the context, read from the code ────────────────────────────────────
+
+def _source(fn) -> ast.AST:
+    return ast.parse(textwrap.dedent(inspect.getsource(fn)))
+
+
+def _context_only_rows() -> list[str]:
+    """Every product row that writes the context repository and reaches nothing of the code —
+    READ FROM THE CODE, not from what the row declares (`product_import` was added waiting, #999):
+
+    - a module method WRITES THE CONTEXT when it hands its write `_saved_in_the_repository`, the
+      module's own name for what a write to the context repository saved;
+    - it REACHES THE CODE when it, or a module method it calls on itself, builds the tracker or the
+      board (`build_tracker`, `build_board`), files a card (`_saved_on_the_board`), resolves the
+      code's checkout (`resolve_repo_path`) or reads the code's map (`openfactory.knowledge`);
+    - a row ONLY WRITES THE CONTEXT when its runner calls a module method that writes it and none
+      that reaches the code."""
+    from openfactory.product.module import ProductModule
+
+    methods = {n: f for n, f in vars(ProductModule).items() if inspect.isfunction(f)}
+    trees = {n: _source(f) for n, f in methods.items()}
+
+    def words(name: str) -> set[str]:
+        tree = trees[name]
+        said = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                said |= {node.module or ""} | {a.name for a in node.names}
+        return said
+
+    def on_itself(name: str) -> set[str]:
+        return {n.attr for n in ast.walk(trees[name]) if isinstance(n, ast.Attribute)
+                and isinstance(n.value, ast.Name) and n.value.id == "self" and n.attr in methods}
+
+    def reached(name: str) -> set[str]:
+        seen, todo = set(), [name]
+        while todo:
+            if (one := todo.pop()) not in seen:
+                seen.add(one)
+                todo += on_itself(one)
+        return seen
+
+    code = {"build_tracker", "build_board", "_saved_on_the_board", "resolve_repo_path"}
+    reaches = {m for m in methods if any(w in code or w.startswith("openfactory.knowledge")
+                                         for r in reached(m) for w in words(r))}
+    writes = {m for m in methods if "_saved_in_the_repository" in words(m)} - reaches
+
+    rows = []
+    for name in actions.names():
+        row = actions.spec(name)
+        if row.scope != actions.PRODUCT or "project" not in row.parameters:
+            continue
+        called = {n.attr for n in ast.walk(_source(row.run))
+                  if isinstance(n, ast.Attribute) and n.attr in methods}
+        if called & writes and not called & reaches:
+            rows.append(name)
+    return rows
+
+
+CONTEXT_ONLY = _context_only_rows()
+
+
+def test_the_rows_that_only_write_the_context_are_found_on_both_sides():
+    assert {"product_import", "product_note_fact", "product_record_decision", "product_accept",
+            "product_drop", "product_file_attachment"} <= set(CONTEXT_ONLY)
+    # a card is filed on the board; a capability confirms what the code's map observed
+    assert not {"product_file_defect", "product_file_ticket", "product_confirm_capability",
+                "product_break_down"} & set(CONTEXT_ONLY)
+
+
+@pytest.mark.parametrize("name", CONTEXT_ONLY)
+def test_a_row_that_only_writes_the_context_does_not_wait_for_the_code(name):
+    assert not actions.waits_for_code(actions.spec(name)), (
+        f"{name} writes only the context repository and is refused before the code — it says "
+        f"`needs_code=False` on its catalogue row")
+
+
+def test_requirements_are_imported_into_a_product_before_its_code(started, monkeypatch):
+    """The hand-over into a product with no code yet (#993 after #992): the plan is shown and
+    nothing is written; with its yes and its token the requirements land in the context."""
+    from openfactory.product.authoring import render_requirement
+    from openfactory.product.documents import ingest
+    from openfactory.product.role import RequirementDraft
+    from tests.documents_bed import StubReader
+
+    monkeypatch.setattr(ingest, "ModelReader", lambda **_kw: StubReader())
+    folder = started / "brought"
+    (folder / "requirements").mkdir(parents=True)
+    (folder / "requirements" / "0001-export.md").write_text(render_requirement(
+        RequirementDraft(title="Export", why="the month closes", must_be_true=["it exports"]),
+        number=1))
+    tip = _git("--git-dir", _context_path(), "rev-parse", "main").stdout
+
+    shown = _act("product_import", project="myapp", source=str(folder))
+
+    assert shown.data.get("reason") != base.NO_CODE_YET, shown.message
+    assert shown.code == base.INVALID and shown.data["written"] is False, shown.message
+    assert shown.data["plan"] and shown.data["token"], shown.data
+    assert _git("--git-dir", _context_path(), "rev-parse", "main").stdout == tip
+
+    landed = _act("product_import", project="myapp", source=str(folder), yes=True,
+                  token=shown.data["token"])
+
+    assert landed.ok, landed.message
+    assert "Export" in _context_file(started, "requirements/0001-export.md")
 
 
 # ── 3. what works and what waits ────────────────────────────────────────────────────────────────
