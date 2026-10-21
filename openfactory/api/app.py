@@ -3506,6 +3506,63 @@ def product_documents(project: str, request: Request) -> dict:
                                                     "not none. Try again in a moment.") from exc
 
 
+@_read("/api/product/{project}/search", read_models.ProductSearchRead)
+def product_search(project: str, request: Request) -> dict:
+    """Search one product's KNOWLEDGE — its requirements, the decisions recorded in its documents,
+    the documents themselves and its board's cards — and nothing a conversation said (#988).
+
+    `q` is the query and `limit` how many hits (1…50, 8 by default); both are read from the query
+    string. Each hit carries its `kind` (requirement, decision, document or card), its `source` (a
+    document's path or a card's ref), its `product`, a `snippet`, where it is (`locator`), the date
+    it carries, and its `rank` within this product's results, best first.
+
+    THE PRODUCT OWNER'S OWN SEARCH, FOR ANY CLIENT. The ranking is the one a turn is answered in —
+    the same hybrid pipeline, lexical then semantic, an exact-term tier first
+    (`product/index/search.py`) — so a search box on the panel and the product owner's turns agree.
+    Under `/api/product/`, so a product credential may read it; who may read it is the deployment's
+    policy, as for any read, and the product's own people read everything it exposes (the product
+    owner's decision of 2026-09-25, as the documents screen reads them), internal documents
+    included.
+
+    WHAT IT NEVER RETURNS: a line of a conversation or a model's distillate of one, private or not —
+    `retrieval.search_knowledge` narrows the read to the kinds a product publishes
+    (`index.items.PUBLISHED_KINDS`). A product whose semantic stage is degraded says so in
+    `degraded`, never silently; the search runs under no product semaphore, and a slow one is
+    logged."""
+    from openfactory.product.index import retrieval
+    from openfactory.product.key import product_key
+
+    proj = _project_or_404(project)
+    text = str(request.query_params.get("q", "") or "")
+    limit = _search_limit(request.query_params.get("limit"))
+    found = retrieval.search_knowledge(proj, text=text, limit=limit)
+    product = product_key(proj)
+    return {
+        "project": proj.name,
+        "product": product,
+        "query": text,
+        "degraded": found.degraded,
+        "searched": found.searched,
+        "hits": [{"kind": hit.kind, "source": hit.source, "product": product,
+                  "title": hit.title, "snippet": hit.text, "locator": hit.locator,
+                  "date": hit.date, "rank": rank}
+                 for rank, hit in enumerate(found.hits, start=1)],
+    }
+
+
+def _search_limit(raw: str | None) -> int:
+    """The `limit` a knowledge search asks for, read from the query string: the default when it is
+    absent or not a number, and clamped to `1…KNOWLEDGE_MAX` so one read cannot ask the index to
+    rank everything it holds."""
+    from openfactory.product.index import retrieval
+
+    try:
+        asked = int(raw) if raw not in (None, "") else retrieval.KNOWLEDGE_LIMIT
+    except (TypeError, ValueError):
+        asked = retrieval.KNOWLEDGE_LIMIT
+    return max(1, min(retrieval.KNOWLEDGE_MAX, asked))
+
+
 @_read("/api/whoami", read_models.WhoamiRead)
 def whoami(request: Request) -> dict:
     """Who this credential is, and which areas it may act in.

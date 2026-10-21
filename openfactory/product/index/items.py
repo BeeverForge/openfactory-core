@@ -44,6 +44,18 @@ DOCUMENT, DECISION, REQUIREMENT, CARD, TURN = ("document", "decision", "requirem
 DISTILLATE = "distillate"
 KINDS = (DOCUMENT, DECISION, REQUIREMENT, CARD, TURN, DISTILLATE)
 
+#: WHAT A PRODUCT PUBLISHES, and what it does not — every kind of `KINDS` on one side or the other
+#: (#988). A product publishes its context repository's documents, the decisions a model read in
+#: them, the requirements corpus and its board's cards; a search read a client makes
+#: (`api/app.py::product_search`) returns ONLY these. A line of a conversation and a model's
+#: distillate of one are a conversation's, private or not, and are never a hit of that read — the
+#: recall block and the role's own `[[BUSCA: …]]` searches are where a turn meets them, never a
+#: client. A kind added to `KINDS` later belongs on one side here before the suite passes
+#: (`tests/test_the_product_search_read_model.py`): "every kind is classified" is the guard that
+#: keeps a new kind from reaching a client's read by default.
+PUBLISHED_KINDS = (DOCUMENT, DECISION, REQUIREMENT, CARD)
+CONVERSATION_KINDS = (TURN, DISTILLATE)
+
 #: What an item says about itself. `current` is the only one handed over as what holds today;
 #: `superseded` and `dropped` are history, `closed` a card that is done with, `open` a card still
 #: on the board as the index last read it, `unreadable` a document that exists and could not be
@@ -324,7 +336,8 @@ def from_turn(said, *, product: str) -> Item:
 
 
 __all__ = [
-    "CARD", "CLOSED", "CURRENT", "DECISION", "DISTILLATE", "DOCUMENT", "DROPPED", "KINDS", "OPEN",
-    "REQUIREMENT", "SUPERSEDED", "TURN", "UNREADABLE", "Item", "chunks", "conversation_digest",
-    "digest_of", "from_card", "from_record", "from_requirement", "from_turn",
+    "CARD", "CLOSED", "CONVERSATION_KINDS", "CURRENT", "DECISION", "DISTILLATE", "DOCUMENT",
+    "DROPPED", "KINDS", "OPEN", "PUBLISHED_KINDS", "REQUIREMENT", "SUPERSEDED", "TURN",
+    "UNREADABLE", "Item", "chunks", "conversation_digest", "digest_of", "from_card", "from_record",
+    "from_requirement", "from_turn",
 ]

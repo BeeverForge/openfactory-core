@@ -47,6 +47,7 @@ from openfactory.product.index.items import (
     DOCUMENT,
     DROPPED,
     OPEN,
+    PUBLISHED_KINDS,
     REQUIREMENT,
     TURN,
     UNREADABLE,
@@ -159,6 +160,42 @@ def run(project, query: Query, *, by: str, conversation: str, round_: int = 0) -
     found = search(Index(key), query, embedder=row, degraded=why)
     record(key, by=by, found=found, conversation=conversation, round_=round_)
     return found
+
+
+#: How many hits a client's read of a product's knowledge returns by default, and the most it ever
+#: will (#988): a limit a caller may raise, clamped so one read cannot ask the index to rank
+#: everything it holds.
+KNOWLEDGE_LIMIT = 8
+KNOWLEDGE_MAX = 50
+
+
+def search_knowledge(project, *, text: str, limit: int = KNOWLEDGE_LIMIT,
+                     audience: str = INTERNAL) -> Found:
+    """Search one product's PUBLISHED knowledge for a client's read (#988) — the kinds a product
+    publishes in its context repository and on its board (`items.PUBLISHED_KINDS`: documents, the
+    decisions a model read in them, the requirements corpus and the board's cards). A line of a
+    conversation and a model's distillate of one are never a hit: they are a conversation's, private
+    or not, and the `kinds` filter leaves them out before anything is ranked.
+
+    THE SAME PIPELINE AND THE SAME ORDER A TURN'S SEARCH USES (`search.search`). The engine's search
+    before a turn, the role's `[[BUSCA: …]]` and this client read ask the one function, so a search
+    box on the panel and the product owner are answered in one ranking — lexical then semantic, an
+    exact-term tier first — narrowed by `kinds` to what is published. A RANK IS WITHIN ONE PRODUCT
+    (ADR-0053): the hits come back best first; the raw fused score is the index's own and is not
+    comparable across products, so the read renders the position, not the score.
+
+    A READ, NOT A TURN. Recorded nowhere — the search record is a conversation's, forgotten with its
+    transcript, and this read belongs to no conversation (it does not call `record`) — and under no
+    product semaphore: `search` refuses to run while one is held (its semantic stage is a model, and
+    the lock is for a comparison and a write), and this read holds none. A product whose semantic
+    stage is degraded says so in `Found.degraded`, never silently; a slow search is logged by
+    `search` itself (`OPENFACTORY_PRODUCT_INDEX_SLOW`)."""
+    from openfactory.product.key import product_key
+
+    key = product_key(project)
+    row, why = embedder()
+    query = Query(text=text, audience=audience, limit=limit, kinds=PUBLISHED_KINDS)
+    return search(Index(key), query, embedder=row, degraded=why)
 
 
 def before_the_turn(project, *, question: str, said: str = "", audience: str = INTERNAL,
@@ -512,7 +549,8 @@ def recorded(key: str) -> list[dict]:
 
 
 __all__ = [
-    "BEFORE", "DONE_BEFORE", "ENGINE", "FOUND_DIR", "ROLE", "SWITCH_ENV", "before_the_turn",
-    "done_before", "embedder", "enabled", "for_the_role", "forget_conversations", "query_of",
-    "record", "recorded", "refresh", "render", "run", "said_of",
+    "BEFORE", "DONE_BEFORE", "ENGINE", "FOUND_DIR", "KNOWLEDGE_LIMIT", "KNOWLEDGE_MAX", "ROLE",
+    "SWITCH_ENV", "before_the_turn", "done_before", "embedder", "enabled", "for_the_role",
+    "forget_conversations", "query_of", "record", "recorded", "refresh", "render", "run",
+    "said_of", "search_knowledge",
 ]

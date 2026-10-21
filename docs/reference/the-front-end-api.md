@@ -128,6 +128,7 @@ means any credential the deployment issued.
 | GET | `/api/product/{project}/attachments/{ident}` | product | a file sent in one of the person's conversations |
 | GET | `/api/product/{project}/documents` | product | deprecated alias of `/api/v1/product/{project}/documents` |
 | GET | `/api/product/{project}/documents/file/{path:path}` | product | one of the product's documents, as it is |
+| GET | `/api/product/{project}/search` | product | deprecated alias of `/api/v1/product/{project}/search` |
 | GET | `/api/projects` | floor | the projects this deployment runs |
 | POST | `/api/projects` | floor | add a project |
 | POST | `/api/projects/{name}/enabled` | floor | turn a project's pickup on or off |
@@ -156,6 +157,7 @@ means any credential the deployment issued.
 | GET | `/api/v1/product/projects` | product | the projects that have a product role |
 | GET | `/api/v1/product/{project}/attachments` | product | what a message may carry, before a file is sent |
 | GET | `/api/v1/product/{project}/documents` | product | the product's documents as their ingestion found them |
+| GET | `/api/v1/product/{project}/search` | product | one product's published knowledge, searched with `q` and `limit`, in the product owner's ranking |
 | GET | `/api/v1/temporal/jobs` | floor | the jobs, live, from the durable engine |
 | GET | `/api/v1/whoami` | every credential | who this credential is, and which areas it may act in |
 | GET | `/api/whoami` | every credential | deprecated alias of `/api/v1/whoami` |
