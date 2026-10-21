@@ -103,6 +103,7 @@ def test_a_refused_ref_proof_leaves_the_running_proofs_checkout_alone(tmp_path, 
         holder.kill()
         holder.wait()
 
+    assert result.exit_code == 1, result.output
     assert "already running" in result.output, result.output
     assert sentinel.exists(), (
         "the refused --ref proof removed the running proof's checkout before it was refused")
@@ -144,6 +145,7 @@ def test_a_refused_ref_proof_of_another_repository_leaves_its_checkout_alone(tmp
         holder.kill()
         holder.wait()
 
+    assert result.exit_code == 1, result.output
     assert "already running" in result.output, result.output
     assert sentinel.exists(), (
         "the refused --ref proof of org/web removed the running proof's checkout before it was refused")

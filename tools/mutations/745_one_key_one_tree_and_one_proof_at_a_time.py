@@ -13,18 +13,19 @@ removed the first one's box. FIVE CLAIMS:
      own that every process computes alike (rows 6-9): two keys never block each other, a holder
      in another process refuses this one, and a lock that cannot be created lets the proof run
      unlocked rather than never.
-  3. **The refusal comes before anything is touched** (rows 10-12): neither the checkout sync,
+  3. **The refusal comes before anything is touched** (rows 10-13): neither the checkout sync,
      nor the box's construction, nor `prepare`, nor `box prove --ref`'s own checkout, which is
-     held on the repository's key under `--repo`, not the project's name (row 12). Row 10
+     held on the repository's key under `--repo`, not the project's name (row 12), and whose
+     refusal exits 1, so a pre-merge check never reads a refused proof as a pass (row 13). Row 10
      moves the lock just past the sync, the earliest wrong place; any later place passes the sync
      too, and the same assertion sees it. Moving it past `prepare` is not one contiguous edit of
      this file (some 230 lines apart), so that cut is not a row; the tree-survives test is what
      would see it.
   4. **The key is held for the whole life of the box, and free again however the proof ends**
-     (rows 13-17): held until the box is cleaned up, then let go whether the proof ended, raised
+     (rows 14-18): held until the box is cleaned up, then let go whether the proof ended, raised
      inside, or raised while the checkout was being synced; and the hold `box prove --ref` takes
-     itself is let go whether its manifest could not be read or the proof ran (rows 16, 17).
-  5. **Every door says the refusal in one sentence and records nothing** (rows 18-20): `box
+     itself is let go whether its manifest could not be read or the proof ran (rows 17, 18).
+  5. **Every door says the refusal in one sentence and records nothing** (rows 19-21): `box
      prove`, `box answer`, and onboarding, whose generic refusal cut a long key's sentence at 160
      characters.
 
@@ -148,6 +149,14 @@ MUTATIONS = [
      CLI,
      "            held = _hold_the_proof_of(proof_key)\n",
      "            held = _hold_the_proof_of(name)\n", DOORS),
+
+    ("`box prove --ref` answers a busy key with exit 0, so a pre-merge check reads a refused "
+     "proof as a pass",
+     CLI,
+     "            held = _hold_the_proof_of(proof_key)\n        except ProveBusy as exc:\n"
+     "            typer.echo(exc.sentence)\n            raise typer.Exit(1) from None\n",
+     "            held = _hold_the_proof_of(proof_key)\n        except ProveBusy as exc:\n"
+     "            typer.echo(exc.sentence)\n            raise typer.Exit(0) from None\n", DOORS),
 
     # ── 4. the key is free again however the proof ends ────────────────────────────────────────
     ("the lock is never let go when the proof ends, so the key stays refused until a restart",
