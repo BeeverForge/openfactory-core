@@ -381,6 +381,17 @@ async def main() -> None:
             "tech-lead rounds and the product sweep may not be scheduled at all. Nothing will "
             "report their absence; check the Temporal UI.", exc)
 
+    # ROWS PAST THEIR PERIOD ARE DELETED AS THE WORKER STARTS (#1027): a sqlite store hid them on
+    # read and kept their bytes for ever, nothing calling `purge_expired`. Off the loop, bounded,
+    # and never in the way of serving jobs.
+    from openfactory.observability import retention
+
+    try:
+        await asyncio.to_thread(retention.purge_expired)
+    except Exception as exc:  # noqa: BLE001 — serving jobs matters more than deleting old rows
+        log.warning("could not delete the rows past their period (%s); the next start tries again",
+                    exc)
+
     # (A second, watch-only reconcile stood here. `ensure_all` above already calls
     # `ensure_techlead_watch`, and has since f1d9fb2 — the duplicate was added on a mistaken
     # reading that nothing called it, and reconciled half of what the line above reconciles.)

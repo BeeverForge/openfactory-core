@@ -360,10 +360,12 @@ each, which reveals a short message (above), and the forget leaves it for the re
 their period does, and not before: no write ever replaces an audit row (each is keyed by its own
 record id).
 
-**On a sqlite store, the period is a read and not yet a deletion.** A row past its `expires_at` is
-never read again, but its bytes stay in the file until `SqliteMetricsSink.purge_expired` runs, and
-nothing in this tree runs it yet — the same is true of every other row the sqlite store keeps for a
-period (#1027). A store that deletes by a TTL on `expires_at` deletes the bytes too.
+**On a sqlite store, the period ends in a deletion at the next start.** A row past its
+`expires_at` is never read again, and its bytes leave the file when the worker starts, and when
+`openfactory serve` starts (`observability.retention.purge_expired`): at most 10,000 rows a store
+each start, the count said at INFO and a bound hit said as "more remain". The same is true of
+every other row the sqlite store keeps for a period — a client's message among them. A store that
+deletes by a TTL on `expires_at` (the DynamoDB add-on) deletes the bytes itself.
 
 **Read it back** with `openfactory audit`, which lists the records by actor, action, project,
 outcome and period ([the command reference](reference/cli.md#the-rest)).
@@ -376,3 +378,5 @@ outcome and period ([the command reference](reference/cli.md#the-rest)).
   out, cancellation included.
 - `openfactory/product/forget.py` — `RECORD_KINDS`, which does not list `audit`.
 - `openfactory/cli.py` — `openfactory audit`, the reader.
+- `openfactory/observability/retention.py` — `purge_expired` and `PURGE_BOUND`, which the
+  worker (`runtime/temporal/worker.py`) and `openfactory serve` run as they start.

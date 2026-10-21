@@ -3396,6 +3396,15 @@ def serve(
     from openfactory import namespace
 
     namespace.announce_build(PANEL_ROLE)
+    # ROWS PAST THEIR PERIOD ARE DELETED BEFORE THE PANEL SERVES (#1027): on a host deployment
+    # with no worker this is the one process that starts; bounded, and never in the way.
+    from openfactory.observability import retention
+
+    try:
+        retention.purge_expired()
+    except Exception as exc:  # noqa: BLE001 — serving the panel matters more than old rows
+        logging.getLogger("openfactory.observability.retention").warning(
+            "could not delete the rows past their period (%s); the next start tries again", exc)
     # Printed for a person, as it always was — or, with JSON log lines, logged, so stdout carries
     # JSON too (#681): said once the log is set up, which is why it is no longer the first line.
     logs.announce(log, f"panel: http://{host}:{port}")

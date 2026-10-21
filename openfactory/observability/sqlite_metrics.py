@@ -267,14 +267,21 @@ class SqliteMetricsSink:
                 copy.close()
         return target
 
-    def purge_expired(self, *, now: int | None = None) -> int:
-        """Delete rows past their TTL, returning how many went. Filtering on read keeps the answer
-        correct; only this keeps the promise — "we delete it" has to mean the bytes are gone."""
+    def purge_expired(self, *, now: int | None = None, limit: int | None = None) -> int:
+        """Delete rows past their TTL, at most `limit` of them (all when None), returning how many
+        went. Filtering on read keeps the answer correct; only this keeps the promise — "we delete
+        it" has to mean the bytes are gone. Run at each start (`observability.retention`)."""
+        when = now if now is not None else int(time.time())
         try:
             with self._connect(write=True) as conn:
-                cur = conn.execute("DELETE FROM metrics WHERE expires_at IS NOT NULL"
-                                   " AND expires_at <= ?", (now if now is not None else
-                                                            int(time.time()),))
+                if limit is None:
+                    cur = conn.execute("DELETE FROM metrics WHERE expires_at IS NOT NULL"
+                                       " AND expires_at <= ?", (when,))
+                else:
+                    cur = conn.execute(
+                        "DELETE FROM metrics WHERE rowid IN (SELECT rowid FROM metrics"
+                        " WHERE expires_at IS NOT NULL AND expires_at <= ? LIMIT ?)",
+                        (when, max(0, limit)))
                 return cur.rowcount or 0
         except Exception as exc:  # noqa: BLE001
             log.warning("metrics purge failed: %s", exc)
