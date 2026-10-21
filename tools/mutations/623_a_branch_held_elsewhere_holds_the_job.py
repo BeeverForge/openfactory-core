@@ -176,6 +176,11 @@ MUTATIONS = [
      "    except (OSError, RuntimeError):  # 3.12's resolve()",
      "    except OSError:  # 3.12's resolve()"),
 
+    ("_same_dir takes a path it cannot resolve for the box's own, so a person's looped tree is "
+     "called the job's own and the box tries to remove it", BOX,
+     "        return str(a) == str(b)\n",
+     "        return True\n"),
+
     ("_not_there counts only a parent it cannot search as 'could not tell', and a symlink loop at "
      "the tree's path is a traceback", BOX,
      "    except OSError:  # a parent the box cannot search",

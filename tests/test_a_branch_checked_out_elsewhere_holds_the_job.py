@@ -681,7 +681,9 @@ def test_a_holder_whose_path_is_a_symlink_loop_still_holds_the_job(held, locked)
     os.symlink(review, review)
     with pytest.raises(BranchHeldElsewhere) as caught:
         _keep(box, repo)
-    assert "is not there" not in str(caught.value), str(caught.value)
+    said = str(caught.value)
+    assert "is not there" not in said, said
+    assert "the job's own" not in said, said  # a loop is never the box's own tree
 
 
 @pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
