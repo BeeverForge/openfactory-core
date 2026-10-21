@@ -330,7 +330,14 @@ def _unraisable(said: sys.UnraisableHookArgs) -> None:
 
 
 def _pythons_own_lines_through_the_log() -> None:
-    """What Python writes on stderr by itself, through the log's format instead."""
+    """What Python writes on stderr by itself, through the log's format instead.
+
+    WHATEVER `OPENFACTORY_LOG_LEVEL` SAYS: Python's own hooks write an exception nobody caught
+    whatever any level is, and so does the logger they are handed to — exempt from the platform's
+    level, which its parent `openfactory` follows (review requesting changes on 3cd816ac: with the
+    level at CRITICAL, an exception that ended the process or a thread wrote nothing at all). Each
+    report keeps its own level, ERROR or WARNING, for a reader to filter by."""
+    logging.getLogger(UNCAUGHT_LOGGER).setLevel(logging.DEBUG)
     logging.captureWarnings(True)
     sys.excepthook = _uncaught
     threading.excepthook = _uncaught_in_a_thread

@@ -833,6 +833,14 @@ class _Pooled:
 #: avoided is not 0.3 s of CPU but an unbounded socket count.
 _CLIENTS: dict[tuple[str, str, str], _Pooled] = {}
 
+#: How much longer than the attempt's own bound a read waits for a connect, in seconds. The attempt
+#: ends itself at `read_deadline()` (`connection.connect`) and, with JSON lines, leaves its target
+#: resting, so the next reads build nothing; this wait is the backstop for a read queued behind a
+#: longer attempt (a worker's birth connect). EQUAL TO THE ATTEMPT'S BOUND, this timer — started
+#: first — fired first, and an engine that never answered ended each attempt as a cancellation,
+#: which is nobody's failure and leaves no rest (review on 3cd816ac).
+CONNECT_BACKSTOP_S = 1.0
+
 
 def reset_clients() -> None:
     """Drop every pooled client. The seam `tests/conftest.py` clears between tests, so a fake
@@ -957,11 +965,17 @@ async def connect() -> Client:
             # for, and an outage is exactly when this object is re-raised most.
             raise entry.error.with_traceback(None)
         if entry.client is None:
+            # THE LAST FAILURE IS LET GO OF BEFORE THE NEXT ATTEMPT: nobody behind this attempt can
+            # be handed it (they take this attempt's own outcome), and its traceback holds the
+            # runtime the failed attempt was made on, so kept, it outlived the collection a client
+            # that lands runs to free that runtime (`connection.connect`, review on 3cd816ac).
+            entry.error = None
             try:
                 # BOUNDED LIKE EVERY READ (#159). A connect to an unreachable
                 # address "was STILL HANGING AFTER 40 s" — the docstring above
                 # says so and no caller put a bound around it.
-                entry.client = await _within("a connection", _connect())
+                entry.client = await _within("a connection", _connect(),
+                                             seconds=read_deadline() + CONNECT_BACKSTOP_S)
             except Exception as exc:
                 # `CancelledError` IS NOT AN `Exception` and deliberately does not land here: a
                 # holder whose request was cancelled proves nothing about the engine, so it counts

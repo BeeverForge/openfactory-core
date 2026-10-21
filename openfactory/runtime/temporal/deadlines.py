@@ -71,7 +71,8 @@ def read_deadline() -> float:
 
 #: How long an engine that did not answer is remembered as unreachable, so the NEXT read does not
 #: pay the same wait again. Short on purpose: an engine that came back must be picked up without a
-#: restart, which is the rule `connect()` already holds for a failed connect.
+#: restart. With JSON lines it is also the first rest of a target whose connect failed after its
+#: runtime was built (`connection._RESTING`), doubled after each attempt that fails again.
 def unreachable_window() -> float:
     return _seconds("OPENFACTORY_ENGINE_UNREACHABLE_FOR", 3.0)
 

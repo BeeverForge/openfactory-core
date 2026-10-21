@@ -38,18 +38,21 @@ from __future__ import annotations
 import ast
 import asyncio
 import concurrent.futures
+import gc
 import inspect
 import io
 import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
 import time
 import types
 import typing
+import weakref
 from pathlib import Path
 
 import pytest
@@ -564,31 +567,37 @@ def test_a_line_that_must_never_be_silent_is_said_at_warning():
 
 # ── Python's own lines (fourth review of #818) ──────────────────────────────────────────────────
 
-#: What Python writes on stderr by itself, by what causes it: the code; the logger, level and
-#: exception its JSON line says; and what Python itself writes for it in the readable format. Each
-#: runs in a process of its own, after `logs.configure()`, as a process of the deployment would.
+#: What Python writes on stderr by itself, by what causes it: the code, and the logger, level and
+#: exception its JSON line says. Each runs in a process of its own, after `logs.configure()`, as a
+#: process of the deployment would.
 PYTHONS_OWN = {
     "a warning": ("import warnings\nwarnings.warn('a library warned')\n",
-                  "py.warnings", "WARNING", "UserWarning", "UserWarning: a library warned"),
+                  "py.warnings", "WARNING", "UserWarning"),
     "an exception nobody caught": ("raise RuntimeError('nobody caught this')\n",
-                                   logs.UNCAUGHT_LOGGER, "ERROR", "RuntimeError",
-                                   "Traceback (most recent call last)"),
+                                   logs.UNCAUGHT_LOGGER, "ERROR", "RuntimeError"),
     "one that ends a thread": (
         "import threading\n"
         "sweep = threading.Thread(target=lambda: 1 / 0, name='a-sweep')\n"
-        "sweep.start()\nsweep.join()\n", logs.UNCAUGHT_LOGGER, "ERROR", "ZeroDivisionError",
-        "Exception in thread a-sweep"),
+        "sweep.start()\nsweep.join()\n", logs.UNCAUGHT_LOGGER, "ERROR", "ZeroDivisionError"),
     "one nobody could raise": (
         "class _Gone:\n    def __del__(self):\n        raise ValueError('raised in a finaliser')\n"
-        "_Gone()\n", logs.UNCAUGHT_LOGGER, "WARNING", "ValueError", "Exception ignored in"),
+        "_Gone()\n", logs.UNCAUGHT_LOGGER, "WARNING", "ValueError"),
 }
 
+#: Every level `OPENFACTORY_LOG_LEVEL` can name, read off the `logging` module `logs.level()` asks
+#: (one name for each, an alias such as `WARN` naming the same one), and the variable unset.
+LEVELS = ["unset", *sorted({value: name for name, value
+                            in logging.getLevelNamesMapping().items()}.values())]
 
-def _a_process_of_its_own(script: str, *, asked: str | None) -> subprocess.CompletedProcess:
+
+def _a_process_of_its_own(script: str, *, asked: str | None,
+                          level: str = "unset") -> subprocess.CompletedProcess:
     env = {k: v for k, v in os.environ.items()
            if k not in (logs.FORMAT_VARIABLE, logs.LEVEL_VARIABLE, logs.DEPLOYMENT_VARIABLE)}
     if asked:
         env[logs.FORMAT_VARIABLE] = asked
+    if level != "unset":
+        env[logs.LEVEL_VARIABLE] = level
     return subprocess.run([sys.executable, "-c", script], cwd=ROOT, env=env,
                           capture_output=True, text=True, timeout=120)
 
@@ -610,11 +619,16 @@ def _every_line_is_json(ran: subprocess.CompletedProcess) -> list[dict]:
     return lines
 
 
+@pytest.mark.parametrize("level_set", LEVELS)
 @pytest.mark.parametrize("cause", sorted(PYTHONS_OWN))
-def test_what_python_writes_by_itself_is_a_json_line(cause):
-    code, logger, level, kind, _python_says = PYTHONS_OWN[cause]
+def test_what_python_writes_by_itself_is_a_json_line(cause, level_set):
+    """Each of Python's own reports is one JSON line — WHATEVER `OPENFACTORY_LOG_LEVEL` SAYS, as
+    Python's own hooks write whatever any level is (review requesting changes on 3cd816ac: with the
+    level at CRITICAL, an exception that ended the process, or a thread, wrote nothing at all)."""
+    code, logger, level, kind = PYTHONS_OWN[cause]
     ran = _a_process_of_its_own(
-        "from openfactory.observability import logs\nlogs.configure()\n" + code, asked="json")
+        "from openfactory.observability import logs\nlogs.configure()\n" + code, asked="json",
+        level=level_set)
 
     lines = _every_line_is_json(ran)
     said = [line for line in lines if line["logger"] == logger]
@@ -636,20 +650,35 @@ def test_a_thread_that_exits_says_nothing():
     assert ran.returncode == 0
 
 
-def test_without_json_python_writes_as_it_always_did():
+#: An object's address in what Python writes, which differs from one process to the next.
+_AN_ADDRESS = re.compile(r"0x[0-9a-fA-F]+")
+
+
+@pytest.mark.parametrize("level_set", LEVELS)
+def test_without_json_python_writes_as_it_always_did(level_set):
     """`configure` hands Python's hooks to the log only for JSON lines; the readable format leaves
-    every one of them as Python has it: Python's own words, and no line of the log's format."""
+    every one of them as Python has it, at every level: the process writes what the same code
+    writes in a process whose log nobody configured. Asked of THIS Python, not spelled here — its
+    words change between releases (3.14 says "Exception ignored while calling deallocator" where
+    3.13 says "Exception ignored in"), and the package runs on every Python from 3.12."""
+    causes = ("".join(code for cause, (code, *_said) in sorted(PYTHONS_OWN.items())
+                      if cause != "an exception nobody caught")
+              + PYTHONS_OWN["an exception nobody caught"][0])
     ran = _a_process_of_its_own(
-        "from openfactory.observability import logs\nlogs.configure()\n"
-        + "".join(code for cause, (code, *_said) in sorted(PYTHONS_OWN.items())
-                  if cause != "an exception nobody caught")
-        + PYTHONS_OWN["an exception nobody caught"][0], asked=None)
+        "from openfactory.observability import logs\nlogs.configure()\n" + causes, asked=None,
+        level=level_set)
+    # The same lines above the causes, so a traceback names the same line numbers.
+    bare = _a_process_of_its_own(
+        "from openfactory.observability import logs\nlogs.__name__\n" + causes, asked=None,
+        level=level_set)
 
     logged = [line for line in ran.stderr.splitlines() if LINE.match(line) or line.startswith("{")]
     assert not logged, f"Python's own lines went through the log: {logged}"
-    for cause, (*_how, kind, python_says) in PYTHONS_OWN.items():
-        assert python_says in ran.stderr and kind in ran.stderr, (cause, ran.stderr)
-    assert ran.returncode == 1
+    assert _AN_ADDRESS.sub("0x", ran.stderr) == _AN_ADDRESS.sub("0x", bare.stderr), (
+        ran.stderr, bare.stderr)
+    for cause, (*_how, kind) in PYTHONS_OWN.items():
+        assert kind in ran.stderr, (cause, ran.stderr)
+    assert ran.returncode == bare.returncode == 1
 
 
 #: The two doors a worker is started through, and the line that starts it there: the module's
@@ -1342,7 +1371,7 @@ class _Runtimes:
     built with, and the runtime each client was made on — so a case reads the configuration, and
     no core is started."""
 
-    def __init__(self, monkeypatch):
+    def __init__(self, monkeypatch, *, at: str = "localhost:7233"):
         from openfactory.runtime.temporal import connection
 
         self.built: list = []
@@ -1360,7 +1389,58 @@ class _Runtimes:
 
         monkeypatch.setattr(connection, "Runtime", _Runtime)
         monkeypatch.setattr(connection.Client, "connect", _connect)
-        monkeypatch.setenv("TEMPORAL_ADDRESS", "localhost:7233")
+        monkeypatch.setenv("TEMPORAL_ADDRESS", at)
+
+
+@pytest.fixture
+def listening():
+    """Addresses where a socket listens and never reads what it is sent — so the probe a connect
+    asks first, with JSON lines, finds something there, and a connect is never answered — each
+    closed when the case ends."""
+    opened: list[socket.socket] = []
+
+    def _one() -> str:
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(64)
+        opened.append(sock)
+        return f"127.0.0.1:{sock.getsockname()[1]}"
+
+    yield _one
+    for sock in opened:
+        sock.close()
+
+
+@pytest.fixture
+def refusing() -> str:
+    """An address nobody listens on: a port bound and let go of, so a connection there is
+    refused — an engine stopped, its container gone."""
+    with socket.socket() as nobody:
+        nobody.bind(("127.0.0.1", 0))
+        return f"127.0.0.1:{nobody.getsockname()[1]}"
+
+
+@pytest.fixture
+def closing():
+    """An address whose socket takes each connection and closes it at once, so the library's
+    connect is refused after the socket took it — as a port a container publishes is taken while
+    the engine behind it is not up, or an engine refuses the key it is given."""
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(64)
+
+    def _close_each():
+        while True:
+            try:
+                taken, _peer = sock.accept()
+            except OSError:
+                return                      # the socket was closed: the case is over
+            taken.close()
+
+    threading.Thread(target=_close_each, daemon=True).start()
+    yield f"127.0.0.1:{sock.getsockname()[1]}"
+    sock.close()
 
 
 def _a_line_of_the_core(level: int, message: str):
@@ -1370,7 +1450,7 @@ def _a_line_of_the_core(level: int, message: str):
 
 
 async def test_with_json_lines_the_one_engine_client_has_a_runtime_whose_core_writes_through_the_log(
-        monkeypatch, capsys):
+        monkeypatch, capsys, listening):
     """Read off what `connection.connect()` — the one door every engine client of the worker, the
     panel and the CLI is made through — does: the process's client is made ONCE, on a runtime of
     its own whose core forwards its lines to `CORE_LOGGER` at the library's own default filter,
@@ -1381,7 +1461,7 @@ async def test_with_json_lines_the_one_engine_client_has_a_runtime_whose_core_wr
     from openfactory.runtime.temporal import connection
 
     monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
-    runtimes = _Runtimes(monkeypatch)
+    runtimes = _Runtimes(monkeypatch, at=listening())
 
     first = await connection.connect()
     again = await connection.connect()
@@ -1413,7 +1493,7 @@ async def test_with_json_lines_the_one_engine_client_has_a_runtime_whose_core_wr
     assert "poll_activity_task_queue retried" in line["message"], line
 
 
-async def test_a_client_a_changed_target_lets_go_of_keeps_no_runtime(monkeypatch):
+async def test_a_client_a_changed_target_lets_go_of_keeps_no_runtime(monkeypatch, listening):
     """The SDK's client sits in a reference cycle, so a client let go of keeps its runtime — a
     thread per CPU with JSON lines — until a full collection. The one client a process lets go of
     is the one whose target changed (a moved address, a rotated key), and its runtime is gone the
@@ -1423,7 +1503,7 @@ async def test_a_client_a_changed_target_lets_go_of_keeps_no_runtime(monkeypatch
     from openfactory.runtime.temporal import connection
 
     monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
-    runtimes = _Runtimes(monkeypatch)
+    runtimes = _Runtimes(monkeypatch, at=listening())
 
     class _InACycle:                       # as the SDK's client is: it refers to itself
         def __init__(self, runtime):
@@ -1438,14 +1518,14 @@ async def test_a_client_a_changed_target_lets_go_of_keeps_no_runtime(monkeypatch
     first = weakref.ref(runtimes.built[0])
     runtimes.built.clear()
     runtimes.clients.clear()
-    monkeypatch.setenv("TEMPORAL_ADDRESS", "engine.example:7233")
+    monkeypatch.setenv("TEMPORAL_ADDRESS", listening())
     await connection.connect()
 
     assert first() is None, "the client a changed target let go of still holds its runtime"
 
 
 async def test_a_runtime_that_cannot_be_built_is_a_failed_attempt_and_the_next_one_tries(
-        monkeypatch):
+        monkeypatch, listening):
     """Building a runtime can fail like a connect can — the bridge's "Failed initializing runtime",
     for one, when a thread cannot start under a pid limit. That attempt fails, is let go of, and the
     next connect to a healthy engine tries for itself (seventh review of #818: built before the
@@ -1453,7 +1533,7 @@ async def test_a_runtime_that_cannot_be_built_is_a_failed_attempt_and_the_next_o
     from openfactory.runtime.temporal import connection
 
     monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
-    _Runtimes(monkeypatch)
+    _Runtimes(monkeypatch, at=listening())
     making, failed = connection.core_runtime, []
 
     def _fails_once():
@@ -1503,10 +1583,10 @@ class _HeldEngine:
     """The library's connect, the FIRST attempt held until the case releases it — then answering, or
     failing with `fails` — and every later attempt answering at once. Counts the attempts."""
 
-    def __init__(self, monkeypatch):
+    def __init__(self, monkeypatch, *, at: str = "localhost:7233"):
         from openfactory.runtime.temporal import connection
 
-        monkeypatch.setenv("TEMPORAL_ADDRESS", "localhost:7233")
+        monkeypatch.setenv("TEMPORAL_ADDRESS", at)
         self.client, self.attempts, self.fails = object(), 0, None
         self.entered, self.release = threading.Event(), threading.Event()
         counting = threading.Lock()
@@ -1582,13 +1662,20 @@ async def test_callers_who_arrive_together_share_one_attempt_and_its_outcome(mon
         assert await connection.connect() is engine.client and engine.attempts == 2
 
 
-async def test_a_cancelled_attempt_is_nobodys_failure_and_those_behind_it_try(monkeypatch):
+@pytest.mark.parametrize("asked", ["json", None])
+async def test_a_cancelled_attempt_is_nobodys_failure_and_those_behind_it_try(monkeypatch,
+                                                                              listening, asked):
     """The caller whose attempt is in flight goes away — a bounded read that gave up, a request a
     browser closed. That says nothing about the engine, so the callers queued behind it try for
-    themselves and are given a client, never the cancellation as if the engine had failed."""
+    themselves and are given a client, never the cancellation as if the engine had failed — and,
+    with JSON lines, never a rest, though the attempt had built its runtime."""
     from openfactory.runtime.temporal import connection
 
-    engine, arrivals = _HeldEngine(monkeypatch), _Arrivals(monkeypatch)
+    if asked:
+        monkeypatch.setenv(logs.FORMAT_VARIABLE, asked)
+        monkeypatch.setattr(connection, "Runtime", lambda **_kwargs: types.SimpleNamespace())
+    engine = _HeldEngine(monkeypatch, at=listening())
+    arrivals = _Arrivals(monkeypatch)
     said: list = []
     owner = asyncio.create_task(connection.connect())
     try:
@@ -1604,6 +1691,44 @@ async def test_a_cancelled_attempt_is_nobodys_failure_and_those_behind_it_try(mo
         engine.release.set()
 
     assert said == [engine.client, engine.client], said
+
+
+async def test_callers_who_arrive_at_the_same_instant_on_many_threads_make_one_attempt(monkeypatch):
+    """The lock around the held client and the flight is what makes the single flight hold across
+    THREADS (re-review on 3cd816ac, measured: with `_HOLDING` a no-op, 32 threads released by one
+    barrier made 2 or 3 library attempts in 4 trials of 20; with the lock, 1 in 20 of 20)."""
+    from openfactory.runtime.temporal import connection
+
+    monkeypatch.setenv("TEMPORAL_ADDRESS", "localhost:7233")
+    attempts, counting = [], threading.Lock()
+
+    async def _connect(*_args, **_kwargs):
+        with counting:
+            attempts.append(1)
+        await asyncio.sleep(0.2)
+        return object()
+
+    monkeypatch.setattr(connection.Client, "connect", _connect)
+    before = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        for trial in range(30):
+            connection.forget()
+            attempts.clear()
+            together = threading.Barrier(32)
+
+            def _ask(together: threading.Barrier = together) -> None:
+                together.wait()
+                asyncio.run(connection.connect())
+
+            callers = [threading.Thread(target=_ask, daemon=True) for _ in range(32)]
+            for caller in callers:
+                caller.start()
+            for caller in callers:
+                await asyncio.get_running_loop().run_in_executor(None, caller.join, 10.0)
+            assert len(attempts) == 1, f"trial {trial}: {len(attempts)} attempts for 32 callers"
+    finally:
+        sys.setswitchinterval(before)
 
 
 async def test_a_waiter_that_gives_up_cancels_nobody_elses_attempt(monkeypatch):
@@ -1686,42 +1811,250 @@ def _threads_of_this_process() -> int | None:
     return None
 
 
-#: How many connects the engine refuses in a row in the case below, after the first.
+#: How many connects each case below makes in a row, after the first.
 REFUSED_CONNECTS = 10
 
+#: The doors a process connects to its engine through, each asked as its callers ask it: the one
+#: client's own (`connection.connect` — the worker's tools, a release, a preview's stop), a worker's
+#: birth, bounded short here, and the read side's (`view.connect` — every panel read, and
+#: readiness). `test_every_door_to_the_engine_is_a_case` reads the set off the code.
+CONNECT_DOORS = ("connection.connect", "connection.connect_at_birth", "view.connect")
 
-@pytest.mark.owns_its_engine  # the real Client.connect, refused by a port nobody listens on
-async def test_a_connect_the_engine_refuses_keeps_no_runtime_alive(monkeypatch):
-    """With JSON lines every client has a runtime of its own, about a thread per CPU. A connect the
-    engine refuses must not keep its runtime until a full collection (review on d2ef6149,
-    measured: a panel whose engine was down at its first connect gained twelve threads per
-    healthcheck on 12 CPUs, 146 after twelve; on 8 CPUs ten refused connects left 91 threads, and
-    one `gc.collect()` brought them back to 10). So: however many connects are refused, at most
-    the last one's runtime is alive, and the process's threads stay within one runtime of what
-    they were after the first."""
-    import socket
-    import weakref
 
+def _door(name: str):
+    """The door `name`, ready to be awaited."""
+    from openfactory.runtime.temporal import connection, view
+
+    return {"connection.connect": connection.connect,
+            "connection.connect_at_birth": lambda: connection.connect_at_birth(within=0.1,
+                                                                               every=0.02),
+            "view.connect": view.connect}[name]()
+
+
+def test_every_door_to_the_engine_is_a_case():
+    """Read off `connection.py` and `view.py`: every coroutine a caller connects through — those
+    named `connect…` — is a case of the rules below, and the one attempt that builds a runtime
+    (`_connect_for`) is made from `connection.connect` alone, so every door's cost is that one's."""
+    doors, attempts = set(), set()
+    for module in ("connection", "view"):
+        tree = ast.parse((ROOT / "openfactory" / "runtime" / "temporal" / f"{module}.py")
+                         .read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, ast.AsyncFunctionDef):
+                continue
+            if node.name.startswith("connect"):
+                doors.add(f"{module}.{node.name}")
+            if any(isinstance(call, ast.Call) and getattr(call.func, "id", "") == "_connect_for"
+                   for call in ast.walk(node)):
+                attempts.add(f"{module}.{node.name}")
+
+    assert doors == set(CONNECT_DOORS), sorted(doors ^ set(CONNECT_DOORS))
+    assert attempts == {"connection.connect"}, attempts
+
+
+class _Costs:
+    """What connecting costs, counted: the runtimes `core_runtime` built (the library's default,
+    None, is not one), by weak reference, and the full collections `connection` ran."""
+
+    def __init__(self, monkeypatch):
+        from openfactory.runtime.temporal import connection
+
+        self.built: list[weakref.ref] = []
+        self.collections = 0
+        making = connection.core_runtime
+
+        def _recorded():
+            runtime = making()
+            if runtime is not None:
+                self.built.append(weakref.ref(runtime))
+            return runtime
+
+        def _collect(*args):
+            self.collections += 1
+            return gc.collect(*args)
+
+        monkeypatch.setattr(connection, "core_runtime", _recorded)
+        monkeypatch.setattr(connection, "gc", types.SimpleNamespace(collect=_collect))
+
+
+def _no_engine_credentials(monkeypatch) -> None:
+    for name in ("TEMPORAL_API_KEY", "TEMPORAL_TLS_CERT", "TEMPORAL_TLS_KEY", "TEMPORAL_NAMESPACE"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize("asked", ["json", None])
+@pytest.mark.parametrize("door", CONNECT_DOORS)
+async def test_a_port_nobody_listens_on_costs_no_runtime_and_no_collection(monkeypatch, refusing,
+                                                                          door, asked):
+    """REVIEW REQUESTING CHANGES ON 3cd816ac, measured on temporalio 1.34.0: a process started while
+    its engine was down built a runtime for every connect — about 65 KB of native memory each,
+    which no collection frees — and ran a full collection on the caller's loop for each, 20 ms on a
+    small heap and 300 ms on 3M objects: 1,200 refused connects grew it from 77 to 151 MB through
+    `connection.connect` and from 66 to 146 MB through `view.connect`, and a panel pays one on
+    every healthcheck and every read. So, through every door and in either format: however many
+    connects find nobody listening, each caller is told, and no runtime is built and no collection
+    runs for any of them."""
+    if asked:
+        monkeypatch.setenv(logs.FORMAT_VARIABLE, asked)
+    _no_engine_credentials(monkeypatch)
+    monkeypatch.setenv("TEMPORAL_ADDRESS", refusing)
+    costs = _Costs(monkeypatch)
+
+    for _ in range(1 + REFUSED_CONNECTS):
+        with pytest.raises(RuntimeError):
+            await _door(door)
+
+    assert costs.built == [], f"{len(costs.built)} runtimes built for a port nobody listens on"
+    assert costs.collections == 0, f"{costs.collections} collections for a port nobody listens on"
+
+
+#: How an attempt fails once the socket has taken it — with the library's own connect: refused at
+#: once (`closing`: a socket that closes what it takes), or never answered within the attempt's
+#: bound (`listening`: one that never reads).
+AFTER_THE_SOCKET_TAKES_IT = ("refused at once", "never answered")
+
+
+@pytest.mark.owns_its_engine  # the library's own connect, against sockets this case opens
+@pytest.mark.parametrize("fails", AFTER_THE_SOCKET_TAKES_IT)
+@pytest.mark.parametrize("door", CONNECT_DOORS)
+async def test_an_attempt_that_fails_once_its_runtime_is_built_rests_its_target_at_every_door(
+        monkeypatch, listening, closing, door, fails):
+    """A socket that takes the connection is not an engine that answers: a port a container
+    publishes is taken while the engine behind it is down, an engine refuses a key, a wedged one
+    never answers. With JSON lines that attempt has built its runtime by then, so it leaves its
+    target RESTING: until the rest ends, a connect through any door is refused at once with
+    `EngineUnreachable`, and nothing is built, collected or asked of the library for it (review
+    requesting changes on 3cd816ac: without the rest, each read built a runtime again)."""
+    from openfactory.runtime.temporal import connection
+    from openfactory.runtime.temporal.vocabulary import EngineUnreachable
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    monkeypatch.setenv("OPENFACTORY_ENGINE_UNREACHABLE_FOR", "60")
+    monkeypatch.setenv("OPENFACTORY_ENGINE_DEADLINE", "0.3")
+    _no_engine_credentials(monkeypatch)
+    monkeypatch.setenv("TEMPORAL_ADDRESS", closing if fails == "refused at once" else listening())
+    costs = _Costs(monkeypatch)
+    asked: list[object] = []
+    opening = connection.Client.connect
+
+    async def _counted(*args, **kwargs):
+        asked.append(kwargs.get("runtime"))
+        return await opening(*args, **kwargs)
+
+    monkeypatch.setattr(connection.Client, "connect", _counted)
+
+    with pytest.raises((RuntimeError, TimeoutError)):
+        await _door(door)
+    for other in (*CONNECT_DOORS, *CONNECT_DOORS):
+        with pytest.raises(EngineUnreachable):
+            await _door(other)
+
+    assert len(costs.built) == 1 and len(asked) == 1, (
+        f"{len(costs.built)} runtimes built and the library asked {len(asked)} times; one each")
+    assert costs.collections == 1, f"{costs.collections} collections for one failed attempt"
+
+
+@pytest.mark.parametrize("first", ["unset", "0.5", "90"])
+def test_a_rest_doubles_after_each_attempt_that_fails_again_up_to_a_minute(monkeypatch, first):
+    """The first rest is `OPENFACTORY_ENGINE_UNREACHABLE_FOR`, each attempt that fails after one
+    doubles it, up to `RESTS_AT_MOST_S` (or the first rest, when the deployment set it longer):
+    an engine that stays away costs a runtime a minute, and one that comes back is asked again
+    within a minute at worst. One target rests at a time, and the refusal says where, what the
+    attempt said, and the setting the wait starts at."""
+    from openfactory.runtime.temporal import connection
+
+    if first != "unset":
+        monkeypatch.setenv("OPENFACTORY_ENGINE_UNREACHABLE_FOR", first)
+    starts = connection.unreachable_window()
+    target = ("engine.example:7233", "default", "a-digest")
+    waits = []
+    for _ in range(10):
+        connection._rest_after(target, RuntimeError("Unauthenticated: the key is not accepted"))
+        (rest,) = connection._RESTING.values()
+        waits.append(rest.wait)
+    said = str(connection._resting(target))
+    another = ("engine.example:7233", "another-namespace", "a-digest")
+    connection._rest_after(another, RuntimeError("Unauthenticated"))
+
+    most = max(connection.RESTS_AT_MOST_S, starts)
+    assert waits == [min(starts * 2 ** n, most) for n in range(10)], waits
+    for named in ("engine.example:7233", "Unauthenticated: the key is not accepted",
+                  "OPENFACTORY_ENGINE_UNREACHABLE_FOR"):
+        assert named in said, (named, said)
+    assert list(connection._RESTING) == [another], "a target that changed kept the old one's rest"
+    assert connection._RESTING[another].wait == starts, "a new target's first rest was doubled"
+
+
+async def _until_no_target_rests() -> None:
+    from openfactory.runtime.temporal import connection
+
+    for rest in list(connection._RESTING.values()):
+        await asyncio.sleep(max(0.0, rest.until - time.monotonic()) + 0.01)
+
+
+@pytest.mark.parametrize("door", CONNECT_DOORS)
+async def test_once_its_rest_ends_a_target_is_asked_again_and_a_client_that_lands_leaves_no_failed_runtime(
+        monkeypatch, listening, door):
+    """A failed attempt's runtime sits in a cycle with the failure's traceback, so the collection run
+    while that failure is handled frees the attempt before it, never its own, and the read side kept
+    the last failure until a client landed (re-review on 3cd816ac, measured on the real panel: 26
+    threads while the engine was silent, 38 for good once it answered, 14 after one collection).
+    So, through every door: each rest ends and the engine is asked again, and when a client lands
+    no failed attempt's runtime is left."""
     from openfactory.runtime.temporal import connection
 
     monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
-    for name in ("TEMPORAL_API_KEY", "TEMPORAL_TLS_CERT", "TEMPORAL_TLS_KEY"):
-        monkeypatch.delenv(name, raising=False)
-    with socket.socket() as nobody:
-        nobody.bind(("127.0.0.1", 0))
-        port = nobody.getsockname()[1]
-    monkeypatch.setenv("TEMPORAL_ADDRESS", f"127.0.0.1:{port}")
-    built: list[weakref.ref] = []
-    making = connection.core_runtime
+    monkeypatch.setenv("OPENFACTORY_ENGINE_UNREACHABLE_FOR", "0.05")
+    monkeypatch.setattr(connection, "RESTS_AT_MOST_S", 0.05)
+    runtimes = _Runtimes(monkeypatch, at=listening())
+    refusing, asked = [True], []
 
-    def _recorded():
-        runtime = making()
-        built.append(weakref.ref(runtime))
-        return runtime
+    async def _connect(*_args, **kwargs):
+        asked.append(1)
+        if refusing[0]:
+            in_a_cycle = [kwargs.get("runtime")]
+            in_a_cycle.append(in_a_cycle)
+            raise RuntimeError("Connection refused")
+        return object()
 
-    monkeypatch.setattr(connection, "core_runtime", _recorded)
+    monkeypatch.setattr(connection.Client, "connect", _connect)
+    for _ in range(3):
+        await _until_no_target_rests()
+        with pytest.raises(RuntimeError):
+            await _door(door)
+    failed = [weakref.ref(runtime) for runtime in runtimes.built]
+    runtimes.built.clear()
+    refusing[0] = False
+    await _until_no_target_rests()
+    client = await _door(door)
+
+    assert len(failed) == 3 and len(asked) == 4, (len(failed), len(asked))
+    assert client is await connection.connect(), "the client that landed is not the one held"
+    assert [ref for ref in failed if ref() is not None] == [], "a failed attempt's runtime is left"
+
+
+@pytest.mark.owns_its_engine  # the library's own connect, refused by a socket this case opens
+async def test_a_connect_refused_once_the_socket_took_it_keeps_no_runtime_alive(monkeypatch,
+                                                                                 closing):
+    """With JSON lines every attempt has a runtime of its own, about a thread per CPU, and a failed
+    attempt's must not stay until a full collection (review on d2ef6149, measured: a panel whose
+    engine was down at its first connect gained twelve threads per healthcheck on 12 CPUs, 146
+    after twelve; on 8 CPUs ten refused connects left 91 threads, and one `gc.collect()` brought
+    them back to 10). A port nobody listens on builds no runtime now, so the attempts here are
+    the library's own, refused after the socket took them, each once its target's rest has ended:
+    however many fail, at most the last one's runtime is alive, and the process's threads stay
+    within one runtime of what they were after the first."""
+    from openfactory.runtime.temporal import connection
+
+    monkeypatch.setenv(logs.FORMAT_VARIABLE, "json")
+    monkeypatch.setenv("OPENFACTORY_ENGINE_UNREACHABLE_FOR", "0.01")
+    monkeypatch.setattr(connection, "RESTS_AT_MOST_S", 0.01)
+    _no_engine_credentials(monkeypatch)
+    monkeypatch.setenv("TEMPORAL_ADDRESS", closing)
+    costs = _Costs(monkeypatch)
 
     async def _refused() -> None:
+        await _until_no_target_rests()
         with pytest.raises(RuntimeError):
             await connection.connect()
 
@@ -1729,11 +2062,11 @@ async def test_a_connect_the_engine_refuses_keeps_no_runtime_alive(monkeypatch):
     after_one = _threads_of_this_process()
     for _ in range(REFUSED_CONNECTS):
         await _refused()
-    alive = sum(ref() is not None for ref in built)
+    alive = sum(ref() is not None for ref in costs.built)
     after_all = _threads_of_this_process()
 
-    assert len(built) == REFUSED_CONNECTS + 1, "every connect is made on a runtime of its own"
-    assert alive <= 1, f"{alive} of {len(built)} refused connects still hold their runtime"
+    assert len(costs.built) == REFUSED_CONNECTS + 1, "every attempt is made on a runtime of its own"
+    assert alive <= 1, f"{alive} of {len(costs.built)} refused connects still hold their runtime"
     if after_one is not None and after_all is not None:
         assert after_all <= after_one + (os.cpu_count() or 1) + 2, (after_one, after_all)
 

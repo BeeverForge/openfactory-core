@@ -215,6 +215,10 @@ _CACHES = {
         "one entry in total: a target that changes replaces it (`_connect_for` clears it first)",
     ("openfactory/runtime/temporal/connection.py", "_IN_FLIGHT"):
         "one connect per target in flight, removed the moment it lands or fails",
+    # #681 (review requesting changes on 3cd816ac) — the target resting after a failed attempt
+    ("openfactory/runtime/temporal/connection.py", "_RESTING"):
+        "one entry in total: a new rest replaces it (`_rest_after` clears it first), and a client "
+        "that lands empties it",
     ("openfactory/runtime/temporal/view.py", "_CLIENTS"):
         "exactly one entry — the engine target this process is configured for right now, emptied "
         "and re-filled when that target changes; the environment, not traffic",

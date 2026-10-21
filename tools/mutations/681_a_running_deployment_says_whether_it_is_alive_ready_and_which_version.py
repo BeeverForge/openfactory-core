@@ -61,7 +61,15 @@ The claims, each a row:
      attempt, not a wedged one; callers who arrive together share one attempt and its outcome,
      a failure included; a cancelled attempt is nobody's failure, and a waiter that gives up
      cancels nobody else's; every attempt is bounded, whoever starts it; and the probe asks the
-     address it is given.
+     address it is given;
+  16. what a connect costs with JSON lines (review requesting changes on 3cd816ac, and the re-review
+     approving it): a port nobody listens on builds no runtime and runs no collection; an attempt
+     that fails once its runtime is built rests its target, refused at every door, the rest
+     doubling up to a cap, never for a cancelled attempt and never without JSON lines, and ended
+     by the attempt's own bound rather than the read side's; a client that lands frees the failed
+     attempts' runtimes, the read side's last failure included; the single flight holds across
+     threads by its lock, and a cancelled attempt is settled; and an exception nobody caught is
+     written whatever the platform's level is.
 """
 
 READY = "tests/test_a_running_deployment_says_whether_it_is_alive_and_ready.py"
@@ -484,9 +492,47 @@ MUTATIONS = [
      "                             else RuntimeError(\"cancelled\"))", LOGS),
     ("a waiter that gives up can cancel the attempt the others wait on", CONNECTION,
      "                flight.set_running_or_notify_cancel()\n", "", LOGS),
+    # RE-PINNED 2026-10-21 (#681, review requesting changes on 3cd816ac): one bound now covers the
+    # probe and the connect, as a context around both. Same cut: the attempt has no bound.
     ("an attempt nobody bounded waits as long as the engine takes", CONNECTION,
-     "        ), bound)\n", "        ), None)\n", LOGS),
+     "        async with asyncio.timeout(bound):\n", "        async with asyncio.timeout(None):\n",
+     LOGS),
     ("the probe asks loopback whatever address it is given", HEALTH,
      "    return probe(args.port, args.path, host=args.host)",
      "    return probe(args.port, args.path)"),
+
+    # 16. what a connect costs with JSON lines (review requesting changes on 3cd816ac, re-review)
+    ("a port nobody listens on is given a runtime (3cd816ac)", CONNECTION,
+     "            if logs.structured() and not await _listening(*_host_and_port(where)):",
+     "            if False:", LOGS),
+    ("a failed attempt leaves no rest, so every read builds a runtime again (3cd816ac)",
+     CONNECTION, "                _rest_after(key, failure)\n", "                pass\n", LOGS),
+    ("a target that rests is attempted anyway (3cd816ac)", CONNECTION,
+     "            if refusal is not None:\n                raise refusal\n",
+     "            if False:\n                raise refusal\n", LOGS),
+    ("the rest never grows (3cd816ac)", CONNECTION,
+     "    wait = first if before is None else min(2 * before.wait, max(RESTS_AT_MOST_S, first))",
+     "    wait = first", LOGS),
+    ("the rest grows without a cap (3cd816ac)", CONNECTION,
+     "    wait = first if before is None else min(2 * before.wait, max(RESTS_AT_MOST_S, first))",
+     "    wait = first if before is None else 2 * before.wait", LOGS),
+    ("a cancelled attempt leaves a rest (3cd816ac)", CONNECTION,
+     "            if runtime is not None and isinstance(exc, Exception):\n",
+     "            if runtime is not None:\n", LOGS),
+    ("a failure rests without JSON lines too (3cd816ac)", CONNECTION,
+     "            if runtime is not None and isinstance(exc, Exception):\n",
+     "            if isinstance(exc, Exception):\n", LOGS),
+    ("the read side's timer ends a silent engine's attempt first, so it never rests (3cd816ac)",
+     VIEW, "seconds=read_deadline() + CONNECT_BACKSTOP_S)", "seconds=read_deadline())", LOGS),
+    ("the read side keeps the last failure past the client that lands (3cd816ac)", VIEW,
+     "            entry.error = None\n            try:\n", "            try:\n", LOGS),
+    ("a recovery leaves the failed attempts' runtimes to a full collection (3cd816ac)",
+     CONNECTION, "    if let_go or failed_before:\n", "    if let_go:\n", LOGS),
+    ("the single flight takes no lock across threads (3cd816ac)", CONNECTION,
+     "_HOLDING = threading.Lock()", "_HOLDING = contextlib.nullcontext()", LOGS),
+    ("a cancelled attempt is never settled and wedges every later connect (3cd816ac)",
+     CONNECTION, "    except BaseException as exc:\n        failure: BaseException = exc",
+     "    except Exception as exc:\n        failure: BaseException = exc", LOGS),
+    ("an exception nobody caught obeys the platform's level (3cd816ac)", LOGGING,
+     "    logging.getLogger(UNCAUGHT_LOGGER).setLevel(logging.DEBUG)\n", "", LOGS),
 ]

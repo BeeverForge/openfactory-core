@@ -22,6 +22,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import urlsplit
 
 from temporalio.client import Client
@@ -31,7 +32,8 @@ from temporalio.service import TLSConfig
 
 from openfactory.listeners import ENGINE
 from openfactory.observability import logs
-from openfactory.runtime.temporal.deadlines import read_deadline
+from openfactory.runtime.temporal.deadlines import read_deadline, unreachable_window
+from openfactory.runtime.temporal.vocabulary import EngineUnreachable
 
 #: The one local target, spelled once. Named so a deployment can DECLARE it — which is the whole
 #: difference between "I meant the dev server" and "nobody told me anything" (#163). ASKED OF THE
@@ -219,6 +221,50 @@ _IN_FLIGHT: dict[tuple[str, str, str], concurrent.futures.Future] = {}
 _HOLDING = threading.Lock()
 
 
+class _Rest(NamedTuple):
+    """A target whose last attempt was made on a runtime of its own and did not land: when it ended,
+    until when nothing is attempted for it, the wait that is, and what the attempt said."""
+
+    at: float
+    until: float
+    wait: float
+    said: str
+
+
+#: The target RESTING after an attempt that built a runtime and failed, and ONE ENTRY IN TOTAL, as
+#: `_HELD` is: a target that changes is a new key, and the old one's rest is let go of with it.
+_RESTING: dict[tuple[str, str, str], _Rest] = {}
+#: The longest a target rests between two attempts that fail, in seconds. The first rest is
+#: `OPENFACTORY_ENGINE_UNREACHABLE_FOR` (`deadlines.unreachable_window`, 3 s unset), and each
+#: attempt that fails after one doubles it, up to this: so an engine that stays away costs the
+#: process one runtime a minute, and one that comes back is asked again within a minute at worst.
+RESTS_AT_MOST_S = 60.0
+
+
+def _rest_after(key: tuple[str, str, str], failure: BaseException) -> None:
+    """Remember that `key`'s attempt failed after its runtime was built. Called under `_HOLDING`."""
+    first = unreachable_window()
+    before = _RESTING.get(key)
+    wait = first if before is None else min(2 * before.wait, max(RESTS_AT_MOST_S, first))
+    now = time.monotonic()
+    _RESTING.clear()
+    _RESTING[key] = _Rest(at=now, until=now + wait, wait=wait,
+                          said=f"{type(failure).__name__}: {failure}"[:200])
+
+
+def _resting(key: tuple[str, str, str]) -> EngineUnreachable | None:
+    """The refusal for a caller that arrives while `key` rests, or None. Called under `_HOLDING`."""
+    rest = _RESTING.get(key)
+    now = time.monotonic()
+    if rest is None or rest.until <= now:
+        return None
+    return EngineUnreachable(
+        f"the durable engine at {key[0]} did not take a connection {now - rest.at:.1f}s ago "
+        f"({rest.said}), so it is not asked again for {rest.until - now:.1f}s: the wait starts "
+        f"at OPENFACTORY_ENGINE_UNREACHABLE_FOR and doubles after each attempt that fails, up "
+        f"to {max(RESTS_AT_MOST_S, unreachable_window()):g}s")
+
+
 class _Abandoned(Exception):  # noqa: N818 — not an error of the engine's: nobody waited for it
     """The connect a caller queued behind was cancelled. That says nothing about the engine, so
     the caller tries for itself."""
@@ -252,8 +298,9 @@ async def connect(*, within: float | None = None) -> Client:
     each call on its own core and hands the answer to whichever loop is running the caller.
 
     A FAILED CONNECT IS SHARED, NOT CACHED, as `view.connect()` has it: the callers queued behind a
-    failing attempt take its failure, and a caller arriving afterwards tries again, which is how a
-    recovered engine is picked up without a restart. A cancelled attempt is nobody's failure; the
+    failing attempt take its failure, and a caller arriving afterwards tries again — with JSON
+    lines, once its target's rest has ended (below) — which is how a recovered engine is picked up
+    without a restart. A cancelled attempt is nobody's failure; the
     callers behind it try for themselves. A runtime that cannot be built is a failed attempt like
     any other (seventh review: built before the attempt was settled, it wedged every later
     connect for the life of the process).
@@ -262,13 +309,36 @@ async def connect(*, within: float | None = None) -> Client:
     (`deadlines.read_deadline`), the bound every read already waits by. A caller with a bound of
     its own queues behind the attempt in flight, so an unbounded attempt would hold it: measured,
     one with no bound against a listener that never answered ran 30.1 s, and three bounded reads
-    during it each gave up without trying."""
+    during it each gave up without trying.
+
+    WITH JSON LINES, AN ENGINE THAT IS NOT THERE COSTS NOTHING, AND ONE THAT FAILS COSTS LITTLE
+    (review requesting changes on 3cd816ac, measured on temporalio 1.34.0: a process that started
+    while its engine was down built a runtime for every connect, each leaking about 65 KB of
+    native memory that no collection frees, and ran a full collection on the caller's loop for
+    each — 1,200 refused connects grew it from 77 to 151 MB through this door and from 66 to
+    146 MB through `view.connect()`, and a collection took 20 ms on a small heap and 300 ms on
+    3M objects; a panel pays that on every healthcheck and every read until the engine answers).
+    So, only where an attempt would build a runtime of its own (`core_runtime`):
+
+      · THE SOCKET IS ASKED FIRST, as `connect_at_birth` asks it (`_listening`): a port nobody
+        listens on — the engine stopped, its container gone, its name not resolving — is said
+        as `EngineNotListening`, and nothing is built and nothing collected for it;
+      · AN ATTEMPT THAT BUILT ITS RUNTIME AND FAILED — the socket taken and then a refusal, a key
+        the engine does not accept, no answer within the bound — LEAVES ITS TARGET RESTING
+        (`_RESTING`): until the rest ends, a caller is refused at once with `EngineUnreachable`,
+        saying what the attempt said, and builds nothing. The first rest is
+        `OPENFACTORY_ENGINE_UNREACHABLE_FOR`, and each attempt that fails after one doubles it,
+        up to `RESTS_AT_MOST_S`; a client that lands ends it. A cancelled attempt is still
+        nobody's failure, and leaves no rest."""
     while True:
         key = fingerprint()  # raises for an engine nobody declared, before anything is built
         with _HOLDING:
             held = _HELD.get(key)
             if held is not None:
                 return held
+            refusal = _resting(key)
+            if refusal is not None:
+                raise refusal
             flight = _IN_FLIGHT.get(key)
             mine = flight is None
             if flight is None:
@@ -290,14 +360,24 @@ async def _connect_for(key: tuple[str, str, str], flight: concurrent.futures.Fut
     where, space, _digest = key
     runtime = None
     try:
-        # INSIDE THE `try`, because building it can fail like the connect can (the bridge's
-        # "Failed initializing runtime", for one, when a thread cannot start under a pid limit):
-        # outside, the attempt stayed in flight unsettled and every later connect waited on it.
-        runtime = core_runtime()
-        client = await asyncio.wait_for(Client.connect(
-            where, namespace=space, data_converter=pydantic_data_converter,
-            **({"runtime": runtime} if runtime is not None else {}), **_auth()
-        ), bound)
+        # ONE BOUND OVER THE PROBE AND THE CONNECT, so the attempt ends within `bound` whatever
+        # part of it waits.
+        async with asyncio.timeout(bound):
+            # ASKED ONLY WHERE A RUNTIME WOULD BE BUILT: without JSON lines the client is made on
+            # the library's default runtime, and a refused connect there costs nothing (measured
+            # flat, review on 3cd816ac), so its refusal is left as the library says it.
+            if logs.structured() and not await _listening(*_host_and_port(where)):
+                raise EngineNotListening(
+                    f"nothing accepted a connection at {where}, where the durable engine is "
+                    f"declared, so no client was made for it")
+            # INSIDE THE `try`, because building it can fail like the connect can (the bridge's
+            # "Failed initializing runtime", for one, when a thread cannot start under a pid
+            # limit): outside, the attempt stayed in flight unsettled and every later connect
+            # waited on it.
+            runtime = core_runtime()
+            client = await Client.connect(
+                where, namespace=space, data_converter=pydantic_data_converter,
+                **({"runtime": runtime} if runtime is not None else {}), **_auth())
     except BaseException as exc:
         failure: BaseException = exc
         if isinstance(exc, TimeoutError):
@@ -306,16 +386,22 @@ async def _connect_for(key: tuple[str, str, str], flight: concurrent.futures.Fut
                 f"(OPENFACTORY_ENGINE_DEADLINE)")
         with _HOLDING:
             _IN_FLIGHT.pop(key, None)
+            if runtime is not None and isinstance(exc, Exception):
+                _rest_after(key, failure)
         flight.set_exception(failure if isinstance(failure, Exception) else _Abandoned())
         # A FAILED CONNECT KEEPS ITS RUNTIME — a thread per CPU — in a reference cycle only a full
         # collection frees (review on d2ef6149, measured: a panel whose engine was down at its
         # first connect gained twelve threads per healthcheck on 12 CPUs, 146 after twelve, and a
-        # steady heap almost never runs that collection). So it is run here, once per failed
-        # connect and only with JSON lines: 31–45 ms median, 80–110 ms at worst, on the caller's
-        # loop. Only a process that has not connected yet pays it: once a client is held, an
-        # engine that goes away is reconnected underneath it and nothing here runs again. NOT
-        # REUSED INSTEAD: a runtime a failed attempt touched forwards nothing afterwards (the
-        # bridge's `Drop`, `core_runtime`).
+        # steady heap almost never runs that collection). So it is run here, on the caller's loop:
+        # 20 ms on a small heap, 300 ms on 3M objects (review on 3cd816ac). AT MOST ONCE PER REST:
+        # a port nobody listens on builds no runtime, and a target that rests builds none until
+        # its rest ends. NOT ON A THREAD: a collection holds the interpreter's lock for its whole
+        # length, so the loop waits for it there all the same (measured on 3M objects: 181 ms on
+        # the loop, its longest gap 182 ms; 170 ms on a thread, 170 ms). While this failure is
+        # handled its traceback still holds this attempt's runtime, so what this frees is the
+        # attempt before it, and the last one is freed when a client lands (below). NOT REUSED
+        # INSTEAD: a runtime a failed attempt touched forwards nothing afterwards (the bridge's
+        # `Drop`, `core_runtime`).
         if runtime is not None:
             del runtime
             gc.collect()
@@ -327,11 +413,17 @@ async def _connect_for(key: tuple[str, str, str], flight: concurrent.futures.Fut
         let_go = [other for target, other in _HELD.items() if target != key]
         _HELD.clear()
         _HELD[key] = client
+        failed_before = bool(_RESTING)
+        _RESTING.clear()
     flight.set_result(client)
-    if let_go:
+    if let_go or failed_before:
         # A TARGET THAT CHANGED lets its old client go — collected at once, so its connection
         # and its runtime go with it, rather than at whatever collection comes next. A caller
         # still using it keeps its own reference, and the collection then frees nothing early.
+        # AND A CLIENT THAT LANDS AFTER FAILED ATTEMPTS frees the last of their runtimes, which
+        # the collection run while that failure was handled could not (re-review on 3cd816ac,
+        # measured on the real panel: 26 threads while the engine was silent, 38 for good once it
+        # answered, 14 after one collection).
         del let_go
         gc.collect()
     return client
@@ -343,6 +435,7 @@ def forget() -> None:
     with _HOLDING:
         _HELD.clear()
         _IN_FLIGHT.clear()
+        _RESTING.clear()
 
 
 class EngineNotListening(RuntimeError):
@@ -367,6 +460,13 @@ def engine_starts_in() -> float:
     except ValueError:
         return _STARTS_IN_S
     return wanted if wanted > 0 else _STARTS_IN_S
+
+
+def _host_and_port(where: str) -> tuple[str, int]:
+    """The host and port an engine address names, its port the engine's default when it names
+    none."""
+    parts = urlsplit(f"//{where}")
+    return parts.hostname or where, parts.port or ENGINE.default_port
 
 
 async def _listening(host: str, port: int) -> bool:
@@ -407,8 +507,7 @@ async def connect_at_birth(*, within: float | None = None, every: float = 0.25) 
     """
     where = address()
     bound = engine_starts_in() if within is None else within
-    parts = urlsplit(f"//{where}")
-    host, port = parts.hostname or where, parts.port or ENGINE.default_port
+    host, port = _host_and_port(where)
     deadline = time.monotonic() + bound
     while not await _listening(host, port):
         if time.monotonic() >= deadline:
