@@ -207,6 +207,36 @@ def test_a_job_may_be_running_on_it_and_it_is_not_delivered():
         "needs_review", True, True, False)
 
 
+def test_a_status_two_keys_share_reads_back_as_the_review_the_factory_runs():
+    """A PIN, NOT A FIX: a deployment that maps `needs_review` and `in_review` to ONE status reads
+    a card there as `in_review`, which the door takes as running. That is the reporter's own board
+    (2026-10-14, one Jira status "In Review" for both).
+
+    A column two keys share cannot tell a pull request waiting on a person from one the factory is
+    still reviewing or rewriting. Of the two readings, `running` makes the door ask the engine before
+    a close and refuse to queue the card again under a live job. `waiting_on_a_person` would queue
+    a card the factory is still working on. A deployment that wants the door to treat the wait as
+    a wait gives it a status of its own. `key_for` answers the first key in `CANONICAL_COLUMNS`
+    order, so this holds while `in_review` comes before `needs_review` there.
+
+    Green on this branch before it was written (it pins behaviour the change already had). Measured
+    red by hand, 2026-10-21: with `needs_review` moved above `in_review` in `CANONICAL_COLUMNS`,
+    this read `'needs_review'`. On `main` (1be1835a) it reads `'in_review'` too, because `main` had
+    no `needs_review` key at all."""
+    from openfactory.adapters.board.base import stage_key
+    from openfactory.adapters.board.jira import JiraProjectBoard
+    from openfactory.adapters.tracker.jira import JiraTracker
+    from openfactory.lifecycle.table import BY_COLUMN, State
+
+    tracker = JiraTracker(site="https://acme-team.atlassian.net", project_key="DAR",
+                          email="alice@acme.ai", token="t",
+                          status_map={"in_review": "In Review", "needs_review": "In Review"})
+
+    key = stage_key(JiraProjectBoard(tracker), "In Review")
+
+    assert (key, BY_COLUMN.get(key)) == ("in_review", State.RUNNING)
+
+
 # ── AC5: the door reads a card there as waiting on a person ───────────────────────────────────
 
 def test_the_door_reads_a_card_there_as_waiting_on_a_person(deployment, monkeypatch):
