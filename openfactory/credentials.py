@@ -21,6 +21,25 @@ from openfactory.contracts.bot import BotIdentity
 log = logging.getLogger("openfactory.credentials")
 
 
+def app_private_key_at(path: str) -> str:
+    """The PEM in the file at `path` (`~` expanded); an `OSError` reaching the caller unchanged.
+
+    ONE READER OF A KEY FILE. `app_private_key` below reads the path a deployment names in
+    `OPENFACTORY_GH_APP_KEY`; `openfactory bot-token --key-path` reads the path an operator types
+    (#905: the flag was accepted and never read). Both come here, so `expanduser` and the error
+    shape live in one place, and no minting path reads a key by hand
+    (`test_no_minting_path_reads_the_key_file_by_hand`).
+
+    THE CALLER DECIDES WHAT A FAILURE MEANS. A deployment's unreadable key is a warning and no App
+    (`app_private_key`); an operator's explicit path that cannot be read is a refusal naming it,
+    never a fall back to the environment's key. So this neither logs nor swallows.
+
+    An explicit path is the operator's, not a deployment credential: it is not asked of the
+    environment here, and is not a name a credential store would be asked for.
+    """
+    return Path(path).expanduser().read_text()
+
+
 def app_private_key() -> str | None:
     """The GitHub App's PEM, however this process was handed it — or None if it has no App.
 
@@ -47,7 +66,7 @@ def app_private_key() -> str | None:
     if not path:
         return None
     try:
-        return Path(path).expanduser().read_text()
+        return app_private_key_at(path)
     except OSError as exc:
         # Silence would present three layers away as an unauthenticated forge, which reads as a
         # permissions problem on GitHub's side rather than a missing file on ours.
