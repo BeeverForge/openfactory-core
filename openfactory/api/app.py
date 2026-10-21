@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from html import escape as _h
 from pathlib import Path, PurePosixPath
@@ -1398,6 +1399,14 @@ def _read_events(path: Path) -> list[dict]:
     return out
 
 
+def _a_line(line: str) -> object:
+    """One journal line as `_read_events` reads it, or `None` for one that is not JSON."""
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError:
+        return None
+
+
 def _box_health(project) -> dict:
     """The box's verdict — now `box_prove.health`, kept here as the web layer's name for
     it (#144). Moved because the floor ladder and the CLI need the same answer, and a
@@ -1706,9 +1715,14 @@ def _events(project: str, issue: str) -> list[dict]:
     on a remote deployment is `[]`, and the page drew that as "this run wrote no journal on this
     machine": a claim about the run, made out of a read that never landed. They raise
     `JournalUnreadable` now, which the route answers as a 503 in one sentence. `[]` is still the
-    answer when the box was read and had nothing, or when no box is remote."""
+    answer when the box was read and had nothing (after any start noted here), or when no box is
+    remote.
+
+    A START NOTED HERE IS NOT THE JOB'S JOURNAL (#694). `start` writes its `started` line where
+    the action ran, which on a remote deployment is this host and not the worker's: a local
+    journal holding only that line is followed by the box's tail, never answered alone."""
     local = _read_events(events_file(ProjectRegistry().get(project), issue))
-    if local or not _boxes_are_remote():
+    if _the_job_wrote(local) or not _boxes_are_remote():
         return local
     tail = _remote_tail(project, issue)
     if tail is None:
@@ -1716,11 +1730,19 @@ def _events(project: str, issue: str) -> list[dict]:
             f"could not read the box's journal for {project}#{issue}: the remote box's event tail "
             f"could not be built — the panel's log says why")
     try:
-        return tail.fetch_new()
+        return local + tail.fetch_new()
     except Exception as exc:  # noqa: BLE001 — the remote feed unreachable → said, never `[]`
         log.info("remote events unavailable for %s#%s (%s)", project, issue, exc)
         raise JournalUnreadable(
             f"could not read the box's journal for {project}#{issue} ({str(exc)[:160]})") from exc
+
+
+def _the_job_wrote(events: Iterable[object]) -> bool:
+    """Whether a journal read on this host holds a line the JOB wrote, not only the start notes an
+    action wrote from here (`job_record.is_start_note`, #694)."""
+    from openfactory.observability.job_record import is_start_note
+
+    return any(not is_start_note(e) for e in events)
 
 
 class JournalUnreadable(RuntimeError):
@@ -2905,14 +2927,19 @@ async def job_stream(project: str, issue: str, request: Request) -> StreamingRes
     async def gen():
         emitted = start
         seen: list[str] = []  # one canonical, append-only event sequence for this stream
+        fetched: list[str] = []  # what the remote tail has handed over, in order
         # the remote box's incremental tail (built only if needed — R6; once per stream, with a
         # bounded retry — `_StreamTail`)
         stream_tail = _StreamTail(project, issue)
         remote: bool | None = None  # asked once per stream: the answer is the deployment's
         for tick in range(86400):  # up to ~24h; a client disconnect ends the generator
-            if path.exists():  # local journal — cheap live tail (co-located worker)
-                seen = [ln for ln in path.read_text().splitlines() if ln.strip()]
+            local = [ln for ln in path.read_text().splitlines() if ln.strip()] \
+                if path.exists() else []
+            if _the_job_wrote(_a_line(ln) for ln in local):
+                seen = local  # local journal — cheap live tail (co-located worker)
             else:
+                # A START NOTED HERE (#694) is the action's line, not the job's journal: on a
+                # remote deployment the box's lines follow it, as `_events` answers.
                 # GUARDED, like `_events` — C-11c fixed that reader and left this one, with
                 # nothing asserting the two agree. On a local install the journal is absent (the
                 # panel reads a volume the journal is not written to, #67), so this branch was not
@@ -2923,10 +2950,11 @@ async def job_stream(project: str, issue: str, request: Request) -> StreamingRes
                 tail = (await asyncio.to_thread(stream_tail.get, tick)) if remote else None
                 if tail is not None:
                     try:
-                        seen += [json.dumps(e) for e in await asyncio.to_thread(tail.fetch_new)]
+                        fetched += [json.dumps(e) for e in await asyncio.to_thread(tail.fetch_new)]
                     except Exception:
                         logging.getLogger("openfactory.panel").warning("remote tail failed",
                                                                 exc_info=True)
+                seen = local + fetched
             if len(seen) > emitted:
                 for line in seen[emitted:]:
                     yield f"data: {line}\n\n"

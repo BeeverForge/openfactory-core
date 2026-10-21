@@ -141,6 +141,18 @@ def record_ending(project, issue: str, state: str, *, by: str, note: str = "") -
     return state
 
 
+#: The `kind` and `message` of the line `record_started` writes, ONE spelling for the writer and
+#: for `is_start_note`, so a reader cannot recognise a line the writer has stopped writing.
+START_NOTE = ("note", "started")
+
+
+def is_start_note(event: object) -> bool:
+    """Whether a journal line is the start an ACTION wrote (`record_started`), not a line the job
+    wrote. The panel asks it (`api.app._the_job_wrote`): on a remote deployment the action's host
+    is not the job's, and a journal holding only this line there is not the job's journal."""
+    return isinstance(event, dict) and (event.get("kind"), event.get("message")) == START_NOTE
+
+
 def record_started(project, issue: str, *, by: object, correlation: str) -> None:
     """Append a job's START to its card's journal: one `note` line, `started`, carrying who asked
     and the correlation id of the action that started it (#694). RAISES what building the journal
@@ -153,11 +165,15 @@ def record_started(project, issue: str, *, by: object, correlation: str) -> None
     writes the line, as `stop` writes a stopped job's ending from the action process.
 
     A `note`, NEVER A `state`: `query.outcomes` reads `state` lines that carry a `by` as endings,
-    and a start is not one."""
+    and a start is not one.
+
+    WRITTEN WHERE THE ACTION RAN. On a remote deployment that is the panel's host, and the job's
+    journal is on the worker's disk: the panel reads the box's tail after this line, not instead
+    of it (`is_start_note`)."""
     from openfactory.observability.events import JobEvent, now_iso
     from openfactory.observability.registry import journal_for
     from openfactory.paths import events_file
 
     journal_for(events_file(project, issue)).emit(JobEvent(
-        ts=now_iso(), job_id=f"#{issue}", ticket_id=f"#{issue}", kind="note", message="started",
-        data={"by": str(by), "correlation_id": correlation}))
+        ts=now_iso(), job_id=f"#{issue}", ticket_id=f"#{issue}", kind=START_NOTE[0],
+        message=START_NOTE[1], data={"by": str(by), "correlation_id": correlation}))

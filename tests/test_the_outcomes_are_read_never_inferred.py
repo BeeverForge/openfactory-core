@@ -173,6 +173,34 @@ def test_a_stop_is_an_ending_and_an_ending_nobody_defined_names_no_word_of_its_o
     assert out["ended"]["unrecognised"] == 1 and "castello was here" not in json.dumps(out)
 
 
+def test_a_start_note_is_a_line_of_the_job_it_started_never_an_ending_or_a_job_of_its_own(
+        d, monkeypatch):
+    """#694: `start` writes a `note` line, `started`, into the card's journal from the action
+    process, so on a durable start it can land after the workflow's first line. It must read as a
+    line of that job: as an ending (a `by` on a `state` line) it would end the job `started` and
+    open a second one with the rest; as a job of its own the card would count two. Written by the
+    one writer, `job_record.record_started`, at a moment this test chooses."""
+    from openfactory.observability import events
+    from openfactory.observability.job_record import record_started
+    from openfactory.registry import ProjectRegistry
+
+    start = at(5)
+    d.journal("acme", "8", d.box("spec_validation", start))
+    monkeypatch.setattr(events, "now_iso", lambda: (start + timedelta(minutes=1)).isoformat())
+    record_started(ProjectRegistry().get("acme"), "8", by="alice", correlation="c0ffee")
+    d.journal("acme", "8", d.box("implementing", start + timedelta(minutes=5)),
+              d.ending("merged", start + timedelta(hours=2)))
+    lines = [json.loads(x) for x in (d.root / "logs" / "acme" / "8-events.jsonl").read_text()
+             .splitlines()]
+    assert [x["message"] for x in lines] == ["spec_validation", "started", "implementing",
+                                             "merged"], "the note is not where a durable start puts it"
+
+    out = d.outcomes()
+
+    assert out["jobs"] == 1
+    assert out["ended"]["merged"] == 1 and out["without_a_recorded_ending"] == 0
+
+
 def test_a_job_is_in_the_window_where_it_ended(d):
     _one_job(d, "1", SINCE - timedelta(days=1))                  # ended before the window
     _one_job(d, "2", SINCE + timedelta(hours=1), took=5)         # began before, ended inside
