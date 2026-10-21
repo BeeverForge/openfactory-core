@@ -556,3 +556,27 @@ async def test_parameters_that_cannot_be_read_leave_the_line_saying_so_and_the_o
               and "record of product_say" in r.getMessage()]
     assert len(warned) == 1, warned
     assert _audit_rows(stored) == []
+
+
+async def test_words_holding_a_lone_surrogate_are_still_kept_as_their_length_and_digest(
+        registry, stored, caplog):
+    """A JSON body may carry a lone surrogate (`"\\ud800"` decodes to a `str` Python cannot
+    encode as UTF-8), and a panel caller's message is whatever they sent: it is still kept as its
+    length and digest, in the line and in the record, and the call is recorded.
+
+    Before, on this branch at 5be3fa0e, `audit._words` encoded it strictly and raised
+    `UnicodeEncodeError: … surrogates not allowed`: the line said the parameters could not be
+    read and the store received 0 records of the call."""
+    import re
+
+    words = "hello \ud800 there"
+
+    with caplog.at_level("INFO"):
+        await actions.perform("product_say", by=actions.SYSTEM, project="nosuch", message=words)
+
+    rows = _audit_rows(stored)
+    assert len(rows) == 1, f"{len(rows)} audit records for one call (1 expected)"
+    kept = rows[0].extra["params"]["message"]
+    assert kept["chars"] == len(words) and re.fullmatch(r"[0-9a-f]{64}", kept["sha256"]), kept
+    _line, printed = _the_line(caplog)
+    assert printed["message"] == kept, printed

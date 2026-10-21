@@ -136,7 +136,10 @@ def _words(value: object) -> dict[str, object]:
     """A person's words as the record keeps them: how many characters, and their sha256 — that and
     when they spoke, never what they said (`actions.base.FREE_TEXT`)."""
     text = str(value)
-    return {"chars": len(text), "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+    # `surrogatepass`: a JSON body may carry a lone surrogate (`"\ud800"`), which a strict encode
+    # refuses with `UnicodeEncodeError` — and the call then left no record (measured 2026-10-21).
+    digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
+    return {"chars": len(text), "sha256": digest}
 
 
 def _kept(action: str, params: Mapping[str, object]) -> dict[str, object]:
