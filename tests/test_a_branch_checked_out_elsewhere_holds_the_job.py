@@ -667,3 +667,44 @@ def test_a_holder_whose_directory_became_a_file_is_reported_gone(held):
     with pytest.raises(BranchHeldElsewhere) as caught:
         _keep(box, repo)
     assert "is not there" in str(caught.value), str(caught.value)
+
+
+@pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
+def test_a_holder_whose_path_is_a_symlink_loop_still_holds_the_job(held, locked):
+    """A symlink loop at the tree's path (ELOOP) is neither "no such entry" nor "a parent is a
+    file": could not tell, so the job holds with the ordinary sentence and no traceback."""
+    from openfactory.adapters.sandbox.base import BranchHeldElsewhere
+    repo, review, box = held
+    if locked:
+        _git(repo, "worktree", "lock", str(review))
+    shutil.rmtree(review)
+    os.symlink(review, review)
+    with pytest.raises(BranchHeldElsewhere) as caught:
+        _keep(box, repo)
+    said = str(caught.value)
+    assert "is not there" not in said, said
+    assert "the job's own" not in said, said  # a loop is never the box's own tree
+
+
+@pytest.mark.parametrize("locked", [False, True], ids=["unlocked", "locked"])
+def test_a_symlink_loop_at_a_tree_that_does_not_hold_the_branch_does_not_stop_the_job(
+        tmp_path, locked):
+    """A loop at ANY working tree's path, one holding no branch at all, leaves the job and the
+    person's link alone: `prepare` and `cleanup` compare every listed tree with the box's own.
+
+    A 3.12 defect: resolve() raises RuntimeError on a loop there (3.12.3 and the worker image's
+    3.12.15), while 3.13.16 and 3.14.8 return the path unchanged (measured 2026-10-20). On 686bf120
+    with 3.12.3 both cases failed by `RuntimeError: Symlink loop from '.../other'` out of
+    `_same_dir` via `_clear_our_own`, so one stray link stopped every job on the repository."""
+    repo = _repository(tmp_path / "myapp")
+    other = tmp_path / "other"
+    _git(repo, "worktree", "add", "-q", "--detach", str(other))
+    if locked:
+        _git(repo, "worktree", "lock", str(other))
+    shutil.rmtree(other)
+    os.symlink(other, other)
+    box = WorktreeSandbox(root=tmp_path / "boxes")
+    ws = _keep(box, repo)
+    assert ws.branch == BRANCH
+    box.cleanup(workspace=ws)
+    assert os.path.islink(other), "the person's link was removed"

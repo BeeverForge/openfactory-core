@@ -222,10 +222,15 @@ def _branch_exists(repo_path, branch: str) -> bool:
 
 def _same_dir(a, b) -> bool:
     """Whether two paths name the same directory: resolved on both sides, because git lists the
-    real path and the box's root may be relative or reached through a symlink."""
+    real path and the box's root may be relative or reached through a symlink.
+
+    A path that cannot be resolved is compared as written. On a symlink loop, `resolve()` raises
+    `RuntimeError` on 3.12 (3.12.3, and 3.12.15 in the worker image), while 3.13.16 and 3.14.8
+    return the path unchanged (non-strict; measured 2026-10-20). Either way a loop is not the box's
+    own tree, and the caller goes on to ask about it rather than stopping the job."""
     try:
         return Path(a).resolve() == Path(b).resolve()
-    except OSError:
+    except (OSError, RuntimeError):  # 3.12's resolve() raises RuntimeError on a symlink loop
         return str(a) == str(b)
 
 
@@ -258,7 +263,9 @@ def _common_dir(repo_path) -> Path | None:
 def _gitdir_named_by(wt) -> Path | None:
     """The directory a linked working tree's `.git` FILE names, resolved, or `None` when `wt` or
     its `.git` is a symlink, `.git` is not a regular file (a clone's `.git` is a directory), it
-    cannot be read, or its first line is not `gitdir: <path>`.
+    cannot be read, its first line is not `gitdir: <path>`, or that path cannot be resolved (a
+    symlink loop in it: `RuntimeError` on 3.12.3, while 3.13.16 and 3.14.8 return it unchanged,
+    measured 2026-10-20).
 
     A RELATIVE gitdir IS RELATIVE TO THE TREE: git 2.48+ under `worktree.useRelativePaths` writes
     `gitdir: ../../repo/.git/worktrees/x` (2.49.1, alpine:3.22, measured 2026-10-18). `wt / target`
@@ -280,7 +287,7 @@ def _gitdir_named_by(wt) -> Path | None:
         return None
     try:
         return (wt / target).resolve()
-    except OSError:
+    except (OSError, RuntimeError):  # 3.12's resolve() raises RuntimeError on a loop in it
         return None
 
 

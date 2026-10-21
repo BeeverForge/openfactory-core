@@ -167,6 +167,25 @@ MUTATIONS = [
      "    gone = not tree.main and _not_there(Path(tree.path))\n",
      "    gone = not tree.main and not Path(tree.path).exists()\n"),
 
+    # ── #939: a symlink loop at a tree's path ──────────────────────────────────────────────────
+    # Red on 3.12 only, which is what CI and the worker image run: 3.13.16 and 3.14.8 return a
+    # looped path unchanged from a non-strict resolve() (measured 2026-10-20), so under 3.13+ this
+    # row survives with nothing broken. It is not a weak guard there; there is no defect to hold.
+    ("_same_dir catches only OSError, so on 3.12 a symlink loop at a working tree's path is a "
+     "traceback out of prepare", BOX,
+     "    except (OSError, RuntimeError):  # 3.12's resolve() raises RuntimeError on a symlink loop",
+     "    except OSError:  # 3.12's resolve() raises RuntimeError on a symlink loop"),
+
+    ("_same_dir takes a path it cannot resolve for the box's own, so a person's looped tree is "
+     "called the job's own and the box tries to remove it", BOX,
+     "        return str(a) == str(b)\n",
+     "        return True\n"),
+
+    ("_not_there counts only a parent it cannot search as 'could not tell', and a symlink loop at "
+     "the tree's path is a traceback", BOX,
+     "    except OSError:  # a parent the box cannot search",
+     "    except PermissionError:  # a parent the box cannot search"),
+
     ("a TREE hold without the machine's mark resumes into a fresh job", WORKFLOW,
      "        passed.merge_refused = True\n",
      "",

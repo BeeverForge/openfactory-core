@@ -42,7 +42,8 @@ BRANCH = "openfactory/28"
 GITS_WORDS = ("already exists", "fatal:")
 
 CASES = ["another-repositorys-live-tree", "another-repositorys-forgotten-tree", "a-clone",
-         "a-plain-directory", "a-git-file-naming-no-repository", "a-regular-file"]
+         "a-plain-directory", "a-git-file-naming-no-repository",
+         "a-git-file-naming-a-symlink-loop", "a-regular-file"]
 DOORS = ["fresh", "local-keep", "hosted-resume"]
 #: The cases whose `.git` file names another repository, which the sentence names as the owner.
 OWNED = {"another-repositorys-live-tree", "another-repositorys-forgotten-tree"}
@@ -142,6 +143,15 @@ def _put(case: str, wt: Path, tmp_path: Path) -> Path | None:
         wt.mkdir()
         (wt / ".git").write_text(f"gitdir: {tmp_path / 'nowhere' / '.git' / 'worktrees' / 'x'}\n")
         (wt / "notes.txt").write_text("a person's notes\n")
+    elif case == "a-git-file-naming-a-symlink-loop":
+        # 3.12's resolve() raises RuntimeError on a loop, 3.13+ returns it (measured 2026-10-20).
+        # On 5c5b832d with 3.12.3, 7 tests here read `RuntimeError: Symlink loop from '.../loop/
+        # worktrees/x'` out of `_gitdir_named_by` instead of the box's sentence.
+        loop = tmp_path / "loop"
+        os.symlink(loop, loop)
+        wt.mkdir()
+        (wt / ".git").write_text(f"gitdir: {loop / 'worktrees' / 'x'}\n")
+        (wt / "notes.txt").write_text("a person's notes\n")
     elif case == "a-regular-file":
         wt.write_text("a file, where the box would put a directory\n")
     else:
@@ -182,8 +192,8 @@ def _taken(case: str, door_name: str, tmp_path: Path, root: Path):
 def test_what_is_at_the_box_s_path_is_left_as_it_was(tmp_path, root, case, door_name):
     """C2. REVERSE GUARD: green on c0a50f3, where git refused the add over it, and it stays green.
     Another repository's tree (live, or forgotten by that repository), a clone, a plain directory
-    with a file, a `.git` file naming no repository and a regular file are none of them provably
-    this repository's forgotten tree, so none is removed."""
+    with a file, a `.git` file naming no repository or a symlink loop, and a regular file are none
+    of them provably this repository's forgotten tree, so none is removed."""
     door, wt, other = _taken(case, door_name, tmp_path, root)
     before = _snapshot(wt)
     with pytest.raises(RuntimeError):
