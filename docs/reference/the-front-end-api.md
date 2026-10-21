@@ -41,7 +41,9 @@ access log (`docs/rotation-and-retention.md` §5). An id is 1 to 128 characters 
 and `. _ : -`; a header that is anything else (a space, a newline, a 129th character) is replaced
 whole by a new id (32 lower-case hex digits) and none of it is kept. A request without the header
 is given a new id the same way. The id is read for the record and the job it starts, nothing
-decides on it, and the response does not echo it. A socket cannot set a header, so each action
+decides on it, and the response does not echo it. It is the caller's word, not proof: any caller
+may send another request's id, so two records sharing one tie them only as far as the callers are
+trusted. A socket cannot set a header, so each action
 sent on `/api/product/stream` is given an id of its own.
 
 ## 2. Refusals
