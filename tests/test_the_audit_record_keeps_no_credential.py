@@ -330,3 +330,14 @@ async def test_a_fallback_audit_file_readable_by_others_is_made_private_and_said
     said = [r.getMessage() for r in caplog.records
             if r.name == "openfactory.observability.audit" and "0o644" in r.getMessage()]
     assert len(said) == 1 and str(fallback) in said[0], said
+
+
+@pytest.mark.parametrize("name", ["api_token", "github_token", "client_secret", "privateKey",
+                                  "DB_PASSWORD", "x-auth-token", "passwd"])
+def test_every_name_holding_a_secret_word_is_masked(name):
+    """The second review's N4: a refused call carrying `api_token` or `github_token` kept that
+    value for 365 days on c310ba28 (four exact names were masked). Every name that holds `token`,
+    `secret`, `passw` or `key`, in any case and wherever it sits, is masked."""
+    from openfactory.observability import audit
+
+    assert audit._kept("product_status", {"project": "x", name: "fictitious"})[name] == "***"
