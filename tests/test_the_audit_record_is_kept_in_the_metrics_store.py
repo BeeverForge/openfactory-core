@@ -20,9 +20,11 @@ records (Q8) and may: a person's words are in a record only as their length and 
 one call driven here and for every free-text parameter the catalog takes — so the record is no
 second copy of what `forget-conversations` erases. A store that does not take a record is said
 at WARNING naming the action and the store, and the caller's outcome is unchanged; the record is
-made and written off the event loop, and a cancel while it is made still leaves it. A host CLI
-with no store named keeps its records in `audit.db` beside `registry.yaml`, and the deployment's
-own metrics sink is still inferred `null` there.
+made and written off the event loop, and a cancel while it is made still leaves it. Records of a
+call that named no project share the people store's `_deployment_` key and do not crowd a
+registered person out of its read (Q7). A host CLI with no store named keeps its records in
+`audit.db` beside `registry.yaml`, and the deployment's own metrics sink is still inferred `null`
+there.
 """
 
 from __future__ import annotations
@@ -671,3 +673,48 @@ def test_the_metrics_sink_kind_inference_is_unchanged(monkeypatch):
 
     assert metrics_sink_kind() == "null"
     assert isinstance(deployment_metrics_sink(), NullMetricsSink)
+
+
+# ── the deployment-wide key is shared with the people store, and the audit does not crowd it ─────
+
+async def test_audit_rows_under_the_deployment_key_do_not_hide_a_registered_person(store,
+                                                                                  monkeypatch):
+    """Q7's guard: a call that names no project (`people_invite`, an unknown action) is kept under
+    the people store's deployment-wide key `_deployment_` — the partition every account lives in.
+    The people store reads that key's most recent `people.READ_LAST` rows and the accounts are the
+    OLDEST rows there (`identity/people.py`, the `READ_LAST` comment: five thousand permanent
+    `revoked` rows once emptied the fold, review of #35, 2026-09-03). `READ_LAST + 5` audit rows
+    written there after a person registered, each live for a year, leave the person found and
+    their password still opening a session, because the read is by kind as well as by key.
+
+    The positive twin of that invariant, not a red test: green on the commit before it, and red
+    under a hand cut that reads the key without its kind (`query.StoreUnreadable`: the people
+    store's 8 most recent rows hold no registration). Real sqlite file, real `audit.write`, real
+    `PeopleStore`; `READ_LAST` is shrunk to 8 as `test_a_person_is_invited_not_signed_up.py`
+    shrinks it, because 5,005 audit writes each wait on the file's fsync — 115 s measured here
+    (2026-10-20) — and the arithmetic of a window is the same at eight."""
+    from openfactory.identity import people
+    from openfactory.observability import audit
+
+    monkeypatch.setattr(people, "READ_LAST", 8)
+
+    registry = people.PeopleStore()
+    token, _ = registry.invite("ana@acme.example", display="Ana Lima", by="roberto")
+    password = "a passphrase long enough"
+    assert not isinstance(registry.register(token=token, display="Ana Lima",
+                                            password=password), str)
+
+    by = actions.Actor(id="roberto", via="panel")
+    refused = actions.Outcome(ok=False, message="", code=actions.FAILED)
+    for n in range(people.READ_LAST + 5):
+        record = audit.AuditRecord.of("people_invite", by, {"ident": f"p{n}@acme.example"},
+                                      refused)
+        assert await audit.write(record), f"audit row {n} did not land"
+
+    # The premise, read past the people store's own query so a cut there cannot blind it.
+    keys = [row.get("project") for row in _audit_rows(store)]
+    assert keys == [people.PROJECT] * (people.READ_LAST + 5), "the rows are not under the shared key"
+    reread = people.PeopleStore()
+    assert [p.id for p in reread.people()] == ["ana@acme.example"], \
+        "the audit rows scrolled the account out of the people store's read"
+    assert reread.login("ana@acme.example", password), "and the password still opens a session"
