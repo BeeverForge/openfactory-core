@@ -870,6 +870,20 @@ async def test_the_action_name_a_caller_typed_is_kept_to_the_bound_like_any_valu
         f"the record's action is {len(row['extra']['action'])} characters")
 
 
+
+async def test_an_action_name_cut_to_the_bound_is_said_once_at_INFO(store, caplog):
+    """A value cut is said in the log (`VALUE_CHARS`); the action's name is cut the same way, and
+    said once, with the length that was asked. On bc41a86f dropping that line left all 140 tests
+    of the audit modules green (branch review round 2)."""
+    import logging
+
+    caplog.set_level(logging.INFO, logger="openfactory.observability.audit")
+    await actions.perform("t" * 1_000_000, by=actions.Actor(id="eve", via="panel"))
+
+    said = [r for r in caplog.records if r.name == "openfactory.observability.audit"
+            and "action name of 1000000 characters" in r.getMessage()]
+    assert len(said) == 1, [r.getMessage()[:120] for r in caplog.records]
+
 @pytest.mark.parametrize("params", [
     {"project": "nosuch", "k" * 1_000_000: "v"},
     {**{f"p{i}": "v" * 2_000 for i in range(5_000)}, "project": "nosuch"},

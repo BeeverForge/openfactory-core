@@ -396,6 +396,11 @@ MUTATIONS = [
      "        action = _storable(asked)[:VALUE_CHARS]\n",
      "        action = _storable(asked)\n",
      _STORE + "test_the_action_name_a_caller_typed_is_kept_to_the_bound_like_any_value"),
+    ("an action name cut to the bound is not said", _AUDIT,
+     '            log.info("audit: an action name of %d characters was asked; the record keeps the "\n'
+     '                     "first %d", len(asked), VALUE_CHARS)\n',
+     "            pass\n",
+     _STORE + "test_an_action_name_cut_to_the_bound_is_said_once_at_INFO"),
     ("the project is cut and then escaped, so its key is six times the bound", _AUDIT,
      '        project = _cut(_storable(str(params.get("project") or "")))\n',
      '        project = _storable(_cut(str(params.get("project") or "")))\n',
