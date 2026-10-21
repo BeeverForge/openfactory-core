@@ -588,10 +588,12 @@ def test_the_depth_limit_holds_at_the_limit_and_on_either_side(loader):
                                   f"YAML file is read to {yaml_io.MAX_DEPTH} levels")
     started = time.perf_counter()
     with pytest.raises(yaml_io.YamlRefused):
+        yaml_io.load(nested(1_000), loader=loader)
+    # about 0.1 s on an idle machine: PyYAML's scanner looks up to 1,024 characters ahead at every
+    # unclosed bracket on a line, and the composer stops at level 101
+    assert time.perf_counter() - started < 1.0
+    with pytest.raises(yaml_io.YamlRefused):  # refused, never `RecursionError`
         yaml_io.load(nested(5_000), loader=loader)
-    # PyYAML's scanner looks up to 1,024 characters ahead at every unclosed bracket on a line, so
-    # this costs about 0.4 s on an idle machine; refused at level 101 either way, never recursing
-    assert time.perf_counter() - started < 2.0
 
 
 def test_an_alias_counts_at_the_depth_of_what_it_repeats():
