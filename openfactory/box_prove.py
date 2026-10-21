@@ -38,6 +38,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shlex
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -129,6 +130,43 @@ def _proof_dir() -> Path:
 #: answer depends on an environment this module must not read at import (the house has paid for
 #: import-time side effects before). Every reader below asks `_proof_dir()`.
 PROOF_DIR = Path(os.environ.get("OPENFACTORY_PROOFS") or "/var/lib/openfactory/proofs")
+
+
+def _prove_slug(key: str) -> str:
+    """The part of a proof's branch and lock file that is this key's and no other's.
+
+    A REF CANNOT SPELL EVERY KEY: registry names are free text (`"acme web"`, `"ação"`), so the
+    readable part keeps only what `git check-ref-format --branch` accepts. THE HASH IS WHAT KEEPS
+    THEM APART: `"acme web"`, `"acme/web"` and `"acme-web"` slug alike, and a slug alone would put
+    three projects back on one branch — the shared tree #745 measured (`A tree alive: False`).
+    """
+    readable = re.sub(r"[^A-Za-z0-9._-]+", "-", key).strip("-.").lower()
+    # `..` is the one sequence of kept characters a ref refuses
+    readable = re.sub(r"\.{2,}", ".", readable)
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:8]
+    return f"{readable}-{digest}" if readable else digest
+
+
+def proof_lock_path(key: str) -> Path:
+    """The file whose `flock` says a proof of `key` is running on this machine.
+
+    IN THE PROOFS DIRECTORY because that is the one directory the CLI and the worker must already
+    share for the gate to read a proof at all, so a lock there is one inode for both processes. IN
+    A SUBDIRECTORY because the readers that list proofs glob `*.json` at its top level."""
+    return _proof_dir() / "locks" / f"{_prove_slug(key)}.lock"
+
+
+class ProveBusy(RuntimeError):
+    """A proof of `key` is already running on this machine, so this one was refused untouched.
+
+    Every proof of one key asks its box for the same branch, tree and container name; a second one
+    running beside it would remove the first one's box. `sentence` is what a door says."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        self.sentence = (f"a proof of {key} is already running on this machine "
+                         f"(box prove, box answer or onboarding): run this again when it ends")
+        super().__init__(self.sentence)
 
 
 @dataclass
