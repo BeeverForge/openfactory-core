@@ -284,6 +284,8 @@ NEAR_MISSES = [
     "Authorization: Basic authentication is kept for the legacy API",
     "Authorization: token validation now happens in middleware.py",
     "Authorization: token v2 only",
+    "Authorization: Basic username/password pairs are refused now",  # review on cfe48e02
+    "Authorization: requires OAuth2.0 scopes on every route",  # a word, not a scheme, before a mark
     "ghp_ is the prefix of a personal token",
     "sk-learn",
     "https://octocat.github.io/x",

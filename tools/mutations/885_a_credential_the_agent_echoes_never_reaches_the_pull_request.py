@@ -12,8 +12,9 @@ Claims:
   - `scrub_credentials` withholds an `Authorization` value after a NAMED scheme (any word there is
     prose: "Authorization: handled centrally …"), in any case, after `:` or `=`, a JSON key's
     quote included; a header value only from 8 characters, and only with a credential's mark (a
-    digit, `+`, `/`, `=`, or a lowercase letter before an uppercase one), so "Authorization: Basic
-    authentication is kept …" is prose; a bare `Bearer` value only when it is 16 token68
+    digit, `=`, or a lowercase letter before an uppercase one; never a `+` or `/`), so
+    "Authorization: Basic authentication is kept …" and "… username/password pairs …" are prose;
+    a bare `Bearer` value only when it is 16 token68
     characters with a digit; `$` is never part of a value, so `Bearer $GH_TOKEN_2` stays prose;
   - a `Digest` or SigV4 header withholds its `response=` / `Signature=` only, and keeps the rest
     of its parameter list as written (never the marker on the first parameter's name);
@@ -72,15 +73,17 @@ MUTATIONS = [
     ("any word after Bearer is withheld", MODEL,
      '    r"|(\\bBearer[ \\t]+)(?=[\\w.~+/-]*\\d)[\\w.~+/-]{16,}=*", re.IGNORECASE)\n',
      '    r"|(\\bBearer[ \\t]+)[\\w.~+/-]+=*", re.IGNORECASE)\n', PROSE),
-    # re-pinned 2026-10-21: the header value moved to its own line with the credential's mark
+    # re-pinned 2026-10-21: the header value moved to its own line with the credential's mark;
+    # re-pinned again: `+` and `/` left the mark set (review on cfe48e02)
     ("a variable reference is read as a value", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
-     '    r"(?=[\\w.~+/$-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/$-]{8,}=*"\n', PROSE),
+     '    r"(?=[\\w.~+/-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/$-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/$-]{8,}=*"\n', PROSE),
+    ("a slash is a credential's mark", MODEL, '(?:\\d|=|', '(?:\\d|[+/=]|', PROSE),
     ("a word after an Authorization scheme is withheld", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
-     '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]+=*"\n', PROSE),
+     '    r"(?=[\\w.~+/-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/-]+=*"\n', PROSE),
     ("a header value needs no credential's mark", MODEL,
-     '    r"(?=[\\w.~+/-]*(?:\\d|[+/=]|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
+     '    r"(?=[\\w.~+/-]*(?:\\d|=|(?-i:[a-z][A-Z])))[\\w.~+/-]{8,}=*"\n',
      '    r"[\\w.~+/-]{8,}=*"\n', PROSE),
     ("any word is read as an Authorization scheme", MODEL,
      '(?:Bearer|Basic|token|Bot|Negotiate|NTLM)',  # re-pinned 2026-10-21: Digest and AWS4 left for _SIGNED_PARAMETER

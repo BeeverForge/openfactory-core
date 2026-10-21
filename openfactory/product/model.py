@@ -288,15 +288,19 @@ _USERINFO = re.compile(r"(\b[a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+@")
 #: NAMED, not any word: with any word, "Authorization: handled centrally in middleware.py" lost
 #: "centrally" (review on 28e5da94). `$` is outside the alphabet, so `Bearer $GH_TOKEN` names a
 #: variable, not a value; a header value under 8 characters is a word (`Authorization: Bearer
-#: token`), not a credential. And a header value must carry a credential's mark — a digit, a `+`,
-#: `/` or `=`, or a lowercase letter followed by an uppercase one — because an English word after a
-#: named scheme is prose: "Authorization: Basic authentication is kept for the legacy API" lost
-#: "authentication" (review on 5fe330d2). THE COST, ACCEPTED: a header value with none of those
-#: marks — letters only, all lowercase (or all uppercase, or one capital first), no digit — is no
-#: longer withheld. Random tokens, hex with a digit, base64 and JWTs are not shaped like that.
+#: token`), not a credential. And a header value must carry a credential's mark — a digit, an `=`,
+#: or a lowercase letter followed by an uppercase one — because an English word after a named scheme
+#: is prose: "Authorization: Basic authentication is kept for the legacy API" lost "authentication"
+#: (review on 5fe330d2). `+` and `/` are NOT marks: they fired only on prose, "Authorization: Basic
+#: username/password pairs are refused now" lost "username/password" (review on cfe48e02). THE COST,
+#: ACCEPTED: a header value with none of those marks is quoted as written — letters only, all
+#: lowercase (or all uppercase, or one capital first), no digit, no padding, whatever its `+` or
+#: `/`. Measured on random base64 (seed 885, 200,000 values per length): 1.52% of 8-character values
+#: carry no mark (0.88% had a `+` or `/`), 0.12% of 12-character ones, 0.007% of 16, 0.0005% of 20,
+#: none of 32. Hex with a digit and JWTs always carry one.
 _AUTHORIZATION = re.compile(
     r"(\bAuthorization[\"']?\s*[:=]\s*[\"']?(?:Bearer|Basic|token|Bot|Negotiate|NTLM)[ \t]+)"
-    r"(?=[\w.~+/-]*(?:\d|[+/=]|(?-i:[a-z][A-Z])))[\w.~+/-]{8,}=*"
+    r"(?=[\w.~+/-]*(?:\d|=|(?-i:[a-z][A-Z])))[\w.~+/-]{8,}=*"
     r"|(\bBearer[ \t]+)(?=[\w.~+/-]*\d)[\w.~+/-]{16,}=*", re.IGNORECASE)
 #: The SECRET PARAMETER of a header whose value is a parameter list, not one token: `response=`
 #: after `Digest` (RFC 7616) and `Signature=` after `AWS4-HMAC-SHA256` (AWS SigV4). Only that
