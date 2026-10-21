@@ -44,6 +44,7 @@ MUTATIONS = [
      '            typer.echo(f"✗ could not read {namespace.MANIFEST} on {ref!r} ({str(exc)[:200]}) — "\n'
      '                       f"check that the branch exists on the forge and carries the file. "\n'
      '                       f"Nothing was changed.")\n'
+     "            _let_go(held)\n"
      "            raise typer.Exit(2) from None",
      "            raise"),
 

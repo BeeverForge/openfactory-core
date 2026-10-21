@@ -24,6 +24,10 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from openfactory import box_prove, cli
+from tests.test_the_same_project_proved_twice_at_once_is_refused_not_deleted import (
+    _another_process_holding,
+    _repository,
+)
 
 
 def _busy(monkeypatch, refusal) -> list:
@@ -68,6 +72,40 @@ def test_box_prove_says_the_proof_is_running_and_records_nothing(monkeypatch):
 
     _says_it_in_one_sentence(result, refusal)
     assert recorded == [], f"a refused proof was proven or recorded: {recorded}"
+
+
+def test_a_refused_ref_proof_leaves_the_running_proofs_checkout_alone(tmp_path, monkeypatch):
+    """`openfactory box prove acme --ref feat` while a `--ref feat` proof of acme runs. Before
+    (review of #745, git 2.43.0, 2026-10-21): the `--ref` checkout was resolved before the key was
+    taken, so `factory._worktree_at` removed and re-added `<cache>/worktrees/acme@feat` — the tree
+    the running proof reads — and only then said `already running` (`sentinel exists: False`)."""
+    import subprocess
+
+    from openfactory import factory, loader
+
+    monkeypatch.setattr(box_prove, "PROOF_DIR", tmp_path / "proofs")
+    monkeypatch.setenv("OPENFACTORY_REPO_CACHE", str(tmp_path / "cache"))
+    repo = _repository(tmp_path / "acme")
+    subprocess.run(["git", "-C", str(repo), "branch", "feat"], check=True, capture_output=True)
+    first = factory._worktree_at(repo, "feat", "acme@feat")  # the running proof's checkout
+    sentinel = first / "the-first-proof-reads-here"
+    sentinel.write_text("live\n")
+    holder = _another_process_holding("acme", tmp_path / "proofs")
+    monkeypatch.setattr(cli, "_get_project",
+                        lambda _n: SimpleNamespace(name="acme", repo_path=str(repo), box=None))
+    monkeypatch.setattr(cli, "resolve_box_image", lambda *_a, **_kw: "img")
+    monkeypatch.setattr(cli, "_box_kind", lambda _explicit: "container")
+    monkeypatch.setattr(loader, "load_manifest", lambda *_a, **_kw: SimpleNamespace(
+        base_branch="main", setup=[], validation={}))
+    try:
+        result = CliRunner().invoke(cli.app, ["box", "prove", "acme", "--ref", "feat"])
+    finally:
+        holder.kill()
+        holder.wait()
+
+    assert "already running" in result.output, result.output
+    assert sentinel.exists(), (
+        "the refused --ref proof removed the running proof's checkout before it was refused")
 
 
 def test_box_answer_says_the_proof_is_running(monkeypatch):

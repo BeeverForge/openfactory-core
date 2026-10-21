@@ -97,6 +97,12 @@ MUTATIONS = [
      + "        held = _hold_the_proof_of(subject)\n",
      TWICE),
 
+    ("`box prove --ref` syncs its checkout before it takes the key, so a refused `--ref` proof "
+     "removes and re-adds the tree the running one reads",
+     CLI,
+     "            held = _hold_the_proof_of(proof_key)\n",
+     "            held = None\n", DOORS),
+
     # ── 4. the key is free again however the proof ends ────────────────────────────────────────
     ("the lock is never let go when the proof ends, so the key stays refused until a restart",
      PROVE,

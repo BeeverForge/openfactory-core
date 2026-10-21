@@ -143,7 +143,8 @@ a valid proof is not a green suite, and `box prove` again is how to find out.
 Each project is proven on a branch and in a working tree of its own, so two projects proved at
 once never meet. A second `box prove` or `box answer` of a project while a proof of it is running
 (onboarding's included, from this process or any other on the machine) is refused with one
-sentence and exit 1, and records nothing: run it again when that one ends.
+sentence and exit 1 before it touches the checkout or the box (a `--ref` proof's own checkout
+included), and records nothing: run it again when that one ends.
 
 ---
 

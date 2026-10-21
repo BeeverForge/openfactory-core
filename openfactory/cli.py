@@ -1369,7 +1369,16 @@ def box_prove_cmd(
     can execute in it, then runs the project's OWN `setup:` and `validate:` against untouched
     `main`. Green means your tests passed inside the factory (ADR-0037 D3).
     """
-    from openfactory.box_prove import PROOF_DIR, ProveBusy, box_probes, load, prove, save
+    from openfactory.box_prove import (
+        PROOF_DIR,
+        ProveBusy,
+        _hold_the_proof_of,
+        _let_go,
+        box_probes,
+        load,
+        prove,
+        save,
+    )
 
     project = _get_project(name)
     proof_key = name
@@ -1415,7 +1424,18 @@ def box_prove_cmd(
     # ONE box for the whole proof — setup and validate must share a container or the install is
     # thrown away between them, which is what the first real run of this command discovered.
     ref_root, ref_manifest = None, None
+    held = None
     if ref:
+        # THE KEY BEFORE THE `--ref` CHECKOUT (engineering lessons §12). `resolve_repo_path` below
+        # removes and re-adds `<cache>/worktrees/<key>@<ref>`, the tree a running `--ref` proof of
+        # this key reads: taken inside `box_probes` only, the lock refused the second proof after
+        # that tree was rebuilt (review of #745, git 2.43.0, 2026-10-21: `sentinel exists: False`).
+        # The lock is re-entrant for this thread, so `box_probes` takes it again at depth 2.
+        try:
+            held = _hold_the_proof_of(proof_key)
+        except ProveBusy as exc:
+            typer.echo(exc.sentence)
+            raise typer.Exit(1) from None
         # A KEY OF ITS OWN. Syncing a branch under the project's default key would REPLACE the
         # base branch's checkout with it — the same hole this closes, entered from the other side
         # — and the next proof would measure a branch while reporting the base branch.
@@ -1432,6 +1452,7 @@ def box_prove_cmd(
             typer.echo(f"✗ could not read {namespace.MANIFEST} on {ref!r} ({str(exc)[:200]}) — "
                        f"check that the branch exists on the forge and carries the file. "
                        f"Nothing was changed.")
+            _let_go(held)
             raise typer.Exit(2) from None
 
     try:
@@ -1443,6 +1464,8 @@ def box_prove_cmd(
         # the pickup the running proof is about to decide
         typer.echo(exc.sentence)
         raise typer.Exit(1) from None
+    finally:
+        _let_go(held)
     for f in proof.findings:
         typer.echo(f"  {f.mark:<4}  {f.check:<9} {f.message}")
         if not f.ok and f.remedy:
