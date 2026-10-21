@@ -3482,6 +3482,15 @@ def bot_token(
                        "nothing was minted; pass a readable .pem or leave --key-path out to use "
                        "the deployment's key", err=True)
             raise typer.Exit(1) from None
+        # AN EMPTY FILE IS A KEY GIVEN AND MISSING, not "no key": "" fell to the "need … --key-path"
+        # sentence below, asking for the flag that was given. BLANK, NOT ONLY "": a file of
+        # whitespace was truthy and reached `jwt.encode`, an `InvalidKeyError` traceback out of the
+        # mint (both measured 2026-10-21 on 7d14b39a). A PEM is never whitespace alone.
+        if not key.strip():
+            typer.echo(f"✗ the App key at {key_path} is empty — nothing was minted; pass the "
+                       ".pem GitHub gave you, or leave --key-path out to use the deployment's key",
+                       err=True)
+            raise typer.Exit(1)
     else:
         key = app_private_key()
     if not (app_id and key and installation_id):

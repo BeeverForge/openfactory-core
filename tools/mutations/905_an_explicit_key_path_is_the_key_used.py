@@ -16,6 +16,11 @@ Claims:
     `UnicodeDecodeError` traceback; through `OPENFACTORY_GH_APP_KEY` the same file is the
     warning and None `app_private_key()` gives any unreadable key (`app_private_key_at` raises
     it as an `OSError`);
+  - an explicit path to an empty or whitespace-only file refuses, naming the path and saying it
+    is empty, instead of asking for the `--key-path` that was given (or a traceback from
+    `jwt.encode` on whitespace);
+  - with nothing given, the refusal names each flag beside its variable, `--key-path` included
+    (the review's cuts C4 and C5);
   - `~` in the flag's value resolves against `HOME` (`app_private_key_at` expands it), as
     `OPENFACTORY_GH_APP_KEY` always did;
   - without the flag, `app_private_key()` still reads the path form through
@@ -39,8 +44,17 @@ ENV_NOT_TEXT = ("tests/test_the_app_key_reaches_every_entry_point.py::"
 WITHOUT_FLAG = TEST + "::test_without_the_flag_the_key_the_environment_names_by_path_is_still_used"
 NO_ENVVAR = ENV_WALK + "::test_no_option_of_any_openfactory_command_declares_an_envvar"
 HELP = ENV_WALK + "::test_the_bot_token_help_names_the_variables_in_prose_and_no_env_var_binding"
+NEED = TEST + "::test_with_nothing_given_the_refusal_names_each_flag_beside_its_variable"
+EMPTY_FILE = (TEST + "::test_an_empty_key_file_refuses_naming_the_path_and_does_not_use_the_"
+              "environments_key")
 A_PATH_STILL_WORKS = "tests/test_the_app_key_reaches_every_entry_point.py::test_a_path_still_works"
 
+_NEED = (
+    '            "need the App id (--app-id or OPENFACTORY_GH_APP_ID), the installation id "\n'
+    '            "(--installation-id or OPENFACTORY_GH_APP_INSTALLATION_ID), and the App key "\n'
+    '            "(--key-path, or OPENFACTORY_GH_APP_KEY as a path, or OPENFACTORY_GH_APP_KEY_CONTENT "\n'
+    '            "as the PEM itself)",\n'
+)
 _EXPLICIT = "            key = app_private_key_at(key_path)\n"
 _REFUSAL = (
     '            typer.echo(f"✗ the App key at {key_path} could not be read '
@@ -94,4 +108,17 @@ MUTATIONS = [
      CREDENTIALS, "    except UnicodeDecodeError:\n", "    except LookupError:\n", NOT_TEXT),
     ("M9 a key file that is not text raises UnicodeDecodeError out of app_private_key()",
      CREDENTIALS, "    except UnicodeDecodeError:\n", "    except LookupError:\n", ENV_NOT_TEXT),
+    # ── C4/C5: the "need" sentence (the review's surviving cuts) ───────────────────────────────
+    ("C4 the 'need' sentence no longer offers --key-path", CLI,
+     '            "(--key-path, or OPENFACTORY_GH_APP_KEY as a path,',
+     '            "(OPENFACTORY_GH_APP_KEY as a path,', NEED),
+    ("C5 the 'need' sentence reverted to fa548ed4's wording (no flag named)", CLI, _NEED,
+     '            "need OPENFACTORY_GH_APP_ID, OPENFACTORY_GH_APP_INSTALLATION_ID, and the App key '
+     'as "\n            "either "\n            "OPENFACTORY_GH_APP_KEY (a path) or '
+     'OPENFACTORY_GH_APP_KEY_CONTENT (the PEM itself)",\n', NEED),
+    # ── M10: an empty key file ─────────────────────────────────────────────────────────────────
+    ("M10 an empty key file falls through to the 'need … --key-path' sentence", CLI,
+     "        if not key.strip():\n", "        if False:\n", EMPTY_FILE),
+    ("M10 only a zero-byte key file is empty: whitespace reaches jwt.encode", CLI,
+     "        if not key.strip():\n", "        if not key:\n", EMPTY_FILE),
 ]

@@ -263,3 +263,49 @@ def test_without_the_flag_the_key_the_environment_names_by_path_is_still_used(
     assert result.exit_code == 0, result.output
     assert len(github) == 1, f"expected one mint, saw {len(github)}"
     assert _signers(github[0][1]) == {"A"}
+
+
+def test_with_nothing_given_the_refusal_names_each_flag_beside_its_variable(github):
+    """With no flag and no variable, the refusal names, for each part of the trio, the flag and
+    the variable that can supply it.
+
+    Criterion: "an explicit `--key-path` wins", told to the person who has none: the sentence must
+    offer `--key-path`. On fa548ed4 it read "need OPENFACTORY_GH_APP_ID,
+    OPENFACTORY_GH_APP_INSTALLATION_ID, and the App key as either OPENFACTORY_GH_APP_KEY (a path)
+    or OPENFACTORY_GH_APP_KEY_CONTENT (the PEM itself)": no flag at all. The review's cuts C4
+    (drop `--key-path` from the sentence) and C5 (revert to that wording) stayed green across the
+    five covering modules (63 passed, 2026-10-21); this test holds both.
+    """
+    result = CliRunner().invoke(app, ["bot-token"])
+    assert result.exit_code == 1 and github == []
+    for word in ("--app-id", "OPENFACTORY_GH_APP_ID", "--installation-id",
+                 "OPENFACTORY_GH_APP_INSTALLATION_ID", "--key-path",
+                 "OPENFACTORY_GH_APP_KEY_CONTENT"):
+        assert word in result.stderr, (word, result.stderr)
+
+
+@pytest.mark.parametrize("content", ["", "\n  \n"], ids=["empty", "blank"])
+def test_an_empty_key_file_refuses_naming_the_path_and_does_not_use_the_environments_key(
+        content, github, monkeypatch, tmp_path):
+    """A `--key-path` to a file with no key in it (a zero-byte download, a truncated copy)
+    refuses, naming that path and saying it is empty; it never mints with the environment's key.
+
+    Criterion: "an explicit path that cannot be read refuses with a sentence naming that path".
+    On 7d14b39a the empty file read as "" and fell through to "need the App id (--app-id or …),
+    …, and the App key (--key-path, …)": asking for the flag that was given. The blank file
+    (whitespace only) read as "\\n  \\n", truthy, and reached `jwt.encode`, which raised
+    `InvalidKeyError("Could not parse the provided public key.")` as a traceback out of the mint
+    (both measured 2026-10-21).
+    """
+    monkeypatch.setenv("OPENFACTORY_GH_APP_ID", "12345")
+    monkeypatch.setenv("OPENFACTORY_GH_APP_INSTALLATION_ID", "67890")
+    monkeypatch.setenv("OPENFACTORY_GH_APP_KEY_CONTENT", _pem("B"))
+    empty = tmp_path / "new.pem"
+    empty.write_text(content)
+
+    result = CliRunner().invoke(app, ["bot-token", "--key-path", str(empty)])
+
+    assert github == [], "nothing may be minted from an empty key file"
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit), repr(result.exception)
+    assert f"the App key at {empty} is empty" in result.stderr, result.stderr
