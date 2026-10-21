@@ -52,6 +52,37 @@ where nothing finer applies, or one of `bad_parameters`, `bad_ref`, `out_of_scop
 `engine_unreachable`, `raised`, `reported_nothing`, and `unknown_action` for a name no action has.
 `GET /api/v1/actions` lists, as `refusals`, every reason each action can answer.
 
+**A product row's refusal is a refusal, not a 500.** When the product role declines a write on
+purpose, a `product_*` row (and `card_close`, `card_remove`) answers with the role's own sentence as
+`message`, and with the role's word in `data.refusal`:
+
+| `data.refusal` | status | `code` |
+|---|---|---|
+| `not_yours` | 403 | `denied` |
+| `not_found` | 404 | `not_found` |
+| `not_waiting`, `already_closed`, `already_there` | 409 | `conflict` |
+| `not_valid` | 400 | `invalid` |
+
+**`data.refusal` has two meanings, and `ok` says which.** On an answer with `ok: false` from the
+rows above it is the product role's word, one of the table's. On an answer with `ok: true` from
+`card_create`, `card_edit` and `card_check` it is what pickup's spec gate would say about the card:
+`""` when pickup would take it, the gate's sentence when it would not. No row answers both — the
+three card rows never render a product write, and a product write's answer carries the word only
+when it is not ok — so a program reads the word when `ok` is false and the verdict when it is true.
+
+`data.reason` stays the code, so the list of reasons above is unchanged. Only a write the product
+role tried and that did not happen — the board unreadable when the role reads it, the forge down —
+answers 500 `failed`; the row's own card check, which runs first, still answers a board it cannot
+read as 409 `conflict` (a known limitation,
+[#969](https://github.com/Open-Factory-Digital/openfactory-core/issues/969)). A 500 `failed` from
+one of these rows that writes, or from `product_refine_card`, `product_align_card`,
+`product_break_down`, `product_baseline` and `product_answer` (which the worker runs), carries
+`data.reference`, and the panel's log line for that failure carries the same `reference=…` — for a
+write the role reported, the `OPENFACTORY_PRODUCT_FAILURE_ANSWERED` line. The rows that only read
+or converse — `product_pending`, `product_needs_action`, `product_say` and `product_queue` — do
+not carry one yet. A row whose implementation raised answers `code: "failed"` with
+`data.reason: "raised"`, and its `data.reference` names the `action … raised` log line.
+
 A socket is refused before it is accepted: the upgrade is answered with a 403 and closed with code
 **1008** for a refusal, **1011** when nobody could be judged.
 

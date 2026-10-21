@@ -45,6 +45,7 @@ from openfactory.actions.base import (
     Actor,
     Outcome,
     done,
+    failure_reference,
     refused,
 )
 
@@ -2108,12 +2109,39 @@ def _product_module(name: str, *, by: Actor | None = None):
     return ProductModule(project, via=getattr(by, "via", "") or "api"), project, None
 
 
+#: THE CODE EACH REFUSAL OF THE PRODUCT MODULE ANSWERS (#908). The keys are the module's closed
+#: vocabulary (`openfactory.product.authoring.REFUSALS`), written here as words so this module does
+#: not import the product role on every front end's import path; the family test
+#: (`tests/test_every_refusal_a_product_write_names_answers_its_code_over_http.py`) holds the two
+#: equal. None is FAILED or UNAVAILABLE: a refusal is somebody's decision, never a breakage.
+_REFUSAL_CODE: Mapping[str, str] = {
+    "not_yours": DENIED,
+    "not_found": NOT_FOUND,
+    "not_waiting": CONFLICT,
+    "already_closed": CONFLICT,
+    "already_there": CONFLICT,
+    "not_valid": INVALID,
+}
+
+
 def _write_outcome(result, *, did: str, **data) -> Outcome:
     """One `WriteResult` rendered as an Outcome, keeping ITS sentence rather than inventing one.
 
     `product/voice.py` exists because these sentences are read by a client who was never meant to
     edit a configuration file. A transport that replaced them with "operation failed" would throw
-    away the one thing this module spent a thousand lines getting right."""
+    away the one thing this module spent a thousand lines getting right.
+
+    A REFUSAL IS NOT A FAILURE (#908). A not-ok result whose `refusal` names a word of the module's
+    vocabulary was declined on purpose — "not yours", "already closed" — and answers that word's
+    code (`_REFUSAL_CODE`: 403, 404, 409 or 400), with the module's word in `data["refusal"]`;
+    `data["reason"]` stays the code, so the public reasons list is unchanged. Until then every
+    not-ok result answered FAILED: measured on 620bb577, a stranger's `product_withdraw_card`
+    answered HTTP 500 with the module's own "only the person who asked for #1 … can close it".
+
+    Only a result nobody decided — `refusal` empty, absent (a worker older than the field), or a
+    word this panel does not know (a worker newer than it) — is a FAILURE: it is logged as
+    `OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=…`, and the same reference travels in
+    `data["reference"]`. The sentence is the module's, unchanged; the reference is not in it."""
     ok = bool(getattr(result, "ok", False))
     detail = str(getattr(result, "detail", "") or "")
     url = str(getattr(result, "url", "") or "")
@@ -2123,8 +2151,9 @@ def _write_outcome(result, *, did: str, **data) -> Outcome:
                    merged=bool(getattr(result, "merged", False)),
                    existed=bool(getattr(result, "existed", False)))
     if not ok:
-        return refused(FAILED, detail or f"could not {did}, and the module said nothing about why "
-                                         f"— which is itself a defect worth reporting.", **payload)
+        said = detail or (f"could not {did}, and the module said nothing about why — which is "
+                          f"itself a defect worth reporting.")
+        return _not_done(said, _refusal_word(result), did=did, **payload)
     # THE CLIENT READS `detail`; THE REF AND THE URL ARE FOR AN OPERATOR. `detail` is the sentence
     # `product/voice.py` composed for somebody who was never meant to open a pull request — and it
     # was arriving prefixed with a branch slug and a forge URL: "accepted requirement 12 —
@@ -2133,6 +2162,81 @@ def _write_outcome(result, *, did: str, **data) -> Outcome:
     # The `did` line survives only when the module said nothing, because a silent success still
     # has to say something happened.
     return done(detail or f"{did}{f' — {ref}' if ref else ''}", **payload)
+
+
+def _refusal_word(result) -> str:
+    """The module's word for why `result` is not ok — off a `WriteResult` or off the dict the
+    worker hands back for one (`product_role_card`, `product_role_break_down`); `""` when it names
+    none, which is how a worker older than the word answers."""
+    if isinstance(result, Mapping):
+        return str(result.get("refusal", "") or "")
+    return str(getattr(result, "refusal", "") or "")
+
+
+def _not_done(said: str, why: str, *, did: str, **payload) -> Outcome:
+    """What a write the module did not make answers: the code of its refusal word, or a failure.
+
+    ONE MAPPING FOR EVERY ROW THAT RENDERS A WRITE (#908): `_write_outcome` for one result, and
+    `_none_done` for the rows that render a list of them — so a code is never chosen twice.
+
+    A word of `_REFUSAL_CODE` answers its code, with the word in `data["refusal"]`. No word, or a
+    word this panel does not know (a worker newer than it, logged), is a FAILURE: logged as
+    `OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=…`, with the same reference in
+    `data["reference"]`. `said` is the module's sentence, unchanged; the reference is not in it."""
+    code = _REFUSAL_CODE.get(why)
+    # ONE `refused` PER CODE, each naming its constant: the action layer's reason guard
+    # (`tests/test_the_action_layer.py`) reads every row's codes off this source, and a code
+    # looked up at run time is one it cannot see.
+    if code == DENIED:
+        return refused(DENIED, said, **payload, refusal=why)
+    if code == NOT_FOUND:
+        return refused(NOT_FOUND, said, **payload, refusal=why)
+    if code == CONFLICT:
+        return refused(CONFLICT, said, **payload, refusal=why)
+    if code == INVALID:
+        return refused(INVALID, said, **payload, refusal=why)
+    if why:
+        # A WORD THIS PANEL DOES NOT KNOW — a worker newer than it, mid-upgrade. Read as
+        # nobody's decision rather than guessed at, and said, so the drift is seen.
+        log.error("OPENFACTORY_PRODUCT_REFUSAL_UNKNOWN did=%s refusal=%r — answered as a "
+                  "failure; this panel knows %s", did, why, ", ".join(sorted(_REFUSAL_CODE)))
+    return _failed(said, did=did, **payload)
+
+
+def _failed(said: str, *, did: str, **payload) -> Outcome:
+    """A product write that was tried and did not happen, as `/api/act` answers it: 500 `failed`,
+    the sentence unchanged, and a reference that is in `data["reference"]` AND in the one line
+    logged here — `_not_done`'s failure arm, and a worker's answer that is not ok where no word can
+    travel (`product_baseline`), or that names no outcome (`product_answer`). FAILED only, so a
+    row that reaches this and not `_not_done` declares no refusal code it cannot answer.
+
+    A PREFIX OF ITS OWN, NOT `OPENFACTORY_PRODUCT_WRITE_FAILED`: the module already logged that
+    line for the same write (`_could_not`, `act=…`), and whoever counts that prefix counts writes
+    that did not happen — on a647d604 each one counted twice (review of PR #970). This line is the
+    one a person's reference names, and the one to quote."""
+    reference = failure_reference()
+    log.error("OPENFACTORY_PRODUCT_FAILURE_ANSWERED reference=%s did=%s project=%s ref=%s — %s",
+              reference, did, payload.get("project") or "-", payload.get("ref") or "-", said)
+    return refused(FAILED, said, **payload, reference=reference)
+
+
+def _none_done(results, said: str, *, did: str, **payload) -> Outcome:
+    """A row whose list of results holds not one that was made (`product_promote`,
+    `product_reorder`, `product_break_down`), answered through `_not_done`'s one mapping.
+
+    THE REFUSAL EVERY RESULT NAMES, OR A FAILURE (#908). Until then these rows answered FAILED
+    whenever nothing was done — measured on 620bb577, a stranger's promote and reorder, and a
+    breakdown whose every front the role declined, each answered HTTP 500. When every not-ok
+    result names the same word, that word is the answer. Mixed words, an untagged result, or no
+    result at all is nobody's single decision: a failure, with a reference.
+
+    Every result is read: each caller answers `done` first when any result was made (`if not
+    started`, `if not placed`, `if made: return`), so none reaches here. A filter for made results
+    was here and was dead code (review of 3a996b0a: its removal survived 1578 tests); a caller that
+    passes a made result gets a failure, never a refusal it did not mean."""
+    words = {_refusal_word(r) for r in results}
+    why = next(iter(words)) if len(words) == 1 else ""
+    return _not_done(said, why, did=did, **payload)
 
 
 async def _product_status(*, project: str, by: Actor) -> Outcome:
@@ -2463,10 +2567,15 @@ async def _product_answer(*, project: str, token: str, answer: str, by: Actor,
                 "listed can be answered again.", project=proj.name)
     except Exception as exc:  # noqa: BLE001 — a write path must report, never raise
         # THE EXCEPTION DOES NOT GO IN THE SENTENCE: a Temporal timeout rendered to a client is
-        # the same leak a repo slug would be.
-        log.exception("the staged proposal could not be answered for %s (%s)", proj.name, exc)
+        # the same leak a repo slug would be. THE REFERENCE IS IN THE LINE AND THE ANSWER, as on
+        # every other write row: this one performs a requirement entering the corpus or a card
+        # leaving the board, and answered its engine's failure with no reference (review of
+        # 2b58340a: 500 `failed`, `data={"project", "reason"}`).
+        reference = failure_reference()
+        log.exception("the staged proposal could not be answered for %s reference=%s (%s)",
+                      proj.name, reference, exc)
         return refused(FAILED, "I could not answer that just now, and nothing was performed.",
-                       project=proj.name)
+                       project=proj.name, reference=reference)
 
     raw = raw or {}
     from openfactory.product.voice import strip_markup
@@ -2482,8 +2591,11 @@ async def _product_answer(*, project: str, token: str, answer: str, by: Actor,
         # already, or replaced by a newer one, or aged out. The caller re-reads `product_pending`.
         return refused(CONFLICT, text, project=proj.name)
     if not outcome:
-        return refused(FAILED, "I could not tell what happened to that proposal, so treat it as "
-                               "unanswered and look again.", project=proj.name)
+        # NOBODY'S DECISION: the worker answered and named no outcome. A failure with a reference
+        # its own line names (review of 2b58340a: it answered 500 with none and logged nothing).
+        return _failed("I could not tell what happened to that proposal, so treat it as "
+                       "unanswered and look again.", did="answer the staged proposal",
+                       project=proj.name)
     return done(text, project=proj.name, token=tok, answer=said, outcome=outcome)
 
 
@@ -2595,8 +2707,13 @@ async def _product_baseline(*, project: str, by: Actor, yes: object = False) -> 
             ProductBaselineInput(project=proj.name, actor=by.id, via=via),
             id=f"openfactory-product-baseline-{proj.name}", task_queue=TASK_QUEUE)
     except Exception as exc:  # noqa: BLE001 — a write path must report, never raise
-        log.exception("the baseline pass could not run for %s (%s)", proj.name, exc)
-        return refused(FAILED, "I could not run the first pass just now.", project=proj.name)
+        # THE REFERENCE IS IN THE LINE AND IN THE ANSWER (#908), as `perform`'s RAISED arm: this is
+        # where the module raising on the worker lands — on a647d604 a 500 with no reference
+        reference = failure_reference()
+        log.exception("the baseline pass could not run for %s reference=%s (%s)", proj.name,
+                      reference, exc)
+        return refused(FAILED, "I could not run the first pass just now.", project=proj.name,
+                       reference=reference)
 
     raw = raw or {}
     from openfactory.product.voice import strip_markup
@@ -2607,7 +2724,9 @@ async def _product_baseline(*, project: str, by: Actor, yes: object = False) -> 
     # stack trace with a link in it.
     text = strip_markup(str(raw.get("text") or ""))
     if not raw.get("ok"):
-        return refused(FAILED, text or "the first pass did not finish.", project=proj.name)
+        # nobody's decision — the code copy unreadable, the survey drafted nothing (#908)
+        return _failed(text or "the first pass did not finish.", did="run the first pass",
+                       project=proj.name)
     return done(text, project=proj.name, existed=bool(raw.get("existed")),
                 url=str(raw.get("url") or ""), ref=str(raw.get("ref") or ""),
                 measured_on=_measured_on(by))
@@ -3791,17 +3910,23 @@ async def _product_break_down(*, project: str, number: str, by: Actor,
                 "running": True}
         said = _the_running_breakdown(num, running.filed)
         if running.filed is not None and not any(r.get("ok") for r in running.filed):
-            return refused(FAILED, said, **data)
+            # THE RUNNING ONE FILED NOTHING: its fronts' one refusal, or a failure with a
+            # reference, through the same mapping as this row's own (#908; on a647d604 a 500
+            # with neither — review of PR #970)
+            return _none_done(running.filed, said, did="break the requirement down", **data)
         return done(said, **data)
     except Exception as exc:  # noqa: BLE001 — an engine that is down is an answer, not a crash
         from openfactory.util.causes import first_message
 
-        log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_FAILED project=%s req=%s — a person asked "
-                      "for the breakdown and no work was filed", proj.name, num)
+        # the reference is in the line and in the answer (#908): on a647d604 neither had one
+        reference = failure_reference()
+        log.exception("OPENFACTORY_PRODUCT_BREAKDOWN_FAILED reference=%s project=%s req=%s — a "
+                      "person asked for the breakdown and no work was filed", reference,
+                      proj.name, num)
         return refused(FAILED, f"nothing was filed for requirement {num}: the breakdown runs on "
                                f"the worker and it did not answer "
                                f"({first_message(exc, limit=160)}). Asking again is safe.",
-                       project=proj.name, number=num)
+                       project=proj.name, number=num, reference=reference)
 
     data = {"project": proj.name, "number": num, "filed": filed}
     made = [r for r in filed if r.get("ok")]
@@ -3811,7 +3936,8 @@ async def _product_break_down(*, project: str, number: str, by: Actor,
         return done(await asyncio.to_thread(_breakdown_said, proj, num, filed), **data)
     detail = next((r.get("detail") for r in filed if not r.get("ok") and r.get("detail")), "")
     why = f": {detail}" if detail else " — the breakdown produced no unit of work"
-    return refused(FAILED, f"nothing was filed for requirement {num}{why.rstrip('.')}.", **data)
+    return _none_done(filed, f"nothing was filed for requirement {num}{why.rstrip('.')}.",
+                      did="break the requirement down", **data)
 
 
 async def _product_drop(*, project: str, number: str, by: Actor, reason: str = "",
@@ -3986,8 +4112,9 @@ async def _product_promote(*, project: str, numbers: object, by: Actor,
     if not started:
         detail = next((str(getattr(r, "detail", "") or "") for r in results
                        if getattr(r, "detail", "")), "")
-        return refused(FAILED, detail or "nothing could be moved into the queue, and the module "
-                                         "said nothing about why.", project=proj.name)
+        return _none_done(results, detail or "nothing could be moved into the queue, and the "
+                                             "module said nothing about why.",
+                          did="queue approved work", project=proj.name)
     refs = ", ".join(str(getattr(r, "ref", "") or "?") for r in started)
     # THE PARTIAL CASE IS SAID, never rounded up to success: the client is spending on what did
     # start, and needs to know what did not.
@@ -4033,8 +4160,9 @@ async def _product_reorder(*, project: str, numbers: object, by: Actor,
     missed = [r for r in results if not getattr(r, "ok", False)]
     if not placed:
         detail = next((str(getattr(r, "detail", "") or "") for r in missed), "")
-        return refused(FAILED, detail or "nothing could be reordered, and the module said nothing "
-                                         "about why.", project=proj.name)
+        return _none_done(results, detail or "nothing could be reordered, and the module said "
+                                             "nothing about why.",
+                          did="reorder the backlog", project=proj.name)
     refs = ", ".join(str(getattr(r, "ref", "") or "?") for r in placed)
     tail = (f" {len(missed)} did not move: "
             + "; ".join(str(getattr(r, "detail", "") or "?") for r in missed)) if missed else ""
@@ -5520,8 +5648,13 @@ async def _product_card(verb: str, *, project: str, number: str, by: Actor,
                              requirement=requirement, actor=by.id),
             id=f"openfactory-product-card-{verb}-{proj.name}-{ref}", task_queue=TASK_QUEUE)
     except Exception as exc:  # noqa: BLE001 — a write path must degrade, never raise
-        log.exception("the product role could not %s #%s on %s (%s)", verb, ref, proj.name, exc)
-        return refused(FAILED, f"I could not rewrite #{ref} just now.", project=proj.name)
+        # the module raising on the worker lands here: the reference is in the line and in the
+        # answer (#908) — on a647d604 a 500 with `data={"project", "reason"}`
+        reference = failure_reference()
+        log.exception("the product role could not %s #%s on %s reference=%s (%s)", verb, ref,
+                      proj.name, reference, exc)
+        return refused(FAILED, f"I could not rewrite #{ref} just now.", project=proj.name,
+                       reference=reference)
 
     # The activity returns the `WriteResult`'s fields as data (it crossed a Temporal boundary);
     # `_write_outcome` reads them off an object, so it is handed one. Missing keys fall through to
@@ -6885,7 +7018,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="card_close",
             summary="take a card off the board with a reason — closed, never deleted",
             run=_card_close,
-            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue", "reason"),
             choose_when="when a card should not be on the board at all: a duplicate, a request "
                         "withdrawn, a plan abandoned. It records that the work did NOT happen, so "
@@ -6897,7 +7030,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="card_remove",
             summary="remove a card nobody has started from the board, with a reason",
             run=_card_remove,
-            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue", "reason"),
             choose_when="when a card should never have been on the board and the factory has not "
                         "taken it up — filed wrong, filed twice, no longer wanted. What removal "
@@ -7261,7 +7394,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="record a drafted requirement as a pull request — the sign-off surface",
             run=_product_propose,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project",),
             optional=("answer", "question", "yes"),
         ),
@@ -7270,7 +7403,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="turn a written requirement into a promise the factory defends (ADR-0032)",
             run=_product_accept,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("yes",),
         ),
@@ -7281,7 +7414,7 @@ CATALOG: dict[str, ActionSpec] = {
                     "an acceptance files them on its own, except for a requirement read off the "
                     "code, which describes what is already built",
             run=_product_break_down,
-            refuses=(INVALID, DENIED, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("yes",),
         ),
@@ -7290,7 +7423,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="close one card, naming the one that stays",
             run=_product_close_card,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("in_favour_of", "reason", "yes"),
         ),
@@ -7311,7 +7444,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="close a card, or remove one nobody has started, from the card itself",
             run=_product_withdraw_card,
-            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number", "reason"),
             optional=("remove",),
             params={"remove": "`true` to remove the card instead of closing it — only before the "
@@ -7329,7 +7462,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="send the change waiting on a card back for another pass on the same pull "
                     "request, correcting the card's acceptance criteria with it",
             run=_product_adjust,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number", "instruction"),
             optional=("criteria",),
             # THE MODULE DECIDES WHO (#448, #384's rule): a product admin, or the person who asked
@@ -7347,7 +7480,7 @@ CATALOG: dict[str, ActionSpec] = {
                     "preview, is what they asked for — and put it in when that look is all that "
                     "holds it",
             run=_product_accept_change,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("head",),
             # THE MODULE DECIDES WHO (#448, #384's rule): a product admin, or the person who asked
@@ -7364,7 +7497,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="correct the text or title of a card the product role opened from a request "
                     "or a defect",
             run=_product_correct_card,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("text", "title", "yes"),
             choose_when="when a card the product role opened from a request or a defect says the "
@@ -7376,7 +7509,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="make a card execute the requirement it should — citation and criteria",
             run=_product_align_card,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number", "requirement"),
             optional=("yes",),
         ),
@@ -7385,7 +7518,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="give a backlog ticket something testable to be judged against",
             run=_product_refine_card,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("yes",),
         ),
@@ -7394,7 +7527,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="write a decision taken after acceptance into the requirement's register",
             run=_product_record_decision,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number", "decision"),
             optional=("yes",),
         ),
@@ -7403,7 +7536,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="confirm a business capability across the sources as the product's own",
             run=_product_confirm_capability,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "capability"),
             optional=("yes",),
             params={"capability": "the capability's name — a flow as `.okf/flows/flows.yaml` "
@@ -7415,7 +7548,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="write down one thing somebody said about the business, attributed",
             run=_product_note_fact,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "term", "body"),
             optional=("yes",),
         ),
@@ -7424,7 +7557,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="register a broken promise as work, citing the requirement it violates",
             run=_product_file_defect,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "restated"),
             optional=("violates", "severity", "yes"),
         ),
@@ -7433,7 +7566,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="open a card as the person described it — no requirement behind it",
             run=_product_file_ticket,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "title"),
             optional=("body", "yes"),
         ),
@@ -7452,7 +7585,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="write the backlog order, top first — the next promote follows it",
             run=_product_reorder,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "numbers"),
             optional=("yes",),
         ),
@@ -7461,7 +7594,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="move approved tickets into the queue — the one act here that spends money",
             run=_product_promote,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "numbers"),
             optional=("yes",),
         ),
@@ -7479,7 +7612,7 @@ CATALOG: dict[str, ActionSpec] = {
             scope=PRODUCT,
             summary="drop a proposed requirement, with the reason recorded beside it",
             run=_product_drop,
-            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "number"),
             optional=("reason", "yes"),
         ),

@@ -34,6 +34,8 @@ import pytest
 
 import openfactory.product.channel as pc
 from openfactory.product.authoring import (
+    NOT_REFUSED,
+    NOT_WAITING,
     _set_status_dropped,
     accept_requirement,
     drop_requirement,
@@ -243,6 +245,37 @@ def test_a_requirement_that_is_not_there_changes_nothing(origin):
                            dropped_by="<@UADM>")
 
     assert not res.ok and "9" in res.detail
+    assert _git("rev-parse", "main", cwd=origin).stdout.strip() == before
+
+
+def test_dropping_a_requirement_another_already_replaced_is_a_refusal_with_a_next_step(origin):
+    """A replaced requirement is already off the table: dropping it is a state the person can act
+    on (409, the successor named), never the 500 of a broken file (#908). The cut that read it as
+    one — `if outcome == "superseded":` → `if False:` in `drop_requirement` — survived every test
+    in the review of 3a996b0a (2026-10-20): nothing dropped a replaced requirement."""
+    before = _seeded(origin, _rendered(status="superseded-by 0003"))
+
+    res = drop_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
+                           path="requirements/0002-pacote-de-fecho.md", number=2,
+                           dropped_by="<@UADM>", reason="o cliente desistiu")
+
+    assert res.ok is False
+    assert res.refusal == NOT_WAITING, (res.refusal, res.detail)
+    assert "formato" not in res.detail, res.detail
+    assert _git("rev-parse", "main", cwd=origin).stdout.strip() == before
+
+
+def test_dropping_a_requirement_file_NOBODY_can_parse_is_a_failure(origin):
+    """The other side of the same split: a file whose status line nobody can read is ours to
+    repair — a failure, answered 500 with a reference — never the person's state to wait out."""
+    before = _seeded(origin, "# REQ-0002 — Pacote de fecho\n\ncorpo sem linha de status\n")
+
+    res = drop_requirement(language="pt-BR", docs_repo="a/b", clone_url=str(origin),
+                           path="requirements/0002-pacote-de-fecho.md", number=2,
+                           dropped_by="<@UADM>", reason="o cliente desistiu")
+
+    assert res.ok is False
+    assert res.refusal == NOT_REFUSED, (res.refusal, res.detail)
     assert _git("rev-parse", "main", cwd=origin).stdout.strip() == before
 
 
@@ -533,6 +566,8 @@ def test_accepting_something_the_CLIENT_dropped_never_calls_their_decision_an_un
 
     assert res.ok is False
     assert "abandonado" in res.detail, res.detail
+    # their decision is a state with a next step, a 409 — never the 500 of a broken file (#908)
+    assert res.refusal == NOT_WAITING
     assert "formato" not in res.detail, "their own decision was reported as a malformed document"
     assert "time foi avisado" not in res.detail, "a repair was promised for a healthy file"
     assert jargon_in(res.detail) == [], res.detail
@@ -569,6 +604,8 @@ def test_a_requirement_file_NOBODY_can_parse_is_still_ours_to_fix_and_still_an_e
                                  accepted_by="<@UADM>", today="2026-08-01")
 
     assert res.ok is False and "formato" in res.detail and "time foi avisado" in res.detail
+    # breakage is a failure, answered 500 with a reference — never a refusal (#908)
+    assert res.refusal == NOT_REFUSED
     assert any("OPENFACTORY_PRODUCT_ACCEPT_UNFLIPPABLE" in r.getMessage() for r in caplog.records)
     assert _git("rev-parse", "main", cwd=origin).stdout.strip() == before
 

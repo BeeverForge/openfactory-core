@@ -203,8 +203,11 @@ MUTATIONS = [
 
     ("the order's refusal of a card outside the slice is said in English whatever the project "
      "speaks", PRODUCT,
-     "                    ref=number, project=project, language=lang)))\n",
-     "                    ref=number, project=project, language=None)))\n",
+     # re-pinned 2026-10-20 (#908): the site was split into a refusal and a failure branch
+     "\"outside_the_slice\", ref=number,\n"
+     "                                                                  project=project, language=lang)))\n",
+     "\"outside_the_slice\", ref=number,\n"
+     "                                                                  project=project, language=None)))\n",
      f"{SLICE}::test_the_orders_refusal_of_a_card_outside_the_slice_speaks_the_projects_language"),
 
     ("the gate's refusal of a card outside the slice is said in English whatever the project "

@@ -23,6 +23,7 @@ look like an outage in whatever dashboard reads these.
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -74,7 +75,7 @@ OUT_OF_SCOPE = "out_of_scope"
 NOT_ADMIN = "not_admin"
 #: the durable engine did not answer in time
 ENGINE_UNREACHABLE = "engine_unreachable"
-#: the row's implementation raised
+#: the row's implementation raised — the answer's `data["reference"]` names its log line (#908)
 RAISED = "raised"
 #: the row's implementation returned something that is not an Outcome
 REPORTED_NOTHING = "reported_nothing"
@@ -221,6 +222,14 @@ def refused(code: str, message: str, *, reason: str = "", **data: object) -> Out
     if why not in REASONS:
         raise ValueError(f"unknown refusal reason {why!r} — one of {sorted(REASONS)}")
     return Outcome(ok=False, message=message, data={**data, "reason": why}, code=code)
+
+
+def failure_reference() -> str:
+    """A short reference for one failure, put in BOTH its log line and its answer (`data.reference`,
+    #908), so the person who reports "it said it could not" hands an operator the line to read.
+    Eight hex digits: a reference to quote, not an identifier to guess — the line it names carries
+    nothing the answer did not already say to the same person."""
+    return secrets.token_hex(4)
 
 
 # ── the table ────────────────────────────────────────────────────────────────────────────────────

@@ -33,10 +33,13 @@ RELEASE = "openfactory/product/release.py"
 MUTATIONS = [
     # ── a Portuguese-only literal back ──────────────────────────────────────────────────────────
     ("refine answers a card it cannot find in Portuguese, whatever the conversation speaks", MOD,
+     # re-pinned 2026-10-20 (#908): the refusal names why it is not ok — `refusal=NOT_FOUND`
      '            return WriteResult(ok=False, detail=card_said("not_found", number=number,\n'
-     '                                                          language=lang))\n'
+     '                                                          language=lang),\n'
+     '                               refusal=NOT_FOUND)\n'
      '        if has_criteria(ticket):',
-     '            return WriteResult(ok=False, detail=f"não encontrei o {ref_label(number)}")\n'
+     '            return WriteResult(ok=False, detail=f"não encontrei o {ref_label(number)}",\n'
+     '                               refusal=NOT_FOUND)\n'
      '        if has_criteria(ticket):'),
 
     # re-pinned 2026-10-05: the refine note is the voice's `refine_note` now (#538)

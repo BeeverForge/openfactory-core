@@ -37,6 +37,10 @@ class Seen:
     column: str = ""
     #: the repository the card's change belongs to, when it was filed outside it (#665)
     belongs_to: str = ""
+    #: `cannot_tell` because the tracker or the board could not be READ — a failure, said as one
+    #: (#908): measured on 3a996b0a, a forge answering 503 here reached a person as 409 `conflict`
+    #: with no reference. False for a column nobody maps (`card_unmapped`), which is a refusal
+    unread: bool = False
 
 
 #: How a tracker says a card was closed as NOT delivered, in its own word (`Ticket.state_reason`).
@@ -137,9 +141,9 @@ class Ports:
             return Seen(state=State.REMOVED)
         except Exception as exc:  # noqa: BLE001 — an unreadable card is an answer, and it refuses
             log.warning("OPENFACTORY_CARD_UNREAD card=%s: %s", card, exc)
-            return Seen(cannot_tell=(f"{ref_label(card)} could not be read ({str(exc)[:120]}), "
-                                     f"so there is no way to tell where it is. Nothing was "
-                                     f"changed — try again."))
+            return Seen(unread=True, cannot_tell=(
+                f"{ref_label(card)} could not be read ({str(exc)[:120]}), so there is no way to "
+                f"tell where it is. Nothing was changed — try again."))
         from openfactory.product.authoring import filed_by_the_product_role
 
         title = str(getattr(ticket, "title", "") or "")
@@ -153,7 +157,7 @@ class Ports:
             return Seen(state=None, title=title, opened_by=opened_by, belongs_to=belongs_to)
         where = self._where()
         if where is None:
-            return Seen(title=title, cannot_tell=(
+            return Seen(title=title, unread=True, cannot_tell=(
                 f"{self.name}'s board could not be read, so there is no way to tell where "
                 f"{ref_label(card)} is. Nothing was changed — try again."))
         column = where.get(canonical_ref(card)) or where.get(str(card))

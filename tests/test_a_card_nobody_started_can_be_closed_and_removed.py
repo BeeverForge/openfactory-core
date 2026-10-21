@@ -217,12 +217,16 @@ def test_a_card_the_factory_FINISHED_with_is_not_removed_it_is_closed(deployment
 
 
 def test_a_person_who_may_NOT_act_is_refused(deployment, tracker, board, told):
+    """Refused as DENIED, the module's "not yours" — FAILED until #908 (measured on 620bb577)."""
+    from openfactory.actions.base import DENIED
+
     ref = _opened_by_product(tracker, board)
 
     for remove in (False, True):
         out = _act("product_withdraw_card", who=STRANGER, product=True, project="acme",
                    number=ref, reason="not mine but still", remove=remove)
         assert not out.ok, out.message
+        assert out.code == DENIED, (remove, out.code, out.message)
         assert "only the person who asked for" in out.message, out.message
     assert tracker.get_ticket(ref).state == "open" and _audit(ref) is None
     assert not told

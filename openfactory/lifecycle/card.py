@@ -71,6 +71,9 @@ class Transition:
     after: State | None = None
     effects: tuple[tuple[str, str], ...] = ()
     refused: str = ""
+    #: `refused` because the door could not READ the card or its board (`Seen.unread`): a
+    #: failure the caller reports as one, never a refusal by the card's state (#908)
+    unread: bool = False
     answer: object = None
     recorded: bool = False
     replayed: bool = False
@@ -150,7 +153,8 @@ def transition(project, card: str, event: CardEvent, *, by: str, why: str = "",
                               recorded=True, replayed=True, facts=dict(again.facts))
         seen = ports.seen(card)
         if seen.cannot_tell:
-            return Transition(card=card, event=event, refused=seen.cannot_tell)
+            return Transition(card=card, event=event, refused=seen.cannot_tell,
+                              unread=seen.unread)
         if observed:
             # WHAT THE PLATFORM LAST KNEW, NOT WHAT THE TRACKER SHOWS NOW (D8): the tracker already
             # shows the change, so asked of it a close would be refused as the close of a closed
