@@ -34,6 +34,7 @@ import importlib
 import json
 import shutil
 import subprocess
+import time
 import typing
 from pathlib import Path
 
@@ -47,6 +48,7 @@ from openfactory.contracts.product import ProductConfig
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.knowledge.system import refresh
 from openfactory.knowledge.system.contracts import SOURCE_UNREADABLE, SystemMap
+from openfactory.util import yaml_io
 from tests.test_the_system_layer_is_published import FIXTURE, SOURCES, _git, _remote
 
 # THE MODULES, NOT THE NAMES THE PACKAGE RE-EXPORTS: `openfactory.knowledge.system` exports the
@@ -410,11 +412,13 @@ def test_the_fixture_plants_every_kind_of_declaration_the_layer_reads(tmp_path):
 
 
 def _planted_breaks(name: str) -> list[str]:
-    """`name` broken each way a file of the map can be, a planted value where it breaks."""
+    """`name` broken each way a file of the map can be, a planted value where it breaks — the
+    last one anchored, so the loader's refusal, which the route quotes, is held to the rule too."""
     rest = "".join(f"{p}: []\n" for p in render.LAYOUT[name][1:])
     return [f"{PLANTED[0]}: [\n", f"- {PLANTED[0]}\n",
             f"version: '1'\n{render.LAYOUT[name][0]}: {{{PLANTED[0]}: 1}}\n{rest}",
-            f"version: '1'\n{render.LAYOUT[name][0]}: [{{{PLANTED[1]}: {PLANTED[2]}}}]\n{rest}"]
+            f"version: '1'\n{render.LAYOUT[name][0]}: [{{{PLANTED[1]}: {PLANTED[2]}}}]\n{rest}",
+            f"version: '1'\n{render.LAYOUT[name][0]}: &a [{PLANTED[3]}]\n{rest}"]
 
 
 def _answers(product, client) -> list[dict]:
@@ -422,7 +426,7 @@ def _answers(product, client) -> list[dict]:
     published from the planted sources, that map with a planted value where a file breaks, and no
     map at all — and, for every file of `LAYOUT` broken every way with a planted value where it
     breaks, the sentence the route answers as `why` (`render.read_published`'s, read on a copy of
-    the published map, so the twelve breaks cost no push each)."""
+    the published map, so the breaks cost no push each)."""
     project, remotes, tmp = product
     address = addresses()[0]
     out = []
@@ -573,6 +577,116 @@ def test_an_unreadable_map_is_answered_with_no_field_of_it(product, client):
     body = _get(client, addresses()[0]).json()
     assert body["state"] == render.UNREADABLE and "`api.yaml` is not YAML" in body["why"], body
     _nothing_of_the_map(body)
+
+
+# ── a published part with anchors or aliases, or nested past the bound ──────────────────────────
+#
+# The map is the core's own file: `render._dump` writes no anchor and no alias, so a part that
+# holds one was not written by the refresh. It is read with the loader of the core's own files
+# (`yaml_io.Loader`), which refuses it by name before anything is built from it — not with the
+# counting loader `text.load_yaml` keeps for the formats the layer derives from, which reads an
+# alias and counts it as one value however long the value it repeats: a long value aliased many
+# times is a few kilobytes of text and megabytes of answer (on review, a 29 KB `system.yaml`
+# answered ~120 MB in ~3.4 s).
+
+def _aliased(name: str) -> str:
+    """`name` holding no entries, every part after the first an alias of the first — read with its
+    aliases, a well-formed part of a map that declares nothing."""
+    first, *rest = render.LAYOUT[name]
+    return f"version: '1'\n{first}: &none []\n" + "".join(f"{p}: *none\n" for p in rest)
+
+
+#: How long the value `_repeated` anchors is, and how many times it aliases it.
+_LONG, _TIMES = 2_000, 2_000
+
+
+def _repeated() -> str:
+    """`system.yaml` whose one source leaves out one long name, aliased `_TIMES` times: about
+    16 KB of text, the map's own shape, and `_LONG * _TIMES` characters once its aliases are read."""
+    rest = "".join(f"{p}: []\n" for p in render.LAYOUT[render.SYSTEM_FILE][1:])
+    return (f"version: '1'\nsources:\n- repo: quayside-orders\n  left_out: [&long {'x' * _LONG}, "
+            + ", ".join(["*long"] * _TIMES) + f"]\n{rest}")
+
+
+#: How a published `system.yaml` is refused: the word for it → its text.
+_REFUSED = {
+    "an anchor and its aliases": _aliased(render.SYSTEM_FILE),
+    "a long value aliased many times": _repeated(),
+    "nested past the bound": "version: '1'\nsources: " + "[" * 150 + "]" * 150 + "\n",
+}
+
+
+def _refusal(text: str) -> str:
+    """The sentence the loader of the core's own files refuses `text` with, read from the loader."""
+    with pytest.raises(yaml_io.YamlRefused) as refused:
+        yaml_io.load(text)
+    return str(refused.value)
+
+
+def test_the_refused_texts_are_refused_for_what_they_are_named_and_the_aliased_ones_are_maps():
+    """What each text is refused for, and why it matters: read with their aliases, both aliased
+    texts are well-formed for the map's models — the first a map that declares nothing, the second
+    one that answers megabytes — and the counting loader reads both."""
+    assert _refusal(_REFUSED["an anchor and its aliases"]).startswith("an anchor (`&none`, line 2)")
+    assert _refusal(_REFUSED["a long value aliased many times"]).startswith(
+        "an anchor (`&long`, line 4)")
+    assert _refusal(_REFUSED["nested past the bound"]).startswith(
+        f"nested deeper than {yaml_io.MAX_DEPTH} levels")
+    parts = render.LAYOUT[render.SYSTEM_FILE]
+    empty = yaml_io.load(_REFUSED["an anchor and its aliases"], loader=yaml_io.CountingLoader)
+    assert {p: empty[p] for p in parts} == dict.fromkeys(parts, [])
+    text = _REFUSED["a long value aliased many times"]
+    long = yaml_io.load(text, loader=yaml_io.CountingLoader)
+    read = SystemMap(**{p: long[p] for p in parts})
+    assert len(text.encode()) < 20_000
+    assert len(read.model_dump_json()) > _LONG * _TIMES
+
+
+@pytest.mark.parametrize("name", sorted(render.LAYOUT))
+def test_each_file_of_the_map_with_an_anchor_is_unreadable_and_says_the_loader_s_sentence(
+        tmp_path, name):
+    render.write_system(_quayside(tmp_path), tmp_path / "ctx" / ".okf" / "system")
+    (tmp_path / "ctx" / ".okf" / "system" / name).write_text(_aliased(name))
+    started = time.perf_counter()
+    found = render.read_published(tmp_path / "ctx", ".okf/system")
+    assert time.perf_counter() - started < 1.0
+    assert found.state == render.UNREADABLE and found.system is None, found
+    assert found.why == (f"the system map at `.okf/system` cannot be read: `{name}` is refused — "
+                         f"{_refusal(_aliased(name))}")
+
+
+def test_a_published_part_with_anchors_or_aliases_or_too_deep_is_unreadable_fast_on_both_addresses(
+        product, client, monkeypatch):
+    """Each refused `system.yaml` pushed to the context repository, then read through both
+    addresses: `unreadable`, the loader's own sentence in `why`, nothing of the map, an answer of a
+    few hundred bytes — and the route's read of the published files in under a second (the
+    checkout's fetch before it is not what is timed)."""
+    project, remotes, tmp = product
+    _publish(project, tmp)
+    took: list[float] = []
+    real = render.read_published
+
+    def timed(*args, **kwargs):
+        started = time.perf_counter()
+        try:
+            return real(*args, **kwargs)
+        finally:
+            took.append(time.perf_counter() - started)
+
+    monkeypatch.setattr(render, "read_published", timed)
+    where = refresh.system_subpath().as_posix()
+    for how, text in _REFUSED.items():
+        _push(remotes["quayside-context"], tmp, {render.SYSTEM_FILE: text})
+        for address in addresses():
+            answered = _get(client, address)
+            assert len(took) == 1 and took.pop() < 1.0, (how, address, took)
+            assert len(answered.content) < 2_000, (how, address, len(answered.content))
+            body = answered.json()
+            assert body["state"] == render.UNREADABLE, (how, address, body)
+            assert body["why"] == (f"the system map at `{where}` cannot be read: "
+                                   f"`{render.SYSTEM_FILE}` is refused — {_refusal(text)}"), (
+                how, address, body["why"])
+            _nothing_of_the_map(body)
 
 
 def test_a_published_file_that_is_a_link_is_not_followed(product, client):

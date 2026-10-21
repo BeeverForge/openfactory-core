@@ -173,10 +173,11 @@ def read_published(root: str | Path, rel_dir: str | PurePosixPath) -> Published:
 
     Every file through `tree.read_text`, as every file of a checkout is read here: a file replaced
     by a link, one past the ceiling, one that is not UTF-8 is refused, never followed. Every
-    document through `text.load_yaml`, the layer's one YAML loader. And every part through the
-    map's own models, so what is answered is what `SystemMap` declares and nothing a hand added to
-    a file beside it."""
-    from openfactory.knowledge.system.text import load_yaml
+    document through `yaml_io.load`, the loader of the core's own files — not `text.load_yaml`,
+    the counting loader this layer keeps for the formats it derives from: `_dump` writes no anchor
+    or alias, so a published part that holds one was not written by the refresh, and is answered
+    unreadable with the loader's sentence. And every part through the map's own models, so what is
+    answered is what `SystemMap` declares and nothing a hand added to a file beside it."""
     from openfactory.knowledge.system.tree import read_text
 
     base = PurePosixPath(rel_dir)
@@ -192,8 +193,12 @@ def read_published(root: str | Path, rel_dir: str | PurePosixPath) -> Published:
             return Published(UNREADABLE, f"the system map at `{base}` cannot be read: `{name}` "
                                          f"{got.why}")
         try:
-            data = load_yaml(got.text)
-        except (yaml.YAMLError, ValueError, RecursionError) as exc:
+            data = yaml_io.load(got.text)
+        except yaml_io.YamlRefused as exc:
+            return Published(UNREADABLE, f"the system map at `{base}` cannot be read: `{name}` is "
+                                         f"refused — {exc}")
+        except (yaml.YAMLError, ValueError) as exc:
+            # the kind of error, never `str(exc)`: PyYAML's quotes the lines of the file under it
             return Published(UNREADABLE, f"the system map at `{base}` cannot be read: `{name}` is "
                                          f"not YAML ({type(exc).__name__})")
         if not isinstance(data, dict):

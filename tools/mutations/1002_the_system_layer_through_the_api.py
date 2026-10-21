@@ -7,6 +7,8 @@ label, and each group runs alone with `--only`:
                    published file — or a reader or a field joins that the family rule does not see
   "cited:"         an entry loses where it came from
   "never empty:"   a map that is not known is answered as an empty one, or in part
+  "refused:"       a published part with anchors or aliases is read, or answered without the
+                   loader's sentence
   "described:"     the read model or the layout loses a part of the map
   "gate:"          a project with no product role is read, or told apart, or the read writes
   "page:"          the product page drops, mis-draws or never reads the map
@@ -33,6 +35,8 @@ _ROLE = (f"{TEST}::test_a_project_with_no_product_role_is_the_unknown_project_s_
 _WRITES = f"{TEST}::test_a_read_pushes_nothing_and_files_no_impediment"
 _DRAWN = (f"{TEST}::test_the_product_page_draws_the_map_the_api_answers_what_could_not_be_"
           f"derived_first")
+_REFUSED = (f"{TEST}::test_a_published_part_with_anchors_or_aliases_or_too_deep_is_unreadable_"
+            f"fast_on_both_addresses")
 
 MUTATIONS = [
     # ── names only ──────────────────────────────────────────────────────────────────────────────
@@ -99,6 +103,23 @@ MUTATIONS = [
      'is in "\n'
      '                                       f"the map"))\n',
      ""),
+
+    # ── refused ─────────────────────────────────────────────────────────────────────────────────
+    ("refused: the published map is read back on `text.load_yaml`, the counting loader the layer "
+     "keeps for the formats it derives from — a part with anchors or aliases is read, and a long "
+     "value aliased many times answers megabytes",
+     RENDER,
+     "            data = yaml_io.load(got.text)\n",
+     "            from openfactory.knowledge.system.text import load_yaml\n"
+     "            data = load_yaml(got.text)\n",
+     _REFUSED),
+
+    ("refused: a refusal is answered as a file that is not YAML, by its kind, without the "
+     "loader's sentence",
+     RENDER,
+     "        except yaml_io.YamlRefused as exc:\n",
+     "        except ZeroDivisionError as exc:\n",
+     _REFUSED),
 
     # ── described ───────────────────────────────────────────────────────────────────────────────
     ("described: the read model forgets the tool a database's migrations were written with",
