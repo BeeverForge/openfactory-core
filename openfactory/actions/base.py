@@ -366,23 +366,26 @@ PARAMS: dict[str, str] = {
 #: review N7). `context`, `requirement`, `violates` and `capability` are here since that review
 #: (#1032): each is what a person typed — the page they were on, a requirement or capability
 #: named in their words — and on 6a41efe7 each was kept as sent, `context` up to 2,000 characters
-#: a client chose (review N4).
+#: a client chose (review N4). `origin` (`product_import`, from main's #993) is "where it came
+#: from, in a few words", typed by a person; with it undeclared the guard above went red on the
+#: merge with main b3c9f8b3 (`['origin', 'source'] == []`, review round 5).
 FREE_TEXT: frozenset[str] = frozenset({
     "reason", "comment", "instruction", "message", "question", "query", "answer", "answers",
     "decision", "term", "body", "restated", "text", "title", "criteria", "ask",
-    "context", "requirement", "violates", "capability",
+    "context", "requirement", "violates", "capability", "origin",
 })
 
 #: Every other parameter a row takes: an id, a number, a flag, a name of a thing, a ref — kept in
 #: the record as sent, scrubbed and bounded (`observability.audit._kept`). Declared rather than
-#: inferred as "the rest", so that a new name is a decision someone makes (above).
+#: inferred as "the rest", so that a new name is a decision someone makes (above). `source` is
+#: `product_import`'s folder or archive, a path or a name in the import inbox.
 NOT_WORDS: frozenset[str] = frozenset({
     "accept", "approver", "attachment", "attachments", "before", "board", "board_number",
     "board_owner", "card", "choice", "column", "display", "docs_repo", "durable", "enabled",
     "force", "head", "in_favour_of", "issue", "language", "limit", "mentioned", "message_id",
     "number", "numbers", "out", "password", "path", "person", "pr", "product", "project",
     "promote", "provider", "remove", "repo_path", "room", "sandbox", "session", "severity",
-    "target", "thread", "token", "token_env", "unit", "version", "wait", "write", "yes",
+    "source", "target", "thread", "token", "token_env", "unit", "version", "wait", "write", "yes",
 })
 
 

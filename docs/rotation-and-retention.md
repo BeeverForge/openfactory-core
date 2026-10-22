@@ -351,7 +351,8 @@ four levels deep; what is deeper is not kept. Every string — a value, a name, 
 action — is scrubbed before it is cut: a URL's `user:token@` is dropped, a string shaped like a
 forge, chat, cloud or model vendor's credential is `[credential withheld]`, and so is the value of
 any secret-named variable of the process that writes the record. A name that matches the rule
-and is no credential (`token_env`, the name of a variable) is masked too. The denial warnings
+and is no credential (`token_env`, the name of a variable; `product_import`'s `token`, which
+names the plan it was shown) is masked too. The denial warnings
 (`DENIED`, `DENIED_SCOPE`, `NO_CODE_YET`) mask and scrub the same way.
 
 **`openfactory project forget` keeps the records.** An audit trail that forgetting a project erases
