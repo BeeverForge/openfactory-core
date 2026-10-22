@@ -184,6 +184,29 @@ def yields_its_name(key: str, name: str, *, renamed: dict[str, str] | None = Non
                for other, spelled in merged.items())
 
 
+def carried_by(key: str, declared: str | None, had: dict[str, str],
+               named: dict[str, str]) -> str:
+    """The other key whose column already carries the name `key` would be written under, when
+    `key` yields that name to it (`yields_its_name`); `""` when it does not.
+
+    ONE RULE FOR THE WRITER AND THE WARNING. The local setup reads it to write no second column of
+    one name (`LocalBoardSetup.create`, and `left_out`'s sentence to `init`), and the local board
+    reads it to say which remedy works when it falls back from a column it lacks: on a board that
+    already has a column called "Needs Review", a re-run of `init` adds nothing (PR #1040's round
+    5). `had` is the board's rows, `{key: name}`; `named` the deployment's `columns:` map.
+
+    The rows already on the board win over the deployment's map, as `INSERT OR IGNORE` keeps them;
+    the map counts too, so a FIRST `init` with `columns: {in_review: "Needs Review"}` does not
+    write two rows of one name either (measured on 374ef5cd by PR #1040's review, 2026-10-21)."""
+    carriers = {**named, **had}
+    candidate = declared or CANONICAL_COLUMNS[key]
+    if not yields_its_name(key, candidate, renamed=carriers):
+        return ""
+    wanted = candidate.strip().casefold()
+    return next((other for other, spelled in carriers.items()
+                 if other != key and str(spelled).strip().casefold() == wanted), "")
+
+
 def has_started(key: str) -> bool:
     """Whether a card in this column is one the factory has taken up.
 

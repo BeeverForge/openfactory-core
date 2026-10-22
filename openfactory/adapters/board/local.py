@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 
+from openfactory.adapters.board.columns import carried_by
 from openfactory.adapters.board_db import connect, now_iso
 from openfactory.adapters.tracker.base import column_keys
 from openfactory.contracts import JobState
@@ -322,15 +323,38 @@ class LocalBoard:
                 return False
             if key != keys[0]:
                 # ONCE PER BOARD IN A PROCESS: every board 0.6 wrote lacks the row until `project
-                # init` is re-run, and a warning on every move of every person-gated pull request
-                # is noise that buries the one that matters (PR #1040's review, 2026-10-21).
+                # init` is re-run (or, where another column carries its name, until `columns:`
+                # gives it one of its own — `_remedy`), and a warning on every move of every
+                # person-gated pull request is noise that buries the one that matters (PR #1040's
+                # review, 2026-10-21).
                 said = (str(self._db()), self.project, keys[0])
                 (log.debug if said in _FELL_BACK_SAID else log.warning)(
-                    "%s's board declares no %r column — %s goes to %r instead; re-run "
-                    "`openfactory project init %s` to add it", self.project, keys[0],
-                    canonical_ref(issue), key, self.project)
+                    "%s's board declares no %r column — %s goes to %r instead; %s",
+                    self.project, keys[0], canonical_ref(issue), key,
+                    _remedy(conn, self.project, keys[0]))
                 _FELL_BACK_SAID.add(said)
             moved = conn.execute(
                 "UPDATE cards SET column_key = ?, updated_at = ? WHERE project = ? AND ref = ?",
                 (key, now_iso(), self.project, int(canonical_ref(issue) or 0))).rowcount
         return bool(moved)
+
+
+def _remedy(conn, project: str, key: str) -> str:
+    """What adds the column `key` this board lacks, as the end of the fallback warning.
+
+    A RE-RUN OF `init` ADDS NOTHING WHERE ANOTHER ROW ALREADY CARRIES THE NAME: `LocalBoardSetup`
+    writes no second column of one name (`columns.carried_by`, the rule read here too), so on a
+    board whose `in_review` or `needs_action` a person called "Needs Review" the warning that sent
+    them to the re-run named a remedy that did nothing (PR #1040's round 5, measured on f7f20376).
+    The deployment's `columns:` map is not read here: on a board that has rows the rows win in
+    `carried_by`, and the only name the map adds is `key`'s own, which the re-run named here
+    writes either way."""
+    had = {r["key"]: r["name"] for r in conn.execute(
+        "SELECT key, name FROM columns WHERE project = ?", (project,)).fetchall()}
+    carrier = carried_by(key, None, had, {})
+    if not carrier:
+        return f"re-run `openfactory project init {project}` to add it"
+    return (f"its '{carrier}' column is already called \"{had[carrier]}\", so map {key} to "
+            f"another name under the tracker's `columns` option "
+            f"(e.g. '{{\"{key}\": \"Awaiting Review\"}}') and re-run "
+            f"`openfactory project init {project}`")

@@ -12,13 +12,13 @@ columns it already has, and the write itself only fills in what is missing — i
 renaming nothing, and moving nothing when nothing was missing. That is how a board made before
 #753 gets its "Needs Review" row: `init` calls `create` on a board that is already attached,
 because this row says it may (`completes_an_attached_board`). Unless another of its rows is
-already called "Needs Review": that name is the other row's (`columns.yields_its_name`), no second
+already called "Needs Review": that name is the other row's (`columns.carried_by`), no second
 row of it is written, and `left_out` tells `init` which row carries it and how to opt in.
 """
 
 from __future__ import annotations
 
-from openfactory.adapters.board.columns import BOARD_ORDER, CANONICAL_COLUMNS, yields_its_name
+from openfactory.adapters.board.columns import BOARD_ORDER, CANONICAL_COLUMNS, carried_by
 from openfactory.adapters.board_db import connect
 
 
@@ -65,7 +65,7 @@ class LocalBoardSetup:
                 # 3cfca18d: `('in_review', 'Needs Review', 3), ('needs_review', 'Needs Review',
                 # 4)`), the person-gated pull request went to the new row, and its name read back
                 # as `in_review` — the factory's own review. `left_out` says so to `init`.
-                if key not in had and _carried_by(key, named.get(key), had, named):
+                if key not in had and carried_by(key, named.get(key), had, named):
                     continue
                 # INSERT OR IGNORE, so a re-run adds what is missing and RENAMES NOTHING: a person
                 # who renamed a column is entitled to keep the name (C-14), and an idempotent
@@ -106,7 +106,7 @@ class LocalBoardSetup:
         key = "needs_review"
         if key in had or not had:
             return ""
-        carrier = _carried_by(key, named.get(key), had, named)
+        carrier = carried_by(key, named.get(key), had, named)
         if not carrier:
             return ""
         return (f"no \"Needs Review\" column added: this board's '{carrier}' column is already "
@@ -134,23 +134,6 @@ def _rows(conn, project: str) -> dict[str, str]:
     """This project's rows as they stand, `{key: name}`."""
     return {r["key"]: r["name"] for r in conn.execute(
         "SELECT key, name FROM columns WHERE project = ?", (project,)).fetchall()}
-
-
-def _carried_by(key: str, declared: str | None, had: dict[str, str],
-                named: dict[str, str]) -> str:
-    """The other key whose column already carries the name `key` would be written under, when
-    `key` yields that name to it (`columns.yields_its_name`); `""` when it does not.
-
-    The rows already on the board win over the deployment's map, as `INSERT OR IGNORE` keeps them;
-    the map counts too, so a FIRST `init` with `columns: {in_review: "Needs Review"}` does not
-    write two rows of one name either (measured on 374ef5cd by PR #1040's review, 2026-10-21)."""
-    carriers = {**named, **had}
-    candidate = declared or CANONICAL_COLUMNS[key]
-    if not yields_its_name(key, candidate, renamed=carriers):
-        return ""
-    wanted = candidate.strip().casefold()
-    return next((other for other, spelled in carriers.items()
-                 if other != key and str(spelled).strip().casefold() == wanted), "")
 
 
 def _name_of(project) -> str:

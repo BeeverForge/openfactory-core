@@ -64,6 +64,11 @@ THE CLAIMS, each with a red twin below:
      board a person ordered by hand (Needs Action at position 99) is re-ordered by a re-run that
      added nothing; row 55 decides `init`'s "added the columns it lacked" by comparing
      `attached()`'s position-ordered sentence again instead of the keys.
+ 12. **The local board's fallback warning names the remedy that works on its board (PR #1040's
+     review, round 5, R5.7).** Rows 50 and 52 cut `columns.carried_by`, the one rule the setup and
+     the board read; row 56 makes the board's warning send a board whose `in_review` or
+     `needs_action` is already called "Needs Review" to a re-run of `init`, which adds nothing there,
+     instead of to a name of `needs_review`'s own under the `columns` option.
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -354,12 +359,12 @@ MUTATIONS = [
 
     # ── 10. the local setup takes the rule ──────────────────────────────────────────────────────
     ("a re-run of `init` writes a second \"Needs Review\" beside the row that carries it", L_SETUP,
-     "                if key not in had and _carried_by(key, named.get(key), had, named):\n"
+     "                if key not in had and carried_by(key, named.get(key), had, named):\n"
      "                    continue\n",
      "",
      f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
 
-    ("the local setup finds the row that carries the name case-sensitively", L_SETUP,
+    ("the local setup finds the row that carries the name case-sensitively", COLUMNS,
      "                 if other != key and str(spelled).strip().casefold() == wanted), \"\")",
      "                 if other != key and str(spelled) == candidate), \"\")",
      f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
@@ -369,7 +374,7 @@ MUTATIONS = [
      "    return any(other != key and str(spelled) == name",
      f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
 
-    ("a first `init` ignores the deployment's map when it looks for the name", L_SETUP,
+    ("a first `init` ignores the deployment's map when it looks for the name", COLUMNS,
      "    carriers = {**named, **had}",
      "    carriers = dict(had)",
      f"{AC3}::test_a_new_local_board_whose_map_calls_another_column_needs_review_has_one"),
@@ -389,4 +394,10 @@ MUTATIONS = [
      "                added = (keys_of(project) - keys_before if keys_before is not None",
      "                added = (now != attached if keys_before is not None",
      f"{RERUN}::test_init_decides_added_by_the_keys_not_by_the_sentence"),
+
+    # ── 12. the board's warning names the remedy the setup leaves ───────────────────────────────
+    ("the local board sends a board whose other column carries \"Needs Review\" to a re-run", L_BOARD,
+     "    if not carrier:\n",
+     "    if True:\n",
+     f"{AC3}::test_the_local_board_names_the_columns_option_where_another_column_carries_needs_review"),
 ]

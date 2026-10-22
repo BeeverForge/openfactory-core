@@ -132,6 +132,47 @@ def test_the_local_board_says_it_once_and_not_on_every_move(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize(("carrier", "called"), [
+    ("in_review", "Needs Review"), ("needs_action", "needs review"),
+])
+def test_the_local_board_names_the_columns_option_where_another_column_carries_needs_review(
+        carrier, called, tmp_path, caplog):
+    """A local board whose `in_review` or `needs_action` row a person called "Needs Review" (in any
+    case) has no `needs_review` row, and a re-run of `project init` will not add one there (R5.1,
+    `LocalBoardSetup.left_out`). The fallback warning names the remedy that works on that board —
+    a name of `needs_review`'s own under the tracker's `columns` option, then the re-run — and the
+    column that already carries the name, by the rule the setup reads (`columns.carried_by`).
+
+    RED ON f7f20376 (PR #1040's round 5, R5.7): the warning said only "re-run `openfactory project
+    init acme` to add it", a re-run that adds nothing on this board."""
+    import logging
+
+    from openfactory.adapters.board.local import LocalBoard
+    from openfactory.adapters.board_db import connect
+    from openfactory.adapters.tracker.local import LocalTracker
+    from openfactory.contracts import JobState
+    from tests.a_pull_request_awaiting_review_on_each_row import MAINS_SIX
+
+    db = tmp_path / "board.db"
+    with connect(db, write=True) as conn:
+        for position, (key, name) in enumerate(MAINS_SIX):
+            conn.execute("INSERT INTO columns(project, key, name, position) VALUES (?,?,?,?)",
+                         ("acme", key, called if key == carrier else name, position))
+    tracker = LocalTracker("acme", db_path=db)
+    ref = tracker.create_ticket(title="Export", body="")
+
+    with caplog.at_level(logging.WARNING, logger="openfactory"):
+        LocalBoard(tracker).set_status(issue=ref, issue_url="", state=JobState.PR_OPEN,
+                                       needs_person=True)
+
+    fell_back = [r.getMessage() for r in caplog.records
+                 if r.levelno == logging.WARNING and "'needs_review'" in r.getMessage()]
+    assert len(fell_back) == 1, [r.getMessage() for r in caplog.records]
+    said = fell_back[0]
+    assert f"'{carrier}'" in said and "map needs_review" in said and "`columns` option" in said, said
+    assert "openfactory project init acme" in said, said
+
+
+@pytest.mark.parametrize(("carrier", "called"), [
     ("in_review", "Needs Review"), ("needs_action", "Needs Review"),
     # the panel lets a person type the name in any case, and `yields_its_name` compares casefolded
     ("in_review", "Needs review")])
