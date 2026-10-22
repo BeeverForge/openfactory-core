@@ -798,6 +798,13 @@ def project_init(
                 now = create_board.attached(project)
                 typer.echo(f"✓ board: added the columns it lacked — {now}" if now != attached
                            else f"· board already attached ({attached})")
+            # A COLUMN THE ROW DECLINED TO ADD IS SAID, with the way in: a local board whose
+            # `in_review` or `needs_action` was already called "Needs Review" keeps one column of
+            # that name, and a re-run that declined the release note's opt-in in silence would
+            # read as a defect (PR #1040's review, 2026-10-22). Optional, read with `getattr`.
+            left_out = getattr(create_board, "left_out", None)
+            if callable(left_out) and (why := left_out(project)):
+                typer.echo(f"· board: {why}")
 
     # WHICH BRANCH THIS CHECKOUT IS ON, read once: the manifest is scaffolded with it and the
     # closing lines name it. `symbolic-ref --short HEAD` answers on an unborn branch, where

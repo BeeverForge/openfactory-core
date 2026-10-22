@@ -129,3 +129,92 @@ def test_the_local_board_says_it_once_and_not_on_every_move(tmp_path, monkeypatc
     landed = LocalBoard(LocalTracker("acme", db_path=tmp_path / "board.db")).columns() or {}
     assert landed.get(str(second).lstrip("#")) == "Needs Action", landed
     assert len(fell_back) == 1, fell_back
+
+
+@pytest.mark.parametrize(("carrier", "called"), [
+    ("in_review", "Needs Review"), ("needs_action", "Needs Review"),
+    # the panel lets a person type the name in any case, and `yields_its_name` compares casefolded
+    ("in_review", "Needs review")])
+def test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it(
+        carrier, called, tmp_path, monkeypatch):
+    """A local board of main's six rows whose `in_review` or `needs_action` row a person renamed
+    "Needs Review" keeps ONE column of that name across a re-run of `project init`, under its own
+    key, and a pull request waiting on a person still lands where `main` put it: Needs Action, or
+    the park itself when the park is the column called "Needs Review". `init` says why it added no
+    column and how to opt in. The name is compared in any case, as `columns.yields_its_name` compares.
+
+    RED ON 3cfca18d (PR #1040, @hermesfelipe's blocker and @robertocsp's Blocking 1, 2026-10-22):
+    `LocalBoardSetup.create` inserted `needs_review` under its default name beside the row that
+    already carried it — `[('in_review', 'Needs Review', 3), ('needs_review', 'Needs Review', 4),
+    …]` — and the person-gated pull request went to the new row, whose name reads back as
+    `in_review` (`columns.yields_its_name`), the factory's own review. The release note sends every
+    local deployment through this re-run to opt in."""
+    import sqlite3
+    import sys
+
+    sys.path.insert(0, "tests")
+    import one_machine as om
+
+    from openfactory.adapters.tracker.local import LocalTracker
+    from openfactory.contracts import JobState
+    from tests.a_pull_request_awaiting_review_on_each_row import MAINS_SIX
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = om.a_repository(tmp_path)
+    om.a_deployment(tmp_path, monkeypatch=monkeypatch)
+    code, out = om.cli("project", "init", "myapp", str(repo))
+    assert code == 0, out
+    db = tmp_path / "board.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("DELETE FROM columns WHERE project = 'myapp'")
+        for position, (key, name) in enumerate(MAINS_SIX):
+            conn.execute("INSERT INTO columns(project, key, name, position) VALUES (?,?,?,?)",
+                         ("myapp", key, called if key == carrier else name, position))
+
+    code, out = om.cli("project", "init", "myapp", str(repo))
+
+    assert code == 0, out
+    with sqlite3.connect(db) as conn:
+        rows = conn.execute("SELECT key, name, position FROM columns WHERE project = 'myapp' "
+                            "ORDER BY position").fetchall()
+    carriers = [key for key, name, _ in rows if name.strip().casefold() == "needs review"]
+    assert carriers == [carrier], f"the re-run left {rows}; it said:\n{out}"
+    assert f"'{carrier}'" in out and "map needs_review" in out and "`columns` option" in out, (
+        f"init did not say which column already carries \"Needs Review\" and how to opt in:\n{out}")
+
+    tracker = LocalTracker("myapp", db_path=db)
+    ref = tracker.create_ticket(title="Export", body="")
+    tracker.set_state(ref, JobState.PR_OPEN, needs_person=True)
+    with sqlite3.connect(db) as conn:
+        (landed,) = conn.execute("SELECT column_key FROM cards WHERE project = 'myapp' AND ref = ?",
+                                 (str(ref).lstrip("#"),)).fetchone()
+    assert landed == "needs_action", f"the pull request waiting on a person landed in {landed!r}"
+
+
+@pytest.mark.parametrize("carrier", ["in_review", "needs_action"])
+def test_a_new_local_board_whose_map_calls_another_column_needs_review_has_one(carrier, tmp_path):
+    """The same rule on a board's FIRST `init`: a deployment whose `columns:` already calls
+    `in_review` or `needs_action` "Needs Review" gets six columns, one of them of that name, and the
+    setup says why it added no seventh.
+
+    RED ON 3cfca18d (@robertocsp's Blocking 1, measured on a fresh `board.db` with the real
+    `LocalBoardSetup.create`): `columns: '{"in_review": "Needs Review"}'` gave `['Backlog', 'TO-DO',
+    'In progress', 'Needs Review', 'Needs Review', 'Needs Action', 'Done']`."""
+    import json
+    import sqlite3
+    from types import SimpleNamespace
+
+    from openfactory.adapters.board_setup.local import LocalBoardSetup
+
+    db = tmp_path / "board.db"
+    project = SimpleNamespace(name="acme", tracker=SimpleNamespace(kind="local", options={
+        "board_db": str(db), "columns": json.dumps({carrier: "Needs Review"})}))
+    setup = LocalBoardSetup()
+
+    setup.create(project=project, owner="", title="acme", token=None)
+
+    with sqlite3.connect(db) as conn:
+        rows = conn.execute("SELECT key, name FROM columns WHERE project = 'acme' "
+                            "ORDER BY position").fetchall()
+    assert [key for key, name in rows if name == "Needs Review"] == [carrier], rows
+    assert f"'{carrier}'" in setup.left_out(project), setup.left_out(project)

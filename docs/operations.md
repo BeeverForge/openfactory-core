@@ -186,7 +186,8 @@ request you approved and have yet to merge stays in *Needs Review* until it is m
 as before; add it by hand, the same way, between *In review* and *Needs Action*, to opt in — an
 option of exactly that name is used without a `columns:` entry. The platform's own board (no
 GitHub) gets it when you re-run `openfactory project init`, which adds the missing column in
-place and renames nothing; on Jira and Azure Boards the factory moves cards there only when
+place and renames nothing (when another of its columns is already called *Needs Review*, it adds
+none and says so: name `needs_review` under the tracker's `columns` option to opt in); on Jira and Azure Boards the factory moves cards there only when
 `status_map` (Jira) or `columns` and `state_map` (Azure) name it for the `needs_review` key.
 Opting in moves no card: a pull request already in *Needs Action* waiting on a reviewer stays
 there until the factory next moves it (a re-review sends it to *Needs Review*, the merge to

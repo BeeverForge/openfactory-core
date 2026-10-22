@@ -52,6 +52,13 @@ THE CLAIMS, each with a red twin below:
      sends the pull request to Needs Action instead of where the deployment put it. Row 48 compares
      the collision case-sensitively, so a park called "Needs Review" that Jira spells "NEEDS
      REVIEW" reads as `needs_review` again (round 1's defect).
+ 10. **The local setup takes the same rule: one column called "Needs Review" (PR #1040's review,
+     round 5).** Row 49 removes the check from `LocalBoardSetup.create`, so a re-run of `init` writes
+     a second "Needs Review" beside the `in_review` or `needs_action` row a person called that; row
+     50 finds the carrying row case-sensitively, and row 51 compares the collision case-sensitively,
+     so a row called "Needs review" gets the duplicate; row 52 reads only the board's rows, not the
+     deployment's `columns:`, so a FIRST `init` writes the duplicate; row 53 makes `init` silent
+     about the column it declined to add.
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -340,4 +347,31 @@ MUTATIONS = [
      "    return any(other != key and str(spelled).strip().casefold() == wanted",
      "    return any(other != key and str(spelled) == name",
      f"{AC456}::test_a_park_called_needs_review_in_another_case_is_still_a_park"),
+
+    # ── 10. the local setup takes the rule ──────────────────────────────────────────────────────
+    ("a re-run of `init` writes a second \"Needs Review\" beside the row that carries it", L_SETUP,
+     "                if key not in had and _carried_by(key, named.get(key), had, named):\n"
+     "                    continue\n",
+     "",
+     f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
+
+    ("the local setup finds the row that carries the name case-sensitively", L_SETUP,
+     "                 if other != key and str(spelled).strip().casefold() == wanted), \"\")",
+     "                 if other != key and str(spelled) == candidate), \"\")",
+     f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
+
+    ("the local setup's collision is compared case-sensitively", COLUMNS,
+     "    return any(other != key and str(spelled).strip().casefold() == wanted",
+     "    return any(other != key and str(spelled) == name",
+     f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
+
+    ("a first `init` ignores the deployment's map when it looks for the name", L_SETUP,
+     "    carriers = {**named, **had}",
+     "    carriers = dict(had)",
+     f"{AC3}::test_a_new_local_board_whose_map_calls_another_column_needs_review_has_one"),
+
+    ("`init` is silent about the column it declined to add", CLI,
+     "            if callable(left_out) and (why := left_out(project)):",
+     "            if False and callable(left_out) and (why := left_out(project)):",
+     f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
 ]
