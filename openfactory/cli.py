@@ -155,7 +155,9 @@ def _door(action: str):
     """A command that changes the deployment without a catalog row, recorded: its body runs inside
     `actions.door_recorded(action, …)` as the shell's own user, the parameters it was called with
     being the record's (PR #1039 review: `project add`, `project init`, `init`, `product init` and
-    `approver add` left no record). `functools.wraps` keeps the signature typer reads."""
+    `approver add` left no record). A command's `name` is the project it registers, so the record
+    names it as `project` too, the key `openfactory audit -p` reads (on 58cbd307 it was empty).
+    `functools.wraps` keeps the signature typer reads."""
     import functools
     import getpass
 
@@ -168,7 +170,8 @@ def _door(action: str):
                 who = getpass.getuser()
             except (KeyError, OSError):
                 who = "unknown"
-            with act_layer.door_recorded(action, by=_cli_actor(who), params=kwargs):
+            named = {"project": kwargs["name"]} if "name" in kwargs else {}
+            with act_layer.door_recorded(action, by=_cli_actor(who), params={**named, **kwargs}):
                 return command(*args, **kwargs)
         return recorded
     return wrap

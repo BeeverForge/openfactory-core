@@ -58,7 +58,8 @@ def _cli(*args: str, input: str | None = None):
 
 def test_registering_a_project_on_the_panel_leaves_one_record(store, tmp_path):
     """`POST /api/projects` registers a project; it leaves one `project_add` record by the panel's
-    caller, `ok`, with what was asked. On c310ba28 it left none."""
+    caller, `ok`, naming the project it registered. On c310ba28 it left none; on 58cbd307 the
+    record's project was empty, because the door names it `name` (branch review, 2026-10-22)."""
     from openfactory.api.app import app
 
     answer = TestClient(app).post("/api/projects", json={
@@ -66,7 +67,7 @@ def test_registering_a_project_on_the_panel_leaves_one_record(store, tmp_path):
 
     assert answer.status_code == 200, answer.text
     record = _the_record(store)
-    assert (record["action"], record["via"], record["ok"], record["params"]["name"]) == (
+    assert (record["action"], record["via"], record["ok"], record["project"]) == (
         "project_add", "panel", True, "demo"), record
 
 
@@ -86,14 +87,28 @@ def test_answering_a_question_on_the_panel_leaves_one_record(store):
 
 
 def test_adding_a_project_on_the_command_line_leaves_one_record(store, tmp_path):
-    """`openfactory project add demo <repo>`: one `project_add` record by the shell login, `cli`.
-    On c310ba28: `registered project 'demo'`, and no record."""
+    """`openfactory project add demo <repo>`: one `project_add` record by the shell login, `cli`,
+    naming the project. On c310ba28: `registered project 'demo'`, and no record; on 58cbd307 a
+    record with no project."""
     done = _cli("project", "add", "demo", str(_repo(tmp_path)))
 
     assert done.exit_code == 0, done.output
     record = _the_record(store)
-    assert (record["action"], record["via"], record["provider"], record["ok"]) == (
-        "project_add", "cli", "cli", True), record
+    assert (record["action"], record["via"], record["provider"], record["ok"],
+            record["project"]) == ("project_add", "cli", "cli", True, "demo"), record
+
+
+def test_the_listing_for_a_project_shows_who_registered_it(store, tmp_path):
+    """`openfactory audit -p demo` lists the `project add` that registered `demo`. On 58cbd307 it
+    said `no audit record … matches what was asked`, the record listed with `-` for its project
+    (branch review, 2026-10-22, by hand with an empty `HOME`)."""
+    assert _cli("project", "add", "demo", str(_repo(tmp_path))).exit_code == 0
+
+    listed = _cli("audit", "-p", "demo")
+
+    assert listed.exit_code == 0, listed.output
+    assert [line.split()[2:4] for line in listed.stdout.splitlines()] == [
+        ["project_add", "demo"]], listed.output
 
 
 @pytest.mark.parametrize(("args", "action"), [

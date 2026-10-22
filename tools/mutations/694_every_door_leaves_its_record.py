@@ -19,7 +19,8 @@ _REFUSED = _T + "test_a_command_line_door_that_refuses_still_leaves_one_record"
 
 MUTATIONS = [
     ("registering a project on the panel is not recorded", _APP,
-     '    with actions.door_recorded("project_add", by=_actor(request), params=body.model_dump()):\n'
+     '    with actions.door_recorded("project_add", by=_actor(request),\n'
+     '                               params={"project": body.name, **body.model_dump()}):\n'
      "        return _add_project(body)\n",
      "    return _add_project(body)\n",
      _T + "test_registering_a_project_on_the_panel_leaves_one_record"),
@@ -29,7 +30,7 @@ MUTATIONS = [
      "    return _answer_channel_message(project, body, request)\n",
      _T + "test_answering_a_question_on_the_panel_leaves_one_record"),
     ("the command line's doors are not recorded", "openfactory/cli.py",
-     "            with act_layer.door_recorded(action, by=_cli_actor(who), params=kwargs):\n"
+     "            with act_layer.door_recorded(action, by=_cli_actor(who), params={**named, **kwargs}):\n"
      "                return command(*args, **kwargs)\n",
      "            return command(*args, **kwargs)\n",
      _T + "test_adding_a_project_on_the_command_line_leaves_one_record"),
@@ -49,4 +50,13 @@ MUTATIONS = [
      "        return Outcome(ok=False, code=_DOOR_STATUS.get(status, FAILED),\n",
      "        return Outcome(ok=False, code=FAILED,\n",
      _T + "test_answering_a_question_on_the_panel_leaves_one_record"),
+    # branch review of 58cbd307 (2026-10-22): a register door's record named no project
+    ("the panel's register door names no project", _APP,
+     '                               params={"project": body.name, **body.model_dump()}):\n',
+     "                               params=body.model_dump()):\n",
+     _T + "test_registering_a_project_on_the_panel_leaves_one_record"),
+    ("the command line's register door names no project", "openfactory/cli.py",
+     '            named = {"project": kwargs["name"]} if "name" in kwargs else {}\n',
+     "            named = {}\n",
+     _T + "test_the_listing_for_a_project_shows_who_registered_it"),
 ]
