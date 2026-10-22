@@ -76,6 +76,7 @@ from tests.test_the_requester_asks_for_another_pass import (
     _Drafter,
     _waiting_card,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 AGENT = "Nina"
@@ -1165,7 +1166,7 @@ def test_every_input_for_the_cards_pull_request_says_which_change_it_is():
     missing, sites = [], []
     for rel in ("openfactory/runtime/temporal/workflow.py",
                 "openfactory/runtime/temporal/activities.py"):
-        for node in ast.walk(ast.parse((ROOT / rel).read_text(encoding="utf-8"))):
+        for node in ast.walk(parsed(ROOT / rel)):
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                     and node.func.id in ("CiRepairInput", "AdjustInput", "ReviewPassInput")):
                 sites.append(f"{rel}:{node.lineno}")

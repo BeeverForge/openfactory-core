@@ -37,6 +37,7 @@ from types import SimpleNamespace
 import pytest
 
 from openfactory.knowledge import pipeline
+from tests.the_tree_read_once import parsed
 
 SPAWN = multiprocessing.get_context("spawn")
 #: How long a pinned moment waits for the others. On a publish that does not queue they all
@@ -273,7 +274,7 @@ class _Code:
         self.modules: dict[str, dict[str, str]] = {}
         for path in sorted((ROOT / "openfactory").rglob("*.py")):
             rel = path.relative_to(ROOT).as_posix()
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parsed(path)
             self.trees[rel] = tree
             self.imported[rel], self.modules[rel] = {}, {}
             for node in ast.walk(tree):

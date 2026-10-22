@@ -49,6 +49,7 @@ from openfactory.product.module import _WHAT_WAS_ASKED, _section_re
 from openfactory.product.voice import admins_must_confirm, card_needs, ticket_confirmation
 from tests.test_confirmation_by_click import ADMIN, KEY, OUTSIDER, _project
 from tests.the_chat_turn import chat_turn
+from tests.the_tree_read_once import parsed
 
 #: THE FIXTURES BELOW ARE A PORTUGUESE CONVERSATION, so the cards they draft use the pt-BR layout
 #: (#429) — the default layout is English.
@@ -931,7 +932,7 @@ def test_every_card_the_product_role_creates_goes_through_the_loop():
     writers = {"file_ticket", "file_defect", "_file_one"}
     found = set()
     for path in Path(module.__file__).parent.glob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         # THE OUTERMOST function holding the call: a writer's nested `_open` is that writer
         tops = [n for n in tree.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
         for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):

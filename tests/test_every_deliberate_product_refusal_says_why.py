@@ -29,6 +29,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = ROOT / "openfactory" / "product"
 
@@ -459,7 +461,7 @@ def test_every_test_named_for_a_sentence_decided_elsewhere_exists():
     for tests in DECIDED_ELSEWHERE.values():
         for target in tests:
             file, _, name = target.partition("::")
-            tree = ast.parse((ROOT / file).read_text(encoding="utf-8"))
+            tree = parsed(ROOT / file)
             if name not in {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}:
                 missing.append(target)
 

@@ -35,6 +35,8 @@ import re
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "openfactory"
 
@@ -352,7 +354,7 @@ def test_nothing_in_the_core_reads_a_docstring_at_run_time():
     description handed to a model — this exemption turns into a hole, and this fails first."""
     readers = []
     for path in sorted(PACKAGE.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr == "__doc__":
                 readers.append(f"{path.relative_to(ROOT)}:{node.lineno} — .__doc__")

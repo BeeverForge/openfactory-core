@@ -43,6 +43,7 @@ from openfactory.adapters.credential_store import registry
 from openfactory.adapters.credential_store.base import CredentialRefused
 from openfactory.adapters.credential_store.file import DIR_VAR, MAX_BYTES, FileStore
 from openfactory.adapters.credential_store.registry import STORE_VAR, STORES
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "openfactory"
@@ -410,7 +411,7 @@ def test_every_refusal_the_file_store_can_give_is_a_case(tmp_path):
     `REFUSALS` (traced to its line), or is exempt above with its reason. A refusal added to the
     store without a case here fails by its own line."""
     source = pathlib.Path(registry.__file__).with_name("file.py")
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    tree = parsed(source)
     raises = {node.lineno: ast.unparse(node.exc) for node in ast.walk(tree)
               if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)
               and getattr(node.exc.func, "id", "") == CredentialRefused.__name__}
@@ -1236,7 +1237,7 @@ def _importers() -> set[str]:
         rel = path.relative_to(ROOT).as_posix()
         if rel.startswith("openfactory/adapters/credential_store/"):
             continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
                     "openfactory.adapters.credential_store"):
                 found.add(rel)
@@ -1287,7 +1288,7 @@ def construction_points(root: pathlib.Path = PACKAGE) -> dict[str, list[tuple[in
         rel = path.relative_to(root.parent).as_posix()
         if rel in THE_RESOLUTION:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         for call in _calls(tree, BUILDS | DEPLOYMENT_WIDE):
             found.setdefault(rel, []).append((call.lineno, ast.unparse(call.func)))
     return found
@@ -1301,7 +1302,7 @@ def falls_back_without_asking(root: pathlib.Path = PACKAGE) -> list[tuple[str, i
         rel = path.relative_to(root.parent).as_posix()
         if rel in THE_RESOLUTION:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         parent = {id(c): n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
         for call in _calls(tree, DEPLOYMENT_WIDE):
             fn = parent.get(id(call))
@@ -1397,7 +1398,7 @@ def test_every_module_that_asks_the_store_is_a_consumer_here():
     importers = _importers()
     assert len(importers) > 10, importers
     falling_back = {path.relative_to(ROOT).as_posix() for path in sorted(PACKAGE.rglob("*.py"))
-                    if _calls(ast.parse(path.read_text(encoding="utf-8")),
+                    if _calls(parsed(path),
                               DEPLOYMENT_WIDE | {"bot_token_provider_for"})} - THE_RESOLUTION
     # …AND EVERYTHING THAT SEALS OR VERIFIES WITH THE GATE KEY, which reads the store through
     # `gate_seal` without importing it — how the gate's callers escaped this guard (#822)
@@ -1405,12 +1406,12 @@ def test_every_module_that_asks_the_store_is_a_consumer_here():
                if "gate_seal" in {alias.name for node in ast.walk(ast.parse(
                    path.read_text(encoding="utf-8"))) if isinstance(node, ast.ImportFrom)
                    for alias in node.names} | {
-                   node.module for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+                   node.module for node in ast.walk(parsed(path))
                    if isinstance(node, ast.ImportFrom) and node.module == "openfactory.gate_seal"}}
     # …and everything that ASKS the refusal itself, the GitHub rows deciding whether an adapter may
     # fall back to the machine's own login among them
     deciding = {path.relative_to(ROOT).as_posix() for path in sorted(PACKAGE.rglob("*.py"))
-                if _calls(ast.parse(path.read_text(encoding="utf-8")),
+                if _calls(parsed(path),
                           ASKS_THE_REFUSAL | {"github_refusal", "app_key_refusal"})
                 } - THE_RESOLUTION
     asking = importers | falling_back | sealing | deciding
@@ -1458,7 +1459,7 @@ def gh_starts(root: pathlib.Path = PACKAGE) -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root.parent).as_posix()
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         parent = {id(c): n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
         for call in ast.walk(tree):
             if not (isinstance(call, ast.Call) and call.args and (

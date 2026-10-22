@@ -29,6 +29,7 @@ from openfactory import preview
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.preview import demand, steps
 from openfactory.preview.plan import Layout, Tree
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PR = "https://dev.example/org/Proj/_git/Org.Shop/pullrequest/1807"
@@ -244,7 +245,7 @@ def test_nothing_that_names_where_a_change_lives_reads_the_tickets_repo(package)
     files = sorted((ROOT / package).rglob("*.py"))
     assert len(files) >= 3, f"{package} shrank under the guard"
     found = {str(p.relative_to(ROOT)): lines for p in files
-             if (lines := _reads_ticket_repo(ast.parse(p.read_text())))}
+             if (lines := _reads_ticket_repo(parsed(p)))}
     assert not found, f"the ticket's repo read where a forge repository belongs: {found}"
 
 

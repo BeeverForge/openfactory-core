@@ -53,6 +53,7 @@ from openfactory.runtime.temporal.io import (
     RunJobInput,
     TicketRef,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PANEL = (ROOT / "openfactory" / "api" / "panel.html").read_text(encoding="utf-8")
@@ -289,7 +290,7 @@ def test_every_door_that_starts_a_job_stamps_the_projects_budget():
     never stamped the project's `language` either, which is the shape of this defect."""
     sites, missing = [], []
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        for node in ast.walk(parsed(path)):
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                     and node.func.id == "JobParams"):
                 where = f"{path.relative_to(ROOT)}:{node.lineno}"

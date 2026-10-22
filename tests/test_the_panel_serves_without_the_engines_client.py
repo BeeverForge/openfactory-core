@@ -41,6 +41,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parents[1]
 
 #: The child. `BLOCK=1` makes `temporalio` unfindable BEFORE anything of ours is imported — a
@@ -347,7 +349,7 @@ def test_the_words_are_NAMED_elsewhere_and_defined_once(module):
     spelling of the STRING passes every `is` — and a second spelling is precisely the copy the
     tech-lead kept, with a guard to pin it, while the word cost `temporalio` to read."""
     names = _NAMED_ELSEWHERE[module]
-    tree = ast.parse((ROOT / module).read_text())
+    tree = parsed(ROOT / module)
 
     respelled = []
     for node in ast.walk(tree):

@@ -44,6 +44,7 @@ from openfactory.product.voice import (
     jargon_in,
     not_a_promise,
 )
+from tests.the_tree_read_once import parsed
 
 DOCS = "acmecorp/acme-books-documentation"
 COMMIT = "c0ebc3c6620a1f"
@@ -739,7 +740,7 @@ def test_no_act_on_a_card_shares_a_try_with_the_comment_that_explains_it():
     #: having failed — or, wrapped the other way, be swallowed by its success.
     acts = {"update_body", "update_title", "close_ticket", "create_ticket", "set_state",
             "add_item", "set_column"}
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    tree = parsed(Path(module.__file__))
     shared: list[str] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Try):
@@ -1404,7 +1405,7 @@ def test_no_failure_branch_builds_a_client_sentence_out_of_what_it_caught():
 
     import openfactory.product.module as module
 
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    tree = parsed(Path(module.__file__))
     built = [f"module.py:{call.lineno}"
              for handler in ast.walk(tree) if isinstance(handler, ast.ExceptHandler)
              for call in ast.walk(handler)
@@ -1467,7 +1468,7 @@ def test_every_write_that_skips_the_gate_is_named_where_the_gate_is_declared():
               # a conversation's distillate, pushed to the context repository (#269 slice 3)
               "record_distillate"}
 
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    tree = parsed(Path(module.__file__))
     cls = next(n for n in ast.walk(tree)
                if isinstance(n, ast.ClassDef) and n.name == "ProductModule")
     calls: dict[str, set[str]] = {}

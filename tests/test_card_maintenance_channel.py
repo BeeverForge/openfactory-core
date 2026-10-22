@@ -63,6 +63,7 @@ from openfactory.product.voice import (
 )
 from tests.the_breakdown_runs_here import run_here
 from tests.the_chat_turn import AS_NAMED, CHAT, chat_turn
+from tests.the_tree_read_once import parsed
 
 # ── 1. the gesture: closing a card, in the words a person uses ─────────────────────────────────
 
@@ -638,7 +639,7 @@ def _channel_tree() -> ast.Module:
     """Both files as one tree, so a branch is found wherever the reply is composed."""
     merged = ast.Module(body=[], type_ignores=[])
     for path in _COMPOSING_FILES:
-        body = ast.parse(Path(path).read_text()).body
+        body = parsed(Path(path)).body
         assert any(isinstance(n, ast.FunctionDef) for n in body), (
             f"{path} contributed no functions to the scan — the file moved or was renamed, and "
             f"every guard reading this tree is now looking at half the code")
@@ -685,7 +686,7 @@ def _residue_carriers() -> set[str]:
     only the last of the three constructs the result. A classification that stops at the method the
     channel names cannot see the write it delegates.
     """
-    tree = ast.parse(Path("openfactory/product/module.py").read_text())
+    tree = parsed(Path("openfactory/product/module.py"))
     functions = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
     carriers = set()
     for name, fn in functions.items():
@@ -1432,7 +1433,7 @@ def test_every_new_success_sentence_is_visible_to_the_false_claim_detector(fn, k
 # ── 8. the two landmines this surface has already paid for ─────────────────────────────────────
 
 def _run_intent_body() -> ast.FunctionDef:
-    tree = ast.parse(Path("openfactory/product/engine.py").read_text())
+    tree = parsed(Path("openfactory/product/engine.py"))
     return next(n for n in ast.walk(tree)
                 if isinstance(n, ast.FunctionDef) and n.name == "_run_intent")
 

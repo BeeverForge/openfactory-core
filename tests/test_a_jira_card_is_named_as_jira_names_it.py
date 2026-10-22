@@ -59,6 +59,7 @@ import pytest
 from openfactory.contracts.refs import ref_label
 from openfactory.product import staging, voice
 from tests.test_a_jira_key_is_a_card_ref import _Answer
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -935,7 +936,7 @@ def test_the_allowlist_names_only_what_still_exists():
              for _line, name, _what in hashed_refs((ROOT / rel).read_text(encoding="utf-8"))}
     assert set(ALLOWED) <= found, f"an allowance no longer used — take it out: {set(ALLOWED) - found}"
     for (rel, name), why in ALLOWED.items():
-        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        tree = parsed(ROOT / rel)
         names = {n.name for n in ast.walk(tree)
                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         names |= {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign)

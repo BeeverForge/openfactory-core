@@ -57,6 +57,7 @@ from openfactory.runtime.temporal.io import TurnInput
 from tests.test_the_conversation_is_pinned import PLAIN, REQUEST, _asking, _Module
 from tests.test_the_one_door import _Worker
 from tests.the_sink_door import SINK_DOOR
+from tests.the_tree_read_once import parsed
 
 #: THIS FILE STARTS ITS OWN ENGINE for the conversation's tests, like `test_the_one_door`.
 pytestmark = pytest.mark.owns_its_engine
@@ -337,7 +338,7 @@ def test_nothing_the_core_writes_wears_a_vendor_mention():
 
     found = []
     for path in sorted(Path("openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         prose = {id(n.value) for n in ast.walk(tree)
                  if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
         for node in ast.walk(tree):

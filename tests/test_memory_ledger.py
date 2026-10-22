@@ -21,6 +21,7 @@ from openfactory.memory.ledger import (
     open_loop,
     waiting,
 )
+from tests.the_tree_read_once import parsed
 
 # ── opening ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -94,7 +95,7 @@ def test_nothing_in_this_module_lets_an_actor_declare_its_own_success():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/memory/ledger.py").read_text())
+    tree = parsed(Path("openfactory/memory/ledger.py"))
     producers = []
     for fn in tree.body:
         if not isinstance(fn, ast.FunctionDef):

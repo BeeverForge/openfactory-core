@@ -55,6 +55,8 @@ import pathlib
 
 from card_writers_outside_the_door import OUTSIDE_THE_DOOR
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 WRITES = frozenset({"set_state", "set_column", "set_status", "close_ticket", "remove_ticket",
@@ -159,7 +161,7 @@ def card_writes(root: pathlib.Path, *, rel_to: pathlib.Path) -> tuple[set[tuple]
         if any(rel.startswith(where) for where in NOT_CALLERS):
             continue
         read += 1
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         functions = [n for n in ast.walk(tree)
                      if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
         # the names this file reaches the door's promise half by: the module, or what it exports

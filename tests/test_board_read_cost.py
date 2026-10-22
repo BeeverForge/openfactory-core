@@ -21,6 +21,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.the_tree_read_once import parsed
+
 #: Every place a card list is fetched. `item-list` is the CLI subcommand that bills per card.
 _COSTLY = "item-list"
 
@@ -31,7 +33,7 @@ def _calls_with_costly_cli() -> list[str]:
     out = []
     for path in Path("openfactory").rglob("*.py"):
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for fn in ast.walk(tree):

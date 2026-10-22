@@ -42,6 +42,7 @@ from openfactory.contracts import (
 from openfactory.contracts.review import ReviewResult
 from openfactory.orchestrator import machine as machine_mod
 from openfactory.orchestrator import merge_policy as mp
+from tests.the_tree_read_once import parsed
 
 _FAILED = ValidationResult(name="test", command="pytest -q", exit_code=1, passed=False)
 _PASS = [ValidationResult(name="test", command="pytest -q", exit_code=0, passed=True)]
@@ -63,7 +64,7 @@ def _body(result_kw: dict | None = None, manifest_kw: dict | None = None,
 
 
 def _function(module, name: str) -> ast.FunctionDef:
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    tree = parsed(Path(module.__file__))
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == name:
             return node

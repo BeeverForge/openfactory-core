@@ -30,6 +30,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLI = ROOT / "openfactory/cli.py"
 
@@ -78,7 +80,7 @@ def test_with_nothing_configured_it_infers_rather_than_guessing(monkeypatch):
 # ── reachability: the resolution has to be what the runner is actually built with ───────────────
 
 def _cli_tree() -> ast.Module:
-    return ast.parse(CLI.read_text())
+    return parsed(CLI)
 
 
 def _calls(node: ast.FunctionDef, names: set[str]) -> list[ast.Call]:

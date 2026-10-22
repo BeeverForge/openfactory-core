@@ -28,6 +28,7 @@ from openfactory.adapters.forge.base import ForgeAdapter
 from openfactory.adapters.forge.registry import FORGES, build_forge
 from openfactory.adapters.tracker.registry import TRACKERS
 from openfactory.contracts.project import Project, ProviderRef
+from tests.the_tree_read_once import parsed
 
 
 def _project(forge_kind="github", tracker_kind="github", **forge_options):
@@ -139,7 +140,7 @@ def test_no_module_outside_its_provider_constructs_a_vendor_class():
         if str(path) in _MAY_NAME_A_VENDOR:
             continue
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         named: set[str] = set()
@@ -301,7 +302,7 @@ def test_the_core_runners_escalate_to_the_PROJECT_channel():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/factory.py").read_text())
+    tree = parsed(Path("openfactory/factory.py"))
     for builder in ("build_runner", "build_promotion_runner"):
         fn = next((n for n in ast.walk(tree)
                    if isinstance(n, ast.FunctionDef) and n.name == builder), None)

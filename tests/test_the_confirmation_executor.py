@@ -29,6 +29,7 @@ from openfactory.contracts.product import ProductConfig
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.product import confirm as executor
 from tests.the_chat_turn import AS_NAMED, CHAT
+from tests.the_tree_read_once import parsed
 
 ADMIN, OUTSIDER = "U1", "U9"
 KEY = "C0PROD"
@@ -82,7 +83,7 @@ def _staged_kinds() -> set[str]:
     """
     kinds: set[str] = set()
     for path in ROOT.joinpath("openfactory").rglob("*.py"):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "remember"):
                 continue

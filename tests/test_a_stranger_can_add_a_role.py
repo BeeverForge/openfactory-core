@@ -36,6 +36,7 @@ from openfactory.adapters.agent import registry as harnesses
 from openfactory.adapters.agent import roles
 from openfactory.adapters.agent.roles import RoleSpec
 from openfactory.contracts.project import Project
+from tests.the_tree_read_once import parsed
 
 QA_PROMPT = "# Role: QA\n\nRead the diff and the acceptance criteria; say what is not covered."
 
@@ -600,7 +601,7 @@ def test_the_coding_set_is_the_phases_the_adapters_really_pass():
     passed: set[str] = set()
     for module in ("claude_code", "codex", "kimi", "opencode"):
         path = pathlib.Path(harnesses.__file__).with_name(f"{module}.py")
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if not (isinstance(node, ast.Call)
                     and getattr(node.func, "attr", "") in ("_invoke", "_run")):
                 continue
@@ -692,7 +693,7 @@ def test_every_phase_the_tree_passes_sits_in_EXACTLY_one_set():
             passed.setdefault(lit.value, set()).add(str(path.relative_to(root)))
 
     for path in sorted(root.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.Call):
                 for kw in node.keywords:
                     if kw.arg == "phase":

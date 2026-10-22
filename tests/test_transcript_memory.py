@@ -29,6 +29,7 @@ from openfactory.contracts.project import Project, ProviderRef
 from openfactory.memory import transcript
 from tests.the_chat_turn import chat_turn
 from tests.the_sink_door import SINK_DOOR
+from tests.the_tree_read_once import parsed
 
 
 class _Sink:
@@ -75,7 +76,7 @@ def test_production_code_calls_it(fn):
     for path in Path("openfactory").rglob("*.py"):
         if path.name == "transcript.py" or "__pycache__" in path.parts:
             continue
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == fn:
                 callers.append(str(path))

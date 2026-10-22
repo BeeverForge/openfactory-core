@@ -28,6 +28,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from openfactory.contracts import AcceptanceCriterion, JobState, Manifest, Ticket
+from tests.the_tree_read_once import parsed
 
 pytest_plugins = ["tests.test_walking_skeleton"]
 
@@ -150,7 +151,7 @@ def test_the_repair_path_is_guarded_too(repo: Path, tmp_path: Path):
 
     src = pathlib.Path(__file__).resolve().parent.parent / "openfactory/orchestrator/machine.py"
     bare: list[str] = []
-    for node in ast.walk(ast.parse(src.read_text())):
+    for node in ast.walk(parsed(src)):
         # a bare `self.sandbox.run(...)` as a statement — result thrown away
         if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)):
             continue

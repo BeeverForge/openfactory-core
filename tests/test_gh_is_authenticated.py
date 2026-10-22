@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 
 from openfactory.product import authoring
+from tests.the_tree_read_once import parsed
 
 _SRC = Path("openfactory/product/authoring.py").read_text()
 _FORGE_CLIS = ("gh", "glab", "az", "tf")
@@ -87,7 +88,7 @@ def test_the_module_passes_a_forge_it_BUILT(fn):
 
     `_forge()` and not any expression: it is the seam that reads the registry, so it is the one
     thing that makes a deployment's declared vendor the vendor this write actually uses."""
-    tree = ast.parse(Path("openfactory/product/module.py").read_text())
+    tree = parsed(Path("openfactory/product/module.py"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and getattr(n.func, "id", None) == fn]
     assert calls, f"{fn} is not called from the module at all"

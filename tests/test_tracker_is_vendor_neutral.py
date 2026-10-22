@@ -22,6 +22,7 @@ from openfactory.adapters.tracker.base import TrackerAdapter
 from openfactory.adapters.tracker.registry import TRACKERS, build_tracker
 from openfactory.contracts import JobState
 from openfactory.contracts.project import Project, ProviderRef
+from tests.the_tree_read_once import parsed
 
 _JIRA_OPTS = {"site": "https://x.atlassian.net", "project_key": "CONT", "email": "a@b.c"}
 
@@ -121,7 +122,7 @@ def test_no_core_module_names_a_concrete_tracker():
         if str(path) in allowed:
             continue
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for node in ast.walk(tree):

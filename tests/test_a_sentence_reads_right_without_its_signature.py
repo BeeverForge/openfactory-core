@@ -8,6 +8,8 @@ import ast
 import pathlib
 import re
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "openfactory"
 #: `{sig}`, an optional space, and a lowercase letter — Portuguese ones included
 AFTER_SIGNATURE = re.compile(r"\{sig\} ?[a-zà-ÿ]")
@@ -16,7 +18,7 @@ AFTER_SIGNATURE = re.compile(r"\{sig\} ?[a-zà-ÿ]")
 def _signed_lowercase() -> list[str]:
     found = []
     for path in sorted(ROOT.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) \
                     and AFTER_SIGNATURE.search(node.value):
                 found.append(f"{path.relative_to(ROOT.parent)}:{node.lineno}: "

@@ -25,6 +25,7 @@ import pytest
 
 from openfactory.api.app import _axes
 from openfactory.contracts.project import Project
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -165,7 +166,7 @@ def test_no_library_module_loads_dotenv_ON_IMPORT():
     offenders = []
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for node in tree.body:  # MODULE SCOPE ONLY — inside a function is the correct place

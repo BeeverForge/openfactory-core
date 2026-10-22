@@ -29,6 +29,7 @@ from openfactory.memory import messages
 from openfactory.product import engine
 from tests.the_chat_turn import AS_NAMED, CHAT
 from tests.the_sink_door import SINK_DOOR
+from tests.the_tree_read_once import parsed
 
 
 class _Project:
@@ -333,7 +334,7 @@ def test_nothing_on_this_path_imports_slack():
 
     root = pathlib.Path(__file__).resolve().parents[1] / "openfactory"
     for rel in ("adapters/channel/panel.py", "memory/messages.py"):
-        tree = ast.parse((root / rel).read_text(encoding="utf-8"))
+        tree = parsed(root / rel)
         imported = [
             n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
         ] + [

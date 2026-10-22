@@ -23,6 +23,8 @@ import pathlib
 import add_ons
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: The literal that started this: the first deployment's region, and the value four modules used
@@ -159,7 +161,7 @@ def test_no_module_carries_the_first_deployments_region_as_a_fallback():
     """
     offenders = []
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Constant) or node.value != FIRST_DEPLOYMENTS_REGION:
                 continue

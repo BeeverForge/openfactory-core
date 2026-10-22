@@ -35,6 +35,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 SDLC = pathlib.Path(__file__).resolve().parents[1] / "openfactory"
 
 #: Parameter and field names that can only ever mean a tracker's ticket. Bare `number` is
@@ -62,7 +64,7 @@ def _int_annotated_refs() -> list[tuple[str, int, str, str]]:
     found: list[tuple[str, int, str, str]] = []
     for path in sorted(SDLC.rglob("*.py")):
         rel = str(path.relative_to(SDLC))
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
                 if node.target.id in REF_NAMES and _mentions_int(node.annotation):
@@ -116,7 +118,7 @@ def test_the_allowlist_is_not_a_place_things_quietly_accumulate():
     for rel, function in ALLOWED:
         path = SDLC / rel
         assert path.exists(), f"the allowlist names {rel}, which is gone"
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         names = {n.name for n in ast.walk(tree)
                  if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
         assert function in names, f"the allowlist names {rel}:{function}, which is gone"

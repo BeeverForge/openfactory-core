@@ -21,6 +21,7 @@ import pathlib
 import pytest
 
 from openfactory import envfile, preflight
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -150,7 +151,7 @@ def _hand_written_parsers(package: pathlib.Path = ROOT / "openfactory") -> list[
     """Functions that read `KEY=value` lines past `#` comments — an env file's parser."""
     found = []
     for path in sorted(package.rglob("*.py")):
-        for fn in ast.walk(ast.parse(path.read_text())):
+        for fn in ast.walk(parsed(path)):
             if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             calls = [(n.func.attr, n.args[0].value) for n in ast.walk(fn)

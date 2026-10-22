@@ -55,6 +55,7 @@ import pathlib
 from test_the_environment_carries_the_products_name import _holds_a_credential
 
 from openfactory import environ
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "openfactory"
@@ -360,7 +361,7 @@ class _Package:
         self.constants: dict[tuple[str, str], str] = {}
         self.tables: dict[tuple[str, str], list[ast.AST]] = {}
         self.scopes: dict[str, _Scope] = {}
-        trees = {path: ast.parse(path.read_text(encoding="utf-8"))
+        trees = {path: parsed(path)
                  for path in sorted(root.rglob("*.py"))}
         for path, tree in trees.items():
             dotted = self.dotted(path)

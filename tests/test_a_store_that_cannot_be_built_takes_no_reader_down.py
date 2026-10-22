@@ -36,6 +36,7 @@ import pytest
 
 from openfactory.adapters.credential_store import registry
 from openfactory.adapters.credential_store.registry import STORE_VAR, STORES
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "openfactory"
@@ -116,7 +117,7 @@ def _calls(qualified: str, node: ast.FunctionDef, defined: dict) -> set[str]:
 
 def registry_readers() -> dict[str, set[str]]:
     """`{reader: what it calls}` for every function of `registry.py` that reaches `build_store`."""
-    defined = _defined(ast.parse(REGISTRY.read_text(encoding="utf-8")))
+    defined = _defined(parsed(REGISTRY))
     calls = {q: _calls(q, node, defined) for q, node in defined.items()}
     reaches = {"build_store"}
     while grown := {q for q, called in calls.items() if q not in reaches and called & reaches}:
@@ -224,7 +225,7 @@ def readers_elsewhere() -> set[tuple[str, str]]:
         rel = path.relative_to(ROOT).as_posix()
         if rel.startswith("openfactory/adapters/credential_store/"):
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         modules, functions = _aliases(tree)
         if not modules and not functions:
             continue

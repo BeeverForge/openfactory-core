@@ -21,6 +21,7 @@ import pytest
 
 from openfactory.adapters.board import BOARD_KINDS, BoardAdapter, build_board
 from openfactory.contracts.project import Project, ProviderRef
+from tests.the_tree_read_once import parsed
 
 #: The only places allowed to name a vendor's board class: the factory (whose job is choosing one)
 #: and the GitHub provider's own module (a GitHub tracker building a GitHub board is not coupling).
@@ -41,7 +42,7 @@ def _files_naming_a_vendor_board() -> set[str]:
     out = set()
     for path in Path("openfactory").rglob("*.py"):
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for node in ast.walk(tree):
@@ -107,7 +108,7 @@ def test_the_contract_is_derived_from_what_production_actually_calls():
     board, so they read as uncalled here. Narrowing to what is declared inside a class is what the
     docstring above already means by *the contract*, and it keeps the rule exactly as strict: a
     protocol method must still be reached as `board.<name>(…)` somewhere in production."""
-    declared = ast.parse(Path("openfactory/adapters/board/base.py").read_text())
+    declared = parsed(Path("openfactory/adapters/board/base.py"))
     protocol_methods = {n.name for klass in ast.walk(declared)
                         if isinstance(klass, ast.ClassDef)
                         for n in klass.body
@@ -117,7 +118,7 @@ def test_the_contract_is_derived_from_what_production_actually_calls():
     called = set()
     for path in Path("openfactory").rglob("*.py"):
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for node in ast.walk(tree):

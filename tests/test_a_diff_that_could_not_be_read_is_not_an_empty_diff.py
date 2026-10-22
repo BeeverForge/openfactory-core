@@ -48,6 +48,7 @@ from openfactory.adapters.sandbox.base import Workspace
 from openfactory.adapters.sandbox.worktree import WorktreeSandbox
 from openfactory.contracts import Manifest, RunResult, ValidationResult
 from openfactory.orchestrator.merge_policy import should_auto_merge
+from tests.the_tree_read_once import parsed
 
 
 def _git(args: list[str], cwd: Path) -> None:
@@ -134,7 +135,7 @@ def _source_of(path: str, fn: str) -> str:
     import ast
 
     root = Path(__file__).resolve().parents[1]
-    tree = ast.parse((root / path).read_text(encoding="utf-8"))
+    tree = parsed(root / path)
     node = next(n for n in ast.walk(tree)
                 if isinstance(n, ast.FunctionDef) and n.name == fn)
     return ast.unparse(node)

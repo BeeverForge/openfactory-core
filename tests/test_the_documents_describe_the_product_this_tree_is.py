@@ -42,6 +42,8 @@ import add_ons
 import pytest
 import yaml
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: The documents this package owns. Every scan below runs over all of them, so a defect fixed in
@@ -214,7 +216,7 @@ def _defined_in(rel: str) -> set[str]:
 
     Methods count: `JobWorkflow._journal_outcome` and `_pause_backoff` are what the operator
     pages cite, and a guard that only saw top-level defs would call both of them missing."""
-    tree = ast.parse((ROOT / rel).read_text())
+    tree = parsed(ROOT / rel)
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):

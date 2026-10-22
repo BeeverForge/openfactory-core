@@ -52,6 +52,7 @@ from openfactory.adapters.sandbox.worktree import (
     _PANEL_SECRET_VARS,
     _scrubbed_env,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SECURITY = ROOT / "SECURITY.md"
@@ -151,7 +152,7 @@ def _legacy_env_reads(path: pathlib.Path) -> list[tuple[int, str]]:
             return node.value
         return None
 
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(parsed(path)):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             fn = node.func
             reads_env = (fn.attr in ("get", "pop", "setdefault") and is_env_owner(fn.value)) or \
@@ -206,7 +207,7 @@ def test_no_env_dict_is_assembled_with_the_old_names():
     offenders = {}
     for path in sorted(ROOT.joinpath("openfactory").rglob("*.py")):
         hits = []
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.Dict):
                 for key in node.keys:
                     if (isinstance(key, ast.Constant) and isinstance(key.value, str)
@@ -269,7 +270,7 @@ def _spelling_groups(path: pathlib.Path) -> list[frozenset[str]]:
     three names are one credential and not two pairs. The credential store's `chain((A, B))` is
     the same fallback spelled so that a refusal ends it (#822), and is read the same way."""
     groups: list[frozenset[str]] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+    for node in ast.walk(parsed(path)):
         if len(chained := _chained(node)) > 1:
             groups.append(frozenset(chained))
             continue

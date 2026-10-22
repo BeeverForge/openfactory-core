@@ -35,6 +35,7 @@ import add_ons
 import pytest
 
 from openfactory import credentials, namespace
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -109,7 +110,7 @@ def _minted_workflow_prefixes() -> set[str]:
     is measured against the new one without anybody remembering this file exists."""
     found: set[str] = set()
     for rel in STARTERS:
-        tree = ast.parse((ROOT / rel).read_text())
+        tree = parsed(ROOT / rel)
         for node in ast.walk(tree):
             if not isinstance(node, ast.JoinedStr) or not node.values:
                 continue

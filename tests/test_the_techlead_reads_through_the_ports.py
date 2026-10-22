@@ -36,6 +36,7 @@ from openfactory.adapters.tracker.base import TicketComment
 from openfactory.contracts import Ticket
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.techlead import conversation, diagnosis
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MODULES = [ROOT / "openfactory" / "techlead" / "conversation.py",
@@ -1026,7 +1027,7 @@ def _shell_words(path: pathlib.Path) -> list[str]:
     codebase's house style is to explain a decision by naming the vendor that taught it. A grep
     would match the explanation and a guard that fights the house style is one somebody deletes."""
     out: list[str] = []
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+    for node in ast.walk(parsed(path)):
         if not (isinstance(node, ast.Call)
                 and (getattr(node.func, "attr", None) or getattr(node.func, "id", None)) == "run"):
             continue
@@ -1069,7 +1070,7 @@ def _non_prose_strings(path: pathlib.Path) -> list[tuple[int, str]]:
 
     Shared by the two scanners below because they need exactly the same exemption, and a second
     copy of it would be the one that goes stale."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = parsed(path)
     prose = {
         id(node.body[0].value)
         for node in ast.walk(tree)
@@ -1116,7 +1117,7 @@ def test_that_url_guard_can_actually_SEE_an_offender(tmp_path):
 
 
 def _calls_in(path: pathlib.Path, func: str) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = parsed(path)
     fn = next((n for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == func), None)
     assert fn is not None, f"{func} vanished from {path.name} — this guard now guards nothing"

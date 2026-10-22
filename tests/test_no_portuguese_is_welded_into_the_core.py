@@ -34,6 +34,8 @@ import json
 import re
 from pathlib import Path
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "openfactory"
 EXEMPT_FILE = Path(__file__).with_name("portuguese_literals_not_yet_in_a_catalogue.json")
@@ -204,7 +206,7 @@ def welded() -> dict[str, list[str]]:
     out: dict[str, list[str]] = collections.defaultdict(list)
     for path in sorted(PACKAGE.rglob("*.py")):
         rel = path.relative_to(ROOT).as_posix()
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         allowed = _docstrings(tree) | _in_a_catalogue(tree)
         for table in _recognisers(tree, rel).values():
             allowed |= _subtree(table)
@@ -247,7 +249,7 @@ def test_no_new_portuguese_literal_and_no_dead_exemption():
 
 def test_every_recogniser_is_declared_where_it_lives_and_carries_english():
     for (rel, name), english in sorted(RECOGNISERS.items()):
-        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        tree = parsed(ROOT / rel)
         table = _recognisers(tree, rel).get(name)
         assert table is not None, f"{rel} declares no {name} — the recogniser moved or was renamed"
         assert any(english in n.value for n in _strings(table)), (
@@ -259,7 +261,7 @@ def test_a_catalogues_english_is_english():
     """The half a catalogue is FOR: a Portuguese sentence filed under `en` is the defect itself."""
     wrong = []
     for path in sorted(PACKAGE.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Dict):
                 continue

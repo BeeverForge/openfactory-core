@@ -36,6 +36,7 @@ from typer.testing import CliRunner
 from openfactory import actions
 from openfactory.actions import base, catalog
 from tests.the_card_at_its_last_gate import at_its_last_gate
+from tests.the_tree_read_once import parsed
 
 
 @pytest.fixture
@@ -98,7 +99,7 @@ def _borrowed_names(path: str) -> set[str]:
 
 
 def _names(path: str) -> tuple[set[str], set[str]]:
-    tree = ast.parse(Path(path).read_text())
+    tree = parsed(Path(path))
     every: set[str] = set()
     borrowed: set[str] = set()
     for node in ast.walk(tree):
@@ -1544,7 +1545,7 @@ def test_the_merge_rows_never_touch_the_release_machinery():
     ADR-0026 and test_the_client_releases_production.py exist to keep sharp."""
     import ast
 
-    tree = ast.parse(Path("openfactory/actions/catalog.py").read_text())
+    tree = parsed(Path("openfactory/actions/catalog.py"))
     forbidden = {"verify_approver", "approve_job", "PromotionRunner", "release_prod",
                  "_prod_allowlist", "_approval_denied"}
     for name in ("_merge", "_adjust", "_discard", "_answer_gate"):
@@ -1560,7 +1561,7 @@ def test_the_release_rows_still_DO_touch_it():
     repository keeps recording."""
     import ast
 
-    tree = ast.parse(Path("openfactory/actions/catalog.py").read_text())
+    tree = parsed(Path("openfactory/actions/catalog.py"))
     for name in ("_approve_prod", "_promote"):
         fn = next(n for n in ast.walk(tree)
                   if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef) and n.name == name)
@@ -1716,7 +1717,7 @@ def _refusals_in(tree: ast.AST) -> set[str]:
 
 
 def _catalog_functions() -> dict[str, ast.AST]:
-    tree = ast.parse(_CATALOG_SOURCE.read_text())
+    tree = parsed(_CATALOG_SOURCE)
     return {n.name: n for n in tree.body
             if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
 
@@ -1754,7 +1755,7 @@ def test_every_refusal_in_the_catalogue_is_inside_a_function_the_guards_can_walk
     """The guards below read reasons off the runners' call graphs, so a `refused(...)` outside a
     module-level function — in a class, at import time — would be a refusal no row declares and
     no guard sees."""
-    tree = ast.parse(_CATALOG_SOURCE.read_text())
+    tree = parsed(_CATALOG_SOURCE)
     every = _refusals_in(tree)
     walked: set[str] = set()
     for node in _catalog_functions().values():
@@ -1804,7 +1805,7 @@ def test_a_row_that_hands_back_another_rows_outcome_declares_which(name):
 def test_perform_emits_every_reason_it_declares_and_declares_every_one_it_emits():
     """`perform` refuses around every row — a missing parameter, a credential scoped away, an
     engine that did not answer — and those reasons are part of every row's list."""
-    tree = ast.parse(_LAYER_SOURCE.read_text())
+    tree = parsed(_LAYER_SOURCE)
     perform = next(n for n in ast.walk(tree)
                    if isinstance(n, ast.AsyncFunctionDef) and n.name == "perform")
 

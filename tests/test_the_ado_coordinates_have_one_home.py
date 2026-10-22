@@ -24,6 +24,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ADAPTERS = pathlib.Path(__file__).resolve().parents[1] / "openfactory" / "adapters"
 HOME = ADAPTERS / "azure_devops.py"
 
@@ -43,7 +45,7 @@ def _reads_the_org_option(path: pathlib.Path) -> list[str]:
     its own explanation is a trap this repository has already fallen into three times in one day.
     """
     out = []
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(parsed(path)):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for call in ast.walk(node):

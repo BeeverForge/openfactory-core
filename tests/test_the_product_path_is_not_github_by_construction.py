@@ -46,6 +46,7 @@ from openfactory.product.config import (
     repo_match,
     resolve_product_link,
 )
+from tests.the_tree_read_once import parsed
 
 #: The coordinates of the Azure deployment this card is about, spelled the way each surface spells
 #: them: the registry names the repository alone (organisation and project live in the provider's
@@ -586,7 +587,7 @@ def test_the_HOURLY_sweep_is_handed_the_forge_it_used_to_run_without(monkeypatch
         behaviour      what ARRIVES is the project's own adapter — on the Azure row, built from
                        the project's coordinates, because a GitHub client here reads nothing and
                        would report the empty answer as a clean repository."""
-    tree = ast.parse(Path("openfactory/runtime/temporal/activities.py").read_text())
+    tree = parsed(Path("openfactory/runtime/temporal/activities.py"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call)
              and getattr(n.func, "id", None) == "land_open_proposals"]
@@ -813,7 +814,7 @@ def test_no_reader_in_the_product_package_resolves_a_credential_process_wide():
     package = pathlib.Path(inspect.getfile(resolve_product_link)).parent
     offenders = []
     for path in sorted(package.glob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         offenders += [f"{path.name}:{node.lineno}: imports the process-wide {alias.name}"
                       for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
                       for alias in node.names

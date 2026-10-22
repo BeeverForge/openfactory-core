@@ -47,6 +47,7 @@ from tests.test_the_product_role_moves_cards_by_key import (
     _module,
     _product,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -567,7 +568,7 @@ def test_no_neutral_code_names_a_column_by_the_platforms_literal():
     found = set()
     for folder in NEUTRAL:
         for path in sorted((ROOT / folder).rglob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parsed(path)
             prose = _docstrings(tree)
             rel = path.relative_to(ROOT).as_posix()
             for node in ast.walk(tree):

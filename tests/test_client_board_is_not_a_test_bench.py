@@ -21,6 +21,7 @@ import pytest
 
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.policy.test_work import TEST_WORK_LABEL, admissible, is_test_work, refusal_for
+from tests.the_tree_read_once import parsed
 
 
 def _project(**kw):
@@ -73,7 +74,7 @@ def test_the_factory_hands_the_project_to_the_runner():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/factory.py").read_text())
+    tree = parsed(Path("openfactory/factory.py"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "JobRunner"
              and any(k.arg == "project" for k in n.keywords)]

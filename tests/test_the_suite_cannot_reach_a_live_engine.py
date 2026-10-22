@@ -35,6 +35,8 @@ import textwrap
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -113,7 +115,7 @@ def _marked_files() -> list[pathlib.Path]:
     """Every test module that declares `pytestmark = pytest.mark.owns_its_engine`."""
     out = []
     for path in sorted(ROOT.joinpath("tests").glob("test_*.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in tree.body:
             if not isinstance(node, ast.Assign):
                 continue

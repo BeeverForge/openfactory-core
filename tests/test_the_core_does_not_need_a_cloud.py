@@ -34,6 +34,8 @@ import textwrap
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: SDKs that tie an install to one vendor's cloud. Not "any dependency" — these are the ones whose
@@ -93,7 +95,7 @@ def test_no_cloud_SDK_is_a_CORE_dependency():
 def _cloud_imports_at_module_scope() -> list[str]:
     out = []
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in tree.body:  # module scope ONLY — nested imports are the correct shape
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
@@ -128,7 +130,7 @@ def test_this_guard_can_actually_SEE_a_module_scope_import(tmp_path, monkeypatch
 
     found = []
     for path in sorted((tmp_path / "openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         found += [f"{path.name}:{n.lineno}" for n in tree.body
                   if isinstance(n, (ast.Import, ast.ImportFrom)) and "boto3" in ast.unparse(n)]
     assert found == ["leaky.py:1"], "the module-scope scanner cannot see an offender it is given"

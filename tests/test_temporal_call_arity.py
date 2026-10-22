@@ -25,6 +25,8 @@ import pytest
 from temporalio import workflow as temporal_workflow
 from temporalio.client import Client, WorkflowHandle
 
+from tests.the_tree_read_once import parsed
+
 #: attribute name → the real callable whose signature it must fit. `execute_activity` and
 #: `create_schedule` joined after a reviewer pointed out they sat outside the guard — the same
 #: keyword-only trap (`args=[...]`) exists on the activity API, and a schedule call with the
@@ -42,7 +44,7 @@ _CHECKED = {
 def _call_sites():
     """(file, line, method, positional count, keyword names) for every checked call in sdlc/."""
     for path in sorted(Path("openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue

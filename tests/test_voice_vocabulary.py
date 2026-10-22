@@ -22,6 +22,7 @@ import pytest
 
 from openfactory.product.role import ProductRole
 from openfactory.product.voice import AUDIENCE_RULES, language_rules
+from tests.the_tree_read_once import parsed
 
 
 def _client_prompt(**kw) -> str:
@@ -84,7 +85,7 @@ def test_the_module_hands_the_project_language_to_the_role():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/product/module.py").read_text())
+    tree = parsed(Path("openfactory/product/module.py"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "ProductRole"
              and any(k.arg == "language" for k in n.keywords)]

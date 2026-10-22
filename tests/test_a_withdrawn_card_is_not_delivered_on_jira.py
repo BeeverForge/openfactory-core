@@ -35,6 +35,7 @@ import pytest
 from openfactory.adapters.tracker import base as port
 from openfactory.adapters.tracker.jira import JiraTracker
 from openfactory.product.board import _ticket
+from tests.the_tree_read_once import parsed
 
 REF = "DAR-7"
 DONE, DONE_ID = "Concluído", "31"
@@ -464,7 +465,7 @@ def test_no_generic_caller_passes_the_word_to_a_row_directly():
     for path in sorted(root.rglob("*.py")):
         if rows in path.parents:
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "close_ticket"
                     and any(k.arg == "delivered" for k in node.keywords)):

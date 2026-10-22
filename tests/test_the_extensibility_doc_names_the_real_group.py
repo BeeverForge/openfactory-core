@@ -28,6 +28,7 @@ import re
 import subprocess
 
 from openfactory import plugins
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "core" / "07-extensibility.md"
@@ -126,7 +127,7 @@ def _axes_that_consult_the_loader(root: pathlib.Path = ROOT) -> set[str]:
     for path in files:
         if not path.is_file():
             continue
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         constants = {t.id: n.value.value for n in tree.body if isinstance(n, ast.Assign)
                      and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
                      for t in n.targets if isinstance(t, ast.Name)}

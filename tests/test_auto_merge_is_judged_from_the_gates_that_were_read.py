@@ -55,6 +55,7 @@ from tests.test_the_doctor_never_says_no_gate_about_a_branch_it_could_not_read i
     RULES_THAT_GATE_NOTHING,
     _github,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,7 +70,7 @@ def _capabilities_asked_of_a_forge() -> dict[str, list[str]]:
     codebase spells a row capability (`base.py::merge_gates_of`, `display_name`, `checks.py`)."""
     asked: dict[str, list[str]] = {}
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                     and node.func.id == "getattr" and len(node.args) >= 2
                     and isinstance(node.args[1], ast.Constant)

@@ -34,6 +34,7 @@ import pytest
 from openfactory.adapters.agent.roles import MACHINE_PHASES
 from openfactory.product.module import ProductModule
 from tests.test_product_module import _module
+from tests.the_tree_read_once import parsed
 
 PRODUCT = Path("openfactory/product")
 WEB, API = "acme/reservas-web", "acme/reservas-api"
@@ -202,7 +203,7 @@ def _functions():
     for path in sorted(PRODUCT.glob("*.py")):
         if path.name == "role.py":
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.FunctionDef):
                 yield path.name, node
 

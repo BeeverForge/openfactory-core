@@ -66,6 +66,7 @@ import pytest
 from tests.test_loops_are_reachable import _call_graph, _called_names, _reachable_from
 from tests.the_card_at_its_last_gate import at_its_last_gate
 from tests.the_sink_door import SINK_DOOR
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "openfactory"
@@ -117,7 +118,7 @@ def _work_done_in(packages) -> list[str]:
     hits = []
     for package in packages:
         for path in sorted(pathlib.Path(package).rglob("*.py")):
-            for fn in ast.walk(ast.parse(path.read_text())):
+            for fn in ast.walk(parsed(path)):
                 if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
                     continue
                 for node in ast.walk(fn):
@@ -146,7 +147,7 @@ def test_the_walk_covers_every_channel_package_the_tree_ships():
         f"skips them")
     for package in shipped:
         defined = sum(1 for f in package.rglob("*.py")
-                      for n in ast.walk(ast.parse(f.read_text()))
+                      for n in ast.walk(parsed(f))
                       if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef))
         assert defined >= 20, f"only {defined} functions under {package.name} — the walk is blind"
 
@@ -212,7 +213,7 @@ def _channel_imports_in(package: pathlib.Path, *, kinds: tuple[str, ...]) -> lis
 
     out = []
     for path in sorted(package.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.ImportFrom) and node.module and _reaches(node.module):
                 out.append(f"{path.name}:{node.lineno} — from {node.module} import …")
             elif isinstance(node, ast.Import) and any(_reaches(a.name) for a in node.names):
@@ -279,7 +280,7 @@ def test_the_chat_handler_and_the_panel_turn_share_ONE_settling_stage():
     Since #266 slice 3 both reach it through the ONE DOOR: the chat handler hands its message to
     the door (`say`), and the turn every message gets on the worker is `_conversation_turn`."""
     def _calls(path: pathlib.Path, fn_name: str) -> set[str]:
-        fn = next(n for n in ast.walk(ast.parse(path.read_text()))
+        fn = next(n for n in ast.walk(parsed(path))
                   if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name == fn_name)
         return {getattr(n.func, "id", None) or getattr(n.func, "attr", "")
                 for n in ast.walk(fn) if isinstance(n, ast.Call)}
@@ -292,7 +293,7 @@ def test_the_chat_handler_and_the_panel_turn_share_ONE_settling_stage():
     assert "settle" in _calls(TURN_ENGINE, "_answer"), "the turn engine no longer settles"
     callers = set()
     for path in PACKAGE.rglob("*.py"):
-        for fn in ast.walk(ast.parse(path.read_text())):
+        for fn in ast.walk(parsed(path)):
             if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) and any(
                     isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "settle_acceptance"
                     for n in ast.walk(fn)):

@@ -35,6 +35,7 @@ import pytest
 
 from openfactory.contracts.project import BoxConfig, Project
 from openfactory.factory import resolve_box_image
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -140,7 +141,7 @@ def test_no_launch_site_hard_codes_an_image(rel):
     project — so even a client who configured a box got the framework's image on the repair path,
     which is the shape of bug that only shows up on the second failure of the day."""
     offenders = []
-    for node in ast.walk(ast.parse((ROOT / rel).read_text())):
+    for node in ast.walk(parsed(ROOT / rel)):
         if not isinstance(node, ast.keyword) or node.arg != "image":
             continue
         if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
@@ -184,7 +185,7 @@ def test_every_job_launch_stamps_a_resolved_image(rel):
     """The positive twin. A workflow input built without `image=` silently takes the framework
     default, which is exactly the state D4 exists to end."""
     missing = []
-    for node in ast.walk(ast.parse((ROOT / rel).read_text())):
+    for node in ast.walk(parsed(ROOT / rel)):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                 and node.func.id == "JobParams"):
             continue

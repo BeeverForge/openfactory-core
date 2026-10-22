@@ -23,6 +23,7 @@ from openfactory.adapters.tracker.base import TrackerAdapter
 from openfactory.adapters.tracker.registry import build_tracker
 from openfactory.contracts import JobState
 from openfactory.contracts.project import Project, ProviderRef
+from tests.the_tree_read_once import parsed
 
 # ── recorded shapes ─────────────────────────────────────────────────────────────────────────────
 
@@ -227,7 +228,7 @@ def test_nothing_outside_the_registry_names_this_class():
         if str(path) in allowed:
             continue
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for node in ast.walk(tree):

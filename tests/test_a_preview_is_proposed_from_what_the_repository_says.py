@@ -64,6 +64,7 @@ from openfactory.preview.plan import Layout, PreviewPlan, Tree, Unit
 from openfactory.preview.read import Shape as ReadShape
 from openfactory.preview.read import shape
 from openfactory.util.bounded import BoundedDict
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).parent / "fixtures" / "preview" / "propose"
@@ -944,7 +945,7 @@ def _callers(name: str) -> set[str]:
     """Every module under `openfactory/` that CALLS `name`, by the syntax tree."""
     found = set()
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 fn = node.func

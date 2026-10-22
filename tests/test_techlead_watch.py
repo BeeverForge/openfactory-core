@@ -19,6 +19,7 @@ from openfactory.techlead.watch import (
     report,
     watch,
 )
+from tests.the_tree_read_once import parsed
 
 THROTTLED = "box failed: gh project field-list failed: GraphQL: API rate limit exceeded"
 
@@ -153,7 +154,7 @@ def test_the_rounds_only_resume_what_they_flagged_as_resumable():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/runtime/temporal/activities.py").read_text())
+    tree = parsed(Path("openfactory/runtime/temporal/activities.py"))
     fn = next(
         n
         for n in ast.walk(tree)

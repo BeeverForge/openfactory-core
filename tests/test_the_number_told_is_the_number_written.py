@@ -25,6 +25,7 @@ import pytest
 import openfactory.product.channel as pc
 from openfactory.product.authoring import WriteResult
 from tests.the_chat_turn import chat_turn
+from tests.the_tree_read_once import parsed
 
 
 class _Draft:
@@ -138,7 +139,7 @@ def test_the_write_CARRIES_the_number_it_minted():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/product/authoring.py").read_text())
+    tree = parsed(Path("openfactory/product/authoring.py"))
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "propose_requirement")
 

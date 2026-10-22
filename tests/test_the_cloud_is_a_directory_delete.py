@@ -46,6 +46,7 @@ from openfactory.adapters.sandbox.registry import (
     no_local_adapter,
     remote_box,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -121,7 +122,7 @@ def test_no_core_module_imports_the_aws_connector():
     metrics_view.py, query.py, transcript.py, observability/registry.py, session_store.py); a
     connector the core imports is not one a client can decline to install."""
     offenders = {str(p.relative_to(ROOT)): hits
-                 for p in _core_sources() if (hits := imports_of_aws(ast.parse(p.read_text())))}
+                 for p in _core_sources() if (hits := imports_of_aws(parsed(p)))}
     assert not offenders, (
         "core modules import the AWS connector — the connector is an add-on that registers through "
         f"the `openfactory.adapters` entry-point group, and the core must resolve it by KIND: "
@@ -202,7 +203,7 @@ def compares_to_provider(tree: ast.AST, name: str = "fargate") -> list[int]:
 def test_the_engine_never_compares_a_box_to_a_providers_name(rel):
     """The ratchet the workflow already had, extended to where the dispatch actually lived
     (activities.py:383/1072/1282/1343 and app.py:493 when this was written)."""
-    lines = compares_to_provider(ast.parse((ROOT / rel).read_text()))
+    lines = compares_to_provider(parsed(ROOT / rel))
     assert not lines, f"{rel} dispatches on a provider's name at lines {lines} — ask the box's traits"
 
 
@@ -1173,7 +1174,7 @@ def vendor_kinds_spelled(tree: ast.AST, kind: str = "dynamodb") -> list[int]:
 
 @pytest.mark.parametrize("rel", READERS_WITH_A_TABLE_OVERRIDE)
 def test_no_reader_spells_the_vendors_kind(rel):
-    tree = ast.parse((ROOT / rel).read_text())
+    tree = parsed(ROOT / rel)
     assert vendor_kinds_spelled(tree) == [], f"{rel} names the vendor's kind by heart"
 
 

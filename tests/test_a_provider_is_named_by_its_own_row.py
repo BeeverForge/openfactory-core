@@ -50,6 +50,7 @@ from openfactory.runtime.temporal import view as tv
 from tests.pinned_probes import a_fully_pinned_probe_set
 from tests.test_the_card_says_what_the_floor_says import GATE, _async, _Client, _Handle
 from tests.test_the_lifecycle_names_no_provider import _docstrings
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "openfactory"
@@ -282,7 +283,7 @@ def test_no_generic_module_spells_a_providers_display_name() -> None:
     names = _shipped_names() | STRANGERS
     offenders = []
     for rel in _generic_modules():
-        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        tree = parsed(ROOT / rel)
         exempt = frozenset(name for path, name in EXEMPT if path == rel)
         offenders += [f"{rel}:{n}: {word!r}" for n, word in provider_names(tree, names, exempt)]
 
@@ -312,7 +313,7 @@ def test_the_guard_can_see_the_offence_and_only_the_offence() -> None:
 def test_the_one_exemption_is_still_there_to_be_exempt() -> None:
     """An exemption for a table that has gone is a hole with a comment on it."""
     for rel, name in EXEMPT:
-        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        tree = parsed(ROOT / rel)
         assert provider_names(tree, _shipped_names() | STRANGERS), f"{rel} spells no name now"
         assert not provider_names(tree, _shipped_names() | STRANGERS, frozenset({name})), (
             f"{rel} spells a provider's name outside `{name}`")
@@ -367,7 +368,7 @@ LEDGER: dict[tuple[str, str], str] = {
 
 
 def _findings(rel: str, exempt: frozenset[str] = frozenset()) -> list[str]:
-    tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+    tree = parsed(ROOT / rel)
     words = _shipped_names() | STRANGERS | _shipped_variables()
     kinds = _vendor_kinds() | STRANGER_KINDS
     said = [f"{rel}:{n}: in `{scope}` — {text[:100]!r}"

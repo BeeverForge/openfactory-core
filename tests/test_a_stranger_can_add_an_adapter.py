@@ -33,6 +33,7 @@ import pytest
 import stranger_addon
 
 from openfactory import plugins
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -172,7 +173,7 @@ def registries(root: pathlib.Path = ROOT) -> dict[str, set[str]]:
     than absent."""
     found: dict[str, set[str]] = {}
     for path in sorted(root.joinpath("openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         # A MODULE THAT ASKS THE LOADER IS A REGISTRY WHATEVER ITS DOOR IS CALLED. The credential
         # and board-setup registries (2026-08-26) answer `None` for an unknown kind instead of
         # refusing it, and their doors are `credential_row` / `board_creator`, not `build_*` — so

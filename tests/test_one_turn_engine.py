@@ -33,6 +33,7 @@ from openfactory.contracts.product import ProductConfig
 from openfactory.contracts.project import Project
 from openfactory.product import engine, staging
 from openfactory.product.role import ProductAnswer, RequirementDraft
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "openfactory"
@@ -138,7 +139,7 @@ def _answer_callers(root: Path, *, rel_to: Path) -> list[str]:
     hits: list[str] = []
     for path in sorted(root.rglob("*.py")):
         rel = str(path.relative_to(rel_to))
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         bound = _imported(tree)
         spans = [(fn.lineno, fn.end_lineno, fn.name) for fn in ast.walk(tree)
                  if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef)]
@@ -237,7 +238,7 @@ def test_a_staged_proposal_comes_back_as_a_REPLY_WITH_OPTIONS_never_posted():
 def test_the_engine_takes_no_callbacks():
     """The notify/confirm seams disappeared from the engine (ADR-0051 D13): no function there
     declares them, so nothing mid-turn can call a channel."""
-    tree = ast.parse(ENGINE.read_text())
+    tree = parsed(ENGINE)
     params = {a.arg for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)
               for a in fn.args.args + fn.args.kwonlyargs}
     assert not params & {"notify", "confirm"}, params & {"notify", "confirm"}
@@ -249,7 +250,7 @@ def test_the_chat_adapter_holds_no_judgement():
     door, so the adapter no longer takes the turn itself) and renders the replies. A branch of the
     conversation growing back in it is the two-door drift starting over, and so is a call to the
     engine that skips the door."""
-    tree = ast.parse(CHANNEL.read_text())
+    tree = parsed(CHANNEL)
     handle = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
                   and n.name == "handle")
     called = {getattr(n.func, "id", None) or getattr(n.func, "attr", None)

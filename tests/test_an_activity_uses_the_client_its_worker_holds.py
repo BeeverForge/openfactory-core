@@ -37,6 +37,7 @@ from openfactory.runtime.temporal.io import (
     CoordinatorSayInput,
     StartJobsInput,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "openfactory"
@@ -370,7 +371,7 @@ def test_the_SDK_call_is_spelled_ONCE_in_the_package_and_the_five_ask_the_seam()
     spelled: list[str] = []
     for path in _modules():
         spelled += [f"{path.relative_to(ROOT)}::{name}"
-                    for name in _sdk_client_calls(ast.parse(path.read_text()))]
+                    for name in _sdk_client_calls(parsed(path))]
     assert spelled == ["openfactory/runtime/temporal/activities.py::engine_client"], spelled
 
     tree = ast.parse((PACKAGE / "runtime/temporal/activities.py").read_text())
