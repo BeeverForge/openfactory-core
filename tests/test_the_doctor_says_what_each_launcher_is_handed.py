@@ -21,6 +21,7 @@ import pytest
 from pinned_probes import a_fully_pinned_probe_set
 from test_a_launcher_declares_whether_it_resolves_credential_references import (
     _serve_remote_runner,
+    _TakesNoReferences,
     _TakesReferences,
 )
 from vendor_addons import install
@@ -143,3 +144,22 @@ def test_a_runner_not_installed_is_said_and_not_failed(stored, monkeypatch):
     assert finding.ok, finding
     assert f"`fargate` {doctor.LAUNCHER_SAID['not installed']}" in finding.message
     assert SECRET not in finding.message + finding.remedy
+
+
+@pytest.mark.parametrize("deployment", ["the-row", "worktree"])
+def test_a_runner_that_declares_and_cannot_take_references_is_said_and_fails_only_as_the_box(
+        deployment, stored, tmp_path, monkeypatch):
+    """A runner that declares `resolves_references = True` and whose `launch` takes no
+    `references` is refused at every launch (`registry._checked_runner`). The line says that row
+    "could not be asked", naming `references`, and fails only when the row is the deployment's
+    box: elsewhere it is a fact about an installed row no job here launches. Measured in the
+    review of 17b05b8f (2026-10-22): turning the FAIL off, or saying the row as "values", left all
+    671 tests naming the doctor's line green."""
+    kind = _serve_remote_runner(tmp_path, monkeypatch, _TakesNoReferences())
+    monkeypatch.setenv("OPENFACTORY_SANDBOX", kind if deployment == "the-row" else deployment)
+
+    finding = _line(stored)
+
+    assert f"`{kind}`'s launcher could not be asked" in finding.message, finding.message
+    assert "references" in finding.message
+    assert finding.ok is (deployment != "the-row"), finding

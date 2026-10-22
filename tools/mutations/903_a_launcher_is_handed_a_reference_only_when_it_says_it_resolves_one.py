@@ -19,8 +19,9 @@ The claims, one cut each:
   launches a remote box (a promotion phase, a re-review, a CI repair) comes through it and builds
   its box with the references.
 - THE DOCTOR (`doctor.launcher_credentials_line`). It says what each remote row is handed, says a
-  row whose runner is not installed, and fails the refusal the first job would meet. It asks only
-  the axes `box_launch_credentials` asks.
+  row whose runner is not installed, says a row whose runner declares and cannot take
+  `references` as one it could not ask (failing it only as the deployment's box), and fails the
+  refusal the first job would meet. It asks only the axes `box_launch_credentials` asks.
 
 - THE DOCS (`configuration.md`'s "A remote box", `07-extensibility.md` §10.1). They name the
   declaration, the doctor's words, the doctor's line and the refusal as the code exports them, so
@@ -124,6 +125,11 @@ MUTATIONS = [
     ("the doctor's line never fails a stored secret the first job would refuse", DOCTOR,
      "        if held:\n            return (False,",
      "        if False:\n            return (False,", DOCTOR_TEST),
+    # Measured 2026-10-22 (review of 17b05b8f): survived all 671 tests until the could-not-ask
+    # test; now `1 failed, 5 passed`.
+    ("the doctor does not fail a runner it could not ask that is the deployment's box", DOCTOR,
+     "            if kind == box:\n                return (False, \"; \".join(said),",
+     "            if False:\n                return (False, \"; \".join(said),", DOCTOR_TEST),
     ("the doctor says every remote row is handed references", DOCTOR,
      "            said.append(f\"`{kind}` {LAUNCHER_SAID[answer]}\")",
      "            said.append(f\"`{kind}` {LAUNCHER_SAID['references']}\")", DOCTOR_TEST),
