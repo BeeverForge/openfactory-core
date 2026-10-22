@@ -15,7 +15,9 @@ The claims, one cut each:
   whichever step reached the secret: the vendor's default variable and the deployment's generic
   pair included.
 - THE LAUNCH (`activities._remote_launch`). A launcher that declares nothing is called with
-  exactly the keywords it always was, and the refusal comes before `launch`.
+  exactly the keywords it always was, and the refusal comes before `launch`. Every site that
+  launches a remote box (a promotion phase, a re-review, a CI repair) comes through it and builds
+  its box with the references.
 - THE DOCTOR (`doctor.launcher_credentials_line`). It says what each remote row is handed, says a
   row whose runner is not installed, and fails the refusal the first job would meet. It asks only
   the axes `box_launch_credentials` asks.
@@ -31,6 +33,7 @@ NOTHING = "tests/test_a_launcher_that_declares_nothing_is_never_handed_a_stored_
 RESOLVES = "tests/test_a_launcher_that_resolves_references_is_handed_the_reference.py"
 DOCTOR_TEST = "tests/test_the_doctor_says_what_each_launcher_is_handed.py"
 DOCS_TEST = "tests/test_the_docs_say_what_each_launcher_is_handed.py"
+SITES_TEST = "tests/test_every_remote_launch_site_hands_the_reference.py"
 
 TEST = NOTHING
 
@@ -93,6 +96,29 @@ MUTATIONS = [
      "    result = runner.launch(build_box({}), extra_env=extra_env or None, **launch)\n"
      "    box_launch_credentials(project, kind, runner)\n"
      "    return result", NOTHING),
+
+    # Measured 2026-10-22 (review of 17b05b8f): each of these three survived all 671 tests that
+    # name the sites, until the sites module drove them; each is now `1 failed, 2 passed`.
+    ("a promotion phase builds its box without the references, so the box reads the project's "
+     "`token_env` the launcher does not fill", ACTIVITIES,
+     "            tracker_options=box_options(project, \"tracker\", references=references),\n"
+     "            forge_options=box_options(project, \"forge\", references=references),\n"
+     "        )\n\n    return _remote_launch(\n        project, sandbox, box,",
+     "            tracker_options=box_options(project, \"tracker\"),\n"
+     "            forge_options=box_options(project, \"forge\"),\n"
+     "        )\n\n    return _remote_launch(\n        project, sandbox, box,", SITES_TEST),
+    ("a re-review launches past `_remote_launch`, so no credential is asked or handed",
+     ACTIVITIES,
+     "    return _remote_launch(\n        project, inp.sandbox, box, variant=\"-review\",\n"
+     "        extra_env=",
+     "    return remote_box(inp.sandbox).launch(\n        box({}), variant=\"-review\",\n"
+     "        extra_env=", SITES_TEST),
+    ("a CI repair or adjustment launches past `_remote_launch`, so no credential is asked or "
+     "handed", ACTIVITIES,
+     "    passed = _remote_launch(\n        project, inp.sandbox, box, "
+     "variant=\"-adjust\" if human else \"-ci-repair\",",
+     "    passed = remote_box(inp.sandbox).launch(\n        box({}), "
+     "variant=\"-adjust\" if human else \"-ci-repair\",", SITES_TEST),
 
     # ── the doctor ─────────────────────────────────────────────────────────────────────────────
     ("the doctor's line never fails a stored secret the first job would refuse", DOCTOR,
