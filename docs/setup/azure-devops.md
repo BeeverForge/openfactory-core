@@ -128,7 +128,7 @@ stock process is missing three of the six:
 | in progress | **Doing** | yes (Basic) |
 | in review | **In review** | **no — create it** |
 | needs action | **Needs Action** | **no — create it** |
-| needs review — a pull request waiting only for a person's review | the state `state_map` names, the column `columns` names | optional — unnamed, those pull requests go to **Needs Action** |
+| needs review — a pull request waiting on a person's review or merge click | the state `state_map` names, the column `columns` names | optional — unnamed, those pull requests go to **Needs Action** |
 | done | **Done** | yes |
 
 **The backlog is required, and it is not the queue.** Azure gives a new work item its type's
@@ -181,7 +181,7 @@ tracker:
 ```
 
 **A column for pull requests waiting on a reviewer is optional.** Without it, a pull request
-that waits only for a person's review goes to Needs Action beside the cards that are stuck, as it
+that waits only on a person (their review or merge click) goes to Needs Action beside the cards that are stuck, as it
 always did. To give it its own, add a state — `Needs Review`, in the **In Progress** category
 as Needs Action is — and a column mapped to it, and name both for the `needs_review` key:
 

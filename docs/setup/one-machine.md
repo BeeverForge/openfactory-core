@@ -91,7 +91,7 @@ openfactory poll myapp
 
 `poll` takes what is in TO-DO, one card at a time. The card walks the columns as the job moves —
 In progress while the agent works, In review when the pull request is open, Needs Review while it
-waits for a person to review it, **Done** when the merge lands and nothing follows it.
+waits for a person to review or merge it, **Done** when the merge lands and nothing follows it.
 
 The panel shows the same thing in a browser, including the Board and the pull request:
 

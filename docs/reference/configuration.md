@@ -163,7 +163,7 @@ its administrator named — and localised — everything in it:
 `status_map` says which status each lifecycle key (`todo`, `in_progress`, `in_review`,
 `needs_review`, `needs_action`, `done`, `backlog`) means; an unmapped key leaves the card where it
 is, with a warning — except `needs_review`, which is optional: it is where a pull request waiting
-only for a person's review goes, and while the map does not name it that pull request goes to
+on a person (their review, or the click that merges it) goes, and while the map does not name it that pull request goes to
 `needs_action`'s status, as it did before the key existed. A site status already called
 `Needs Review` is read back as that key, but the factory moves a card there only when
 `status_map` names it — and the name `Needs Review` is that key's only while `status_map` gives

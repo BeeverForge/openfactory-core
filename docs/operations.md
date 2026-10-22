@@ -166,7 +166,7 @@ board driven by the framework needs these six single-select Status options, and 
 | **TO-DO** | Queued — the poller picks these up (one at a time). | the framework |
 | **In progress** | Running (or a rate-limit **pause**, which auto-resumes). | the framework |
 | **In review** | PR open / merged / promoting — being overseen. | the framework |
-| **Needs Review** *(optional)* | PR open, **waiting only for a person to review it** — nothing is wrong with it. | **you** (review) |
+| **Needs Review** *(optional)* | PR open, **waiting on a person** — their review, or the click that merges it; nothing is wrong with it. | **you** (review, merge) |
 | **Needs Action** | **Parked, waiting on YOUR decision** — the ticket comment says what. | **you** |
 | **Done** | Completed. | — |
 
@@ -179,8 +179,10 @@ red colour, placed after *In progress*, reads best). It's where `needs_refinemen
 Until the column exists, those states **fall back to Backlog** (safe, old behaviour) — so a
 missing column degrades, it never breaks; but you lose the at-a-glance "these need me".
 
-**`Needs Review` is optional.** It keeps a pull request that only waits for a reviewer apart from
-the cards that are stuck. A board without the option puts those pull requests in `Needs Action`,
+**`Needs Review` is optional.** It keeps a pull request that only waits for a person apart from
+the cards that are stuck. It covers the whole human gate at the pull request, the review and the
+merge click: the factory has one gate there and does not tell the two waits apart, so a pull
+request you approved and have yet to merge stays in *Needs Review* until it is merged. A board without the option puts those pull requests in `Needs Action`,
 as before; add it by hand, the same way, between *In review* and *Needs Action*, to opt in — an
 option of exactly that name is used without a `columns:` entry. The platform's own board (no
 GitHub) gets it when you re-run `openfactory project init`, which adds the missing column in

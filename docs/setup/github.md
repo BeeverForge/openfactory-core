@@ -223,7 +223,7 @@ Backlog · TO-DO · In progress · In review · Needs Review · Needs Action · 
 - **TO-DO** — the drop zone; a card here gets picked up
 - **In progress** — a job is running it
 - **In review** — PR open
-- **Needs Review** — PR open and waiting only for a person to review it. Optional: a board without
+- **Needs Review** — PR open and waiting on a person: their review, or the click that merges it. Optional: a board without
   this option puts those pull requests in Needs Action, as boards made before it did. A board
   that has an option of this name uses it, with or without a `columns:` entry for `needs_review`,
   unless `columns:` gives that name to another key: a board whose review column is
