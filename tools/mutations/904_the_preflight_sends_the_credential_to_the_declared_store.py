@@ -19,7 +19,8 @@ each a row:
   5. under `file` the sentence says which directory the file goes in, and which file: the one
      named after the setting the harness's repair asks for (the pool's own for a pool repair);
   6. `openfactory doctor`, which that sentence sends the person to, names the same store in its
-     own remedy and not `.env.compose`, and keeps today's line under `env`.
+     own remedy and not `.env.compose`, and keeps today's line under `env`;
+  7. under a declared store a `.env.compose` that cannot be read is still said (#583).
 """
 
 TEST = "tests/test_preflight_sends_a_missing_agent_credential_to_the_store_the_deployment_declares.py"
@@ -104,4 +105,9 @@ MUTATIONS = [
      '            where += f", as a file named after the setting in the directory {DIR_VAR} names"',
      '            where += (f", as a file named after the setting in the directory {DIR_VAR} names"\n'
      '                      "; this check cannot read that store")'),
+
+    # 7. the unreadable file is still said in the store branch (review of #904)
+    ("the store branch drops that .env.compose could not be read", PREFLIGHT,
+     '        return False, said + _unread(), f"{repair} — {_in_the_store(store, kind, repair)}"\n',
+     '        return False, said, f"{repair} — {_in_the_store(store, kind, repair)}"\n'),
 ]

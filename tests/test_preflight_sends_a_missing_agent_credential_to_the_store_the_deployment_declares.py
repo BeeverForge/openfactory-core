@@ -22,6 +22,8 @@ and the `agent_credential` finding's remedy is read.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from openfactory import preflight
@@ -205,3 +207,18 @@ def test_the_doctor_under_the_env_store_keeps_its_env_compose_remedy(
     assert line.remedy.endswith(" — in the environment the worker reads; for compose: "
                                 ".env.compose, then restart with --env-file"), line.remedy
     assert STORE_VAR not in line.remedy, line.remedy
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
+def test_an_unreadable_env_compose_is_still_said_under_a_declared_store(
+        installation, monkeypatch, tmp_path):
+    """The store branch keeps #583's clause: a `.env.compose` that is there and cannot be read is
+    said, not read as no file at all (review of #904: `said + _unread()` cut to `said` in the
+    store branch left the suite green)."""
+    installation()
+    (tmp_path / ".env.compose").chmod(0)
+    monkeypatch.setenv(STORE_VAR, registry.FILE)
+
+    line = _credential_line()
+
+    assert "could not be read" in line.message, line
