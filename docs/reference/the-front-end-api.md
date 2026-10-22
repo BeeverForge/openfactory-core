@@ -99,11 +99,11 @@ means any credential the deployment issued.
 |---|---|---|---|
 | POST | `/api/act/{name}` | floor; a `product_*` row: product | run one catalogued action: `{"params": {...}}` |
 | GET | `/api/actions` | floor | deprecated alias of `/api/v1/actions` |
-| GET | `/api/address` | floor | how a repository address would be read, before a project is added |
+| GET | `/api/address` | floor | deprecated alias of `/api/v1/address` |
 | GET | `/api/attention` | floor | deprecated alias of `/api/v1/attention` |
 | GET | `/api/board/{project}` | floor; product, for a project with a product role and without `?pr=` | deprecated alias of `/api/v1/board/{project}` |
 | GET | `/api/budget` | floor | deprecated alias of `/api/v1/budget` |
-| GET | `/api/coordinator/messages` | floor | the tech-lead's recent narrated updates |
+| GET | `/api/coordinator/messages` | floor | deprecated alias of `/api/v1/coordinator/messages` |
 | GET | `/api/decisions` | floor | deprecated alias of `/api/v1/decisions` |
 | GET | `/api/factory/{project}` | floor | a project's cockpit: harness, credentials, links |
 | GET | `/api/floor` | floor | deprecated alias of `/api/v1/floor` |
@@ -133,11 +133,11 @@ means any credential the deployment issued.
 | GET | `/api/product/{project}/documents/file/{path:path}` | product | one of the product's documents, as it is |
 | GET | `/api/product/{project}/search` | product | deprecated alias of `/api/v1/product/{project}/search` |
 | GET | `/api/product/{project}/system` | product | deprecated alias of `/api/v1/product/{project}/system` |
-| GET | `/api/projects` | floor | the projects this deployment runs |
+| GET | `/api/projects` | floor | deprecated alias of `/api/v1/projects` |
 | POST | `/api/projects` | floor | add a project |
 | POST | `/api/projects/{name}/enabled` | floor | turn a project's pickup on or off |
 | POST | `/api/projects/{project}/scan` | floor | read a project's queue now, without waiting for the next tick |
-| GET | `/api/promote/{project}/{issue}` | floor | what the production approval asks: the version, the bumps, the approvers |
+| GET | `/api/promote/{project}/{issue}` | floor | deprecated alias of `/api/v1/promote/{project}/{issue}` |
 | POST | `/api/promote/{project}/{issue}` | floor | release a local job to production |
 | WS | `/api/stream` | floor | what changed, as it changes (stream, section 4) |
 | POST | `/api/temporal/act/{project}/{issue}` | floor | a person's decision on a parked job |
@@ -146,9 +146,11 @@ means any credential the deployment issued.
 | POST | `/api/temporal/jobs` | floor | start a durable job (the `start` action) |
 | GET | `/api/temporal/stream` | floor | the durable jobs' state as it changes (stream, section 4) |
 | GET | `/api/v1/actions` | floor | the catalogue of actions this deployment can be asked to do |
+| GET | `/api/v1/address` | floor | how a repository address would be read, before a project is added |
 | GET | `/api/v1/attention` | floor | the jobs that need a person |
 | GET | `/api/v1/board/{project}` | floor; product, for a project with a product role and without `?pr=` | a project's board, as its tracker holds it |
 | GET | `/api/v1/budget` | floor | the API budget of the trackers this deployment reads |
+| GET | `/api/v1/coordinator/messages` | floor | the tech-lead's recent narrated updates |
 | GET | `/api/v1/decisions` | floor | every job parked on a person's decision, with its question and options |
 | GET | `/api/v1/floor` | floor | whether the factory is working, for every project |
 | GET | `/api/v1/floor/{project}` | floor | whether the factory is working, for one project |
@@ -163,6 +165,8 @@ means any credential the deployment issued.
 | GET | `/api/v1/product/{project}/documents` | product | the product's documents as their ingestion found them |
 | GET | `/api/v1/product/{project}/search` | product | one product's published knowledge, searched with `q` and `limit`, in the product owner's ranking — a blank `q` finds nothing, a `q` past its declared length is a 400, and a project with no product role is the same 404 an unknown project is |
 | GET | `/api/v1/product/{project}/system` | product | one product's system layer as its context repository publishes it — components, links, interfaces and their operations, databases, queues, infrastructure, decision records and what could not be derived, every entry cited, names and never a value; `state` says `published`, `not-published` or `unreadable` with `why`, and the map's fields are null unless it was read; a project with no product role is the same 404 an unknown project is |
+| GET | `/api/v1/projects` | floor | the projects this deployment runs |
+| GET | `/api/v1/promote/{project}/{issue}` | floor | what the production approval asks: the version, the bumps, the approvers |
 | GET | `/api/v1/temporal/jobs` | floor | the jobs, live, from the durable engine |
 | GET | `/api/v1/version` | floor | which version this deployment runs, and every add-on installed into it (below) |
 | GET | `/api/v1/whoami` | every credential | who this credential is, and which areas it may act in |
@@ -172,9 +176,11 @@ means any credential the deployment issued.
 **Payloads.** The API describes its own HTTP routes at `/openapi.json` (and `/docs`), served
 whether or not the default front end is on, and the same description is committed with the code
 as [`openapi.json`](openapi.json), its `info.version` the package's version. Every read under
-`/api/v1/` declares the model it answers in, so the description names its fields; a route outside
-`/api/v1/` answers a JSON object without a declared model, and the description names the route and
-its parameters and not every field. The committed file is generated, never edited by hand:
+`/api/v1/` declares the model it answers in, so the description names its fields. Every other JSON
+read under `/api/` is one of the deliberately unversioned reads below, which declare no model: the
+description names the route and its parameters and not every field, and a screen of its own should
+not build on their shape. The streams and the two file routes answer bytes, not a JSON body. The
+committed file is generated, never edited by hand:
 `tests/test_the_api_is_versioned.py` fails when it is not what the app generates, and
 
 ```bash
@@ -182,6 +188,18 @@ python -m openfactory.api.openapi
 ```
 
 writes it again.
+
+**The deliberately unversioned reads.** These JSON reads are not under `/api/v1/` and declare no
+model, each for the reason it gives; `tests/test_the_api_is_versioned.py` fails when a JSON read
+under `/api/` is neither typed nor named here, and when a read named here has been typed since.
+
+<!-- unversioned:start -->
+| path | why it is not versioned |
+|---|---|
+| `/api/factory/{project}` | the default panel's operator cockpit: its deep links and vendor consoles are particular to a deployment, and its shape follows that one screen |
+| `/api/jobs/{project}/{issue}/events` | a run's raw journal rows, which every producer writes free-form; a model of them would be an object under another name |
+| `/api/preview/{project}/{unit}` | the preview is still being designed (ADR-0050, #265) and its answer carries a short-lived key |
+<!-- unversioned:end -->
 
 ### Versions, and the aliases
 
@@ -274,5 +292,5 @@ while it stays open: a credential that stops opening its path ends the stream.
 This is slice 1 of #561. The default front end still ships with the API, in the same process and
 image, and is turned off by its setting; moving it into a module of its own, built only on this
 contract, and a guide with a minimal example are the slices after it. Only the reads that declare
-their model are under `/api/v1/` (#678); the actions, the streams and the other reads are not
-versioned yet.
+their model are under `/api/v1/` (#678, #940); the actions, the streams and the deliberately
+unversioned reads (section 3) are not versioned yet.

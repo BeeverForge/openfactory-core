@@ -59,8 +59,9 @@ MUTATIONS = [
     # the cut is the dependency coming BACK, and the guard is the direction that can see it.
     ("the reading gets a second gate that reads headers alone, so a cookie the middleware "
      "admitted is refused", API,
-     '@app.get("/api/address")',
-     '@app.get("/api/address", dependencies=_AUTH)', TEST),
+     '@_read("/api/address", read_models.AddressRead)\n',
+     '@_read("/api/address", read_models.AddressRead)\n'
+     '@app.get("/api/address", dependencies=_AUTH)\n', TEST),
 
     # ── 2. a read that writes ──────────────────────────────────────────────────────────────────
     ("the reading registers what it was asked about — a door nobody knew was one", API,

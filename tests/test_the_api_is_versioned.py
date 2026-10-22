@@ -10,7 +10,9 @@ WHAT IS PROVEN HERE:
     and its unversioned path stays, marked `deprecated` in the description the app generates;
   · the committed description is the one the app generates, `info.version` the package's own, and
     a test that finds them apart says the command that writes it again;
-  · a versioned path belongs to the same area as its alias, at the gate.
+  · a versioned path belongs to the same area as its alias, at the gate;
+  · every JSON read under `/api/` is typed, or named in the contract as deliberately unversioned
+    with its reason (#940) — a new untyped read fails here until it is one or the other.
 
 That both forms answer the same body is proven, route by route, with a populated bench, in
 `tests/test_the_read_routes_declare_their_model.py`.
@@ -19,17 +21,22 @@ That both forms answer the same body is proven, route by route, with a populated
 from __future__ import annotations
 
 import json
+import re
+import typing
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
+from starlette.responses import Response
 
 import openfactory
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMITTED = ROOT / "docs" / "reference" / "openapi.json"
+CONTRACT = ROOT / "docs" / "reference" / "the-front-end-api.md"
 
 
 def _typed_reads() -> dict[str, APIRoute]:
@@ -120,6 +127,10 @@ def test_the_command_writes_the_document(tmp_path):
     ("/api/v1/product/x/documents", "product"),
     ("/api/v1/floor", "floor"),
     ("/api/v1/board/x", "floor"),
+    ("/api/v1/projects", "floor"),
+    ("/api/v1/address", "floor"),
+    ("/api/v1/coordinator/messages", "floor"),
+    ("/api/v1/promote/x/1", "floor"),
 ])
 def test_a_versioned_path_is_in_its_aliases_area(path, area):
     from openfactory.api.app import _scope_of_path
@@ -142,6 +153,9 @@ def test_every_registered_typed_read_is_mapped_to_its_alias():
     "/api/v1/product/x",
     "/api/v1/board/x/y",
     "/api/v1/",
+    "/api/v1/factory/x",
+    "/api/v1/jobs/x/1/events",
+    "/api/v1/preview/x/y",
 ])
 def test_an_unregistered_versioned_path_is_not_mapped(path):
     """Only a typed read registered under `/api/v1` borrows its alias's area: any other path keeps
@@ -194,3 +208,65 @@ def test_the_product_owners_board_is_read_at_its_versioned_path(monkeypatch):
     assert api._the_product_owners_board("/api/v1/board/acme", product)
     assert not api._the_product_owners_board("/api/v1/board/acme", product, "pr=3")
     assert not api._the_product_owners_board("/api/v1/board/other", product)
+
+
+# ── every JSON read is typed, or named as deliberately unversioned (#940) ───────────────────────
+
+def _untyped_json_reads(app: FastAPI) -> set[str]:
+    """Every `GET` route under `/api/` that answers JSON and declares no Pydantic model. A route
+    answers JSON unless its handler says it returns a `Response` — a stream, or a file's bytes."""
+    found = set()
+    for r in app.routes:
+        if not (isinstance(r, APIRoute) and r.path.startswith("/api/")
+                and "GET" in (r.methods or set())):
+            continue
+        if isinstance(r.response_model, type) and issubclass(r.response_model, BaseModel):
+            continue
+        answers = typing.get_type_hints(r.endpoint).get("return")
+        if isinstance(answers, type) and issubclass(answers, Response):
+            continue
+        found.add(r.path)
+    return found
+
+
+def _named_unversioned() -> set[str]:
+    """The paths the contract names as deliberately unversioned, one row each."""
+    text = CONTRACT.read_text(encoding="utf-8")
+    listed = text.split("<!-- unversioned:start -->")[1].split("<!-- unversioned:end -->")[0]
+    return {m.group(1) for line in listed.splitlines()
+            if (m := re.match(r"\|\s*`(/api/[^`]+)`\s*\|", line))}
+
+
+def test_every_json_read_is_typed_or_named_unversioned():
+    """Equal, not a subset: an untyped read the contract does not name fails, and so does a name
+    the contract keeps for a read that has since been typed or removed."""
+    from openfactory.api.app import app
+
+    assert _untyped_json_reads(app) == _named_unversioned()
+
+
+def test_the_guard_reports_an_untyped_json_read():
+    scratch = FastAPI()
+
+    @scratch.get("/api/new-read")
+    def new_read() -> dict:
+        return {}
+
+    @scratch.get("/api/typed")
+    def typed() -> BaseModel:
+        return BaseModel()
+
+    @scratch.get("/api/file")
+    def file() -> Response:
+        return Response(b"")
+
+    assert _untyped_json_reads(scratch) == {"/api/new-read"}
+
+
+def test_every_named_unversioned_read_says_why():
+    text = CONTRACT.read_text(encoding="utf-8")
+    listed = text.split("<!-- unversioned:start -->")[1].split("<!-- unversioned:end -->")[0]
+    for line in listed.splitlines():
+        if re.match(r"\|\s*`/api/", line):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            assert len(cells) == 2 and len(cells[1]) > 20, f"no reason given: {line}"
