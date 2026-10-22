@@ -222,4 +222,3 @@ def test_a_declaring_launcher_is_still_handed_a_minted_workload_token_as_a_value
     assert launched["references"] == {}
     assert IDENTITY_OPTION not in launched["box"].forge_options
     assert launched["box"].forge_options["token_env"] == variable
-
