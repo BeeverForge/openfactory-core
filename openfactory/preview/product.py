@@ -43,6 +43,7 @@ from openfactory.contracts.product import ProductDocs, ProductPreview
 from openfactory.preview.plan import Layout, Refused
 from openfactory.preview.read import PRODUCT_REMEDY, _read_inside, prescan
 from openfactory.product.config import normalize_repo, repo_match
+from openfactory.util import yaml_io
 
 #: `.openfactory/product.yaml`, at the root of the context repository
 PRODUCT_YAML = namespace.PRODUCT_MANIFEST
@@ -196,7 +197,7 @@ def _declares_preview(root: str, rel: str) -> bool:
     if text is None:
         return False
     try:
-        data = yaml.safe_load(text)
+        data = yaml_io.load(text)
     except yaml.YAMLError:
         return False
     return isinstance(data, dict) and data.get("preview") is not None

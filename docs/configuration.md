@@ -876,7 +876,11 @@ Every document in the product's context repository is read into a record once pe
 after the module map, on the same schedule, and at once for a file named to
 `openfactory act product_ingest` (#269). The records live under the product's state directory
 (`$OPENFACTORY_LOG_DIR/_products/<product>/documents/`) and are rebuilt from the repository when
-deleted. The PDF reader is the `ingest` extra (`pip install -e '.[ingest]'` from a checkout; the
+deleted. `openfactory act product_refresh` (#1004) runs the schedule's pass now, on the worker, and
+also brings the product's search index up to its boards; it needs the durable engine, answers
+without waiting for the pass, and runs one pass per product at a time. How the last pass went —
+the schedule's or an asked one — is kept beside the records, in `knowledge-refresh.json`, and
+`product_status` answers it as `knowledge`. The PDF reader is the `ingest` extra (`pip install -e '.[ingest]'` from a checkout; the
 worker image carries it); OCR needs `tesseract` and `pdftoppm` on the worker, and without them a scanned PDF is
 listed as "OCR not available".
 

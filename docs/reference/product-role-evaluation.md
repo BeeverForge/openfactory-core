@@ -37,6 +37,14 @@ way a real one is:
 - **`source/` is its code.** It has three small modules (invoices, numbering, reminders) and a
   manifest that names the context repository back.
 
+Other fixtures beside it ask about other shapes of product. `saltmarsh/` is a product right after
+an import (#994): its context is exactly what the core's import writes when the folder in
+`saltmarsh/brought/` is imported into it — two proposed requirements, a design under `imported/`,
+and the import's record — and its one question, the product owner's from #994, is the
+conversation that opens then: it is judged on whether the role names where the requirements came
+from, proposes the order the record suggests, and asks an open question instead of answering it.
+Run it with `python -m openfactory.product.evaluation --fixture tests/fixtures/evaluation/saltmarsh`.
+
 Read both before writing questions. Some answers are only in a requirement, some only in the
 code, and some only in a recorded decision. Some are nowhere, like how a customer pays, or whether
 a partial payment restarts the reminders: those are the questions whose right answer is "I do not

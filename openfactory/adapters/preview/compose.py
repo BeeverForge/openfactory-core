@@ -84,6 +84,7 @@ from openfactory.preview.plan import (
 )
 from openfactory.preview.read import PRODUCT_REMEDY, REMEDY
 from openfactory.preview.reap import MAX_TTL_HOURS
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.preview.compose")
 
@@ -993,7 +994,7 @@ class ComposeRuntime:
         for sub in ("home", "tmp"):
             os.makedirs(os.path.join(plan.workdir, sub), exist_ok=True)
         with open(os.path.join(plan.workdir, "compose.yml"), "w", encoding="utf-8") as fh:
-            yaml.safe_dump(plan.doc, fh, sort_keys=False)
+            yaml_io.dump(plan.doc, fh, sort_keys=False)
 
         def failed(why: str) -> PreviewUp:
             return PreviewUp(ok=False, why=why, log_dir=log_dir)
@@ -1318,7 +1319,10 @@ class ComposeRuntime:
             document = Path(workdir) / "compose.yml"
             if document.is_file() and not document.is_symlink():
                 try:
-                    services = (yaml.safe_load(document.read_text(encoding="utf-8")) or {}).get(
+                    # the preview's own file, written from the product's compose file, whose
+                    # format has anchors (#1005)
+                    services = (yaml_io.load(document.read_text(encoding="utf-8"),
+                                             loader=yaml_io.CountingLoader) or {}).get(
                         "services", {})
                 except (OSError, yaml.YAMLError, AttributeError):
                     services = {}

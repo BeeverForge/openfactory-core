@@ -111,6 +111,14 @@ GREEN_ANSWERS: dict[str, Any] = {
     "harness_kind": lambda: "claude_code",
     "product_link": _no_product_module,
     "agent_credential": lambda: (True, "an agent credential is present"),
+    # Credentials from the environment, and a project that names none of its own (#742) — what
+    # every deployment that declares no store reads. A test about a store or a reference names it.
+    "credential_store": lambda: (True, "stored credentials are read from the environment; this "
+                                       "project names no credential of its own", ""),
+    # A deployment whose jobs run in a local box: no launcher is handed anything (#903). A test
+    # about a remote box or a stored secret names it.
+    "launcher_credentials": lambda: (True, "this deployment's jobs run in the `worktree` box, "
+                                           "which has no launcher", ""),
     # `{}` is "the CI was read and declares nothing", which compares cleanly against any manifest.
     # `None` — "could not read it" — is also an `ok` finding, and it is a degraded machine, which
     # is not what a baseline should describe.

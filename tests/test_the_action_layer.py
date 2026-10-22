@@ -276,7 +276,9 @@ OWNED = {
     # a token. A CLI that reacquired it would be a second place deciding when an agent runs.
     "propose_context": "env_context",        # proposing what a legacy codebase IS
     "readiness": "env_check",                # composing doctor/conformance/floor/box into one verdict
-    "safe_dump": "env_apply",                # writing the client's manifest
+    # re-pinned 2026-10-21: every YAML the core writes goes through `yaml_io.dump` (#1005), so
+    # serialising the client's manifest is that call — `yaml.safe_dump` is used nowhere now
+    "dump": "env_apply",                     # writing the client's manifest
     # How a preview of a repository would run (#265 slice 4). The marker is the drafter itself: a
     # front end that reached it would be a second place deciding what a repository says about how
     # it runs — `preview draft` is a mapping onto this row, and `preview propose` onto the writer.
@@ -345,7 +347,10 @@ OWNED = {
                      "product_baseline/product_answer/"
                      # #269 — reading the product's documents builds the module for its checkout
                      # of the context repository, the same seam as every row above
-                     "product_ingest",
+                     "product_ingest/"
+                     # #1004 — bringing its knowledge up to date resolves the product role through
+                     # the same seam before it starts the pass on the worker
+                     "product_refresh",
     # `release` owns the PEN, not the judgement: `product.release.release` re-asks the engine
     # whether the job is still parked before signalling, and `_product_release` is the only
     # caller outside the Slack package. A front end that called it directly would be releasing
@@ -356,6 +361,10 @@ OWNED = {
     # deciding whether a preview may start, and it would skip the row's scope and runtime checks.
     "start_preview": "preview_start",
     "signal_preview": "preview_stop/preview_rebuild",
+    # An import of a folder into a product (#993). The marker is the module's own verb: a front end
+    # that called it would land a client's requirements with no source admitted — the command
+    # line's any path, everyone else's inbox — and no plan shown before the yes.
+    "import_requirements": "product_import",
 }
 
 

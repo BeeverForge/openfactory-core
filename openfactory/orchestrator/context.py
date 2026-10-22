@@ -32,6 +32,7 @@ from openfactory.contracts import Manifest, Ticket
 from openfactory.knowledge import load_agent_knowledge
 from openfactory.orchestrator import operator_guidelines
 from openfactory.policy.profiles import ResolvedProfile
+from openfactory.util import yaml_io
 
 _log = logging.getLogger("openfactory.orchestrator.context")
 _DEFAULT_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"]
@@ -426,7 +427,14 @@ def _doc_summary(path: Path) -> str:
     if text.startswith("---"):
         parts = text.split("---", 2)
         if len(parts) == 3:
-            fm = yaml.safe_load(parts[1]) or {}
+            try:
+                fm = yaml_io.load(parts[1]) or {}
+            except yaml.YAMLError as exc:
+                # A FRONT MATTER THAT CANNOT BE READ COSTS ITS SUMMARY, NOT THE BRIEF (#1005): the
+                # document is named by its heading, and the log says why.
+                _log.warning("the front matter of %s could not be read (%s) — it is named by its "
+                             "heading", path.name, str(exc).splitlines()[0][:160])
+                fm = {}
             if isinstance(fm, dict) and fm.get("summary"):
                 return str(fm["summary"])
     for line in text.splitlines():

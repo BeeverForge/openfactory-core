@@ -150,7 +150,19 @@ and SVG, `.eml`, a PDF's text layer (the `ingest` extra), OCR for a scanned PDF 
 `pdftoppm`, when installed), and a model describing an image — whose record says its content came
 from an image. A file is read on the knowledge pipeline's schedule when it changed, or at once
 through `openfactory act product_ingest --param project=<name> --param path=<file>`; a version
-already recorded is never read again. The records are derived: they live under the product's
+already recorded is never read again. **The product's whole knowledge is brought up to date at once
+through `openfactory act product_refresh --param project=<name>`** (`POST /api/act/product_refresh`,
+#1004): what changed in the context repository is read as the schedule reads it, and the product's
+search index is brought up to it, to the requirements and to the board of every registry project of
+the product. A product that started before its code is refreshed too — its documents and
+requirements live in its context — and the board of a project with no code repository yet is not
+read: `degraded` says it waits for its code repository. It answers immediately — `refresh` is `started`, or `joined` when a pass is already
+running for the product, so two asks never run two passes — and the pass runs on the worker, bounded
+like the schedule's. `product_status` answers `knowledge`: when the index was last brought up to date
+(`refreshed_at`), how the last pass ended (`outcome`: `refreshed`, `degraded`, `failed` or
+`no-context`) and whether the schedule or a person ran it (`by`), what it brought the index up to
+(`sources`), each thing it did not bring up, in a sentence (`degraded`), and since when a pass is
+running (`running_since`); a pass whose worker stopped is said to have never finished. The records are derived: they live under the product's
 state directory and are rebuilt from the repository when deleted. A file that **cannot** be
 read — a protected PDF, a format nothing reads, a file over the size limit, a link out of the
 repository — is recorded with why, listed under *Documents* on the product page, and named in
@@ -162,6 +174,86 @@ matter (`audience:`) gives it, as what it says of itself; nothing a turn reads, 
 panel lists, is withheld by it. A document read into the product's memory is announced where it
 was brought — the conversation of whoever asked for it to be read, else the room — once, never
 for a product's first reading, and at most five per pass.
+
+**Requirements written elsewhere are imported under the corpus's rules (#993).** A later round
+of prototyping, a second phase of a specification, a folder a person brings: `openfactory act
+product_import --param project=<name> --param source=<folder or .zip/.tar/.tar.gz>` shows the
+**plan** — what becomes of every requirement, fact and document, and what is left out and why —
+with a token, and writes nothing; the same call with `yes=true` and that `token` lands it, in
+**one commit pushed once** under the product's semaphore. A product that moved between the plan
+and the yes is planned again and nothing is written; a push the context repository refuses is
+said, never retried. The folder is read like a context repository: `requirements/NNNN-slug.md`,
+facts under `domain/`, everything else a document; an optional `openfactory-import.yaml` says
+where it came from (`origin`), the order to review it in (`order`), where the design is
+(`design`) and the questions still open (`questions`, each with an optional `requirement` and
+`ask`). The rules are the corpus's own:
+
+- every requirement is **numbered after the highest number the product ever used** —
+  superseded and dropped ones included — and after any proposal still on its way, and every
+  reference between the folder's requirements (`REQ-NNNN`, `Supersedes:`) is renumbered with it;
+- **the same slug is the same promise**: the same text word for word is nothing new (its
+  decision rows join the existing register, deduplicated by day and text); a new text for a
+  requirement nobody agreed is a revision that supersedes it; a new text for an `accepted` one
+  touches nothing — it is kept in the import's record as a proposal to change a promise, which
+  only a person's yes makes;
+- **an import never changes an agreed requirement**: a text whose own history reaches an
+  `accepted` requirement — its `Supersedes:` names a retired text the product holds word for word
+  as an agreed one — is kept beside that one too, and no landed `Supersedes:` ever names an
+  accepted requirement. The folder's own retired texts land as history and touch nothing of the
+  product's. Before anything is committed the corpus is read again: an error the base did not
+  hold, or an agreed requirement no longer agreed with its promise, refuses the whole import,
+  named;
+- **an import never lands a promise**: what it brings lands `proposed` (or `observed`), whatever
+  its file said;
+- a fact whose term the product has is never rewritten; a new one lands as `aprendido`, with its
+  source. Documents land under `imported/`, keeping their own paths there, and never over a file
+  that exists — a different one is kept beside it;
+- nothing hidden (`.git/`, `.openfactory/`, `.okf/`), no link, and nothing under `capabilities/`
+  or `conversations/` — which only a person's confirmation and the distiller write — ever lands;
+  nothing is read or written through a link the context repository holds, and what is left out
+  counts toward the import's bound of files like what is read.
+
+What is imported lands **as it came, not scrubbed**: the person said yes to that plan, and a scrub
+would land another text. What reaches a model from the context repository is withheld where it is
+read — the facts pack withholds credentials.
+
+Each import keeps a record in `.openfactory/imports/<id>/` — where it came from, the plan, and
+what landed — the one path under `.openfactory/` the import may write. Afterwards the documents it
+landed are read into the product's memory and its index is brought up to the new corpus, so the
+next search finds them. Only a person on `admins` may import or see an import's plan. **The
+command line names any path; any other caller** — the panel, a script on `POST /api/act` — names
+a folder or archive **inside the product's import inbox**, `imports/` under the product's state
+directory, and nothing outside it.
+
+**And the role says where its requirements came from (#994).** An import that lands is told once
+to the product's room, in the product's language: what arrived, from where, how many requirements
+were added, revised or kept beside an agreed one — naming the origin and never a person. While
+the import is a review to hold, the briefing carries a line read from its record, with its source
+and age: where the requirements came from, how many are still proposed and how many were agreed
+since, and where the design is; the pack's `imported.md` holds the order the record suggests and
+what is still open. What is still open is on the agenda (the Pending tab), each an item to ask:
+the open questions of every imported requirement still waiting for its yes, the questions the
+folder's `openfactory-import.yaml` brought, the decisions its documents raise, and a text kept
+beside an agreed requirement. None of it is stored: it is read from the record and the corpus as
+they are now, so accepting, dropping or replacing a requirement is what closes it. When the record
+says who should answer, the item is "yours" to that person alone and the room's to everyone else
+— the person is named to nobody. The role's instructions say what an import is: a review to hold
+with the person who asked, not a backlog to execute — it proposes the order the record suggests
+and asks for its confirmation, accepts one requirement at a time on the requester's yes, asks what
+is open instead of answering it, and cites a prototype as what the person saw, never as code to
+build on. The battery's `saltmarsh` fixture is a product right after such an import, and its
+question is the conversation that opens then.
+
+The event is told from the import's record: a retry of the same import that finds the record on
+the base — after a crash between the commit and the telling, or a room that could not be reached
+— tells it then, once, and never twice. A text that would change an agreed requirement is counted
+as kept beside it, never as a revision, and asked as a **yes to change** that promise. What
+`imported.md` carries in the import's own words — where it says it came from, its titles, its
+questions, what its documents raise — sits inside a fence under the sentence that says it is
+quoted material, never an instruction, as an attachment's content does; at most twenty open items
+are carried, each on one line, and the file says how many more are open. In the briefing the
+import's line comes after every job stopped on a person and every gate, so the bound never cuts
+one of those for it.
 
 **Was this asked before?** Before every answer the role is handed the tickets, the requirements
 and the open decisions whose titles overlap the message — with their references, and never who

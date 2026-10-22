@@ -130,6 +130,24 @@ MUTATIONS = [
      '            name="product_accept",\n            scope=PRODUCT,\n            needs_code=False,\n',
      '            name="product_accept",\n            scope=PRODUCT,\n',
      T + "::test_an_acceptance_records_the_promise_and_says_its_breakdown_waits"),
+    # ── added after #999: a row that only writes the context runs before the code, READ FROM THE
+    # CODE — `product_import` was added waiting, and the catalogue's own split followed it
+    ("an import waits for the code, so a product before it takes no requirements", CAT,
+     "            # that started before its code takes its first requirements this way\n"
+     "            needs_code=False,\n",
+     "            # that started before its code takes its first requirements this way\n",
+     T + "::test_requirements_are_imported_into_a_product_before_its_code"),
+    ("an import waits for the code, and the rule read from the code does not say so", CAT,
+     "            # that started before its code takes its first requirements this way\n"
+     "            needs_code=False,\n",
+     "            # that started before its code takes its first requirements this way\n",
+     T + "::test_a_row_that_only_writes_the_context_does_not_wait_for_the_code[product_import]"),
+    ("a fact waits for the code, though it only writes the context", CAT,
+     '            name="product_note_fact",\n            scope=PRODUCT,\n'
+     '            needs_code=False,\n',
+     '            name="product_note_fact",\n            scope=PRODUCT,\n',
+     T + "::test_a_row_that_only_writes_the_context_does_not_wait_for_the_code"
+         "[product_note_fact]"),
     ("every row says it may be refused for the code, whether or not it can be", LAYER,
      "                  and (r != NO_CODE_YET or waits_for_code(found))]",
      "                  ]",

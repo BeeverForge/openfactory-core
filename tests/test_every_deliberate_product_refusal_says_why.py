@@ -7,13 +7,13 @@ a product-scoped stranger answered 500 / `failed` with the module's own "only th
 for #1 … can close or remove it".
 
 WHAT IS HELD HERE, READ FROM THE SOURCE BY ITS SYNTAX TREE (a comment or a docstring naming the
-field satisfies nothing): every call building a `WriteResult` — or its subclasses `adjust.Sent` and
-`accept.Accepted` — with `ok=False` in `openfactory/product/*.py`, including those inside a
-`lambda` and a list display, names `refusal=` with a constant of `openfactory.product.authoring`:
-one of `REFUSALS` (a decision: "not yours", "already closed", …) or `NOT_REFUSED` (a write that was
-tried and did not happen). The one exception is `_could_not`, the module's single failure
-constructor, which never sets it: an untagged result IS a failure, and is what an older worker's
-dict decodes to.
+field satisfies nothing): every call building a `WriteResult` — or its subclasses `adjust.Sent`,
+`accept.Accepted` and `importing.Imported` (#993) — with `ok=False` in `openfactory/product/*.py`,
+including those inside a `lambda` and a list display, names `refusal=` with a constant of
+`openfactory.product.authoring`: one of `REFUSALS` (a decision: "not yours", "already closed", …)
+or `NOT_REFUSED` (a write that was tried and did not happen). The one exception is `_could_not`,
+the module's single failure constructor, which never sets it: an untagged result IS a failure, and
+is what an older worker's dict decodes to.
 
 AND THE WORD IS THE ONE ITS SENTENCE DECIDES (review of PR #970): the sentence each site answers
 with — `card_said('not_found')`, `unauthorized_message()`, `said['no_title']`, also the one handed
@@ -32,8 +32,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = ROOT / "openfactory" / "product"
 
-#: The constructors of a write's result: the class and the two subclasses that carry more.
-_RESULTS = {"WriteResult", "Sent", "Accepted"}
+#: The constructors of a write's result: the class and the subclasses that carry more — an
+#: import's result (`importing.Imported`, #993) answers through `_write_outcome` like any other.
+_RESULTS = {"WriteResult", "Sent", "Accepted", "Imported"}
 #: The one failure constructor, whose `WriteResult` is untagged on purpose (`module.py`).
 _THE_FAILURE = "_could_not"
 
@@ -174,6 +175,8 @@ SENTENCES = {
     "breakdown_said('out_of_time')": "NOT_WAITING",
     # a product that started before its code: the breakdown waits for its first source (#992)
     "breakdown_waits_for_code()": "NOT_WAITING",
+    # an import's yes to a plan the product moved past: planned again, nothing written (#993)
+    "_moved()": "NOT_WAITING",
     # already closed (409)
     "card_said('already_closed')": "ALREADY_CLOSED",
     "card_said('survivor_closed')": "ALREADY_CLOSED",
@@ -202,6 +205,8 @@ SENTENCES = {
     "_w('staged_outside')": "NOT_VALID",
     "_w('fact_outside')": "NOT_VALID",
     "_w('no_decision')": "NOT_VALID",
+    # a folder whose own requirements contradict themselves is not planned (#993)
+    "import_said('contradicts_itself')": "NOT_VALID",
     # nobody decided it: a write that was tried and did not happen, or could not see (500)
     "unavailable()": "NOT_REFUSED",
     "semaphore_busy()": "NOT_REFUSED",
@@ -242,6 +247,12 @@ SENTENCES = {
     "record_said('document_failed')": "NOT_REFUSED",
     "record_said('survey_failed')": "NOT_REFUSED",
     "_w('branches_unreadable')": "NOT_REFUSED",
+    # an import tried and not landed: it could not be planned, its push was refused, or what it
+    # would land could not be written as planned — a link on the way, a replacement it could not
+    # mark, a corpus it would have broken, named (#993)
+    "import_said('failed')": "NOT_REFUSED",
+    "import_said('push_refused')": "NOT_REFUSED",
+    "_land_failed()": "NOT_REFUSED",
     "_w('prior_unreadable')": "NOT_REFUSED",
     "_w('already_pushed')": "NOT_REFUSED",
     "_w('supersede_failed')": "NOT_REFUSED",

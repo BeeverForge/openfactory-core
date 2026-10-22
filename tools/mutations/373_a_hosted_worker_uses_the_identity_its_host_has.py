@@ -61,17 +61,20 @@ MUTATIONS = [
 
     ("THE MEASURED CASE: an Azure axis falls through to the deployment's generic pair, so the "
      "doctor counts a GitHub token the Azure adapter never uses", CREDENTIALS,
-     "    if row is not None and row.source is not None:\n        if named and announce",
-     "    if False:\n        if named and announce"),
+     # re-pinned 2026-10-19 (#822): the row's reference is asked for a refusal first
+     "    if row is not None and row.source is not None:\n"
+     "        # THE REFERENCE THE ROW WILL READ, asked first",
+     "    if False:\n        # THE REFERENCE THE ROW WILL READ, asked first"),
 
     ("the doctor reports a source that answered nothing — a declared identity on the wrong "
      "machine reads as reachable", CREDENTIALS,
      "        return identity if (identity and provider is not None and provider()) else \"\"",
      "        return identity if identity else \"\""),
 
+    # re-pinned 2026-10-18 (#742): a declared axis now passes an undeclared one's branch first
     ("the box is handed the declaration, and mints from the machine it runs on", CREDENTIALS,
-     "    if not declared or problem:\n        return options",
-     "    if True:\n        return options"),
+     "    if not declared:\n        # A SECRET A STORE HOLDS",
+     "    if True:\n        # A SECRET A STORE HOLDS"),
 
     ("a declared identity that did not answer launches a box with no credential", CREDENTIALS,
      "        if not token:\n            raise CredentialUnavailable(",

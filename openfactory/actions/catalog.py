@@ -927,9 +927,13 @@ async def _approve_prod(*, project: str, issue: str, version: str, approver: str
     from openfactory.runtime.temporal import view as tv
 
     async def signal() -> Outcome | None:
+        from openfactory import gate_seal
+
         try:
             await tv.approve_job(client, found.name, issue, version=version, approver=approver,
                                  comment=comment)
+        except gate_seal.KeyRefused as exc:  # the answer could not be sealed: said as itself
+            return refused(FAILED, first_message(exc))
         except RuntimeError as exc:  # not parked at the approval gate
             return refused(CONFLICT, first_message(exc))
         return None
@@ -1038,9 +1042,15 @@ async def _answer_gate(*, project: str, issue: str, by: Actor, answer: str,
     client, bad = await _connected()
     if bad:
         return None, bad
+    from openfactory import gate_seal
+
     try:
         gate = await tv.answer_merge_gate(client, found.name, issue, answer=answer,
                                           instruction=instruction, by=str(by))
+    except gate_seal.KeyRefused as exc:
+        # THE ANSWER COULD NOT BE SEALED (#742): the job IS waiting, and "not waiting on a merge"
+        # would send the person to do again what they just did. The key's own refusal, by name.
+        return None, refused(FAILED, first_message(exc))
     except tv.GateDeaf as exc:
         # The OPPOSITE of the case below: the job IS waiting on a merge, and its run can never
         # consume an answer (pre-patch replay). Folding this into 'not waiting on a merge' told
@@ -2301,10 +2311,18 @@ async def _product_status(*, project: str, by: Actor) -> Outcome:
     promises = list(getattr(corpus, "promises", lambda: ())() or ()) if corpus is not None else []
     if not available:
         log.warning("[%s] the product corpus is unreadable: %s", proj.name, str(health)[:400])
+    # WHEN THE PRODUCT'S KNOWLEDGE WAS LAST BROUGHT UP TO DATE, AND HOW (#1004): the record every
+    # pass leaves — the schedule's and an asked one's (`product_refresh`) — read as it stands. A
+    # client that asked for a refresh reads here when it finished, whether it degraded and why,
+    # and whether one is running now; a pass that failed or stopped is said, never left out.
+    from openfactory.product import refresh as knowledge
+
+    refreshed = await asyncio.to_thread(knowledge.state, proj)
     return done(corpus_state(available=bool(available), requirements=len(requirements),
                              promises=len(promises), language=getattr(proj, "language", None)),
                 project=proj.name, available=bool(available),
                 requirements=len(requirements), accepted=len(promises),
+                knowledge=refreshed,
                 # THE OPERATOR'S LINE IS NOT LOST — it travels for a surface whose reader has a
                 # checkout, and a client-safe sentence that discarded the diagnosis would trade
                 # one bad outcome for nobody able to fix the thing.
@@ -2416,6 +2434,60 @@ async def _product_ingest(*, project: str, by: Actor, path: str = "") -> Outcome
                 refused=[{"path": p, "reason": why} for p, why in report.refused],
                 left=report.left)
 
+
+
+async def _product_refresh(*, project: str, by: Actor) -> Outcome:
+    """Bring the product's knowledge up to date NOW (#1004): its documents read as the scheduled
+    pass reads them, and its search index brought up to them, to its requirements and to the board
+    of every registry project of the product (`product/refresh.py`) — so the next read of the
+    product's knowledge searches today's, without waiting for the schedule's tick.
+
+    IT ANSWERS AT ONCE, AND THE WORK RUNS ON THE WORKER. `product_ingest` reads inside the request
+    for up to `PRODUCT_INGEST_SECONDS`, and a caller whose own call is bounded tighter than that is
+    told the core is unreachable while the pass goes on. This row STARTS
+    `ProductKnowledgeRefreshWorkflow` and never awaits it: the answer says whether it started a pass
+    or joined one, and `product_status` says afterwards when it finished, how, and what it did not
+    bring up. `product_ingest` keeps its answer — a named file, read now and reported on, is what
+    its callers read it for.
+
+    ONE FLIGHT PER PRODUCT. The workflow's id is the product's (`refresh.workflow_id`), so the
+    engine refuses a second start while one runs, whichever registry project of the product it is
+    asked through, and this row answers that the ask joined it. One that has finished is started
+    afresh.
+
+    ADMIN ONLY, like `product_ingest`: a pass writes the product's derived records and may spend a
+    model's tokens on a summary. With no durable engine it is refused as unavailable — nothing was
+    started, so it is safe to ask again."""
+    import asyncio
+
+    module, proj, bad = _product_module(project, by=by)
+    if bad:
+        return bad
+    del module  # the pass runs on the worker; this resolved the project and its product role
+    client, bad_engine = await _connected()
+    if bad_engine:
+        return bad_engine
+    from openfactory.product import refresh as knowledge
+    from openfactory.runtime.temporal import TASK_QUEUE
+    from openfactory.runtime.temporal.io import KnowledgeRefreshInput
+
+    try:
+        await client.start_workflow(
+            "ProductKnowledgeRefreshWorkflow", KnowledgeRefreshInput(project=proj.name),
+            id=knowledge.workflow_id(proj), task_queue=TASK_QUEUE,
+            execution_timeout=knowledge.FLIGHT_CEILING)
+        flight = knowledge.STARTED
+    except Exception as exc:  # noqa: BLE001 — a start the engine refused is said, never raised
+        if "AlreadyStarted" not in type(exc).__name__:
+            # THE REFERENCE IS IN THE LINE AND IN THE ANSWER (#908), as `perform`'s RAISED arm
+            reference = failure_reference()
+            log.exception("the knowledge refresh of %s could not be started reference=%s (%s)",
+                          proj.name, reference, exc)
+            return refused(FAILED, "the knowledge refresh could not be started just now.",
+                           project=proj.name, reference=reference)
+        flight = knowledge.JOINED
+    return done(knowledge.sentence_for(proj.name, flight), project=proj.name, refresh=flight,
+                knowledge=await asyncio.to_thread(knowledge.state, proj))
 
 async def _product_pending(*, project: str, by: Actor) -> Outcome:
     """What the product role has STAGED and is waiting on a person for.
@@ -3175,20 +3247,28 @@ async def _product_agenda(*, project: str, by: Actor) -> Outcome:
     module, proj, bad = _product_module(project, by=by)
     if bad:
         return bad
-    del module
     from openfactory.memory import store as loop_store
     from openfactory.product import agenda, events
 
     viewer = agenda.Viewer(own=getattr(by, "conversation", "") or "", person=by.id,
                            may_read_room=by.may_enter(PRODUCT))
     rows = await asyncio.to_thread(loop_store.read, proj.name)
+    # AND WHAT THE NEWEST IMPORT LEFT OPEN (#994), read from its record and the corpus as they are
+    # now: an item to ask each, the room's — never stored, so nothing here can go stale
+    try:
+        review = await asyncio.to_thread(module.import_under_review)
+    except Exception:  # noqa: BLE001 — the ledger's items stand without it, and the log says why
+        log.warning("the newest import of %s could not be read for its agenda", proj.name,
+                    exc_info=True)
+        review = None
     # IN THE PROJECT'S LANGUAGE, AND SAYING WHAT IT IS (#401): a pt-BR product's person read
     # "tell you when the problem reported is fixed · owed · you" under a tab nothing explained.
     # `about` and `empty` are the panel's to draw; its own English is only the fallback.
     from openfactory.product.voice import agenda_about, agenda_empty
 
     language = getattr(proj, "language", None)
-    found = agenda.pending(rows, viewer, room=events.room_of(proj), language=language)
+    found = [*agenda.pending(rows, viewer, room=events.room_of(proj), language=language),
+             *agenda.from_the_import(review, viewer, language=language)]
     agent = getattr(getattr(proj, "product", None), "agent_name", "") or ""
     return done(agenda.render(found, language=language), project=proj.name,
                 measured_on=_measured_on(by), items=[item.as_dict() for item in found],
@@ -4681,6 +4761,108 @@ async def _product_note_fact(*, project: str, term: str, body: str, by: Actor,
     result = await asyncio.to_thread(
         lambda: module.note_fact(term=handle, body=said, said_by=by.id, where=where))
     return _write_outcome(result, did=f"noted {handle!r}", project=proj.name)
+
+
+def _import_source(proj, source: object, *, by: Actor) -> tuple[Path | None, Outcome | None]:
+    """Where the folder or archive `source` names is, for THIS caller — or the refusal (#993).
+
+    THE COMMAND LINE NAMES ANY PATH, EVERY OTHER CALLER ONLY ONE IN THE PRODUCT'S IMPORT INBOX.
+    A shell on the host already reads every file there, so a path is only what it says. Over the
+    API the same parameter would let any credential that reaches a product row read the server's
+    own files — a key, an environment file — into a context repository and then read them back
+    from it. So anywhere but the CLI, `source` is a name inside `importing.inbox`, and one that
+    resolves outside it (`..`, an absolute path, a link out) is refused before anything is read."""
+    from openfactory.product import importing
+    from openfactory.product.voice import import_said
+
+    lang = getattr(proj, "language", None)
+    raw = str(source or "").strip()
+    if not raw:
+        return None, refused(INVALID, import_said("no_source", language=lang),
+                             project=proj.name)
+    if getattr(by, "via", "") == "cli":
+        return Path(raw).expanduser(), None
+    box = importing.inbox(proj)
+    candidate = box / raw
+    spelled = Path(raw)
+    try:
+        inside = (not spelled.is_absolute() and ".." not in spelled.parts
+                  and candidate.resolve().is_relative_to(box.resolve())
+                  and candidate.resolve() != box.resolve())
+    except (OSError, RuntimeError):
+        inside = False
+    if not inside:
+        return None, refused(DENIED, import_said("outside_the_inbox", language=lang),
+                             project=proj.name)
+    return candidate, None
+
+
+async def _product_import(*, project: str, by: Actor, source: str = "", origin: str = "",
+                          token: str = "", yes: object = False) -> Outcome:
+    """Import a folder — or an archive of one — of requirements, facts and documents into the
+    product, under its corpus's rules (#993): numbered after every number it ever used, the same
+    promise never written twice, nothing accepted touched.
+
+    SHOWS BEFORE IT WRITES, the shape `product init` has. Without `yes` this answers the PLAN —
+    every requirement with what becomes of it, every fact, every document, every file left out and
+    why — and its token, and writes nothing. With `yes` it plans again under the product's
+    semaphore and lands that, in one commit pushed once; a `token` from the plan shown makes a
+    product that moved in between come back as the new plan, never as a write nobody saw.
+
+    WHOSE YES LANDS IT is the product's (`may_act`), asked HERE before the folder is even read, and
+    again by the module: an import writes a client's requirements, and reading a folder on the
+    server is not a thing anybody else may make this row do. Without `yes`, a person who may not
+    import is refused for the missing yes, like every row that asks for one — and shown no plan."""
+    import asyncio
+
+    from openfactory.product import importing
+    from openfactory.product.module import may_act, unauthorized_message
+    from openfactory.product.voice import import_said
+
+    module, proj, bad = _product_module(project, by=by)
+    if bad:
+        return bad
+    lang = getattr(proj, "language", None)
+    if not await asyncio.to_thread(lambda: may_act(proj, by.id, via=by.via or "api")):
+        if not _said_yes(yes):
+            return refused(INVALID, import_said("no_yes", language=lang), project=proj.name,
+                           written=False)
+        return refused(DENIED, unauthorized_message(proj), project=proj.name)
+    where, bad = _import_source(proj, source, by=by)
+    if bad:
+        return bad
+    # THE FOLDER IS READ WITH THE PRODUCT'S OWN NAME FOR ITS REQUIREMENTS' FOLDER, when the
+    # folder has one by that name — the checkout the module plans against (cached, read once)
+    ctx = await asyncio.to_thread(module.context)
+    try:
+        brought = await asyncio.to_thread(
+            importing.read, where,
+            requirements_dir=getattr(ctx, "requirements_dir", "") or "requirements")
+    except importing.NotImportable as exc:
+        said = import_said(exc.reason, language=lang, **exc.values)
+        if exc.reason == "not_found":
+            return refused(NOT_FOUND, said, project=proj.name)
+        return refused(INVALID, said, project=proj.name)
+    said_origin = str(origin or "").strip()
+    if not _said_yes(yes):
+        shown = await asyncio.to_thread(
+            lambda: module.plan_import(brought, actor=by.id, origin=said_origin))
+        the_plan = getattr(shown, "plan", None)
+        if not shown.ok or getattr(shown, "existed", False) or the_plan is None:
+            return _write_outcome(shown, did="plan the import", project=proj.name,
+                                  plan=the_plan.as_dict() if the_plan else {})
+        return refused(INVALID, shown.detail, project=proj.name, plan=the_plan.as_dict(),
+                       token=the_plan.token, written=False)
+    result = await asyncio.to_thread(
+        lambda: module.import_requirements(brought, actor=by.id, origin=said_origin,
+                                           token=str(token or "").strip()))
+    the_plan = getattr(result, "plan", None)
+    if getattr(result, "moved", False) and the_plan is not None:
+        return refused(CONFLICT, result.detail, project=proj.name, plan=the_plan.as_dict(),
+                       token=the_plan.token, written=False)
+    return _write_outcome(result, did="imported the folder", project=proj.name,
+                          plan=the_plan.as_dict() if the_plan else {},
+                          landed=list(getattr(result, "landed", []) or []))
 
 
 async def _product_file_defect(*, project: str, restated: str, by: Actor, violates: str = "",
@@ -6624,10 +6806,10 @@ async def _env_apply_impl(*, project: str, by: Actor, yes: object = False,
     import tempfile
     from datetime import UTC, datetime
 
-    import yaml
     from pydantic import ValidationError
 
     from openfactory.contracts.manifest import Manifest
+    from openfactory.util import yaml_io
     from openfactory.util.causes import first_message
 
     where = _measured_on(by)
@@ -6927,7 +7109,7 @@ async def _env_apply_impl(*, project: str, by: Actor, yes: object = False,
             written=written, skipped=skipped, blocked_by=[s["name"] for s in blocked])
 
     when = datetime.now(UTC).date().isoformat()
-    body = _yaml_header(written, skipped, when=when, who=str(by)) + yaml.safe_dump(
+    body = _yaml_header(written, skipped, when=when, who=str(by)) + yaml_io.dump(
         document, sort_keys=False, allow_unicode=True, default_flow_style=False)
     destination = (Path(str(out)).expanduser() if out else checkout / found.manifest_path)
 
@@ -7202,7 +7384,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="merge",
             summary="land the PR a human-gated job is waiting on",
             run=_merge,
-            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             optional=("comment",),
             choose_when="when the gates passed and the review did not reject. The DECISION is "
@@ -7213,7 +7395,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="adjust",
             summary="send the PR back for one repair pass against your own words — same PR",
             run=_adjust,
-            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue", "instruction"),
             choose_when="when the work is nearly right and you can NAME the change: a review "
                         "finding that still applies, a missed case, a wrong shape. Prefer this "
@@ -7226,7 +7408,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="send the PR back for one repair pass against the review comments people "
                     "left on it — same PR",
             run=_address,
-            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             choose_when="when people reviewed the pull request on the forge and their comments "
                         "say what to change: unresolved threads, a request for changes. Prefer "
@@ -7239,7 +7421,7 @@ CATALOG: dict[str, ActionSpec] = {
             summary="read the open PR again with the independent reviewer — same PR, no change "
                     "to the code, and the verdict on the card is replaced",
             run=_review,
-            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             choose_when="when the reading you have is out of date or was answered — an `adjust` "
                         "fixed what the review rejected, or a pass rewrote the diff — and "
@@ -7252,7 +7434,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="discard",
             summary="close the PR without merging and free the floor — the branch is untouched",
             run=_discard,
-            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue"),
             optional=("reason",),
             choose_when="for work that should not land: the review rejected it, or the change "
@@ -7292,7 +7474,7 @@ CATALOG: dict[str, ActionSpec] = {
             name="approve_prod",
             summary="answer a job's production-release gate — the parked workflow is waiting on it",
             run=_approve_prod,
-            refuses=(DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE),
+            refuses=(DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "issue", "version", "approver", "password"),
             optional=("comment",),
         ),
@@ -7402,6 +7584,20 @@ CATALOG: dict[str, ActionSpec] = {
             optional=("path",),
             params={"path": "a file in the context repository, relative to its root (several "
                             "separated by commas) — or nothing, for whatever changed"},
+        ),
+        ActionSpec(
+            name="product_refresh",
+            scope=PRODUCT,
+            summary="bring the product's knowledge up to date now — its documents, and its search "
+                    "index over them, its requirements and its board — answering at once while "
+                    "the pass runs on the worker; product_status says when it finished",
+            run=_product_refresh,
+            refuses=(INVALID, NOT_FOUND, UNAVAILABLE, FAILED),
+            required=("project",),
+            # WHAT IT BRINGS UP LIVES IN THE CONTEXT (#992), like `product_ingest`'s: the documents
+            # and the requirements are there before any code is. The one source that needs the
+            # code — a project's board — is the pass's to skip, by name (`refresh._boards`)
+            needs_code=False,
         ),
         ActionSpec(
             name="product_triage",
@@ -7752,6 +7948,28 @@ CATALOG: dict[str, ActionSpec] = {
             refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
             required=("project", "term", "body"),
             optional=("yes",),
+        ),
+        ActionSpec(
+            name="product_import",
+            scope=PRODUCT,
+            # WHAT IT WRITES LIVES IN THE CONTEXT (#993, after #992): requirements, facts and
+            # documents, as `product_note_fact`'s and `product_file_attachment`'s do; a product
+            # that started before its code takes its first requirements this way
+            needs_code=False,
+            summary="import a folder of requirements, facts and documents into the product under "
+                    "its corpus's rules — shows the plan, and lands it on `yes`",
+            run=_product_import,
+            refuses=(INVALID, DENIED, NOT_FOUND, CONFLICT, UNAVAILABLE, FAILED),
+            required=("project", "source"),
+            optional=("origin", "token", "yes"),
+            params={"source": "the folder or archive (.zip, .tar, .tar.gz) to import — any path "
+                              "on the command line; from anywhere else, its name in the "
+                              "product's import inbox",
+                    "origin": "where it came from, in a few words — the folder's own "
+                              "`openfactory-import.yaml`, or its name, when empty",
+                    "token": "the token the plan was shown with — a `yes` carrying it lands "
+                             "exactly that plan, and a product that moved since is planned "
+                             "again"},
         ),
         ActionSpec(
             name="product_file_defect",

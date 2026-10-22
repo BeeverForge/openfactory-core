@@ -6,7 +6,7 @@ Three places, and **which one a thing lives in is a decision, not an accident**:
 |---|---|---|
 | **the manifest** — `.openfactory/project.yaml`, in your repository | the client's team | it describes the *work*: how to install, how to validate, what the components are |
 | **the registry** — `registry.yaml`, on the deployment | the operator | it describes the *installation*: credentials, which board, which harness, which box |
-| **the environment** — `.env`, SSM, Secrets Manager | the operator | secrets, and only secrets |
+| **the environment** — `.env`, SSM, Secrets Manager | the operator | secrets, and only secrets — or where a store reads them from ([the credential store](#the-credential-store)) |
 
 The boundary between the first two is a **security boundary**. The manifest lives in the repository
 the agent edits, so anything an agent could rewrite to its own advantage belongs in the registry.
@@ -108,11 +108,24 @@ projects:
     language: pt-BR                           # when an agent SPEAKS FIRST (unset: en)
     box:
       image: mycorp.azurecr.io/ci-base:2026.7 # what your CI already runs on
+      pull_credential: file:acme-registry     # a REFERENCE to the registry's secret, never the secret
+      pull_username: ci-bot                   # the registry user it belongs to
       network: openfactory-egress                    # bound what agent code can reach
       cache_volume: openfactory_cache                # skip a full install per job
       cpus: "4"
       memory: "8g"
 ```
+
+**The box image's pull credential is a reference, used for the pull and never handed to the box.**
+`box.pull_credential` names the registry's secret the way `token_env` names an axis's
+([the credential store](#the-credential-store)), and `box.pull_username` the registry user it
+belongs to. When the image is not already on the worker's daemon, the worker resolves the secret, writes it
+into a client configuration made for that one pull, pulls, and deletes the configuration; the
+daemon keeps the image and never the login, and nothing of it reaches the box, whose environment
+holds only `box.env` and the harness's own token. `openfactory box prove` pulls the same way. Unset,
+the image is pulled as before, with whatever the daemon's client already holds. A container box
+honours it; a box that runs no image of its own says it is ignored, as it does for every image
+setting.
 
 **A project on ONE MACHINE names no vendor at all**, which is what `openfactory project init
 <name> <path>` writes:
@@ -134,7 +147,8 @@ one.
 
 **The registry NAMES a credential; it never HOLDS one.** Every axis takes an `options.token_env`
 (the channel takes `bot_token_env` / `app_token_env`) naming the environment variable that
-carries the secret:
+carries the secret — or any reference [the credential store](#the-credential-store) resolves,
+such as `token_env: file:acme-ado-pat` for a secret mounted as a file:
 
 ```yaml
     tracker: { kind: azure_devops, repo: Deskline,     # the ADO PROJECT — work items live here
@@ -360,6 +374,111 @@ reviews it, and one stale line becoming an outage is a failure the operator coul
 
 ---
 
+## The credential store
+
+**Every secret the core reads comes through one seam**, the credential store: the per-axis tokens,
+the generic pair, the GitHub App key, the harness tokens, the panel's tokens and keys, the engine's
+key, a `box.env` name the box passes through, and the box image's pull credential. The readiness
+report and `openfactory certify` also measure an environment or audit `.env.compose`, and ask the
+store beside it; the stack preflight, which runs before the stack and its store exist, reads
+`.env.compose` alone. `tests/test_every_stored_credential_is_read_through_the_store.py`
+holds every module of the package to that: a credential read by a name the code spells (a
+literal, a constant, a table of them), from the environment or through any other mapping, fails it
+outside the store unless the function says what its mapping is. A name computed while running is
+beyond such a scan, and each reader of that kind has a test of its own.
+
+**A reference is `<store>:<name>`**: `env:ACME_JIRA_TOKEN` is a variable, `file:acme-jira` is a file
+in the credential directory, and an installed add-on's store reads its own (`credential_store.<kind>`
+in the `openfactory.adapters` group, the axis [writing an add-on](../writing-an-addon.md) lists). A
+**bare name** — every `token_env` written before references existed — is a deployment credential by
+that name.
+
+**A deployment credential is asked of the store the deployment declares, then of the
+environment.** `OPENFACTORY_CREDENTIAL_STORE` names that store, and unset it is `env`: one lookup,
+the variable, exactly as before references existed — nothing changes for an installation that
+declares nothing. Set it to `file` and the credential `CLAUDE_CODE_OAUTH_TOKEN` is the file
+`CLAUDE_CODE_OAUTH_TOKEN` in the credential directory when there is one, and the variable when there
+is not, so secrets move into files one at a time. A file holds the value its variable would have
+held: the PEM for `OPENFACTORY_GH_APP_KEY_CONTENT`, a path for `OPENFACTORY_GH_APP_KEY`.
+
+**The file store**, for secrets mounted into the worker the way container platforms deliver them:
+
+- `OPENFACTORY_CREDENTIAL_DIR` is the directory, `/run/secrets` for a compose stack's `secrets:`
+  and a mounted cluster secret volume alike. A reference names one file in it, never a path.
+- **Read at each use, kept by nobody.** A rotated file is the next use's.
+- **Refused by name**, and never replaced by the variable, when:
+  - a directory on the name's way may be written by anyone but its owner, on a mount that accepts
+    writes. Those directories are the credential directory, the directory the file is in, each
+    directory one of the name's links is in, and every directory between one of those and the
+    credential directory;
+  - on a mount that refuses writes, such a directory belongs to anyone but root or the worker's
+    user — and then every file read through it must belong to root or the worker's user too;
+  - a link on the name's way, the one under the name or one further along, was made by anyone but
+    root or the worker's user. The name is followed one link at a time (`readlink`), and it is
+    refused when it leads through more than 40 links or ends outside the directory;
+  - the file is not a regular file, is larger than a credential (64 KB), or is not text;
+  - on a mount that accepts writes, the file may be written by anyone but its owner, or it has
+    more than one name (a hard link).
+
+  Each refusal ends with its repair. A cluster's secret volume, mounted read-only and owned by
+  root, is read as it is mounted.
+- **Except on a mount that refuses writes.** Compose mounts a `secrets:` file read-only with the
+  mode it has on the host, and on a host whose umask is `0002` (Ubuntu's, for users) a file made
+  with `echo … >` is `0664`. Nobody who sees a read-only mount can write through it, so its write
+  bits are not asked; what guards the file is its mode **on the host**, where it is created: make
+  it `chmod 600` there (`640` or `644` work as well — the read bits are the container's
+  business). On a writable mount the rule stands: `chmod go-w` the file, or mount it read-only.
+  What is asked is the mount the file is read through: a volume mounted writable at another
+  path is writable there, whatever this path says, so mount a secrets volume read-only
+  everywhere it is mounted.
+- Its content, with the surrounding whitespace and a byte-order mark removed, is the secret; an
+  empty file holds nothing, and the variable of the same name answers then, as where there is
+  no file — to revoke a secret, remove the file and unset the variable.
+- The worktree box withholds the directory's path from the workload, but the files are on the
+  worker's filesystem, readable by the worker's user — [SECURITY.md](../../SECURITY.md).
+
+**A refusal is final.** A credential the store refuses is not replaced: not by the variable of the
+same name, not by the next name a credential falls back to (`OPENFACTORY_TRACKER_TOKEN`, then
+`OPENFACTORY_BOT_TOKEN`), not by a mint, a login or a generated key. A refused panel token keeps the
+panel closed — every request is answered "identity provider unavailable" (503) until it is fixed,
+and the log and `openfactory doctor` name the variable and the reason. A refused harness
+credential stops the agent rather than letting it run on the next one, and a refused `box.env`
+name crosses into neither box. A declared store that cannot be read at all, or a kind nobody
+installed, refuses every credential in the same way. With no token, the GitHub forge, tracker,
+board, CI observer and `openfactory project init`'s board creation do not run `gh` on the
+machine's own login in its place either.
+
+**A remote box** cannot read the worker's files, and what its launcher is handed for a stored
+secret depends on what the launcher declares. A launcher that declares nothing is handed values:
+short-lived minted tokens only (the machine's own identity, minted on the worker), because a
+launcher may keep its launch environment where others can read it, and a stored secret lives as
+long as its owner keeps it. So an axis whose secret a store other than the environment holds is
+refused for it, by name, before anything is launched: "the `fargate` box's launcher does not
+declare that it resolves credential references itself, so it is handed only short-lived minted
+tokens and the store's secret is not put into its launch environment". The core's `fargate` row
+declares nothing, so it receives minted tokens only. A launcher that declares
+`resolves_references = True` is handed references to stored secrets and resolves them on its own
+side: it receives the reference (`file:<name>`, or `<kind>:<name>`), never the value, and the box
+reads that axis from the variable the launcher fills. For a box whose launcher declares nothing,
+hold such a secret in a variable the box reads for itself (`env:<NAME>`), which is handed over by
+name only, or declare the machine's own identity (`identity: workload`). The doctor's
+`launcher_credentials` line says, for each remote box, whether its launcher is handed references
+or values (or that its runner is not installed here, so what it declares cannot be seen), and fails
+before the first job when this deployment's box is remote, its launcher declares nothing, and one
+of the project's secrets is held in the store.
+
+**`openfactory doctor` says where each credential comes from, never its value**: the
+`credential_store` line names the store the deployment declares and every reference the project
+names, with the store that answers for it — and fails a store nobody installed, a directory it
+cannot read, a reference that can never answer, a pull credential with no user name or no
+secret, and every deployment credential the store refuses, whether a reader names it or the store
+merely holds it, each with its repair. The forge line says which reference answered, and the
+agent credential line says which reference the harness token came from; when the store refused
+one, the forge, board and agent credential lines say that instead of "not configured", and never
+ask for a variable that is already set.
+
+---
+
 ## The environment
 
 Secrets and deployment coordinates. The ones you will actually set:
@@ -383,6 +502,8 @@ Secrets and deployment coordinates. The ones you will actually set:
 | `OPENFACTORY_PROD_APPROVERS` | deployment-wide release allowlist (the manifest's `prod_approvers` is the per-project form) |
 | `OPENFACTORY_APPROVERS` / `OPENFACTORY_APPROVERS_FILE` | the hashed release passwords, when `~/.openfactory/approvers.json` cannot be mounted. `OPENFACTORY_APPROVERS` (JSON, login → hash) wins: while it is set the file is neither read nor written, and a value that is not a JSON object means nobody can approve — `openfactory approver list` says which. Mint an entry with `OPENFACTORY_APPROVERS= openfactory approver add <login>` and copy it from the file |
 | `OPENFACTORY_SANDBOX` | which box every job runs in: `worktree` \| `container` \| the kind an installed box add-on registers (`fargate`, from the AWS add-on). Unset → `container`. **Never inferred** — a cloud deployment DECLARES `OPENFACTORY_SANDBOX=fargate`; setting only the add-on's cluster coordinates leaves every job in a local container |
+| `OPENFACTORY_CREDENTIAL_STORE` | which store the deployment's own credentials are asked of before the environment: `env` (unset means this — the environment alone) \| `file` \| the kind an installed add-on registers. Never inferred; a kind nobody installed refuses every credential by name rather than falling back ([the credential store](#the-credential-store)) |
+| `OPENFACTORY_CREDENTIAL_DIR` | the file store's directory, where the deployment's secret files are mounted (`/run/secrets`). A reference `file:<name>` names one file in it. Withheld from a worktree workload |
 | `OPENFACTORY_TOKEN_POOL_SOURCE` | where the panel reads the agent-token pool from (count and ids, never a value): `env` (the default — this process's environment) \| the kind an installed add-on registers (`ssm`, from the AWS add-on). Unset → `env`. Never inferred — the reference cloud deployment declares `ssm` |
 | `OPENFACTORY_SANDBOX_IMAGE` | deployment-wide box image; a project's `box.image` wins |
 | `OPENFACTORY_METRICS_SINK` · `OPENFACTORY_METRICS_DB` | `sqlite` locally, `dynamodb` in the cloud, `null` for neither |

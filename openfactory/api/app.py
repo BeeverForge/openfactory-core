@@ -75,14 +75,11 @@ def _load_environment() -> None:
     """
     load_dotenv()
 
-# deployed panel: Secrets Manager delivers the bot App key as CONTENT — materialize it
-# so token minting (forge reads) works, same as the worker/task do.
-if os.environ.get("OPENFACTORY_GH_APP_KEY_CONTENT") and not os.environ.get("OPENFACTORY_GH_APP_KEY"):
-    import tempfile as _tmp
-
-    from openfactory.runtime.boxed_job import materialize_app_key
-
-    materialize_app_key(dict(os.environ), dest_dir=Path(_tmp.mkdtemp(prefix="openfactory-panel-")))
+# NO KEY IS WRITTEN TO DISK AT IMPORT (#742). This block copied an App key delivered as content
+# into a temp file and pointed `OPENFACTORY_GH_APP_KEY` at it, for readers that wanted a path.
+# None is left: `credentials.app_private_key` reads the content first and the minter takes it as
+# content, so the copy was read by nothing, and it was the one place a stored secret outlived the
+# call that used it.
 
 #: What this half of the deployment calls itself when it announces its build (#135). Named here
 #: because two places must agree on the spelling — `cli serve`, which announces it, and
@@ -590,7 +587,17 @@ async def preview_link(project: str, unit: str, request: Request):
         body["why"] = said
         return body
     expires = min(int(time.time()) + preview.LINK_TTL_SECONDS, found.expires_at)
-    key = preview.mint(found.project, unit, expires=expires)
+    try:
+        key = preview.mint(found.project, unit, expires=expires)
+    except RuntimeError as exc:
+        # A PREVIEW KEY THE CREDENTIAL STORE REFUSES SIGNS NO LINK (#822), and the card says so in
+        # the store's own sentence — the key's name and why, a path at most, never a value — the
+        # way it says every other reason a preview cannot be opened. The caller is one the panel
+        # already let in.
+        log.error("no preview link for %s/%s: %s", found.project, unit, exc)
+        body["live"] = False
+        body["why"] = str(exc)
+        return body
     scheme = "https" if _is_secure(request) else "http"
     body["live"] = True
     body["why"] = ""
@@ -3582,6 +3589,72 @@ def product_document_file(project: str, path: str) -> Response:
                              "Cache-Control": "private, no-store"})
 
 
+@_read("/api/product/{project}/system", read_models.SystemRead, refusals={
+    404: "no project of that name in this deployment — one with no product role is answered "
+         "alike"})
+def product_system(project: str) -> dict:
+    """One product's SYSTEM LAYER (#1002, ADR-0052 D17): the sources read, the components, the
+    links between them, the HTTP and gRPC interfaces with their operations, the events, the
+    databases and their schemas, the queues, the infrastructure, the decision records, and every
+    thing that could not be derived — as the knowledge refresh published it at `.okf/system/` in the
+    product's context repository.
+
+    READ, NEVER DERIVED. Deriving checks out every source the product declares; this reads the map
+    the refresh published (`render.read_published`), from the context repository's checkout the
+    product's own reads use (`load_product_context`, the product page's status read included) — so
+    what a client is shown is what the product role finds in its view. Each GET fetches that
+    checkout, as every product read does (a clone on a host's first read), and nothing else is
+    written: no repository is pushed to, no impediment is filed (the module's `context()` would file
+    one), no index is opened.
+
+    EVERY ENTRY CITED, NAMES ONLY. Each entry carries where it came from — the repository, the file,
+    the commit, a line where the format has one — and no field holds the value of a variable: the
+    map holds names (`knowledge/system/contracts.py`), and what is answered is the map read back
+    through its own models, so nothing a hand added beside them in a file is.
+
+    NEVER AN EMPTY MAP FOR ONE THAT IS NOT KNOWN. `state` says whether the map was read
+    (`published`), is not there yet (`not-published`) or could not be read (`unreadable` — its
+    files, or the context repository that holds them), `why` says it in a sentence, and the map's
+    fields are null unless it was read. A source the refresh could not check out is in the map: a
+    source whose `missing` says why, and a `source-unreadable` entry of `not_derived`.
+
+    A PROJECT WITH NO PRODUCT ROLE is answered in the very words an unknown project is, before its
+    context repository is looked for — nothing is checked out for a project the role never reads,
+    and which projects a deployment runs outside the product area is not a product credential's to
+    learn (`_no_such_project`, the rule the product's search follows)."""
+    from openfactory.credentials import deployment_forge_token, forge_token_for
+    from openfactory.knowledge.system.refresh import system_subpath
+    from openfactory.knowledge.system.render import (
+        SCOPE_LIMIT,
+        UNREADABLE,
+        Published,
+        read_published,
+    )
+    from openfactory.product.key import product_key
+    from openfactory.product.loader import load_product_context
+
+    proj = _project_or_404(project)
+    if not _has_product_role(proj):
+        raise _no_such_project(project)
+    where = system_subpath().as_posix()
+    ctx = load_product_context(
+        proj, token=forge_token_for(proj) or deployment_forge_token(proj) or "")
+    if not ctx.docs_path:
+        found = Published(UNREADABLE, f"the system map cannot be read: the context repository "
+                                      f"is not reachable — {ctx.reason or 'no reason was given'}")
+        read_from = None
+    else:
+        found = read_published(ctx.docs_path, where)
+        read_from = {"repo": proj.product.docs_repo, "path": where, "commit": ctx.docs_commit,
+                     "line": 0}
+    out = {"project": proj.name, "product": product_key(proj), "state": found.state,
+           "why": found.why, "read_from": read_from}
+    if found.system is not None:
+        out.update(found.system.model_dump(by_alias=True, mode="json"),
+                   derived_key=found.derived_key, scope_limit=SCOPE_LIMIT)
+    return out
+
+
 @_read("/api/product/{project}/documents", read_models.DocumentsRead)
 def product_documents(project: str, request: Request) -> dict:
     """The product's context repository as its ingestion found it (#269 slice 1): how many
@@ -4346,11 +4419,14 @@ def _auth_credential() -> str:
     Read from the environment this process shares with the worker (compose forwards the whole
     `.env.compose` to both). Empty when neither variable is visible here, because the honest
     answer to "which of these two is paying" is sometimes "I cannot see from here"."""
-    import os as _os
+    from openfactory.adapters.credential_store.registry import lookup
 
-    if _os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+    # A REFUSED SUBSCRIPTION TOKEN IS NOT AN API KEY PAYING (#822): the harness runs on neither
+    # then (`claude_code._load_agent_token_pool`), and "I cannot see from here" is the answer.
+    subscription = lookup("CLAUDE_CODE_OAUTH_TOKEN")
+    if subscription.value:
         return "subscription"
-    if _os.environ.get("ANTHROPIC_API_KEY"):
+    if not subscription.refused and lookup("ANTHROPIC_API_KEY").value:
         return "api key"
     return ""
 

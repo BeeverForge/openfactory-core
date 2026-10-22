@@ -607,8 +607,13 @@ _AGENT_CRED_VARS = ("OPENFACTORY_AGENT_TOKENS",)
 # …and the board's credentials (#562), new, and stripped from the day they exist: a workload
 # holding one could act on the board as whoever it names. (The panel's and the product's own still
 # reach a worktree workload, as SECURITY.md's measured table says.)
+#
+# …and where the deployment's secret files are mounted (#742): a path to the credential directory
+# is reach to every secret in it. What the scrub removes is the pointer, not the reach — the
+# files are on the worker's filesystem, readable by the worker's user, as SECURITY.md says.
 _PANEL_SECRET_VARS = ("OPENFACTORY_PREVIEW_SECRET", "OPENFACTORY_GATE_SECRET",
-                      "OPENFACTORY_BOARD_TOKEN", "OPENFACTORY_BOARD_TOKENS")
+                      "OPENFACTORY_BOARD_TOKEN", "OPENFACTORY_BOARD_TOKENS",
+                      "OPENFACTORY_CREDENTIAL_DIR")
 
 
 def _scrubbed_env(keep: tuple[str, ...] = ()) -> dict[str, str]:
@@ -641,6 +646,23 @@ def _scrubbed_env(keep: tuple[str, ...] = ()) -> dict[str, str]:
     # never kept, whatever `box.env` says: no harness authenticates with the preview key
     for var in _PANEL_SECRET_VARS:
         env.pop(var, None)
+    # A NAME `box.env` DECLARES IS A DEPLOYMENT CREDENTIAL (#742): one held in a mounted file
+    # reaches the workload exactly as the container box hands it over, read through the store.
+    # With no store declared this is the variable already in `env`, so nothing moves.
+    #
+    # AND A NAME THE STORE REFUSES IS WITHHELD, as the container box withholds it (review of
+    # #822): the declared names and the harness's own defaults, whose variable a refusal must not
+    # put back — the CLI reads its token from this environment by itself.
+    from openfactory.adapters.credential_store.registry import deployment_store, lookup
+    from openfactory.adapters.sandbox.container import _AUTH_ENV_VARS
+
+    if kept or deployment_store() != "env":
+        for var in sorted((kept | set(_AUTH_ENV_VARS)) - set(_PANEL_SECRET_VARS)):
+            found = lookup(var)
+            if found.refused:
+                env.pop(var, None)
+            elif var in kept and found.value:
+                env[var] = found.value
     return env
 
 
@@ -874,7 +896,10 @@ class WorktreeSandbox(SandboxAdapter):
         ANYTHING ELSE AT `wt` IS LEFT ALONE. The default root is `.openfactory-worktrees` beside
         the served checkouts, shared by every project the process serves, so `wt` can be another
         repository's worktree of a branch with the same name, or a person's directory; `prepare`
-        refuses by name over it rather than this deleting it."""
+        refuses by name over it rather than this deleting it. A job's branch can meet that case;
+        a proof's no longer does, since each key proves on a branch of its own (`box_probes`),
+        and a second proof of one key, which would take the first one's live tree for its own
+        here, is refused before it reaches `prepare` (#745)."""
         if wt.is_symlink():
             # A LINK AT `wt` IS NEVER THE BOX'S OWN: git lists the real path and `_same_dir`
             # resolves through the link, and `worktree remove --force <link>` removes the linked

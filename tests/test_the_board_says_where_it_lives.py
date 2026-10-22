@@ -124,6 +124,26 @@ def test_a_github_ENTERPRISE_board_links_to_their_own_host(monkeypatch):
     assert gp.GitHubProjectBoard("acme", "7").url().startswith("https://github.acme.com/orgs/")
 
 
+def test_the_boards_link_asks_who_owns_it_with_the_boards_own_token(monkeypatch):
+    """The owner probe runs on the board's credential, never on whatever login the machine has
+    (review of 256c5b0, B3): before #742 it passed no environment, so `gh` typed the owner on the
+    ambient `GH_TOKEN` or a person's `gh auth login`."""
+    import subprocess
+
+    from openfactory.adapters.tracker import github_project as gp
+
+    monkeypatch.setattr(gp, "_OWNER_KIND", {})
+    monkeypatch.setenv("GH_TOKEN", "fictitious-ambient-822e")
+    seen: list[str | None] = []
+    monkeypatch.setattr(subprocess, "run",
+                        lambda argv, **k: seen.append((k.get("env") or {}).get("GH_TOKEN"))
+                        or subprocess.CompletedProcess(argv, 0, "Organization\n", ""))
+    board = gp.GitHubProjectBoard("acme", "3", token="fictitious-board-822e")
+
+    assert board.url().endswith("/orgs/acme/projects/3")
+    assert seen == ["fictitious-board-822e"], seen
+
+
 def test_an_AZURE_board_links_to_dev_azure_com():
     from openfactory.adapters.board.azure_devops import AzureBoardsBoard
 

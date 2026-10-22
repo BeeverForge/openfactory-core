@@ -21,7 +21,7 @@ from openfactory.adapters.forge.base import (
     ReviewEvent,
 )
 from openfactory.adapters.forge.base import truncated as _truncated
-from openfactory.adapters.github_cli import nothing_named, refused
+from openfactory.adapters.github_cli import LoginRefused, credential_of, nothing_named, refused
 
 log = logging.getLogger("openfactory.forge.github")
 
@@ -211,15 +211,19 @@ class GitHubForge(ForgeAdapter):
     #: What this forge is called in a sentence a person or an agent reads (`base.display_name`).
     display_name = "GitHub"
 
-    def __init__(self, repo: str, *, token: str | None = None, token_provider=None) -> None:
+    def __init__(self, repo: str, *, token: str | None = None, token_provider=None,
+                 refused: str = "") -> None:
         self.repo = repo  # "owner/name"
         self._static_token = token
         self._token_provider = token_provider  # re-mints a fresh token at use (long jobs)
+        #: why the credential store refused the credential this forge was meant to use (#742) —
+        #: then it runs nothing on the machine's own login (`github_cli.credential_of`)
+        self.refused = refused
 
     @property
     def token(self) -> str | None:
         # resolved at each use so a job that outlives the ~1h App token still pushes (H3)
-        return self._token_provider() if self._token_provider else self._static_token
+        return credential_of(self)
 
     def _env(self) -> dict[str, str]:
         env = dict(os.environ)
@@ -234,8 +238,14 @@ class GitHubForge(ForgeAdapter):
         if why:
             log.warning("OPENFACTORY_GH_NOTHING_NAMED %s", why)
             return refused(args, why)
+        try:
+            env = self._env()
+        except LoginRefused as exc:
+            # A FAILED CALL, SAID, as every other refusal of this method is — `gh` never runs
+            log.warning("OPENFACTORY_GH_LOGIN_REFUSED %s", exc)
+            return refused(args, str(exc))
         return subprocess.run(
-            ["gh", *args], capture_output=True, text=True, timeout=timeout, env=self._env()
+            ["gh", *args], capture_output=True, text=True, timeout=timeout, env=env
         )
 
     def push_remote(self) -> str | None:

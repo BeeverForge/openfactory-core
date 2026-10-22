@@ -57,6 +57,9 @@ def _deployment(tmp_path, monkeypatch, *, ok: bool = True):
 
     seen: dict = {"resolved": [], "saved": []}
 
+    # `box prove --ref` takes the project's proof lock itself, before the checkout (#745): under
+    # the test's own directory, never a live deployment's `/var/lib/openfactory/proofs`
+    monkeypatch.setattr(bp, "PROOF_DIR", tmp_path / "proofs")
     monkeypatch.setattr(cli, "resolve_box_image", lambda *a, **k: "img:1")
     monkeypatch.setattr(bp, "box_probes", lambda *a, **k: _Probes())
     monkeypatch.setattr(bp, "prove", lambda *a, **k: Proof(

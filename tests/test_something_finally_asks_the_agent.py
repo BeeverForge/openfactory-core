@@ -364,6 +364,7 @@ def test_the_proof_box_says_WHY_it_did_not_start_and_nothing_when_it_did(tmp_pat
         def harness_path(self, name):
             return f"/opt/tb/bin/{name}"
 
+    monkeypatch.setattr(box_prove, "PROOF_DIR", tmp_path / "proofs")  # its lock, never /var/lib
     monkeypatch.setattr(sandboxes, "installed_box_traits",
                         lambda _kind: SimpleNamespace(honours_image=True))
     project = SimpleNamespace(name="myapp", box=None)

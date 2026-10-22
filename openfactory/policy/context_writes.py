@@ -8,7 +8,10 @@ that land there on their own are driven by an LLM role reading channel messages 
 
 - `authoring.land_open_proposals` opens AND merges every `req/*` branch;
 - `authoring.record_fact` commits straight to the base;
-- the knowledge pipeline (`knowledge/pipeline.py::publish_bundle`) commits `.okf/`.
+- the knowledge pipeline (`knowledge/pipeline.py::publish_bundle`) commits `.okf/`;
+- an import (`product/importing.py::land_import`, #993) commits a folder from outside —
+  requirements, facts, documents under `imported/` — and its own record, on a person's yes to a
+  plan they were shown.
 
 THE BOUNDARY IS ENFORCED AT THOSE WRITERS, NOT GUESSED AT BY THE READER. Git cannot tell a
 person-merged commit from a bot-landed one on a squash-merging forge (the design's §13), so the
@@ -34,6 +37,29 @@ FACTS = ("domain/",)
 
 #: What the knowledge pipeline exists to write: a source's module map under `.okf/`.
 KNOWLEDGE = (".okf/",)
+
+#: Where an import keeps its record (#993): `.openfactory/imports/<id>/`, one directory per
+#: import — where it came from, the plan, what landed, and every text it kept beside an accepted
+#: requirement. THE ONE PATH UNDER `.openfactory/` A WRITER MAY LAND, and only the import's own
+#: writer, through `outside_an_import`: `outside` itself never lets anything under the platform's
+#: directory through, whatever a writer's `allowed` says.
+#:
+#: WHY THIS ONE IS SAFE TO ADMIT. What makes `.openfactory/` the platform's is that a preview reads
+#: its shape from there — `product.yaml` and the compose file it names, at the directory's root.
+#: An import's record is one directory below `imports/`, named by the import's own id, and nothing
+#: reads it as configuration: the documents' pass leaves `.openfactory/` unread, and the record is
+#: read only as what it is, the account of one import.
+IMPORTS = f"{PLATFORM_DIR}imports/"
+
+#: An import's id: the day it was planned and a digest of what it brought (`importing.import_id`).
+_IMPORT_ID = re.compile(r"^\d{4}-\d{2}-\d{2}-[0-9a-f]{10}$")
+
+
+def import_record(import_id: str) -> str:
+    """`.openfactory/imports/<id>/`, the record directory of one import — or "" when `import_id`
+    is not an import's id, which then admits nothing."""
+    ident = str(import_id or "").strip()
+    return f"{IMPORTS}{ident}/" if _IMPORT_ID.match(ident) else ""
 
 
 def _clean(path: str) -> str:
@@ -61,6 +87,17 @@ def outside(paths: Iterable[str], allowed: Iterable[str]) -> list[str]:
                 or not (norm in exact or norm.startswith(prefixes))):
             out.append(str(path))
     return out
+
+
+def outside_an_import(paths: Iterable[str], allowed: Iterable[str], *,
+                      import_id: str) -> list[str]:
+    """`outside`, for the import's writer (#993): every path it may NOT land. One exception to the
+    platform's directory and one only — a file under THIS import's own record directory
+    (`import_record`). Never another import's record, never `.openfactory/` itself or anything
+    else under it, and never a spelling that climbs out of the record (`..` is resolved first)."""
+    record = import_record(import_id)
+    rest = [p for p in paths if not (record and _clean(p).startswith(record))]
+    return outside(rest, allowed)
 
 
 #: `diff --git a/<path> b/<path>` — each side quoted by git when the path needs it

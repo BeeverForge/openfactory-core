@@ -41,9 +41,10 @@ is history. The state of the tree is measured, not remembered, and it is this:
   on a deployment is a supply chain, not an extension point) and an unknown kind still refuses
   by name.
 - **Every registry consults the loader.** The axes that consult the loader today: `board`,
-  `board_setup`, `box`, `box_runner`, `channel`, `ci`, `credential`, `embed`, `event`,
-  `extract`, `forge`, `harness`, `identity`, `metrics`, `notifier`, `preview`, `role`,
-  `session_store`, `token_pool` and `tracker` — spelled exactly so in the entry-point name.
+  `board_setup`, `box`, `box_runner`, `channel`, `ci`, `credential`, `credential_store`,
+  `embed`, `event`, `extract`, `forge`, `harness`, `identity`, `metrics`, `notifier`,
+  `preview`, `role`, `session_store`, `token_pool` and `tracker` — spelled exactly so in the
+  entry-point name.
   `openfactory/plugins.py::AXES` is the published list;
   `tests/test_a_stranger_can_add_an_adapter.py` DERIVES the registries from
   the tree (every module that asks the loader) and holds the set they ask for equal to it, and
@@ -139,6 +140,21 @@ still carry a credential the caller holds for another purpose; a row must read i
 its own — the shipped Jira and Azure rows do exactly this, and the `board_setup` axis, added
 the same day so `init` stops naming the vendor whose board it creates, takes only the token the
 tracker axis resolved for its kind.*
+
+*Since 2026-10-18 WHERE a stored secret comes from is an axis too — `credential_store.<kind>`
+returns a `CredentialStore` with two methods, `resolve(name)` (the secret, read now, or `None`)
+and `describe(name)` (where it is looked for and whether it is there, never the value). It is
+born with two, both in the open tree: `env`, the process environment, and `file`, a directory of
+mounted secret files. A reference names its store (`file:acme-jira`, `acme:<entry>` for a
+stranger's), and a deployment names the store its own credentials are asked of first
+(`OPENFACTORY_CREDENTIAL_STORE`). The `credential` axis above says how a vendor turns what it holds
+into a token; this one says where a held secret is read from, and every credential the core reads
+by a name it spells asks it, from the environment or through any other mapping
+(`tests/test_every_stored_credential_is_read_through_the_store.py`). A row's builder takes no
+argument and reads its own settings; one that raises — a vault whose address was never set — is
+a store that cannot be built: a reference to it is refused by name, and a reader that walks every
+installed store, as the product's facts and the certify pack do to withhold what they hold, passes
+it over (`tests/test_a_store_that_cannot_be_built_takes_no_reader_down.py`).*
 
 **The code is small; the commitment is not.** Adopting in-process as *the* extension model
 closes the door on providers written in C# or Go, and on plugging one in without a
@@ -535,3 +551,43 @@ both) and the forge credential became a question on the credential registry: `ac
 `api/app.py`, `doctor.py`, `floor/reading.py` and `runtime/temporal/activities.py` no longer
 import a vendor module by name. What `cli.py` keeps is the one command that IS about the
 reference vendor's App by name.
+
+### 10.1 What a remote box's launcher is handed
+
+The `fargate` row above is described by the core and run by an add-on's launcher, a `RemoteBox`
+(`adapters/sandbox/registry.py`). The launcher runs the whole job on another machine, and the core
+cannot see where it puts the launch environment it is handed: a launcher may keep it where others
+can read it, and a stored secret lives as long as its owner keeps it. So what a launcher is handed
+for a secret the credential store holds is decided by what the launcher declares, and the four
+launch sites ask it in one place (`activities._remote_launch`), before anything is launched.
+
+- **A launcher that declares nothing** is handed values: short-lived minted tokens only, in
+  `extra_env`. A secret the store
+  holds is refused for it, in a sentence that names the box kind and the declaration it lacks, and
+  nothing is launched. Its `launch` is called with exactly the keywords it always was, so every
+  launcher written before the declaration keeps working. The core's `fargate` row declares nothing.
+- **A launcher that declares `resolves_references = True`** is a `ResolvesReferences` as well, and
+  is handed references to stored secrets and resolves them on its own side. Its `launch` takes a
+  keyword-only `references`, a mapping from the variable the box reads (`OPENFACTORY_BOX_<AXIS>_TOKEN`)
+  to the reference the project names (`file:<name>`, `<kind>:<name>`). The value is in neither
+  `extra_env` nor the box's options: the box reads that axis from the variable, and the launcher
+  fills it on its own machine, for instance from its cloud's secret store. A launcher must refuse,
+  by name, a store kind it cannot resolve: handing the box the reference string as if it were the
+  token would show up inside the box as a 401 about the wrong thing.
+- **Only a literal `True` declares.** `resolves_references = "no"` is not a declaration, and
+  `isinstance(runner, ResolvesReferences)` is not one either (a runtime protocol checks that the
+  attribute exists, not its value): `registry.resolves_references(runner)` is the one reader. A
+  runner that declares while its `launch` cannot take `references` is refused by name when it is
+  built (by `remote_box`, which the doctor and every launch call), before its `launch` is called.
+- **Why it is a member of the launcher and not a trait.** `BoxTraits` is stamped into every
+  workflow's history as data (`io.JobParams.box`), and its fields are all required: a new one would
+  break every history stamped before it and every add-on's `box` row. Nothing in a workflow needs
+  this answer; only the activity that hands the credentials over asks it. `RemoteBox` itself does
+  not gain the member either: `isinstance` against a runtime protocol checks data members, so it
+  would refuse every launcher that exists today.
+
+`openfactory doctor`'s `launcher_credentials` line says, for each remote row, which of the two its
+launcher is (or that its runner is not installed here, so what it declares cannot be seen), and
+fails before the first job when the deployment's box is remote, its launcher declares nothing, and
+a project's secret is held in the store. `tests/test_the_docs_say_what_each_launcher_is_handed.py`
+holds this section to the names the code exports.

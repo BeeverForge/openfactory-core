@@ -13,6 +13,7 @@ BLIND SPOTS, SAID OUT LOUD (D21). An answer that does not say where it is thin g
 exactly where it is not due. The prompt carries, bounded and with the cut counted:
 
     a source with no knowledge bundle, or whose code could not be mounted
+    a published system map that could not be read, and why
     a source's code that no concept describes — from its bundle's own inventory and coverage
     the gaps a bundle records itself (`okf.yaml`)
     what the system map could not derive (`.okf/system/system.yaml`, `not_derived`)
@@ -79,6 +80,8 @@ class Sight:
     flows: Path | None = None
     #: the published system map, when there is one
     system: object | None = None
+    #: why the published system map could not be read; "" when it was, or none is published
+    system_unreadable: str = ""
 
     @property
     def broken_titles(self) -> frozenset[str]:
@@ -88,24 +91,51 @@ class Sight:
 
 def read_system(docs_root: Path | None):
     """The published system map (`.okf/system/system.yaml`) as a `SystemMap`, or None."""
+    return system_or_why(docs_root)[0]
+
+
+def system_or_why(docs_root: Path | None) -> tuple[object | None, str]:
+    """`(the published system map, "")`; `(None, "")` when none is published; and `(None, why)`
+    when one is and cannot be read — refused, not YAML, or not the map's shape.
+
+    AN UNREADABLE MAP IS A BLIND SPOT, NOT AN ABSENT ONE (#1005). Read as absent, a map refused
+    for an anchor said nothing to the role or to whoever asked: every link to it looked dangling
+    and the turn could not tell why. The why names the file and is said among the turn's blind
+    spots (`_blind`), as well as logged."""
+    import os
+
     import yaml
 
     from openfactory.knowledge.okf import OKF_DIRNAME
     from openfactory.knowledge.system.contracts import SystemMap
     from openfactory.knowledge.system.render import SYSTEM_DIRNAME, SYSTEM_FILE
     from openfactory.knowledge.system.tree import read_text
+    from openfactory.util import yaml_io
 
     if docs_root is None:
-        return None
-    got = read_text(Path(docs_root), f"{OKF_DIRNAME}/{SYSTEM_DIRNAME}/{SYSTEM_FILE}")
+        return None, ""
+    rel = f"{OKF_DIRNAME}/{SYSTEM_DIRNAME}/{SYSTEM_FILE}"
+    if not os.path.lexists(Path(docs_root) / rel):
+        return None, ""
+    got = read_text(Path(docs_root), rel)
     if got.text is None:
-        return None
-    try:
-        data = yaml.safe_load(got.text)
-        return SystemMap(**data) if isinstance(data, dict) else None
-    except (yaml.YAMLError, ValueError, TypeError, RecursionError):
-        log.warning("the system map at %s could not be read — it is treated as absent", docs_root)
-        return None
+        why = f"`{rel}` {got.why}"
+    else:
+        try:
+            data = yaml_io.load(got.text)
+        except yaml.YAMLError as exc:
+            why = f"`{rel}` is not valid YAML: {str(exc).splitlines()[0][:200]}"
+        else:
+            if not isinstance(data, dict):
+                why = f"`{rel}` is not a mapping"
+            else:
+                try:
+                    return SystemMap(**data), ""
+                except (ValueError, TypeError, RecursionError) as exc:
+                    why = (f"`{rel}` is not the system map's shape: "
+                           f"{str(exc).splitlines()[0][:200]}")
+    log.warning("OPENFACTORY_PRODUCT_SYSTEM_MAP_UNREADABLE %s — %s", docs_root, why)
+    return None, why
 
 
 def bundles_of(docs_root: Path, repos: Iterable[str]) -> dict[str, Path | None]:
@@ -155,7 +185,7 @@ def look(*, docs_root: Path | None, root: Path | None, mounts, docs_rel: str = "
             bad = next((s for s in c.sources if s.verdict == c.verdict), None)
             sight.stale.append(Stale("", c.title, c.verdict,
                                      f"`{bad.path}` — {bad.detail}" if bad else ""))
-    sight.system = read_system(docs_root)
+    sight.system, sight.system_unreadable = system_or_why(docs_root)
     found, findings = caps.load_capabilities(docs_root)
     for finding in findings:
         log.warning("OPENFACTORY_PRODUCT_CAPABILITY_FINDING slug=%s code=%s — %s", finding.slug,
@@ -182,6 +212,10 @@ def _blind(sight: Sight, repos: list[str], missing: dict[str, str], *, docs_rel:
         if repo in missing:
             out.append(f"`{repo}`: its code could not be opened this turn ({missing[repo]}) — "
                        f"nothing about what it does can be checked")
+    if sight.system_unreadable:
+        out.append(f"the system map could not be read this turn: {sight.system_unreadable} — "
+                   f"nothing it maps is known: say so when an answer rests on it, read the "
+                   f"sources' code instead, and the next knowledge refresh writes it again")
     for s in sight.stale:
         where = f"`{s.repo}` — " if s.repo else "the flow "
         out.append(f"{where}'{s.title}' is STALE: it no longer matches the code mounted this turn "
@@ -322,4 +356,4 @@ def uncovered(read: list[tuple[str, str]], sight: Sight) -> list[tuple[str, str]
 
 
 __all__ = ["MAX_CHARS", "MAX_LINES", "Sight", "Stale", "bundles_of", "look", "read_system",
-           "uncovered", "where_read"]
+           "system_or_why", "uncovered", "where_read"]

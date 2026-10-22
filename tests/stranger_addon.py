@@ -548,6 +548,25 @@ def build_board_setup():
     return AcmeBoardCreator()
 
 
+# ── credential store (#742) ──────────────────────────────────────────────────────────────────────
+
+class AcmeVault:
+    """The stranger's store: secrets it holds in its own way, named `acme:<name>` by a reference."""
+
+    SECRETS = {"forge-token": "acme-vault-forge-token"}
+
+    def resolve(self, name):
+        return self.SECRETS.get(name)
+
+    def describe(self, name):
+        return f"the Acme vault entry `{name}` ({'present' if name in self.SECRETS else 'missing'})"
+
+
+def build_credential_store():
+    BUILT.append(("credential_store", "acme"))
+    return AcmeVault()
+
+
 # ── extract ──────────────────────────────────────────────────────────────────────────────────────
 
 class AcmeExtractor:
@@ -734,6 +753,7 @@ ENTRY_POINTS = {
     "token_pool.acme": "build_token_pool",
     "credential.acme": "build_credential",
     "board_setup.acme": "build_board_setup",
+    "credential_store.acme": "build_credential_store",
     "extract.acme": "build_extractor",
     "embed.acme": "build_embedder",
     "preview.acme": "preview_row",

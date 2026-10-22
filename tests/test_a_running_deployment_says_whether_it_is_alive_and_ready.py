@@ -960,10 +960,10 @@ async def test_a_port_that_is_taken_is_said_and_the_worker_goes_on(caplog):
     assert "nothing can ask it whether it is ready" in caplog.text
 
 
-#: The steps of the worker's boot that run on its loop and hold it — the app key, the registry's
-#: seed, the toolbox's first copy (~800 MB), the registry read and the channels' start.
-BLOCKING_BOOT = ("materialize_app_key", "seed_registry", "populate_toolbox", "list",
-                 "start_channel_listeners")
+#: The steps of the worker's boot that run on its loop and hold it — the registry's seed, the
+#: toolbox's first copy (~800 MB), the registry read and the channels' start. (The boot writes no
+#: App key to disk since #742: the minter takes the key's content.)
+BLOCKING_BOOT = ("seed_registry", "populate_toolbox", "list", "start_channel_listeners")
 
 
 def test_the_worker_opens_its_listener_once_its_loop_is_free_and_before_it_waits():

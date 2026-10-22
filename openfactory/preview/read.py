@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict
 
 from openfactory.contracts.manifest import PreviewConfig
 from openfactory.preview.plan import Layout, Refused, Side
+from openfactory.util import yaml_io
 
 #: The only variables the compose CLI is run with. `--env-file /dev/null` keeps the project's
 #: `.env` out of interpolation, and a reduced environment keeps the worker's own out: a
@@ -44,15 +45,16 @@ from openfactory.preview.plan import Layout, Refused, Side
 _KEPT_ENV = ("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG")
 
 
-class _ComposeLoader(yaml.SafeLoader):
-    """`yaml.safe_load` plus the two tags the compose spec defines.
+class _ComposeLoader(yaml_io.CountingLoader):
+    """`yaml_io.CountingLoader` — a compose file's format has anchors, so an alias is read at the
+    size of what it repeats (#1005) — plus the two tags the compose spec defines.
 
     `!reset` and `!override` REMOVE or REPLACE a key while the CLI merges files; neither can add
     anything, and admission judges the merged result — so here they are read as the value they
     carry. Every other tag is refused by the safe loader, which is the point of using it."""
 
 
-def _as_is(loader: yaml.SafeLoader, node: yaml.Node):
+def _as_is(loader: yaml_io.Loader, node: yaml.Node):
     if isinstance(node, yaml.MappingNode):
         return loader.construct_mapping(node, deep=True)
     if isinstance(node, yaml.SequenceNode):
@@ -190,7 +192,7 @@ def prescan(texts: dict[str, str], *, layout_dirs: Iterable[str] | None = None,
     for path, text in texts.items():
         owner = f"`{path.split('/', 1)[-1]}`"
         try:
-            doc = yaml.load(text, Loader=_ComposeLoader)  # a SafeLoader, plus two identity tags
+            doc = yaml_io.load(text, loader=_ComposeLoader)  # bounded, plus two identity tags
         except yaml.YAMLError as exc:
             problem = getattr(exc, "problem", None) or str(exc).splitlines()[0]
             refused.append(f"{owner} could not be read as a compose file: {problem}.")

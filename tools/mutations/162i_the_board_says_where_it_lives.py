@@ -18,13 +18,13 @@ MUTATIONS = [
      '                 if opts.get("board_owner") and opts.get("board_number") else None)', VENDOR),
 
     # ── each vendor's shape ─────────────────────────────────────────────────────────────────────
+    # re-pinned 2026-10-20 (#822): the owner is typed on the board's own credential first
     ("a user-owned GitHub board links to /orgs/ — the 404 this line already shipped", GH,
-     '        return f"https://{_gh_host()}/{_owner_kind(self.owner)}/{self.owner}'
-     '/projects/{self.number}"',
+     '        return f"https://{_gh_host()}/{kind}/{self.owner}/projects/{self.number}"',
      '        return f"https://{_gh_host()}/orgs/{self.owner}/projects/{self.number}"'),
 
     ("…and the reverse: an org board links to /users/", GH,
-     "{_owner_kind(self.owner)}/", "users/"),
+     "{_gh_host()}/{kind}/", "{_gh_host()}/users/"),
 
     ("a GitHub Enterprise board links to public github.com", GH,
      '    return (os.environ.get("GH_HOST") or os.environ.get("GITHUB_HOST") '

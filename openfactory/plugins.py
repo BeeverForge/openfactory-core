@@ -76,6 +76,10 @@ AXES: tuple[str, ...] = (
     # core ships `compose` and `none`; a Kubernetes namespace or a vendor's ephemeral
     # environments is a `preview.<kind>` row that receives the same plan.
     "preview",
+    # #742: WHERE a stored secret is read from — the environment and a mounted file ship; a vault
+    # an add-on reads is a `credential_store.<kind>` row, and every credential the core reads asks
+    # it (`adapters/credential_store/registry.py`).
+    "credential_store",
 )
 
 #: WHERE THE PLATFORM'S OWN ROWS SHIP, by entry-point name, so a refusal can say which package to

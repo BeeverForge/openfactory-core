@@ -102,7 +102,12 @@ class BoxConfig:
 
 def materialize_app_key(env: dict[str, str], *, dest_dir: Path) -> str | None:
     """Secrets Manager delivers the bot App private key as content (OPENFACTORY_GH_APP_KEY_CONTENT);
-    the token minter wants a file path. Write it out and return the path (or None)."""
+    the token minter wants a file path. Write it out and return the path (or None).
+
+    NO ENTRYPOINT OF THE CORE CALLS THIS ANY MORE (#742). The minter takes the key as content and
+    `credentials.app_private_key` reads the content first, through the credential store, so the
+    copy this writes is read by nothing here; the worker, the panel and this box stopped making
+    it. It stays for an add-on's own entrypoint that still calls it, with the same behaviour."""
     content = env.get("OPENFACTORY_GH_APP_KEY_CONTENT")
     if not content or env.get("OPENFACTORY_GH_APP_KEY"):
         return None
@@ -394,7 +399,12 @@ def _emit(result) -> None:
 
 def main() -> int:
     from openfactory.contracts import JobState, RunResult
-    from openfactory.credentials import deployment_forge_token, forge_token, forge_token_for
+    from openfactory.credentials import (
+        axis_refusal,
+        deployment_forge_token,
+        forge_token,
+        forge_token_for,
+    )
 
     issue = os.environ.get("OPENFACTORY_ISSUE", "")
     try:
@@ -407,7 +417,9 @@ def main() -> int:
         tag = f"openfactory-box-{cfg.project}-{cfg.issue.lstrip('#')}"
         workdir = Path(tempfile.gettempdir()) / tag
         workdir.mkdir(parents=True, exist_ok=True)
-        materialize_app_key(dict(os.environ), dest_dir=workdir)
+        # NO KEY IS WRITTEN INTO THE WORKDIR (#742). `materialize_app_key` copied an App key handed
+        # over as content into a file here for a minter that wanted a path; the minter takes the
+        # content (`credentials.app_private_key` reads it first), so the copy was read by nothing.
         # PER PROJECT NOW, AND THE THING THAT BLOCKED IT IS GONE. This comment used to say the box
         # could not resolve the forge credential per project because `BoxConfig` carried no
         # `token_env` — so a call to `forge_token_for` would silently fall back to the same
@@ -423,9 +435,13 @@ def main() -> int:
         # project NAMES has to actually reach the container. `forge_token_for` logs a warning when
         # it names one and finds it empty, which is the honest failure — a 401 that says which
         # variable was expected beats a 401 that says nothing.
-        token = (forge_token_for(_project_for(cfg, repo_dir=None))
-                 or forge_token()             # honour OPENFACTORY_BOT_TOKEN for the GitHub path
-                 or deployment_forge_token(_project_for(cfg, repo_dir=None)))
+        # …AND NOTHING AFTER A REFUSAL (#822): the deployment's pair and the mint are the steps
+        # after the project's own reference, so a refused one is answered by neither.
+        carried = _project_for(cfg, repo_dir=None)
+        token = (forge_token_for(carried)
+                 or (None if axis_refusal(carried, "forge")
+                     else forge_token())      # honour OPENFACTORY_BOT_TOKEN for the GitHub path
+                 or deployment_forge_token(carried))
         phase = os.environ.get("OPENFACTORY_PROMOTE_PHASE")
         if os.environ.get("OPENFACTORY_REVIEW_PASS"):
             # BEFORE the repair branch, and that ordering is the guard: a re-review must never be

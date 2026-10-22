@@ -749,7 +749,7 @@ def project_init(
     elif attached:
         typer.echo(f"· board already attached ({attached})")
     else:
-        from openfactory.credentials import deployment_tracker_token, tracker_token
+        from openfactory.credentials import deployment_tracker_token, tracker_token_for
 
         # EMPTY IS ALLOWED HERE AND REFUSED BY THE ROW. A GitHub board lives under a login or an
         # organisation and says so in its own words; the platform's own board has no such place,
@@ -764,7 +764,9 @@ def project_init(
             # the pilot hit (2026-08-10).
             number, url = create_board.create(
                 project=project, owner=owner, title=name,
-                token=tracker_token() or deployment_tracker_token(project))
+                # THE PROJECT'S OWN RESOLUTION (#822), which ends with the deployment's pair — so
+                # the static token still comes first, and a refused reference is answered by none
+                token=tracker_token_for(project) or deployment_tracker_token(project))
         except BoardSetupError as exc:
             # the project stays registered (tickets-only is legitimate) AND init keeps its own
             # docstring's promise — CONVERGES — by continuing to the manifest scaffold instead of
@@ -1243,8 +1245,11 @@ def _builds_from_this_checkout(project_dir: Path) -> bool:
     refused on it."""
     import yaml
 
+    from openfactory.util import yaml_io
+
     try:
-        compose = yaml.safe_load((project_dir / "docker-compose.yml").read_text(encoding="utf-8"))
+        compose = yaml_io.load((project_dir / "docker-compose.yml").read_text(encoding="utf-8"),
+                               loader=yaml_io.CountingLoader)  # a compose file has anchors
         build = compose["services"]["worker"]["build"]
     except (OSError, UnicodeDecodeError, yaml.YAMLError, KeyError, TypeError):
         return False
@@ -1362,7 +1367,16 @@ def box_prove_cmd(
     can execute in it, then runs the project's OWN `setup:` and `validate:` against untouched
     `main`. Green means your tests passed inside the factory (ADR-0037 D3).
     """
-    from openfactory.box_prove import PROOF_DIR, box_probes, load, prove, save
+    from openfactory.box_prove import (
+        PROOF_DIR,
+        ProveBusy,
+        _hold_the_proof_of,
+        _let_go,
+        box_probes,
+        load,
+        prove,
+        save,
+    )
 
     project = _with_its_code(_get_project(name), "proving its box")
     proof_key = name
@@ -1408,7 +1422,18 @@ def box_prove_cmd(
     # ONE box for the whole proof — setup and validate must share a container or the install is
     # thrown away between them, which is what the first real run of this command discovered.
     ref_root, ref_manifest = None, None
+    held = None
     if ref:
+        # THE KEY BEFORE THE `--ref` CHECKOUT (engineering lessons §12). `resolve_repo_path` below
+        # removes and re-adds `<cache>/worktrees/<key>@<ref>`, the tree a running `--ref` proof of
+        # this key reads: taken inside `box_probes` only, the lock refused the second proof after
+        # that tree was rebuilt (review of #745, git 2.43.0, 2026-10-21: `sentinel exists: False`).
+        # The lock is re-entrant for this thread, so `box_probes` takes it again at depth 2.
+        try:
+            held = _hold_the_proof_of(proof_key)
+        except ProveBusy as exc:
+            typer.echo(exc.sentence)
+            raise typer.Exit(1) from None
         # A KEY OF ITS OWN. Syncing a branch under the project's default key would REPLACE the
         # base branch's checkout with it — the same hole this closes, entered from the other side
         # — and the next proof would measure a branch while reporting the base branch.
@@ -1425,11 +1450,20 @@ def box_prove_cmd(
             typer.echo(f"✗ could not read {namespace.MANIFEST} on {ref!r} ({str(exc)[:200]}) — "
                        f"check that the branch exists on the forge and carries the file. "
                        f"Nothing was changed.")
+            _let_go(held)
             raise typer.Exit(2) from None
 
-    with box_probes(view, resolved, key=proof_key, sandbox=box_kind,
-                    repo_path=ref_root, manifest=ref_manifest) as probes:
-        proof = prove(proof_key, resolved, probes, on_stage=_stage)
+    try:
+        with box_probes(view, resolved, key=proof_key, sandbox=box_kind,
+                        repo_path=ref_root, manifest=ref_manifest) as probes:
+            proof = prove(proof_key, resolved, probes, on_stage=_stage)
+    except ProveBusy as exc:
+        # BEFORE `save`: a refused proof measured nothing, and recording it as failed would hold
+        # the pickup the running proof is about to decide
+        typer.echo(exc.sentence)
+        raise typer.Exit(1) from None
+    finally:
+        _let_go(held)
     for f in proof.findings:
         typer.echo(f"  {f.mark:<4}  {f.check:<9} {f.message}")
         if not f.ok and f.remedy:
@@ -1501,7 +1535,7 @@ def box_answer_cmd(
     from openfactory import agent_answer
     from openfactory.adapters.agent.base import smoke_command_for, smoke_reply_for
     from openfactory.adapters.agent.registry import build_executor
-    from openfactory.box_prove import box_probes
+    from openfactory.box_prove import ProveBusy, box_probes
     from openfactory.observability.job_record import record_one_pass
 
     project = _get_project(name)
@@ -1514,28 +1548,33 @@ def box_answer_cmd(
     typer.echo(f"asking {name}'s agent one question in the {box_kind} box — this spends a few "
                f"tokens, which is the point: nothing else here makes a real call.\n")
 
-    with box_probes(project, resolved, key=name, sandbox=box_kind) as probes:
-        harness_path = probes.harness_name()
-        answer = agent_answer.ask(agent_answer.Probes(
-            smoke_command=lambda prompt: smoke_command_for(
-                executor, harness=harness_path, prompt=prompt),
-            run_in_box=lambda cmd, seconds: probes.run_in_box(cmd, None, seconds),
-            credential_in_box=lambda: _credential_reached(probes),
-            # WHY THE BOX DID NOT START, asked before anything runs in it. Through a box that is
-            # not there the call "fails" with the start error as its output, and that read as the
-            # harness refusing — with a spend recorded for a call nobody made.
-            box_error=probes.box_start_error,
-            # THE HARNESS'S OWN READING of its reply. The generic one found nothing on codex or
-            # opencode, whose streams nest the reply where it does not look.
-            read_reply=lambda out: smoke_reply_for(executor, out),
-            # ON THE SAME BOOKS AS EVERY OTHER SPENDER (#109). The cost is genuinely unknown
-            # here — the call goes through the adapter's `_cli` and comes back as `(rc, out)`,
-            # not as an `AgentRunResult` — and `record_one_pass` writes None for that rather
-            # than zero, which matters: a zero cost is the exact tell that first exposed an
-            # agent call never happening at all.
-            on_pass=lambda: record_one_pass(project=name, ticket="box-answer",
-                                            role="executor", result=None),
-        ))
+    try:
+        with box_probes(project, resolved, key=name, sandbox=box_kind) as probes:
+            harness_path = probes.harness_name()
+            answer = agent_answer.ask(agent_answer.Probes(
+                smoke_command=lambda prompt: smoke_command_for(
+                    executor, harness=harness_path, prompt=prompt),
+                run_in_box=lambda cmd, seconds: probes.run_in_box(cmd, None, seconds),
+                credential_in_box=lambda: _credential_reached(probes),
+                # WHY THE BOX DID NOT START, asked before anything runs in it. Through a box that
+                # is not there the call "fails" with the start error as its output, and that read
+                # as the harness refusing — with a spend recorded for a call nobody made.
+                box_error=probes.box_start_error,
+                # THE HARNESS'S OWN READING of its reply. The generic one found nothing on codex or
+                # opencode, whose streams nest the reply where it does not look.
+                read_reply=lambda out: smoke_reply_for(executor, out),
+                # ON THE SAME BOOKS AS EVERY OTHER SPENDER (#109). The cost is genuinely unknown
+                # here — the call goes through the adapter's `_cli` and comes back as `(rc, out)`,
+                # not as an `AgentRunResult` — and `record_one_pass` writes None for that rather
+                # than zero, which matters: a zero cost is the exact tell that first exposed an
+                # agent call never happening at all.
+                on_pass=lambda: record_one_pass(project=name, ticket="box-answer",
+                                                role="executor", result=None),
+            ))
+    except ProveBusy as exc:
+        # nothing was asked, so nothing is spent or recorded: the sentence and a failing exit
+        typer.echo(exc.sentence)
+        raise typer.Exit(1) from None
 
     typer.echo(f"  {'ok' if answer.ok else 'FAIL':<4}  {answer.state:<14} {answer.detail}")
     if answer.remedy:
@@ -3420,8 +3459,9 @@ def serve(
 def bot_token(
     app_id: str = typer.Option(None, help="GitHub App ID (default: OPENFACTORY_GH_APP_ID)"),
     key_path: str = typer.Option(
-        None, envvar="OPENFACTORY_GH_APP_KEY",
-        help="Path to the App .pem (or set OPENFACTORY_GH_APP_KEY_CONTENT with the PEM itself)",
+        None,
+        help="Path to the App .pem; wins over the environment (default: "
+             "OPENFACTORY_GH_APP_KEY_CONTENT, the PEM itself, else OPENFACTORY_GH_APP_KEY, a path)",
     ),
     installation_id: str = typer.Option(
         None, help="Installation ID (default: OPENFACTORY_GH_APP_INSTALLATION_ID)"
@@ -3435,32 +3475,68 @@ def bot_token(
     it (2026-08-12), which is fair: `--help` showed only the export form below, so the command
     read as something that produces a credential you keep.
 
+    `--app-id`, `--installation-id` and `--key-path` override the deployment's values, so a newly
+    downloaded `.pem` can be proven before it is deployed.
+
     The export form is for a SHELL that needs a token for a one-off `gh` command:
 
         export OPENFACTORY_BOT_TOKEN=$(openfactory bot-token)
     """
     from openfactory.credentials import app_id as env_app_id
-    from openfactory.credentials import app_installation_id, app_private_key
+    from openfactory.credentials import app_installation_id, app_private_key, app_private_key_at
 
     # THE FLAGS FALL BACK TO THE COMPOSITION ROOT rather than reading the environment themselves
     # (#64). These carried `envvar=`, which made typer the FOURTH independent reader of
     # `OPENFACTORY_GH_APP_ID` / `OPENFACTORY_GH_APP_INSTALLATION_ID` — and the one place a future
-    # per-project
-    # override could never reach, since typer resolves it before any of our code runs. The
-    # explicit flag still wins; `--help` now names the variable in prose instead.
+    # per-project override could never reach, since typer resolves it before any of our code
+    # runs. The explicit flag still wins; `--help` names the variable in prose instead.
     #
-    # `key_path` stays as the flag — a path is what somebody types — but the KEY is resolved by the
-    # composition root, which also accepts the content form a container is handed. This command run
-    # inside the compose worker used to report a missing option while the PEM sat in its
-    # environment.
+    # `--key-path` IS THE THIRD FLAG OF THE SAME RULE (#905). It kept `envvar=` and was never read
+    # after it was bound: the key always came from `app_private_key()`. Measured 2026-10-20, empty
+    # `HOME`, no credential in the environment: `--app-id 1 --installation-id 1 --key-path <a
+    # real PEM>` exited 1 with "need OPENFACTORY_GH_APP_ID, …", naming as missing an id that was
+    # passed. Now an explicit path is the key that signs, ahead of both variables; without it the
+    # composition root resolves the key as before, content form included (the compose worker
+    # holds the PEM itself, not a path). The file is read by `app_private_key_at`, the one reader
+    # of a key file, not here.
     app_id = app_id or env_app_id()
     installation_id = installation_id or app_installation_id()
-    key = app_private_key()
+    # `is not None`, NOT TRUTHINESS: `--key-path "$NEW_PEM"` with the variable unset hands the
+    # option "", a path given and empty, not "no flag". Under `if key_path:` it took the `else`
+    # branch and proved the environment's key: measured 2026-10-21 under `env -i`, the deployment
+    # key in OPENFACTORY_GH_APP_KEY, "✓ the App trio works", JWT signed by that key, exit 0.
+    if key_path is not None:
+        if not key_path.strip():
+            typer.echo("✗ --key-path was given an empty path — nothing was minted; pass the .pem's "
+                       "path, or leave --key-path out to use the deployment's key", err=True)
+            raise typer.Exit(1)
+        try:
+            key = app_private_key_at(key_path)
+        except OSError as exc:
+            # A REFUSAL, NEVER A FALLBACK: minting with the environment's key after the operator
+            # named another would "prove" a key nobody asked about. `strerror` is libc's, in the
+            # process's locale; the path is what the operator can act on.
+            typer.echo(f"✗ the App key at {key_path} could not be read ({exc.strerror or exc}) — "
+                       "nothing was minted; pass a readable .pem or leave --key-path out to use "
+                       "the deployment's key", err=True)
+            raise typer.Exit(1) from None
+        # AN EMPTY FILE IS A KEY GIVEN AND MISSING, not "no key": "" fell to the "need … --key-path"
+        # sentence below, asking for the flag that was given. BLANK, NOT ONLY "": a file of
+        # whitespace was truthy and reached `jwt.encode`, an `InvalidKeyError` traceback out of the
+        # mint (both measured 2026-10-21 on 7d14b39a). A PEM is never whitespace alone.
+        if not key.strip():
+            typer.echo(f"✗ the App key at {key_path} is empty — nothing was minted; pass the "
+                       ".pem GitHub gave you, or leave --key-path out to use the deployment's key",
+                       err=True)
+            raise typer.Exit(1)
+    else:
+        key = app_private_key()
     if not (app_id and key and installation_id):
         typer.echo(
-            "need OPENFACTORY_GH_APP_ID, OPENFACTORY_GH_APP_INSTALLATION_ID, and the App key as "
-            "either "
-            "OPENFACTORY_GH_APP_KEY (a path) or OPENFACTORY_GH_APP_KEY_CONTENT (the PEM itself)",
+            "need the App id (--app-id or OPENFACTORY_GH_APP_ID), the installation id "
+            "(--installation-id or OPENFACTORY_GH_APP_INSTALLATION_ID), and the App key "
+            "(--key-path, or OPENFACTORY_GH_APP_KEY as a path, or OPENFACTORY_GH_APP_KEY_CONTENT "
+            "as the PEM itself)",
             err=True,
         )
         raise typer.Exit(1)

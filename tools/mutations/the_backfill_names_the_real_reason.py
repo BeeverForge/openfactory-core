@@ -32,9 +32,11 @@ MUTATIONS = [
     ("the route is not asked and the two Anthropic variables come back, so every codex, kimi and "
      "opencode deployment is told it has no credential — the defect exactly as it shipped",
      "openfactory/onboarding/onboard.py",
-     "        missing = route.missing(dict(os.environ))",
-     ('        missing = [] if (os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")\n'
-      '                         or os.environ.get("ANTHROPIC_API_KEY")) else ["a credential"]')),
+     # re-pinned 2026-10-19 (#822): the route is asked of what the credential store holds, so the
+     # defect comes back through the store too — the two Anthropic names, whatever the route says
+     "        missing = route.missing(held(names))",
+     ('        missing = [] if held(("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")) '
+      'else ["a credential"]')),
 
     ("the backfill asks about the EXECUTOR's harness while running the tech-lead's, so the answer "
      "is well-formed and about the wrong thing",

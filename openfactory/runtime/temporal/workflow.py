@@ -39,6 +39,10 @@ with workflow.unsafe.imports_passed_through():
     from openfactory.contracts.project import ADJUST_PASSES
     from openfactory.lifecycle.handed_back import recorded_park
 
+    # #1004 — an asked refresh's bounds, beside the pass they bound: plain `timedelta`s
+    from openfactory.product.refresh import PASS_CEILING as KNOWLEDGE_PASS_CEILING
+    from openfactory.product.refresh import PASS_HEARTBEAT as KNOWLEDGE_PASS_HEARTBEAT
+
     # #448 slice 3: whether the reading standing now still admits a merge nobody presses — pure,
     # on the `verdict` query's own shape, so replay reads the same answer it recorded
     from openfactory.review.verdict import of_result, still_admits_the_merge
@@ -88,6 +92,7 @@ with workflow.unsafe.imports_passed_through():
         record_job_metrics,
         record_outcome,
         refresh_knowledge,
+        refresh_product_knowledge,
         release_prod,
         repair_ci,
         review_pr,
@@ -805,6 +810,31 @@ class KnowledgeRefreshWorkflow:
         )
         return (f"{refreshed}; " + (f"conversations: {distilled}; " if distilled else "")
                 + f"documents: {documents}")
+
+
+@workflow.defn
+class ProductKnowledgeRefreshWorkflow:
+    """A product's knowledge brought up to date NOW, because somebody asked (#1004).
+
+    STARTED, NEVER AWAITED. The `product_refresh` row starts this and answers at once — the pass
+    reads documents, and a document's summary is a model's, so it takes minutes a request must not
+    be held open for. What it did is read afterwards, through `product_status`'s `knowledge`.
+
+    ONE FLIGHT PER PRODUCT, BY ITS ID. The row starts it under `refresh.workflow_id`, keyed by the
+    product, so a second ask while one runs is refused by the engine as already started — the row
+    answers that it joined — and never runs a second pass beside it.
+
+    One activity, single attempt, bounded and heartbeating: a pass that fails is said in the record
+    and asked again by a person; one whose worker died is noticed within the heartbeat."""
+
+    @workflow.run
+    async def run(self, inp: KnowledgeRefreshInput) -> str:
+        return await workflow.execute_activity(
+            refresh_product_knowledge, inp,
+            start_to_close_timeout=KNOWLEDGE_PASS_CEILING,
+            heartbeat_timeout=KNOWLEDGE_PASS_HEARTBEAT,
+            retry_policy=_ONCE,
+        )
 
 
 @workflow.defn

@@ -38,6 +38,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shlex
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -48,6 +49,7 @@ from typing import TYPE_CHECKING
 from openfactory import namespace
 from openfactory.observability.job_record import record_one_pass
 from openfactory.orchestrator.validation import advisory_gates, gate_commands
+from openfactory.util.filelock import FileLock, Waited
 
 if TYPE_CHECKING:
     from openfactory.adapters.agent.base import DocumentFit
@@ -129,6 +131,67 @@ def _proof_dir() -> Path:
 #: answer depends on an environment this module must not read at import (the house has paid for
 #: import-time side effects before). Every reader below asks `_proof_dir()`.
 PROOF_DIR = Path(os.environ.get("OPENFACTORY_PROOFS") or "/var/lib/openfactory/proofs")
+
+
+def _prove_slug(key: str) -> str:
+    """The part of a proof's branch and lock file that is this key's and no other's.
+
+    A REF CANNOT SPELL EVERY KEY: registry names are free text (`"acme web"`, `"ação"`), so the
+    readable part keeps only what `git check-ref-format --branch` accepts. THE HASH IS WHAT KEEPS
+    THEM APART: `"acme web"`, `"acme/web"` and `"acme-web"` slug alike, and a slug alone would put
+    three projects back on one branch — the shared tree #745 measured (`A tree alive: False`).
+    """
+    readable = re.sub(r"[^A-Za-z0-9._-]+", "-", key).strip("-.").lower()
+    # `..` is the one sequence of kept characters a ref refuses
+    readable = re.sub(r"\.{2,}", ".", readable)
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:8]
+    return f"{readable}-{digest}" if readable else digest
+
+
+def proof_lock_path(key: str) -> Path:
+    """The file whose `flock` says a proof of `key` is running on this machine.
+
+    IN THE PROOFS DIRECTORY because that is the one directory the CLI and the worker must already
+    share for the gate to read a proof at all, so a lock there is one inode for both processes. IN
+    A SUBDIRECTORY because the readers that list proofs glob `*.json` at its top level."""
+    return _proof_dir() / "locks" / f"{_prove_slug(key)}.lock"
+
+
+class ProveBusy(RuntimeError):
+    """A proof of `key` is already running on this machine, so this one was refused untouched.
+
+    Every proof of one key asks its box for the same branch, tree and container name; a second one
+    running beside it would remove the first one's box. `sentence` is what a door says."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        self.sentence = (f"a proof of {key} is already running on this machine "
+                         f"(box prove, box answer or onboarding): run this again when it ends")
+        super().__init__(self.sentence)
+
+
+def _hold_the_proof_of(key: str) -> FileLock | None:
+    """Take the lock that says a proof of `key` is running here, or refuse with `ProveBusy`.
+
+    `timeout=0`: a second proof is refused, never queued — the issue asks for a refusal, and a
+    queued proof would hold its door open for as long as the first one runs. `None` when the lock
+    file cannot be created (an unwritable proofs directory): the proof then runs unlocked, which
+    is what every proof did before the lock existed, and the warning names the path."""
+    lock = FileLock(proof_lock_path(key))
+    try:
+        lock.acquire(timeout=0)
+    except Waited:  # before OSError: `Waited` is a `TimeoutError`, so an `OSError` too
+        raise ProveBusy(key) from None
+    except OSError as exc:
+        log.warning("the proof of %s runs without its lock, so a second proof of it at the same "
+                    "time is not refused: %s could not be opened (%s)", key, lock.path, exc)
+        return None
+    return lock
+
+
+def _let_go(lock: FileLock | None) -> None:
+    if lock is not None:
+        lock.release()
 
 
 @dataclass
@@ -1144,6 +1207,14 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
     taken on the API repo says nothing about the web repo's toolchain). Absent, all three derive
     exactly as they always did — the single-repo path is byte-for-byte unchanged. `key` also
     names the proof container, so two repos' proofs cannot collide on one docker name.
+
+    The key (the project's name when `key` is absent) also names the proof's BRANCH, and with it
+    the worktree box's directory, so two projects never share a tree. And one key is proven once
+    at a time on this machine: a second proof of a key already being proven, from this process
+    or another (the CLI beside the worker), raises `ProveBusy` before the checkout is synced or a
+    box is built, rather than removing the first one's box. The lock is re-entrant for the THREAD
+    that holds it (`util/filelock.py`), so a nested proof of one key on one thread is not refused;
+    no door nests them.
     """
     import subprocess
 
@@ -1171,8 +1242,18 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
         locally
         by our own compose file and therefore in no registry at all — which is also every adopter
         who builds their own. The question is "can this deployment obtain the image", and already
-        having it is a yes."""
-        pulled = _sh(["docker", "pull", "--quiet", img], timeout=900)[0] == 0
+        having it is a yes.
+
+        WITH THE PROJECT'S PULL CREDENTIAL when its registry entry names one (#742): resolved
+        through the credential store for this pull, in a configuration of its own, so the proof
+        obtains the image the way a job will, and the login is kept by nobody afterwards."""
+        from openfactory.adapters.sandbox.pull import pull, pull_credential_of
+
+        credential = pull_credential_of(getattr(project, "box", None))
+        if credential is not None:
+            pulled = pull(img, credential)[0]
+        else:
+            pulled = _sh(["docker", "pull", "--quiet", img], timeout=900)[0] == 0
         if not pulled and _sh(["docker", "image", "inspect", img])[0] != 0:
             return None
         rc, out = _sh(["docker", "image", "inspect", "--format",
@@ -1209,46 +1290,58 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
                 broken[name] = (out.strip().splitlines() or ["not available"])[-1][:120]
         return broken
 
-    # RESOLVED, exactly as `build_runner` does — a proof taken against a path the job would not
-    # use proves nothing. This was left as the raw `repo_path` when #65 landed, so on the compose
-    # worker it was still a URL: the clone failed silently and the proof ran against an empty
-    # workspace, reporting the client's own gates as broken.
-    #
-    # `cache_key=key`: a `--repo` proof resolves into ITS OWN cache slot. Without it the foreign
-    # repository synced into the DEFAULT repo's shared checkout — the tree a live worker may be
-    # reading — which is the exact cross-repo contamination `_checkout_key` exists to prevent
-    # (adversarial review, 2026-08-13). `key=None` keeps the default slot, byte for byte.
-    repo = repo_path if repo_path is not None else resolve_repo_path(project, cache_key=key)
-    manifest = manifest if manifest is not None else load_manifest(project, repo_root=repo)
-    start_error = ""
-    # THE REGISTRY'S `box:` KNOBS ARE FORWARDED, mirroring `build_runner` (factory.py) — this
-    # call passed none of them, so the proof box had the default network, no cache volume, no
-    # `box.env`, while the docstring above promised "the mounts, the network, the limits … are
-    # the ones the job will have". The harness-auth station probed a box that lacked exactly
-    # the `box.env` names the job's box receives (measured by the onboard fact-finding pass,
-    # 2026-08-13). Only keys the operator set are passed; an absent block changes nothing.
-    declared = getattr(project, "box", None)
-    knobs = {
-        k: v for k in ("network", "cache_volume", "cpus", "memory")
-        if (v := getattr(declared, k, None)) is not None
-    }
-    if declared_env := tuple(getattr(declared, "env", None) or ()):
-        knobs["extra_env"] = declared_env
-    # …and the operator directory the job's box mounts (`factory.py`), read from the same place: a
-    # proof box without it opens no operator document, and the budget's fit it reports pinned that
-    # tier where the job leaves it out (review of #364)
-    from openfactory.orchestrator import operator_guidelines
+    # ONE PROOF OF A KEY AT A TIME, decided before anything is touched (engineering lessons §12).
+    # Every proof of a key asks its box for the same branch, tree and container name, and a second
+    # `prepare` takes the first proof's for debris: on the worktree box it removed the tree the
+    # first proof was running in (`A tree alive: False`, git 2.43.0, 2026-10-18), on the container
+    # box `docker rm -f` removes its container. So the lock is taken before the checkout is synced
+    # and held until the box is cleaned up; the refused proof raises `ProveBusy` untouched.
+    subject = key or project.name
+    held = _hold_the_proof_of(subject)
+    try:
+        # RESOLVED, exactly as `build_runner` does — a proof taken against a path the job would
+        # not use proves nothing. This was left as the raw `repo_path` when #65 landed, so on the
+        # compose worker it was still a URL: the clone failed silently and the proof ran against
+        # an empty workspace, reporting the client's own gates as broken.
+        #
+        # `cache_key=key`: a `--repo` proof resolves into ITS OWN cache slot. Without it the foreign
+        # repository synced into the DEFAULT repo's shared checkout — the tree a live worker may be
+        # reading — which is the exact cross-repo contamination `_checkout_key` exists to prevent
+        # (adversarial review, 2026-08-13). `key=None` keeps the default slot, byte for byte.
+        repo = repo_path if repo_path is not None else resolve_repo_path(project, cache_key=key)
+        manifest = manifest if manifest is not None else load_manifest(project, repo_root=repo)
+        start_error = ""
+        # THE REGISTRY'S `box:` KNOBS ARE FORWARDED, mirroring `build_runner` (factory.py) — this
+        # call passed none of them, so the proof box had the default network, no cache volume, no
+        # `box.env`, while the docstring above promised "the mounts, the network, the limits … are
+        # the ones the job will have". The harness-auth station probed a box that lacked exactly
+        # the `box.env` names the job's box receives (measured by the onboard fact-finding pass,
+        # 2026-08-13). Only keys the operator set are passed; an absent block changes nothing.
+        declared = getattr(project, "box", None)
+        knobs = {
+            k: v for k in ("network", "cache_volume", "cpus", "memory")
+            if (v := getattr(declared, k, None)) is not None
+        }
+        if declared_env := tuple(getattr(declared, "env", None) or ()):
+            knobs["extra_env"] = declared_env
+        # …and the operator directory the job's box mounts (`factory.py`), read from the same
+        # place: a proof box without it opens no operator document, and the budget's fit it
+        # reports pinned that tier where the job leaves it out (review of #364)
+        from openfactory.orchestrator import operator_guidelines
 
-    knobs.update(operator_guidelines.box_knobs())
-    # THE BOX THIS DEPLOYMENT RUNS, not always the container one (ADR-0049 D9). A proof taken in a
-    # box the job will not use proves the box nobody runs — the same reasoning that made this reuse
-    # `ContainerSandbox` rather than approximate it, one axis further out.
-    kind = (sandbox or default_sandbox()).strip().lower()
-    traits = installed_box_traits(kind)
-    box = build_sandbox(kind, image=image, project=f"{key or project.name}-prove",
-                        toolbox=(os.environ.get("OPENFACTORY_TOOLBOX_VOLUME") or "").strip()
-                                or None, **knobs)
-    workspace = None
+        knobs.update(operator_guidelines.box_knobs())
+        # THE BOX THIS DEPLOYMENT RUNS, not always the container one (ADR-0049 D9). A proof taken
+        # in a box the job will not use proves the box nobody runs — the same reasoning that made
+        # this reuse `ContainerSandbox` rather than approximate it, one axis further out.
+        kind = (sandbox or default_sandbox()).strip().lower()
+        traits = installed_box_traits(kind)
+        box = build_sandbox(kind, image=image, project=f"{key or project.name}-prove",
+                            toolbox=(os.environ.get("OPENFACTORY_TOOLBOX_VOLUME") or "").strip()
+                                    or None, **knobs)
+        workspace = None
+    except BaseException:
+        _let_go(held)
+        raise
 
     def _machine_stamp() -> str:
         """What THIS machine offers the client's commands: the harness's own version.
@@ -1427,15 +1520,20 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
         return per_role, note, fit
 
     try:
-        # A throwaway branch in a throwaway clone: `prepare` always makes one, nothing is pushed,
-        # and the working tree is `main` untouched because no commit happens.
-        workspace = box.prepare(repo_path=repo, base_branch=manifest.base_branch,
-                                branch=f"{namespace.BRANCH_PREFIX}/box-prove")
-    except Exception as exc:  # noqa: BLE001 — an unstartable box IS the finding, not a crash
-        start_error = str(exc)[:300]
-        log.info("the box could not be started for the proof (%s)", start_error)
+        try:
+            # A BRANCH OF THIS KEY'S OWN: `prepare` names the worktree box's directory after the
+            # branch, under one root for every project, and the container after it too. On one
+            # shared `box-prove` branch a second project's proof either failed on git's "already
+            # exists" or removed the first one's live tree (`A tree alive: False`, git 2.43.0,
+            # 2026-10-18). Nothing is pushed and no commit happens, so the base stays untouched;
+            # the lock above is what keeps a second proof of THIS key off this branch.
+            workspace = box.prepare(
+                repo_path=repo, base_branch=manifest.base_branch,
+                branch=f"{namespace.BRANCH_PREFIX}/box-prove-{_prove_slug(subject)}")
+        except Exception as exc:  # noqa: BLE001 — an unstartable box IS the finding, not a crash
+            start_error = str(exc)[:300]
+            log.info("the box could not be started for the proof (%s)", start_error)
 
-    try:
         yield Probes(
             honours_image=traits.honours_image,
             machine_stamp=_machine_stamp,
@@ -1477,6 +1575,9 @@ def box_probes(project, image: str, *, repo_path: Path | None = None, manifest=N
                 box.cleanup(workspace=workspace)
         except Exception as exc:  # noqa: BLE001 — a leaked container is a warning, not a failure
             log.warning("the proof's box could not be cleaned up (%s)", str(exc)[:160])
+        finally:
+            # after the cleanup: the lock covers the whole life of the tree, removal included
+            _let_go(held)
 
 
 def _harness_binary(project) -> str:

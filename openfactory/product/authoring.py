@@ -47,6 +47,7 @@ from openfactory.product.corpus import (
     find_decisions_table,
 )
 from openfactory.product.role import IssueDraft, RequirementDraft
+from openfactory.product.template import EMPTY, RequirementTemplate, load_template
 
 log = logging.getLogger("openfactory.product")
 
@@ -197,10 +198,15 @@ def slugify(title: str, *, limit: int = 48) -> str:
 
 def render_requirement(
     draft: RequirementDraft, *, number: int, asked_by: str = "", date: str = "",
-    source: str = "",
+    source: str = "", template: RequirementTemplate | None = None,
 ) -> str:
     """The requirement as it will live in the repository — the same shape as the template, because
-    a document a human cannot edit by hand is not a document, it is a database with extra steps."""
+    a document a human cannot edit by hand is not a document, it is a database with extra steps.
+
+    With the product's own `template` (ADR-0058) its fields are written as header lines after the
+    core's own, and its sections after the core's, before the decision register. A field the draft
+    has no value for is written as `—` and a section as `(not stated)`, so the file says what is
+    missing and the reader reports it; nothing is invented."""
     status = "proposed"
     lines = [
         f"# REQ-{number:04d} — {draft.title}",
@@ -212,6 +218,10 @@ def render_requirement(
     ]
     if source:
         lines.append(f"- **Source:** {source}")
+    if template is not None:
+        for f in template.fields:
+            value = " ".join(draft.fields.get(f.name, "").split()) or EMPTY
+            lines.append(f"- **{f.name}:** {value}")
     lines += ["", "## Why", "", draft.why.strip() or "(not stated)", ""]
 
     lines += ["## What must be true", ""]
@@ -240,6 +250,11 @@ def render_requirement(
         lines += ["## Open questions", ""]
         lines += [f"- {q}" for q in draft.questions]
         lines += [""]
+
+    if template is not None:
+        for sec in template.sections:
+            text = draft.sections.get(sec.name, "").strip() or "(not stated)"
+            lines += [f"## {sec.name}", "", text, ""]
 
     lines += [
         f"## {DECISIONS_HEADING}",
@@ -586,6 +601,13 @@ def propose_requirement(
             return WriteResult(ok=False, refusal=NOT_REFUSED,
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
 
+        # THE PRODUCT'S OWN TEMPLATE IS READ FROM THE CLONE, the base this write lands on
+        # (ADR-0058): what is written is what the corpus will read back. One that cannot be used
+        # was already reported by the corpus read, and the core's own shape is written.
+        template, _ = load_template(tmp / requirements_dir)
+        body_text = render_requirement(draft, number=number, asked_by=asked_by, date=date,
+                                       source=source, template=template)
+
         # THE NUMBER IS MINTED FROM THE BASE THIS CLONE HOLDS (#266 slice 3). `number` arrives from
         # the corpus the caller read, and the caller read it before the product's semaphore was
         # its: a requirement written by another conversation in between is in this clone and not
@@ -595,13 +617,13 @@ def propose_requirement(
         # own prior branch's stays adopted, exactly as above.
         fresh = _next_in(tmp, requirements_dir)
         if fresh > number and number not in own:
-            minted = max(fresh, max(rivals, default=0) + 1)
+            minted = first_free(fresh, rivals)
             log.warning("OPENFACTORY_PRODUCT_NUMBER_REMINTED repo=%s: the corpus read before the "
                         "write minted %04d, and the base now holds up to %04d — minting %04d",
                         docs_repo, number, fresh - 1, minted)
             number = minted
             body_text = render_requirement(draft, number=number, asked_by=asked_by, date=date,
-                                           source=source)
+                                           source=source, template=template)
             branch = branch_for(number, draft.title)
             path = f"{requirements_dir.rstrip('/')}/{number:04d}-{slugify(draft.title)}.md"
 
@@ -657,7 +679,7 @@ def propose_requirement(
                         ", ".join(f"{n:04d}" for n in unagreed), merged)
             draft = draft.model_copy(update={"supersedes": merged})
             body_text = render_requirement(draft, number=number, asked_by=asked_by, date=date,
-                                           source=source)
+                                           source=source, template=template)
 
         target = tmp / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -778,6 +800,18 @@ def _next_in(root: Path, requirements_dir: str) -> int:
 
     folder = root / requirements_dir.strip("/")
     return next_number(load_corpus(folder)) if folder.is_dir() else 1
+
+
+def first_free(base_next: int, unlanded: list[int]) -> int:
+    """The first number nobody holds: `base_next` — one past the highest the base ever used,
+    superseded and dropped included (`next_number`) — or one past every number a proposal
+    branch not yet landed already claims, whichever is higher.
+
+    ONE FORMULA FOR EVERY WRITER THAT MINTS. A proposal from a conversation re-mints with it under
+    the semaphore (`propose_requirement`), and an import mints every requirement it lands from it
+    (`product/importing.py`, #993). Two copies of this line would be two numberings, and the one
+    that forgets the unlanded branches files a second REQ-N beside a proposal still on its way."""
+    return max(int(base_next), max(unlanded, default=0) + 1)
 
 
 def _pr_body(draft: RequirementDraft, *, number: int, asked_by: str, source: str) -> str:
@@ -1764,16 +1798,22 @@ def defect_body(*, restated: str, reported_by: str, severity: str, source: str,
     return "\n".join(lines)
 
 
-def _staged_outside(checkout: Path, allowed) -> list[str]:
+def _staged_outside(checkout: Path, allowed, *, import_id: str = "") -> list[str]:
     """What is STAGED in `checkout` that a writer allowed `allowed` may not commit — asked of git
     itself, after the add, so a path that reached the index by any route is caught. An index git
-    cannot list is refused whole: a commit nobody could inspect is not one to push."""
-    from openfactory.policy.context_writes import outside
+    cannot list is refused whole: a commit nobody could inspect is not one to push.
+
+    `import_id` is the import's own (#993): its record directory, and only that one, is admitted
+    under `.openfactory/` (`context_writes.outside_an_import`)."""
+    from openfactory.policy.context_writes import outside, outside_an_import
 
     rc, out = _git(["diff", "--cached", "--name-only", "-z"], cwd=checkout)
     if rc != 0:
         return ["(the staged files could not be listed)"]
-    return outside([p for p in out.split("\0") if p.strip()], allowed)
+    staged = [p for p in out.split("\0") if p.strip()]
+    if import_id:
+        return outside_an_import(staged, allowed, import_id=import_id)
+    return outside(staged, allowed)
 
 
 def _refused_staging(checkout: Path, allowed, *, docs_repo: str, writer: str,
@@ -1791,6 +1831,21 @@ def _refused_staging(checkout: Path, allowed, *, docs_repo: str, writer: str,
                                            staged=", ".join(staged[:3])))
 
 
+def fact_file(fact, *, said_by: str, language: str | None = None) -> tuple[str, str]:
+    """`(path, text)` of one learned fact's own file — `domain/<day>-<term>.md`, the shape a
+    person edits by hand, in the project's language.
+
+    THE ONE SHAPE A FACT IS WRITTEN IN, by the two writers that write one: a fact said in a
+    conversation (`record_fact`) and a fact brought in an import (`product/importing.py`, #993).
+    `said_by` is who the file's note says it came from."""
+    from openfactory.product.domain import render_file
+
+    path = f"domain/{fact.learned_on}-{slugify(fact.term, limit=40)}.md"
+    return path, render_file([fact], title=_w(language, "fact_title", term=fact.term),
+                             intro=_w(language, "fact_intro", said_by=said_by),
+                             language=language)
+
+
 def record_fact(*, docs_repo: str, clone_url: str, term: str, body: str, said_by: str,
                 where: str = "", base: str = "main", today: str | None = None,
                 language: str | None = None) -> WriteResult:
@@ -1804,12 +1859,12 @@ def record_fact(*, docs_repo: str, clone_url: str, term: str, body: str, said_by
     from datetime import UTC, datetime
 
     from openfactory.policy.context_writes import FACTS, outside
-    from openfactory.product.domain import Fact, render_file
+    from openfactory.product.domain import Fact
 
     day = today or datetime.now(UTC).date().isoformat()
     fact = Fact(term=term.strip(), body=body.strip(), status="aprendido",
                 source=said_by.strip(), where=where.strip(), learned_on=day)
-    path = f"domain/{day}-{slugify(term, limit=40)}.md"
+    path, text = fact_file(fact, said_by=said_by, language=language)
     # A FACT IS A FILE UNDER `domain/` AND NOTHING ELSE (#265 §6.4): this commits to the base with
     # no person in between, and the base holds what a preview builds
     if outside([path], FACTS):
@@ -1827,10 +1882,7 @@ def record_fact(*, docs_repo: str, clone_url: str, term: str, body: str, said_by
                                detail=f"could not clone {docs_repo}: {_scrub(out)[-200:]}")
         target = tmp / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            render_file([fact], title=_w(language, "fact_title", term=fact.term),
-                        intro=_w(language, "fact_intro", said_by=said_by), language=language),
-            encoding="utf-8")
+        target.write_text(text, encoding="utf-8")
         _git(["add", "--", path], cwd=tmp)
         refused = _refused_staging(tmp, FACTS, docs_repo=docs_repo, writer="record_fact",
                                    language=language)

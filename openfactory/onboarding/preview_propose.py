@@ -51,6 +51,7 @@ from openfactory.onboarding.preview_infer import (
     infer_preview,
     weakest,
 )
+from openfactory.util import yaml_io
 from openfactory.util.bounded import BoundedDict
 
 log = logging.getLogger("openfactory.onboarding.preview_propose")
@@ -96,7 +97,7 @@ def merge_field(manifest_text: str, key: str, block: Any, *, rendered: str = "")
     from openfactory.contracts.manifest import Manifest
 
     try:
-        current = yaml.safe_load(manifest_text) if manifest_text.strip() else {}
+        current = yaml_io.load(manifest_text) if manifest_text.strip() else {}
     except yaml.YAMLError as exc:
         problem = getattr(exc, "problem", None) or str(exc).splitlines()[0]
         return Merged(refusal=f"the manifest is not valid YAML ({problem}) — fix it first; "
@@ -108,11 +109,11 @@ def merge_field(manifest_text: str, key: str, block: Any, *, rendered: str = "")
         return Merged(refusal=f"the manifest already declares `{key}:` — edit it in the "
                               f"repository; a proposal never overwrites what a person wrote.")
     wanted = {**current, key: block}
-    piece = rendered or yaml.safe_dump({key: block}, sort_keys=False, default_flow_style=False,
-                                       allow_unicode=True)
+    piece = rendered or yaml_io.dump({key: block}, sort_keys=False, default_flow_style=False,
+                                     allow_unicode=True)
     appended = (manifest_text.rstrip("\n") + "\n\n" + piece) if manifest_text.strip() else piece
     try:
-        if yaml.safe_load(appended) == wanted:
+        if yaml_io.load(appended) == wanted:
             Manifest.model_validate(wanted)
             return Merged(text=appended)
     except yaml.YAMLError:
@@ -125,8 +126,8 @@ def merge_field(manifest_text: str, key: str, block: Any, *, rendered: str = "")
     except ValidationError as exc:
         return Merged(refusal=f"`{key}:` would not validate in the manifest: "
                               f"{_first_error(exc)}")
-    return Merged(text=yaml.safe_dump(wanted, sort_keys=False, default_flow_style=False,
-                                      allow_unicode=True), comments_kept=False)
+    return Merged(text=yaml_io.dump(wanted, sort_keys=False, default_flow_style=False,
+                                    allow_unicode=True), comments_kept=False)
 
 
 def _first_error(exc: ValidationError) -> str:
@@ -417,7 +418,7 @@ def _scalar(value: Any) -> str:
     text = str(value)
     if _PLAIN.match(text) and text.lower() not in _YAML_WORDS and not text.endswith(":"):
         try:
-            if yaml.safe_load(text) == text:
+            if yaml_io.load(text) == text:
                 return text
         except yaml.YAMLError:
             pass
@@ -1005,12 +1006,17 @@ def _draft_into(checkout: Path, project, *, repo: str, accept: bool,
     if merged is not None:
         manifest.write_text(merged.text, encoding="utf-8")
         paths.insert(0, str(manifest.relative_to(checkout)))
+    return _Written(proposal=proposal, out=out, merged=merged, paths=paths,
+                    base=_base_branch(text))
+
+
+def _base_branch(manifest_text: str) -> str:
+    """The `base_branch:` the manifest names, or `main` when it names none or cannot be read."""
     try:
-        doc = yaml.safe_load(text) or {}
-        base = str(doc.get("base_branch") or "main") if isinstance(doc, dict) else "main"
+        doc = yaml_io.load(manifest_text) or {}
     except yaml.YAMLError:
-        base = "main"
-    return _Written(proposal=proposal, out=out, merged=merged, paths=paths, base=base)
+        return "main"
+    return str(doc.get("base_branch") or "main") if isinstance(doc, dict) else "main"
 
 
 def propose_preview(project, *, repo: str = "", accept: bool = False,

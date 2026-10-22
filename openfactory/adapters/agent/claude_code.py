@@ -36,6 +36,7 @@ from openfactory.adapters.agent.base import (
     PromptTooLarge,
     handed_to_a_live_session,
     prompt_too_large_result,
+    prose_only,
     stage_prompt,
     ticket_brief,
     wall_result,
@@ -131,16 +132,47 @@ def credential_in(settings: Mapping[str, str]) -> tuple[str, str, str]:
     return "", f"none of {', '.join(CREDENTIALS)} is set", _REPAIR["none"]
 
 
+def _refused_credentials() -> dict[str, str]:
+    """`{name: why}` of every credential of this harness the store REFUSES — the pool, the token,
+    the key — or `{}` (review of #822).
+
+    EVERY ONE, NOT ONLY THE WALK'S. A pool that answers ends the walk before the single token is
+    asked, but the boxes withhold a refused name whatever put a value under it, and
+    `_apply_token` puts the pool's token under `CLAUDE_CODE_OAUTH_TOKEN`: a stale refused file of
+    that name starved every job of the token the pool chose, under a green agent line. So any
+    refusal among the harness's own names stops the harness, by name, until it is fixed."""
+    from openfactory.adapters.credential_store.registry import refusals
+
+    return refusals(CREDENTIALS)
+
+
 def _load_agent_token_pool() -> list[dict]:
     """The agent's credential pool for rate-limit / auth FAILOVER.
 
     A JSON array in `OPENFACTORY_AGENT_TOKENS` — `[{"id","token","type"?}]` — lets one exhausted
     or revoked token fail over to the next instead of halting the job. Falls back to the
     single `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` so a single-token deploy behaves
-    exactly as before. A malformed pool degrades to that fallback, never a crash (#2)."""
-    pool, why = _pool_in(os.environ)
+    exactly as before. A malformed pool degrades to that fallback, never a crash (#2).
+
+    ALL THREE ARE READ THROUGH THE CREDENTIAL STORE (#742), so a pool or a token mounted as a file
+    is the one the harness runs on. The token chosen still reaches the CLI the one way it ever
+    did: `_apply_token` puts it in this process's environment, which the box inherits.
+
+    AS ONE WALK, WHICH A REFUSAL ENDS (review of #822). A pool the store refuses is not a pool
+    that is absent, so the single token after it is not asked: the harness runs on nothing, and
+    the boxes withhold the refused names too (`sandbox/container.py`, `sandbox/worktree.py`), so
+    the CLI cannot pick the variable up by itself either."""
+    from openfactory.adapters.credential_store.registry import Stored
+
+    settings = Stored()
+    pool, why = _pool_in(settings)
     if pool:
         return pool
+    if settings.refused:
+        log.warning("the harness credential %s is refused by the credential store — the agent "
+                    "runs on no credential rather than on the next one",
+                    ", ".join(sorted(settings.refused)))
+        return []
     if why:
         # A TYPO IN THE POOL LEAVES YOU WITH ONE TOKEN AND NO FAILOVER, which looks identical
         # to a deployment that never configured a pool — right up until the day one credential
@@ -148,10 +180,14 @@ def _load_agent_token_pool() -> list[dict]:
         # anything but a person editing that value.
         log.warning("%s %s — falling back to a SINGLE credential, so there is no failover",
                     POOL, why)
-    if tok := os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+    if tok := settings.get("CLAUDE_CODE_OAUTH_TOKEN"):
         return [{"id": "single", "token": tok, "type": "subscription"}]
-    if tok := os.environ.get("ANTHROPIC_API_KEY"):
+    if tok := settings.get("ANTHROPIC_API_KEY"):
         return [{"id": "single", "token": tok, "type": "api"}]
+    if settings.refused:
+        log.warning("the harness credential %s is refused by the credential store — the agent "
+                    "runs on no credential rather than on the next one",
+                    ", ".join(sorted(settings.refused)))
     return []
 
 
@@ -495,6 +531,10 @@ class ClaudeCodeAdapter(CodingAgentAdapter):
         )
         self.log_dir = log_dir  # if set, the per-job transcript is written here
         self._pool = _load_agent_token_pool()  # credential failover pool (may be 1)
+        #: which of the harness's credentials the store refuses: the run is refused instead, by
+        #: name (`_invoke`, review of #822) — with nothing in the pool the CLI would read the
+        #: next variable by itself, and with a pool the boxes would withhold its token
+        self._refused = _refused_credentials()
         self._ti = 0  # index of the token currently in use (sticky across roles)
 
     @staticmethod
@@ -849,6 +889,17 @@ class ClaudeCodeAdapter(CodingAgentAdapter):
         durable resume tries another lap LATER (after the backoff, when a token's window may have
         reset — retrying an as-yet-unreset token in the same lap would be pointless). With a single
         token this is the old behaviour (at most one try). Bounded: at most `len(pool)` attempts."""
+        if getattr(self, "_refused", None):
+            # A REFUSED CREDENTIAL IS NOT RUN AROUND (review of #822). With the pool empty, the
+            # CLI left alone reads CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY from its
+            # environment by itself — the next credential, which a refusal never hands over; with
+            # a pool, the boxes withhold the refused name the pool's token travels under. A failed
+            # run, by name.
+            return AgentRunResult(
+                ok=False, model=model or "default", harness="claude_code",
+                summary=(f"the harness credential {', '.join(sorted(self._refused))} is refused "
+                         f"by the credential store, so the agent does not run on another one — "
+                         f"`openfactory doctor` says why"))
         started_at = self._ti  # to report whether we rotated during this invocation
         n = len(self._pool) or 1  # laps are bounded by pool size; guard the single/empty case
         # C2 resume: if THIS phase is the one that paused before, restore its session state and
@@ -1055,6 +1106,102 @@ def _detect_pause(text: str) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _pause_from(out: str) -> tuple[str | None, str | None]:
+    """A usage-limit or auth stop in a run that ended with NO result event, read from what the
+    CLI ITSELF said — each of `_CLI_SIGNALS` — and never from what the run read (#750).
+
+    A killed or stalled run's output is the whole stream it got through, and that stream is mostly
+    the REPOSITORY: a `user` event carries what a tool returned (a file read, a test log), an
+    assistant message carries the model's prose and its `tool_use` inputs, and `system/init` names
+    the repository's own skills, slash commands and working directory. Matched as one text, a
+    repository whose domain is throttling (ARNs, `429` handlers, comments about quotas) parked its
+    own killed runs as rate limited, with a resume timer, on an account nobody had limited — and
+    so did any killed run whose stream held a `rate_limit_event`, matched on the event's NAME
+    whatever its status said. So each signal reads the CLI's own events by their fields, a
+    `system` event only as `api_retry`. A rate limit wins over an auth stop, as it does across a
+    lap (`_invoke`): it is the one a later run can resume."""
+    events = []
+    for line in (out or "").splitlines():
+        try:
+            evt = json.loads(line.strip()) if line.strip().startswith("{") else None
+        except json.JSONDecodeError:
+            continue  # an event cut in half when the CLI died is still repository data
+        if isinstance(evt, dict):
+            events.append(evt)
+    said = [signal(out, events) for signal in _CLI_SIGNALS]
+    return (next((s for s in said if s[0] == "rate_limit"), None)
+            or next((s for s in said if s[0]), (None, None)))
+
+
+def _stderr(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """What the CLI printed outside the stream: every line that is not an event (`prose_only`,
+    which drops a line that starts with `{` whether or not it parses). Its `Error: …` lines and
+    the subscription's limit sentence arrive here when no event carried them."""
+    return _detect_pause(prose_only(out))
+
+
+def _api_error_message(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """The message the CLI writes IN THE MODEL'S PLACE when the API refused: an `assistant` event
+    with `is_api_error_message: true` from the model `<synthetic>`, whose top-level `error` is the
+    CLI's code (`authentication_failed`) and whose text is the CLI's sentence (`Not logged in ·
+    Please run /login`) — measured on 2.1.219 (`tests/fixtures/claude_cli/2.1.219/`). An assistant
+    message without that flag is the model's own prose, and is not read."""
+    for evt in events:
+        if evt.get("type") != "assistant" or evt.get("is_api_error_message") is not True:
+            continue
+        message = evt.get("message") if isinstance(evt.get("message"), dict) else {}
+        content = message.get("content") if isinstance(message.get("content"), list) else []
+        words = [str(evt.get("error") or "")] + [
+            str(b.get("text") or "") for b in content
+            if isinstance(b, dict) and b.get("type") == "text"]
+        found = _detect_pause(" · ".join(words))
+        if found[0]:
+            return found
+    return None, None
+
+
+def _rejected_rate_limit(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """The stream's LAST `rate_limit_event`, when its `rate_limit_info.status` is `rejected` and
+    the plan is not running on extra usage: the CLI declaring the account limited, with `resetsAt`
+    in epoch seconds as the reset (`tests/claude_cli_output.py::rate_limit_event`).
+
+    THE LAST, because the CLI emits one whenever the limit state changes: a `rejected` followed by
+    `allowed` is an account that works again (review of #1019). AND NOT ON EXTRA USAGE: the pinned
+    binary (2.1.219, read in its own code on the review of #1019) keeps `status: "rejected"` with
+    `isUsingOverage: true` once the plan is spent and extra usage pays, and shows no error for it.
+    `allowed` and `allowed_warning` say the account still works, and are no pause."""
+    from datetime import UTC, datetime
+
+    infos = [evt.get("rate_limit_info") for evt in events if evt.get("type") == "rate_limit_event"]
+    info = infos[-1] if infos else None
+    if not (isinstance(info, dict) and info.get("status") == "rejected"):
+        return None, None
+    if info.get("isUsingOverage") is True:
+        return None, None  # over the plan, running on extra usage: the CLI itself shows no error
+    at = info.get("resetsAt")
+    when = (datetime.fromtimestamp(at, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if isinstance(at, int | float) and not isinstance(at, bool) else None)
+    return "rate_limit", when
+
+
+def _retrying_a_rate_limit(out: str, events: list[dict]) -> tuple[str | None, str | None]:
+    """The CLI died while it was retrying a 429: its LAST event is `system/api_retry` with
+    `error: "rate_limit"` or `error_status: 429` (2.1.219 emits one per attempt, and retries every
+    429; read in its code on the review of #1019). Only while it is the last event: a 429 the CLI
+    got past is followed by the run's own events, and is no pause."""
+    last = events[-1] if events else {}
+    if (last.get("type") == "system" and last.get("subtype") == "api_retry"
+            and (last.get("error") == "rate_limit" or last.get("error_status") == 429)):
+        return "rate_limit", None
+    return None, None
+
+
+#: Everything a stream with no result event is read for a pause from: the CLI's own words, and
+#: nothing the run read or wrote. A new signal is a row here, and the family guard in
+#: `tests/test_a_pause_is_read_from_what_the_cli_said.py` asks for a case of each.
+_CLI_SIGNALS = (_stderr, _api_error_message, _rejected_rate_limit, _retrying_a_rate_limit)
+
+
 def _parse_stream(
     rc: int, out: str, allowed_tools: list[str] | None = None
 ) -> AgentRunResult:
@@ -1097,9 +1244,10 @@ def _parse_stream(
                         actions.append(a)
     if final is None:
         # Only classify a pause when the run actually FAILED (rc != 0). A clean exit with no
-        # result event is odd but not a limit; scanning its full transcript would false-match
-        # any "429"/"quota" the agent merely read or wrote (audit: bogus pause on healthy runs).
-        reason, retry = _detect_pause(out) if rc != 0 else (None, None)
+        # result event is odd but not a limit. And then only from what the CLI said, never the
+        # transcript: a killed run's events hold every "429"/"quota" the agent merely read or
+        # wrote (audit: bogus pause on healthy runs; #750: and on killed ones).
+        reason, retry = _pause_from(out) if rc != 0 else (None, None)
         # "no result event in agent output" is true and tells nobody anything: it is the shape a
         # harness takes when it died mid-thought, and the events it DID emit before that are the
         # only account of why. Same reading as the wall (C-39), same reason — a failure must not

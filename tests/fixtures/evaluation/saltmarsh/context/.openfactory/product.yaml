@@ -1,0 +1,4 @@
+product: saltmarsh
+requirements_dir: requirements
+sources:
+  - saltmarsh

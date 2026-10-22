@@ -12,6 +12,7 @@ from openfactory import namespace
 from openfactory.contracts import Manifest
 from openfactory.contracts.manifest import CI_THAT_READS_NO_DEPLOY
 from openfactory.contracts.project import Project
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.loader")
 
@@ -69,7 +70,7 @@ def load_manifest(project: Project, *, repo_root: Path | None = None) -> Manifes
             f"project {project.name!r} has no manifest at {manifest_file}. {how}."
         )
     try:
-        data = yaml.safe_load(manifest_file.read_text()) or {}
+        data = yaml_io.load(manifest_file.read_text()) or {}
     except yaml.YAMLError as exc:
         raise ValueError(f"{manifest_file} is not valid YAML: {exc}") from exc
     if not isinstance(data, dict):

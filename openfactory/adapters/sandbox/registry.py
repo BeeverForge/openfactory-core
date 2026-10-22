@@ -48,10 +48,28 @@ the fargate package through the `openfactory.adapters` entry-point group, the sa
 box uses. Delete `runtime/fargate/` and this module still imports, `box_traits("fargate")` still
 answers, and `remote_box("fargate")` refuses naming the entry point that is missing — which is what
 "the cloud is an add-on" (ADR-0040 D3) means when it is measured rather than claimed.
+
+WHAT A LAUNCHER IS HANDED, AND WHO DECIDES. A remote launcher receives the job's credentials as
+VALUES in `extra_env`, and a launcher may copy that environment where others can read it (an ECS
+`RunTask` override is read back by `DescribeTasks`). So it is handed only short-lived minted tokens,
+unless it DECLARES that it resolves credential references itself (`ResolvesReferences`:
+`resolves_references = True` and a `launch` that takes `references=`). Then a secret the credential
+store holds reaches it as the reference (`file:<name>`), never as the value, and the launcher
+resolves it on its own machine. `launcher_receives(kind)` is the one answer the doctor and the
+tests read.
+
+THE DECLARATION IS THE RUNNER'S, NOT A TRAIT. `BoxTraits` is stamped into workflow histories as
+data (`io.JobParams.box`) and every field of it is required: a new field would refuse every history
+stamped before it and every add-on's `box` row. Credentials are handed over only on the activity
+side, where the runner is built, so that is where the question is asked. `RemoteBox` gains no
+member either: a runtime Protocol's `isinstance` checks data members too, and a required
+`resolves_references` would refuse every launcher written before it (`AcmeRunner`, the fargate
+add-on's).
 """
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,6 +107,11 @@ class RemoteBox(Protocol):
     `launch` runs the WHOLE job somewhere else and brings the `RunResult` back; `stop` sweeps
     whatever a job left running when it ended abnormally, and says how many it stopped; `tail`
     is how the panel follows the job's journal while it is being written on another machine.
+
+    `extra_env` carries VALUES, and this contract alone says nothing about where the launcher puts
+    them, so a launcher that is only a `RemoteBox` is handed short-lived minted tokens and never a
+    secret the credential store holds. A launcher that resolves references itself says so by
+    being a `ResolvesReferences` as well (the module docstring says why that is not a member here).
     """
 
     def launch(self, box: BoxConfig, *, journal: EventSink | None = None, variant: str = "",
@@ -98,6 +121,55 @@ class RemoteBox(Protocol):
     def stop(self, box: BoxConfig) -> int: ...
 
     def tail(self, project: str, issue: str) -> EventTail: ...
+
+
+#: The attribute a launcher sets to `True` to declare that it resolves credential references on its
+#: own side. Exported so the doctor and the docs name the declaration by the value the code reads.
+RESOLVES_REFERENCES_ATTR = "resolves_references"
+
+
+@runtime_checkable
+class ResolvesReferences(RemoteBox, Protocol):
+    """A `RemoteBox` whose launcher resolves credential references itself.
+
+    It is handed a secret the credential store holds as
+    `references={"<variable>": "<store>:<name>"}`, and never as a value in `extra_env`. It
+    resolves each reference on its own machine and sets the variable inside the box. It must
+    refuse a store kind it cannot resolve, by name: a launcher that handed the box the reference
+    string as if it were the token would show up inside the box as a 401 about the wrong thing.
+
+    `isinstance` against this Protocol is NOT the declaration: it checks that the attribute
+    exists, not its value. `resolves_references(runner)` is the one reader.
+    """
+
+    resolves_references: bool
+
+    def launch(self, box: BoxConfig, *, journal: EventSink | None = None, variant: str = "",
+               extra_env: dict | None = None, timeout: int = LAUNCHER_TIMEOUT,
+               run_id: str | None = None,
+               references: dict[str, str] | None = None) -> RunResult: ...
+
+
+def resolves_references(runner: object) -> bool:
+    """Has this launcher declared that it resolves credential references itself?
+
+    Only a literal `True` is a declaration. Truthiness would hand a stored secret's reference to a
+    launcher whose author wrote `resolves_references = "no"` and meant it."""
+    return getattr(runner, RESOLVES_REFERENCES_ATTR, None) is True
+
+
+#: The four answers of `launcher_receives`. "not installed" and "values" are two facts: a
+#: deployment that has the add-on must not be told what a machine without it could not see
+#: (docs/engineering-lessons.md §2).
+LAUNCHER_RECEIVES = ("references", "values", "not installed", "local")
+
+
+class RunnerNotInstalled(RuntimeError):
+    """The box is remote and the add-on that supplies its runner is absent from this deployment.
+
+    A `RuntimeError`, as this refusal always was, so every caller that caught it still does. It is
+    its own class so that `launcher_receives` can say "not installed" for this and nothing else:
+    a runner whose own builder fails is a defect to report, not an absent add-on."""
 
 #: The framework's own box image — the ONE place this string is written.
 #:
@@ -224,7 +296,7 @@ def _container(**kw):
     from openfactory.adapters.sandbox import ContainerSandbox
 
     known = ("project", "toolbox", "cache_volume", "cpus", "memory", "network", "extra_env",
-             "guidelines")
+             "guidelines", "pull_credential")
     return ContainerSandbox(
         image=kw.get("image") or DEFAULT_BOX_IMAGE,
         **{k: kw[k] for k in known if kw.get(k) is not None},
@@ -258,7 +330,7 @@ def runner_from_addon(kind: str) -> Callable[..., RemoteBox]:
 
         build = plugins.builder(RUNNER_AXIS, kind, builtin={})
         if build is None:
-            raise RuntimeError(
+            raise RunnerNotInstalled(
                 f"the {kind!r} box is remote and its runner is not installed on this deployment: "
                 f"install the add-on that declares the `{RUNNER_AXIS}.{kind}` entry point in the "
                 f"`{plugins.GROUP}` group{plugins.install_hint(RUNNER_AXIS, kind)}. Nothing was "
@@ -271,11 +343,26 @@ def runner_from_addon(kind: str) -> Callable[..., RemoteBox]:
 
 def _checked_runner(kind: str, runner: object) -> RemoteBox:
     """REFUSED rather than defaulted when the add-on hands back something that is not a runner —
-    a launcher missing `stop` would leave every abnormal end orphaned, silently."""
+    a launcher missing `stop` would leave every abnormal end orphaned, silently.
+
+    A runner that DECLARES it resolves references is also refused when its `launch` cannot take
+    `references=`. A runtime Protocol's `isinstance` checks method names, not signatures, so it
+    admitted such a runner, and the first job that handed it a reference would have raised
+    `TypeError` inside `launch` (docs/engineering-lessons.md §3). The check binds the call the
+    launch sites make, so a `launch(**kw)` that would take it is admitted."""
     if not isinstance(runner, RemoteBox):
         raise TypeError(
             f"the runner for the {kind!r} box does not satisfy RemoteBox (launch/stop/tail): got "
             f"{type(runner).__name__}")
+    if resolves_references(runner):
+        try:
+            inspect.signature(runner.launch).bind_partial(None, references={})
+        except TypeError:
+            raise TypeError(
+                f"the runner for the {kind!r} box declares `{RESOLVES_REFERENCES_ATTR} = True` "
+                f"and its `launch` takes no `references` keyword, so it could not be handed a "
+                f"single reference: add `references: dict[str, str] | None = None` to `launch`, "
+                f"or remove the declaration (got {type(runner).__name__})") from None
     return runner
 
 
@@ -489,3 +576,21 @@ def remote_box(kind: str, **kw) -> RemoteBox:
         raise ValueError(f"the {kind!r} box is local: it has no remote runner. `build_sandbox` "
                          f"builds its adapter.")
     return _checked_runner(_key(kind), row[2](**kw))
+
+
+def launcher_receives(kind: str) -> str:
+    """What the launcher of `kind` is handed for a secret the credential store holds: one of
+    `LAUNCHER_RECEIVES`.
+
+    "local" for a box that has no launcher; "not installed" when the add-on that supplies the
+    runner is absent here, so nothing can be said about it; "references" when the runner declares
+    that it resolves them (`resolves_references`); "values" otherwise, meaning minted tokens only.
+    Builds the runner, which reads the entry points: activity and application side only. An
+    unknown kind raises, as `remote_box` does, and so does a runner `_checked_runner` refuses."""
+    if not installed_box_traits(kind).remote:
+        return "local"
+    try:
+        runner = remote_box(kind)
+    except RunnerNotInstalled:
+        return "not installed"
+    return "references" if resolves_references(runner) else "values"

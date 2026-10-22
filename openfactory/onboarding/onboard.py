@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from openfactory import namespace
+from openfactory.util import yaml_io
 
 if TYPE_CHECKING:
     from openfactory.onboarding.spend import Spend
@@ -105,8 +106,6 @@ def _say(stream: StageFn | None, kind: str, text: str) -> None:
 def onboard_source_repo(project, repo: str, *, sandbox: str = "container",
                         stream: StageFn | None = None) -> RepoOutcome:
     """One repository: clone → infer → prove → map → pull request."""
-    import yaml as yaml_mod
-
     from openfactory.adapters.forge.registry import build_forge, clone_url_for
     from openfactory.contracts.manifest import Manifest
     from openfactory.credentials import deployment_forge_token, forge_token_for
@@ -206,8 +205,8 @@ def onboard_source_repo(project, repo: str, *, sandbox: str = "container",
             out.questions = list(dict.fromkeys(out.questions))
             manifest_file.parent.mkdir(parents=True, exist_ok=True)
             manifest_file.write_text(
-                yaml_mod.safe_dump(document, sort_keys=False, allow_unicode=True,
-                                   default_flow_style=False), encoding="utf-8")
+                yaml_io.dump(document, sort_keys=False, allow_unicode=True,
+                             default_flow_style=False), encoding="utf-8")
 
         _say(stream, "start", f"{repo}: proving the box on its own manifest")
         out.proof, out.proof_failures, out.proof_advisories = _prove_in_box(
@@ -259,7 +258,7 @@ def _prove_in_box(view, key: str, checkout: Path, manifest, *, sandbox: str,
     the why; gates that ran and failed are `failed`, each finding a line the PR body carries.
     The proof is SAVED under the repo's own key either way it completes — see the module
     docstring for why a saved failing proof is correct (the gate holds pickup and says so)."""
-    from openfactory.box_prove import box_probes, prove, save
+    from openfactory.box_prove import ProveBusy, box_probes, prove, save
     from openfactory.factory import resolve_box_image
     from openfactory.onboarding.propose_manifest import scrub
 
@@ -289,6 +288,12 @@ def _prove_in_box(view, key: str, checkout: Path, manifest, *, sandbox: str,
                 line += f"\n  → {scrub(f.remedy)}"
             failures.append(line)
         return "failed", failures, advisories
+    except ProveBusy as exc:
+        # THE WHOLE SENTENCE, not the generic first 160 characters below: it is 113 characters
+        # plus the key, so a key longer than 47 characters lost its remedy (measured). Not a
+        # failure either, so no traceback in the log; and nothing is saved over the running proof.
+        log.info("did not prove %s's box during onboarding: %s", key, exc.sentence)
+        return f"skipped: {scrub(exc.sentence)}", [], []
     except Exception as exc:  # noqa: BLE001 — an unprovable environment must not hide the PR
         log.warning("could not prove %s's box during onboarding", key, exc_info=True)
         return f"skipped: {scrub(str(exc))[:160]}", [], []
@@ -642,15 +647,17 @@ def semantic_pass_for(project, source: Path, *,
     AND A MISSING BINARY IS ITS OWN SENTENCE. One branch served both, so a machine that had simply
     not installed the harness was sent looking for a credential it already had.
     """
-    import os
-
     from openfactory.onboarding import context as ctx
 
     try:
         import shutil as which_mod
 
         from openfactory.adapters.agent import build_asker
-        from openfactory.adapters.agent.registry import harness_binary, harness_kind
+        from openfactory.adapters.agent.registry import (
+            harness_binary,
+            harness_credential,
+            harness_kind,
+        )
         from openfactory.adapters.agent.routes import resolve_route
         from openfactory.adapters.sandbox.base import Workspace
         from openfactory.adapters.sandbox.registry import judging_worktree
@@ -658,12 +665,29 @@ def semantic_pass_for(project, source: Path, *,
         kind = harness_kind(project, "techlead")
         binary = harness_binary(kind)
         route = resolve_route(project, role="techlead")
-        missing = route.missing(dict(os.environ))
+        # THROUGH THE CREDENTIAL STORE, as the harness reads it (review of #822): a token held in
+        # a file is present, and a refused one is not. WHETHER A REFUSAL STOPS THE HARNESS is its
+        # own walk's question — the pool, the token, the key, in its order, as the doctor asks it
+        # — and a harness that cannot say from here is asked over its route's names.
+        from openfactory.adapters.agent.registry import harness_refusals
+        from openfactory.adapters.credential_store.registry import held, refusals
+
+        names = sorted({name for group in route.requires for name in group})
+        missing = route.missing(held(names))
+        # ONE TABLE (review of ef084ebd): the harness's own names, asked as the doctor and the
+        # harness itself ask them; a harness that cannot say from here, over its route's names
+        refused = (harness_refusals(kind) if harness_credential(kind, {}) is not None
+                   else refusals(names))
 
         if not which_mod.which(binary):
             return None, (f"deterministic (the {kind} binary `{binary}` is not on this machine's "
                           f"PATH — the survey still reads the repository; run "
                           f"`env context --ask` later for the prose pass)")
+        if refused:
+            return None, (f"deterministic (the harness credential "
+                          f"{', '.join(sorted(refused))} is refused by the credential "
+                          f"store — `openfactory doctor` says why; the survey still reads the "
+                          f"repository; run `env context --ask` once it is fixed)")
         if missing:
             return None, (f"deterministic (no harness credential on this machine for the "
                           f"{route.name} route — it needs {' and '.join(missing)}; the survey "

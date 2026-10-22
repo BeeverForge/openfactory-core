@@ -71,7 +71,7 @@ contributor that is the wrong filter — those pages are your map:
 | [README.md](README.md) §The shape | the package tree in one screen: contracts, adapters, orchestrator, runtime |
 | [docs/architecture.md](docs/architecture.md) | how the pieces fit, and the vocabulary the code uses |
 | the `openfactory-aws` add-on package | the durable engine realised on one cloud — poller, workflow, activities, replay — is drawn in that package's own documents, outside this tree |
-| [docs/adr/](docs/adr/) | **why** — 57 decision records. Read the one nearest your change before arguing with it |
+| [docs/adr/](docs/adr/) | **why** — 58 decision records. Read the one nearest your change before arguing with it |
 | [docs/engineering-lessons.md](docs/engineering-lessons.md) | the defects this codebase has actually paid for, with their measurements |
 | [docs/STATUS.md](docs/STATUS.md) | what is proven end to end and what is not |
 | [docs/developer-guide.md](docs/developer-guide.md) | why an agent is given the instructions it is given — `openfactory explain` and the cascade it prints — and where a developer or an AI engineer may change them |
@@ -161,8 +161,8 @@ Every axis is an adapter behind a registry, and an add-on plugs in through the
 `<axis>.<kind> = package:builder` (the role axis as `role.<name>`), its rows join the registry's
 table at lookup time, a built-in row wins a collision, and an unknown kind still refuses by
 name. The axis names an entry point may use are `openfactory/plugins.py::AXES` (board,
-board_setup, box, box_runner, channel, ci, credential, embed, event, extract, forge, harness,
-identity, metrics, notifier, preview, role, session_store, token_pool, tracker), and
+board_setup, box, box_runner, channel, ci, credential, credential_store, embed, event, extract,
+forge, harness, identity, metrics, notifier, preview, role, session_store, token_pool, tracker), and
 `tests/test_a_stranger_can_add_an_adapter.py` holds that list equal to what the registries ask
 for — see [docs/core/07-extensibility.md](docs/core/07-extensibility.md), including §10's
 ledger of what is core and what is vendor-owned. The core ships GitHub, Azure DevOps and Jira;

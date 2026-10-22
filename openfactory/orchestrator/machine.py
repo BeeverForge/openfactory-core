@@ -80,6 +80,7 @@ from openfactory.policy import protected as protected_policy
 from openfactory.policy.census import inventory_command, inventory_of
 from openfactory.policy.census import vanished as census_vanished
 from openfactory.policy.protected import violations as protected_violations
+from openfactory.product.model import WITHHELD_CREDENTIAL, scrub_credentials
 from openfactory.techlead import voice as tl_voice
 from openfactory.techlead.classify import ENVIRONMENT, TREE, UNKNOWN
 
@@ -455,9 +456,18 @@ def _review_lines(r: ReviewResult) -> list[str]:
 # by line prefix, so an agent row that started `## Review — ` or `Cost: $` would be read as the
 # platform's. And every plain row after a quote follows a blank row: CommonMark's lazy continuation
 # would otherwise pull the next platform row — the `Cost:` line included — into the quote.
+#
+# A CREDENTIAL IN THE AGENT'S WORDS IS WITHHELD BEFORE ANYTHING ELSE TOUCHES THEM (#885). Until
+# then a token the agent pasted, an `Authorization` value from a `curl` it ran, or a clone URL's
+# password went to the forge as written. `_without_credentials` shows each as
+# `[credential withheld]`, a URL's userinfo included, on the RAW text: in `_quoted` before the
+# lines are split and neutralised, in `_pass_words` before the fold and the cut — neutralising
+# escapes `_` (no prefix matches `ghp\_`), keeps a link's destination raw, and the fold and the
+# cut break a secret that spans lines or straddles character 200. The claim says so.
 
-_CLAIM = ("This is the implementing agent's own account, as it wrote it. No gate checked it, and "
-          "the reviewer was not shown it.")
+#: Withholding credentials made "as it wrote it." false on its own (#885): it says what was changed.
+_CLAIM = ("This is the implementing agent's own account, as it wrote it, with any credential in it "
+          f"shown as {WITHHELD_CREDENTIAL}. No gate checked it, and the reviewer was not shown it.")
 _WROTE_NOTHING = "The agent ended its pass without a final message."
 _NOT_RECORDED = ("The account of the pass that opened this pull request was not recorded: it was "
                  "opened before this section existed.")
@@ -576,9 +586,22 @@ def _spans(row: str) -> list[tuple[int, int]]:
     return [(ticks[j], ticks[j + 1] + 1) for j in range(0, len(ticks) - 1, 2)]
 
 
+def _without_credentials(text: str) -> str:
+    """Agent text with every credential in it shown as `WITHHELD_CREDENTIAL`: a token by its
+    prefix, an `Authorization` value, a secret this process holds, and a URL's userinfo — replaced
+    by the marker, not dropped, so the reader is told (#885)."""
+    return scrub_credentials(text, userinfo=WITHHELD_CREDENTIAL + "@")
+
+
 def _quoted(text: str) -> list[str]:
     """Agent text as quote rows: `> ` + each neutralised line, and `>` for an empty one, so the
-    quote does not end inside the agent's text."""
+    quote does not end inside the agent's text.
+
+    CREDENTIALS ARE WITHHELD FIRST, on the raw text, whole (#885). After `_neutralised` a token's
+    `_` is escaped — `ghp\\_…` matches no prefix, and GitHub renders it `ghp_…` whole — and a
+    markdown link's destination is kept raw, its userinfo with it; line by line, a key of this
+    process that spans lines (a PEM) is never found whole."""
+    text = _without_credentials(text)
     return [f"> {_neutralised(line)}" if line.strip() else ">" for line in text.splitlines()]
 
 
@@ -655,10 +678,14 @@ def _account_of(result: RunResult) -> _Account:
 
 
 def _pass_words(res: AgentRunResult) -> str:
-    """A later pass's own words on one line: its whole final message with whitespace runs folded,
-    cut at `AGENT_PASS_WORDS_MAX` like the `agent finished:` note, THEN neutralised — cutting
-    after the wrapping could leave a name outside a cut-open code span."""
-    words = " ".join(final_text(res).split())
+    """A later pass's own words on one line: its whole final message with credentials withheld,
+    whitespace runs folded, cut at `AGENT_PASS_WORDS_MAX` like the `agent finished:` note, THEN
+    neutralised — cutting after the wrapping could leave a name outside a cut-open code span.
+
+    Withheld FIRST (#885): after the fold, a key of this process that spans lines is never found
+    whole; after the cut, a token the cut split leaves a head too short for any shape (a token at
+    character 190 published `ghp_q7SECR`); after neutralising, `_` is escaped (see `_quoted`)."""
+    words = " ".join(_without_credentials(final_text(res)).split())
     if not words:
         return "the pass ended without a final message"
     cut = words[:AGENT_PASS_WORDS_MAX]
@@ -3679,6 +3706,8 @@ class JobRunner:
 
         import yaml
 
+        from openfactory.util import yaml_io
+
         hits = tuple(getattr(self, "_protected", ()) or ())
         manifest_rel = namespace.MANIFEST
         if not any(h in self._SHAPE_NAMES or h.startswith(".openfactory/") for h in hits):
@@ -3686,7 +3715,7 @@ class JobRunner:
         root = Path(getattr(ws, "host_path", None) or ws.path)
         try:
             text = (root / manifest_rel).read_text(encoding="utf-8")
-            block = (yaml.safe_load(text) or {}).get("preview") or {}
+            block = (yaml_io.load(text) or {}).get("preview") or {}
         except (OSError, yaml.YAMLError, AttributeError):
             block = {}
         compose = block.get("compose") if isinstance(block, dict) else None

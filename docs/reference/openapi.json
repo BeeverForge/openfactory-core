@@ -2055,6 +2055,107 @@
         }
       }
     },
+    "/api/v1/product/{project}/system": {
+      "get": {
+        "summary": "Product System",
+        "description": "One product's SYSTEM LAYER (#1002, ADR-0052 D17): the sources read, the components, the\nlinks between them, the HTTP and gRPC interfaces with their operations, the events, the\ndatabases and their schemas, the queues, the infrastructure, the decision records, and every\nthing that could not be derived — as the knowledge refresh published it at `.okf/system/` in the\nproduct's context repository.\n\nREAD, NEVER DERIVED. Deriving checks out every source the product declares; this reads the map\nthe refresh published (`render.read_published`), from the context repository's checkout the\nproduct's own reads use (`load_product_context`, the product page's status read included) — so\nwhat a client is shown is what the product role finds in its view. Each GET fetches that\ncheckout, as every product read does (a clone on a host's first read), and nothing else is\nwritten: no repository is pushed to, no impediment is filed (the module's `context()` would file\none), no index is opened.\n\nEVERY ENTRY CITED, NAMES ONLY. Each entry carries where it came from — the repository, the file,\nthe commit, a line where the format has one — and no field holds the value of a variable: the\nmap holds names (`knowledge/system/contracts.py`), and what is answered is the map read back\nthrough its own models, so nothing a hand added beside them in a file is.\n\nNEVER AN EMPTY MAP FOR ONE THAT IS NOT KNOWN. `state` says whether the map was read\n(`published`), is not there yet (`not-published`) or could not be read (`unreadable` — its\nfiles, or the context repository that holds them), `why` says it in a sentence, and the map's\nfields are null unless it was read. A source the refresh could not check out is in the map: a\nsource whose `missing` says why, and a `source-unreadable` entry of `not_derived`.\n\nA PROJECT WITH NO PRODUCT ROLE is answered in the very words an unknown project is, before its\ncontext repository is looked for — nothing is checked out for a project the role never reads,\nand which projects a deployment runs outside the product area is not a product credential's to\nlearn (`_no_such_project`, the rule the product's search follows).",
+        "operationId": "product_system_api_v1_product__project__system_get",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment — one with no product role is answered alike",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/product/{project}/system": {
+      "get": {
+        "summary": "Product System",
+        "description": "One product's SYSTEM LAYER (#1002, ADR-0052 D17): the sources read, the components, the\nlinks between them, the HTTP and gRPC interfaces with their operations, the events, the\ndatabases and their schemas, the queues, the infrastructure, the decision records, and every\nthing that could not be derived — as the knowledge refresh published it at `.okf/system/` in the\nproduct's context repository.\n\nREAD, NEVER DERIVED. Deriving checks out every source the product declares; this reads the map\nthe refresh published (`render.read_published`), from the context repository's checkout the\nproduct's own reads use (`load_product_context`, the product page's status read included) — so\nwhat a client is shown is what the product role finds in its view. Each GET fetches that\ncheckout, as every product read does (a clone on a host's first read), and nothing else is\nwritten: no repository is pushed to, no impediment is filed (the module's `context()` would file\none), no index is opened.\n\nEVERY ENTRY CITED, NAMES ONLY. Each entry carries where it came from — the repository, the file,\nthe commit, a line where the format has one — and no field holds the value of a variable: the\nmap holds names (`knowledge/system/contracts.py`), and what is answered is the map read back\nthrough its own models, so nothing a hand added beside them in a file is.\n\nNEVER AN EMPTY MAP FOR ONE THAT IS NOT KNOWN. `state` says whether the map was read\n(`published`), is not there yet (`not-published`) or could not be read (`unreadable` — its\nfiles, or the context repository that holds them), `why` says it in a sentence, and the map's\nfields are null unless it was read. A source the refresh could not check out is in the map: a\nsource whose `missing` says why, and a `source-unreadable` entry of `not_derived`.\n\nA PROJECT WITH NO PRODUCT ROLE is answered in the very words an unknown project is, before its\ncontext repository is looked for — nothing is checked out for a project the role never reads,\nand which projects a deployment runs outside the product area is not a product credential's to\nlearn (`_no_such_project`, the rule the product's search follows).",
+        "operationId": "product_system_api_product__project__system_get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment — one with no product role is answered alike",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/product/{project}/documents": {
       "get": {
         "summary": "Product Documents",
@@ -6333,6 +6434,1440 @@
         "type": "object",
         "title": "StagedSuggestion",
         "description": "The one action the tech-lead proposed; `live: false` with a `reason` when it may be shown\nand not pressed."
+      },
+      "SystemAdr": {
+        "properties": {
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemCite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemAdr"
+      },
+      "SystemCite": {
+        "properties": {
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemCite",
+        "description": "Where an entry came from: the repository, the path in it, the commit it was read at, and a\n1-based line where the format has a statement to point at (`0` is the file as a whole)."
+      },
+      "SystemColumn": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemColumn"
+      },
+      "SystemComponent": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "code_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code By"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "depends_on": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Depends On"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
+          },
+          "declared_by": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemCite"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared By"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemComponent",
+        "description": "One part of the product that runs, named where it is deployed. `env` holds the NAMES of the\nvariables it is given, never a value."
+      },
+      "SystemDatabase": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "engine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine"
+          },
+          "owners": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owners"
+          },
+          "users": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Users"
+          },
+          "tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool"
+          },
+          "tables": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemTable"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tables"
+          },
+          "migrations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemCite"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Migrations"
+          },
+          "declared_by": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemCite"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared By"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemDatabase",
+        "description": "A database: its schema, the components whose migrations define it (`owners`) and the others\ndeclared to connect to it (`users`)."
+      },
+      "SystemEvent": {
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol"
+          },
+          "broker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broker"
+          },
+          "producers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemEventEnd"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producers"
+          },
+          "consumers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemEventEnd"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumers"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemEvent",
+        "description": "A channel, and who is declared to send and to receive on it."
+      },
+      "SystemEventEnd": {
+        "properties": {
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "owner_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner By"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemCite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemEventEnd"
+      },
+      "SystemGrpcService": {
+        "properties": {
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "owner_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner By"
+          },
+          "package": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package"
+          },
+          "service": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service"
+          },
+          "rpcs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemRpc"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpcs"
+          },
+          "callers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callers"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemCite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemGrpcService"
+      },
+      "SystemHttpApi": {
+        "properties": {
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "owner_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner By"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "operations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemOperation"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operations"
+          },
+          "callers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callers"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemCite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemHttpApi",
+        "description": "An HTTP API, the component it belongs to (`owner_by`: the rule that placed it), its\noperations and the components declared to call it."
+      },
+      "SystemInfrastructure": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "engine": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemCite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemInfrastructure"
+      },
+      "SystemLink": {
+        "properties": {
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemCite"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemLink",
+        "description": "One declared interface: `from` talks to `to` over `kind`, as `via` declares it by name\n(`env ORDERS_URL`, `channel order.placed`)."
+      },
+      "SystemNotDerived": {
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemNotDerived",
+        "description": "One thing the map could not establish, with why. `kind` is one word of a closed\nvocabulary — `source-unreadable`, `unknown-format`, `parse-error`, `not-declared`,\n`not-followed`, `not-read`, `at-run-time`, `too-large`, `ambiguous`, `truncated` — and\n`repo`/`path` say where."
+      },
+      "SystemOperation": {
+        "properties": {
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemOperation"
+      },
+      "SystemQueue": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "producers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producers"
+          },
+          "consumers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumers"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemCite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemQueue"
+      },
+      "SystemRead": {
+        "properties": {
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "why": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why"
+          },
+          "read_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemCite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "derived_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived Key"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "scope_limit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Limit"
+          },
+          "sources": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemSource"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources"
+          },
+          "components": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemComponent"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Components"
+          },
+          "links": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemLink"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Links"
+          },
+          "http": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemHttpApi"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http"
+          },
+          "grpc": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemGrpcService"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grpc"
+          },
+          "events": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemEvent"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Events"
+          },
+          "databases": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemDatabase"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Databases"
+          },
+          "queues": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemQueue"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queues"
+          },
+          "infrastructure": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemInfrastructure"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Infrastructure"
+          },
+          "adrs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemAdr"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adrs"
+          },
+          "not_derived": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemNotDerived"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Derived"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemRead",
+        "description": "`/api/product/{project}/system` — one product's system layer as its context repository\npublishes it at `.okf/system/`: the sources read, the components, the links between them, the\nHTTP and gRPC interfaces and the events, the databases, the queues, the infrastructure, the\ndecision records, and every thing it could not derive — each entry with where it came from.\n\n`state` is `published` (the map was read whole; an empty list is a kind the product declares\nnone of), `not-published` (no map yet) or `unreadable` (a map is there and a file of it cannot\nbe read), and `why` says it in a sentence; the map's fields are `None` unless it was read —\nnever an empty map in place of one that is not known. `read_from` is where it was read: the\ncontext repository, the directory, and the commit the read found."
+      },
+      "SystemRpc": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemRpc"
+      },
+      "SystemSource": {
+        "properties": {
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "files": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files"
+          },
+          "left_out": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Out"
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemSource",
+        "description": "One source the product declares: read at `commit` (`files` declaration files), or not read\nand `missing` says why. `left_out` names the directories of weight its checkout did not\nbring."
+      },
+      "SystemTable": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "columns": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemColumn"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "references": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "References"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemCite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "altered_in": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SystemCite"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Altered In"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "SystemTable",
+        "description": "One table as the migrations leave it: the statement that created it, and every later one\nthat changed it."
       },
       "Toggle": {
         "properties": {

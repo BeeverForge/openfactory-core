@@ -38,7 +38,13 @@ KIND_ENV = "OPENFACTORY_IDENTITY"
 def _local(**_kw):
     from openfactory.identity.local import LocalIdentity
 
-    return LocalIdentity()
+    provider = LocalIdentity()
+    # REFUSED AT STARTUP, BY NAME, as an `oidc` row with no issuer is below (review of #822): a
+    # closing variable the credential store refuses is a door nobody can be checked at, and the
+    # panel answers "cannot check" for a provider that cannot be built — never "open".
+    if refused := provider.misconfiguration():
+        raise ValueError(refused)
+    return provider
 
 
 def _oidc(**_kw):

@@ -17,6 +17,11 @@ WHAT IT SAYS, in the order a line is admitted under the bound:
     in production  each member's newest release tag, one line
     parked         a job stopped on a person, with whether the tech-lead has diagnosed it
     waiting        a job at a gate a person holds, and every open loop that waits on a person
+    imported       where the requirements came from (#994): the newest import, what it brought
+                   and how much of it is still proposed — while it is a review to hold. BELOW
+                   what stops on a person (review of PR #1000): a review to hold waits for the
+                   conversation, a parked job or a gate waits on somebody now, and under the
+                   bound's strict order a line above them is a line that can cut them
     preview        ADR-0050's previews, once the model carries them (a hook: not on this base)
     delivered      what was merged in the last `DELIVERED_DAYS`, one line
 
@@ -97,6 +102,8 @@ DELIVERED_DAYS = 7
 #: How much of a card's title, and of a decision's label, rides on its line.
 TITLE_CHARS = 70
 LABEL_CHARS = 120
+#: How much of where an import came from rides on its line (#994).
+ORIGIN_CHARS = 60
 
 #: Stopped, and waiting on a person to move — the jobs the tech-lead diagnoses.
 PARKED = ("on_hold", "needs_refinement")
@@ -164,7 +171,8 @@ def render(model: ProductModel, *, speaker: str = "", raw: bool = False,
     facts = [*_not_read(model, say), *_documents(model, say, audience),
              *_moving(model), *_in_production(model, say),
              *_parked(model, say, raw=raw), *_at_a_gate(model, say, raw=raw),
-             *_waiting(model, say), *_previews(model, say), *_delivered(model, say, now)]
+             *_waiting(model, say), *_imported(model, say, now), *_previews(model, say),
+             *_delivered(model, say, now)]
     said = [(line.kind, _said(line, read=model.read_at, now=now)) for line in facts]
     lines, left_out = _bounded(said)
     return Briefing(lines=tuple(lines), left_out=left_out, raw=raw)
@@ -221,6 +229,35 @@ def _documents(model: ProductModel, say: _Say, audience: str) -> Iterator[_Line]
                                                f"be read, not named here")
     yield _Line("documents", body + " — documents.md says why", "document records", "read",
                 str(documents.get("checked_at") or ""))
+
+
+def _imported(model: ProductModel, say: _Say, now: datetime) -> Iterator[_Line]:
+    """Where the product's requirements came from (#994), read from the newest import's record:
+    the origin, how many it brought, how many of them are still proposed and how many were agreed
+    since, where the design is — while the import is still a review to hold, or landed within
+    `DELIVERED_DAYS`. The detail — the order the record suggests and what is still open — is
+    `imported.md`."""
+    imported = model.imported
+    if not imported:
+        return
+    landed = _when(str(imported.get("landed_at") or ""))
+    recent = landed is not None and (now - landed).days < DELIVERED_DAYS
+    if not imported.get("under_review") and not recent:
+        return
+    counts = imported.get("counts") or {}
+    proposed, agreed = len(imported.get("proposed") or []), len(imported.get("agreed") or [])
+    body = (f"Requirements arrived from «{say(imported.get('origin'), ORIGIN_CHARS)}» — "
+            f"{counts.get('new', 0)} new, {counts.get('revision', 0)} revised, "
+            f"{counts.get('beside', 0)} kept beside an agreed one; {proposed} still proposed, "
+            f"{agreed} agreed since")
+    if imported.get("design"):
+        body += f"; design: {say(imported['design'], TITLE_CHARS)}"
+    if imported.get("under_review"):
+        # THE TAIL IS WHAT THE ROLE ACTS ON, so it is kept short enough never to be the part cut
+        still = max(int(imported.get("open_count") or 0), len(imported.get("open") or []))
+        body += f"; a review to hold: {still} still open, the order in imported.md"
+    yield _Line("imported", body, "import record", "imported",
+                str(imported.get("landed_at") or ""))
 
 
 def _moving(model: ProductModel) -> Iterator[_Line]:

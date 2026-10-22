@@ -194,9 +194,9 @@ MUTATIONS = [
      "              else _pick(_STAGED_NOWHERE, language))\n",
      "    middle = _pick(_STAGED_TRY, language).format(where=where)\n"),
     ("the event is not a kind the module knows", EVENTS,
-     # re-pinned 2026-10-04: `tried` joined it (#448 slice 4)
-     "         READY_FOR_YOU, MERGED, STAGED, TRIED)\n",
-     "         READY_FOR_YOU, MERGED, TRIED)\n"),
+     # re-pinned 2026-10-04: `tried` joined it (#448 slice 4); 2026-10-21: `imported` (#994)
+     "         READY_FOR_YOU, MERGED, STAGED, TRIED, IMPORTED)\n",
+     "         READY_FOR_YOU, MERGED, TRIED, IMPORTED)\n"),
     # ── who puts it in front of everyone (slice 4, the rest) ─────────────────────────────────
     ("the requester's yes never releases, even where the project lets it", ENGINE,
      '    if not admin and not (theirs and getattr(project, "release_by_requester", False) '
@@ -263,8 +263,9 @@ MUTATIONS = [
      "    release_by_requester: bool = False\n",
      "    release_by_requester: bool = True\n"),
     ("the requester's yes is not a kind the module knows", EVENTS,
-     "         READY_FOR_YOU, MERGED, STAGED, TRIED)\n",
-     "         READY_FOR_YOU, MERGED, STAGED)\n"),
+     # re-pinned 2026-10-21: `imported` joined the kinds after it (#994)
+     "         READY_FOR_YOU, MERGED, STAGED, TRIED, IMPORTED)\n",
+     "         READY_FOR_YOU, MERGED, STAGED, IMPORTED)\n"),
 
     # ── "not yet" is another pass: the conversation ──────────────────────────────────────────
     ("a not-yet at the last gate is answered with a promise again", ENGINE,

@@ -20,7 +20,9 @@ import re as _re_module
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -32,7 +34,7 @@ from openfactory.contracts import JobState, RunResult
 from openfactory.contracts.checks import NOTHING_RAN, CiDecision, decide, declares_no_checks
 from openfactory.contracts.checks import read as read_checks
 from openfactory.contracts.refs import SPLIT_CHILD_MARK, canonical_ref, ref_label, ref_sort_key
-from openfactory.credentials import box_credential_env, box_options
+from openfactory.credentials import box_launch_credentials, box_options
 from openfactory.factory import build_runner, resolve_box_image
 from openfactory.observability import logs
 from openfactory.registry import ProjectRegistry
@@ -88,6 +90,9 @@ from openfactory.runtime.temporal.io import (
     TurnInput,
     TurnProgress,
 )
+
+if TYPE_CHECKING:
+    from openfactory.runtime.boxed_job import BoxConfig
 
 
 def _resolved_image(project, *, sandbox: str, explicit: str | None = None) -> str:
@@ -693,7 +698,9 @@ def _do_run_job(inp: RunJobInput, run_id: str | None = None,
 
 
 
-def _box_for(inp: RunJobInput):
+def _box_for(inp: RunJobInput, *, references: dict[str, str] | None = None):
+    """The job's `BoxConfig`. `references` is what `box_launch_credentials` answered for the
+    launch (#903): an axis handed as a reference is read from the variable the launcher fills."""
     from openfactory.runtime.boxed_job import BoxConfig
 
     project = ProjectRegistry().get(inp.project)
@@ -713,8 +720,8 @@ def _box_for(inp: RunJobInput):
         # …AND EACH AXIS'S COORDINATES (#162). Whole, because they are the provider's own
         # vocabulary: `board_owner`/`board_number` above are two keys of GitHub Projects' that an
         # earlier fix hand-picked, and a box told only those cannot build an Azure adapter at all.
-        tracker_options=box_options(project, "tracker"),
-        forge_options=box_options(project, "forge"),
+        tracker_options=box_options(project, "tracker", references=references),
+        forge_options=box_options(project, "forge", references=references),
         review=inp.review,
         resume_handle=inp.resume_handle,  # C2: propagate to the remote box via env
         spent_turns=inp.spent_turns,  # D4: the effort budget's running total
@@ -753,11 +760,32 @@ def _run_remote(inp: RunJobInput, run_id: str | None = None) -> RunResult:
 
     extra_env = ({} if not getattr(project, "knowledge_experiment", False)
                  else arm_env(arm_for(project)))
-    return remote_box(inp.sandbox).launch(
-        _box_for(inp), journal=journal, run_id=run_id,
-        extra_env={**extra_env, **_the_change_env(inp.change, inp.another_pass),
-                   **box_credential_env(project)} or None
+    return _remote_launch(
+        project, inp.sandbox, lambda references: _box_for(inp, references=references),
+        journal=journal, run_id=run_id,
+        extra_env={**extra_env, **_the_change_env(inp.change, inp.another_pass)},
     )
+
+
+def _remote_launch(project, kind: str, build_box: Callable[[dict[str, str]], BoxConfig], *,
+                   extra_env: dict[str, str], **launch) -> RunResult:
+    """THE ONE WAY AN ACTIVITY LAUNCHES ON A REMOTE BOX (#903): the job, a promotion phase, a
+    re-review and a CI repair or adjustment all come through here, so what a launcher is handed
+    cannot differ between them.
+
+    The credentials are asked FIRST, before the box is built and before `launch`: a secret the
+    credential store holds is refused for a launcher that does not declare it resolves references,
+    and that refusal must come before anything was started (docs/engineering-lessons.md §12).
+    `build_box(references)` builds the `BoxConfig` with the same answer, so an axis handed as a
+    reference names the variable the launcher fills. `references=` is passed only when it is
+    non-empty, which `box_launch_credentials` answers only for a declaring launcher: a launcher
+    that declares nothing is called with exactly the keywords every launcher was called with
+    before the declaration existed (`AcmeRunner.launch` takes no `references`)."""
+    runner = remote_box(kind)
+    env, references = box_launch_credentials(project, kind, runner)
+    if references:
+        launch["references"] = references
+    return runner.launch(build_box(references), extra_env={**extra_env, **env} or None, **launch)
 
 
 # ---------------------------------------------------------------------------
@@ -771,11 +799,11 @@ def _tracker_for(project):
     this, so a client on Jira changes one registry value and nothing in this file."""
     from openfactory.adapters.tracker.registry import build_tracker
     from openfactory.credentials import tracker_token_for
-    from openfactory.factory import _bot_token_provider
+    from openfactory.factory import bot_token_provider_for
 
     tok = tracker_token_for(project)
     return build_tracker(project, token=tok,
-                         token_provider=None if tok else _bot_token_provider())
+                         token_provider=None if tok else bot_token_provider_for(project, "tracker"))
 
 
 def _sizer_result_text(res) -> str:
@@ -2074,22 +2102,25 @@ def _run_promotion(
                                non_retryable=True)
     project = ProjectRegistry().get(project_name)
     card_repo, bare_issue = _ref_repo(project, issue)  # C-18: promote acts on the card's repo
-    box = BoxConfig(
-        project=project_name,
-        issue=bare_issue,
-        repo=card_repo,
-        board_owner=project.tracker.options.get("board_owner"),
-        board_number=project.tracker.options.get("board_number"),
-        tracker_kind=project.tracker.kind,
-        forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
-        tracker_options=box_options(project, "tracker"),   # #162, as in `_box_for`
-        forge_options=box_options(project, "forge"),
-    )
-    return remote_box(sandbox).launch(
-        box,
+
+    def box(references):
+        return BoxConfig(
+            project=project_name,
+            issue=bare_issue,
+            repo=card_repo,
+            board_owner=project.tracker.options.get("board_owner"),
+            board_number=project.tracker.options.get("board_number"),
+            tracker_kind=project.tracker.kind,
+            forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
+            # #162, as in `_box_for`
+            tracker_options=box_options(project, "tracker", references=references),
+            forge_options=box_options(project, "forge", references=references),
+        )
+
+    return _remote_launch(
+        project, sandbox, box,
         variant=f"-{phase}",
-        extra_env={"OPENFACTORY_PROMOTE_PHASE": phase, **extra_env,
-                   **box_credential_env(project)},
+        extra_env={"OPENFACTORY_PROMOTE_PHASE": phase, **extra_env},
         timeout=1800,  # 30min — below the activity's 40min ceiling (R2)
         run_id=run_id,
     )
@@ -2362,14 +2393,14 @@ def _forge_for(project):
     changes one registry value and nothing in this file."""
     from openfactory.adapters.forge.registry import build_forge
     from openfactory.credentials import forge_token_for
-    from openfactory.factory import _bot_token_provider
+    from openfactory.factory import bot_token_provider_for
 
     # PER PROJECT, because one deployment hosts N projects and they no longer share a forge. The
     # process-wide `forge_token()` that stood here is a GitHub credential on every deployment that
     # sets OPENFACTORY_BOT_TOKEN, and this is the helper EVERY forge read in this file goes through.
     tok = forge_token_for(project)
     return build_forge(project, token=tok,
-                       token_provider=None if tok else _bot_token_provider())
+                       token_provider=None if tok else bot_token_provider_for(project, "forge"))
 
 
 @activity.defn
@@ -2621,20 +2652,23 @@ def _run_review_pass(inp: ReviewPassInput, run_id: str | None = None) -> RunResu
     from openfactory.paths import events_file
     from openfactory.runtime.boxed_job import BoxConfig
 
-    box = BoxConfig(
-        project=inp.project, issue=inp.issue, repo=repo,
-        board_owner=project.tracker.options.get("board_owner"),
-        board_number=project.tracker.options.get("board_number"),
-        tracker_kind=project.tracker.kind,
-        forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
-        tracker_options=box_options(project, "tracker"),   # #162, as in `_box_for`
-        forge_options=box_options(project, "forge"),
-    )
+    def box(references):
+        return BoxConfig(
+            project=inp.project, issue=inp.issue, repo=repo,
+            board_owner=project.tracker.options.get("board_owner"),
+            board_number=project.tracker.options.get("board_number"),
+            tracker_kind=project.tracker.kind,
+            forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
+            # #162, as in `_box_for`
+            tracker_options=box_options(project, "tracker", references=references),
+            forge_options=box_options(project, "forge", references=references),
+        )
+
     journal = journal_for(events_file(project, inp.issue), dedup=True)
-    return remote_box(inp.sandbox).launch(
-        box, variant="-review",
+    return _remote_launch(
+        project, inp.sandbox, box, variant="-review",
         extra_env={"OPENFACTORY_PR": inp.pr_url, "OPENFACTORY_REVIEW_PASS": "1",
-                   **_the_change_env(inp.change), **box_credential_env(project)},
+                   **_the_change_env(inp.change)},
         journal=journal, timeout=1800, run_id=run_id,
     )
 
@@ -2922,15 +2956,18 @@ def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
     from openfactory.paths import events_file
     from openfactory.runtime.boxed_job import BoxConfig
 
-    box = BoxConfig(
-        project=inp.project, issue=inp.issue, repo=repo,
-        board_owner=project.tracker.options.get("board_owner"),
-        board_number=project.tracker.options.get("board_number"),
-        tracker_kind=project.tracker.kind,
-        forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
-        tracker_options=box_options(project, "tracker"),   # #162, as in `_box_for`
-        forge_options=box_options(project, "forge"),
-    )
+    def box(references):
+        return BoxConfig(
+            project=inp.project, issue=inp.issue, repo=repo,
+            board_owner=project.tracker.options.get("board_owner"),
+            board_number=project.tracker.options.get("board_number"),
+            tracker_kind=project.tracker.kind,
+            forge_kind=(project.forge.kind if project.forge else None) or project.tracker.kind,
+            # #162, as in `_box_for`
+            tracker_options=box_options(project, "tracker", references=references),
+            forge_options=box_options(project, "forge", references=references),
+        )
+
     journal = journal_for(events_file(project, inp.issue), dedup=True)
     # A DIFFERENT VARIANT AND A DIFFERENT FLAG for the human path, so the box knows it is acting
     # on a review comment rather than a red build, and so the launcher's idempotency tag cannot
@@ -2939,9 +2976,9 @@ def _run_ci_repair(inp: CiRepairInput, run_id: str | None = None,
     extra["OPENFACTORY_ADJUST" if human else "OPENFACTORY_CI_REPAIR"] = "1"
     if human:
         extra["OPENFACTORY_ADJUST_TEXT"] = ci_log
-    passed = remote_box(inp.sandbox).launch(
-        box, variant="-adjust" if human else "-ci-repair",
-        extra_env={**extra, **_the_change_env(inp.change), **box_credential_env(project)},
+    passed = _remote_launch(
+        project, inp.sandbox, box, variant="-adjust" if human else "-ci-repair",
+        extra_env={**extra, **_the_change_env(inp.change)},
         journal=journal, timeout=1800, run_id=run_id,
     )
     # The box hands `code_changed` back on its result line (`boxed_job._emit` dumps the whole
@@ -3645,7 +3682,7 @@ async def scan_todo(inp: ScanInput) -> list[str]:
     """Issue numbers currently in the board's pickup column (read-only)."""
     from openfactory.box_prove import announce_gate, clear_gate_announcement, gate_reason
     from openfactory.credentials import tracker_token_for
-    from openfactory.factory import _bot_token_provider
+    from openfactory.factory import bot_token_provider_for
 
     project = ProjectRegistry().get(inp.project)
 
@@ -3704,7 +3741,7 @@ async def scan_todo(inp: ScanInput) -> list[str]:
 
     tok = tracker_token_for(project)
     if not tok:
-        prov = _bot_token_provider()
+        prov = bot_token_provider_for(project, "tracker")
         tok = prov() if prov else None
     # Through the FACTORY: `ScanInput` already carries the project, so the poller never needs to
     # know which vendor keeps the columns — the registry decides.
@@ -5055,6 +5092,18 @@ async def refresh_knowledge(inp: KnowledgeRefreshInput) -> str:
 DOCUMENT_PASS_SECONDS = 7 * 60
 
 
+def _a_product_of(inp: KnowledgeRefreshInput):
+    """The registry project `inp` names, when it has a product role — else None."""
+    try:
+        project = ProjectRegistry().get(inp.project)
+    except KeyError:
+        return None
+    cfg = getattr(project, "product", None)
+    if cfg is None or not getattr(cfg, "enabled", True):
+        return None
+    return project
+
+
 def _do_ingest_documents(inp: KnowledgeRefreshInput) -> str:
     """The product's context repository, read on the knowledge pipeline's schedule (#269 slice 1):
     every document added or changed since the last pass becomes a record, alone, and every one
@@ -5063,42 +5112,28 @@ def _do_ingest_documents(inp: KnowledgeRefreshInput) -> str:
     THROUGH THE PRODUCT ROLE'S OWN CHECKOUT (`ProductModule.context`): the same documentation
     repository, at the same branch, with the same credential, that a turn reads — so what the role
     was handed and what was ingested are one tree. Returns the pass's sentence, or a word:
-    "off" (no product role), "no-context" (no checkout of its context repository)."""
-    from openfactory.product.documents.ingest import ingest
-    from openfactory.product.module import ProductModule
+    "off" (no product role), "no-context" (no checkout of its context repository).
 
-    try:
-        project = ProjectRegistry().get(inp.project)
-    except KeyError:
+    AND THE PRODUCT'S INDEX BROUGHT UP TO THEM (#269 slice 2), with every vector the turns left to
+    make: what was just read is searchable at the next turn, by its words and its meaning, without
+    that turn paying for it. Best-effort — a turn syncs what it needs anyway.
+
+    THE PASS ITSELF IS `product/refresh.py`'s (#1004), the one an asked refresh runs too
+    (`refresh_product_knowledge`), so what the schedule hands the index an asked pass hands it as
+    well; it records how it went, which `product_status` reads."""
+    from openfactory.product import refresh as knowledge
+
+    project = _a_product_of(inp)
+    if project is None:
         return "off"
-    cfg = getattr(project, "product", None)
-    if cfg is None or not getattr(cfg, "enabled", True):
-        return "off"
-    try:
-        ctx = ProductModule(project, via="api").context()
-        if not ctx.docs_path:
-            return "no-context"
-        terms = [fact.term for fact in ctx.domain.live()]
-        report = ingest(project, root=Path(ctx.docs_path), commit=ctx.docs_commit, terms=terms,
-                        budget_seconds=DOCUMENT_PASS_SECONDS)
-    except Exception:  # noqa: BLE001 — a pass that failed is read again at the next tick
-        activity.logger.warning("the documents of %s could not be ingested", inp.project,
-                                exc_info=True)
+    done = knowledge.documents_and_index(project, by=knowledge.SCHEDULE,
+                                         budget_seconds=DOCUMENT_PASS_SECONDS)
+    if done.outcome == knowledge.NO_CONTEXT:
+        return "no-context"
+    if done.outcome == knowledge.FAILED:
         return "failed"
-    # AND THE PRODUCT'S INDEX BROUGHT UP TO THEM (#269 slice 2), with every vector the turns left
-    # to make: what was just read is searchable at the next turn, by its words and its meaning,
-    # without that turn paying for it. Best-effort — a turn syncs what it needs anyway.
-    try:
-        from openfactory.product.index.retrieval import refresh
-
-        synced = refresh(project, corpus=getattr(ctx, "corpus", None),
-                         requirements_dir=getattr(ctx, "requirements_dir", "requirements"),
-                         embed_limit=None)
-        activity.logger.info("the index of %s: %s", inp.project, synced.sentence())
-    except Exception:  # noqa: BLE001 — the records are written; the index catches up at a turn
-        activity.logger.warning("the index of %s could not be brought up to its documents",
-                                inp.project, exc_info=True)
-    return report.sentence()
+    activity.logger.info("the index of %s: %s", inp.project, done.index or "; ".join(done.degraded))
+    return done.documents
 
 
 @activity.defn
@@ -5106,6 +5141,32 @@ async def ingest_documents(inp: KnowledgeRefreshInput) -> str:
     """#269 — the product's documents, read after the module map on the same schedule. Bounded
     and best-effort: a pass that fails or runs out of time is continued by the next one."""
     return await asyncio.to_thread(lambda: _do_ingest_documents(inp))
+
+
+def _do_refresh_product_knowledge(inp: KnowledgeRefreshInput) -> str:
+    """The product's knowledge brought up to date NOW, because somebody asked (`product_refresh`,
+    #1004): the scheduled pass's documents and index, and the board of every registry project of
+    the product besides (`product/refresh.py`). Returns the pass's sentence, or "off" when the
+    project lost its product role between the ask and the pass."""
+    from openfactory.product import refresh as knowledge
+
+    project = _a_product_of(inp)
+    if project is None:
+        activity.logger.warning("a knowledge refresh was asked of %s, which has no product role "
+                                "now — nothing was read", inp.project)
+        return "off"
+    return knowledge.documents_and_index(project, by=knowledge.ASKED,
+                                         budget_seconds=DOCUMENT_PASS_SECONDS,
+                                         boards=True).sentence()
+
+
+@activity.defn
+async def refresh_product_knowledge(inp: KnowledgeRefreshInput) -> str:
+    """#1004 — an asked refresh of a product's knowledge, on the worker. It reads documents, and a
+    document's summary is a model's, so it HEARTBEATS while it runs (`_turning`): a worker that dies
+    mid-pass is noticed within `refresh.PASS_HEARTBEAT`, not at the pass's ceiling."""
+    return await _turning(lambda _abandoned: _do_refresh_product_knowledge(inp),
+                          f"refreshing the knowledge of {inp.project}")
 
 
 #: How long one scheduled pass distils conversations for — each is a model call, so a few, and the

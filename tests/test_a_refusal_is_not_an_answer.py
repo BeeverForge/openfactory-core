@@ -547,8 +547,8 @@ def test_the_product_page_DRAWS_it():
                     "let _pv={side:true,tab:'reqs'};function paintSessions(){}"
                     "function paintScope(){}function pvSize(){}function pvAgent(){return 'P'}"
                     "function pvInitial(){return 'P'}"
-                    # nor its cards (#384)
-                    "function paintPvBoard(){}")
+                    # nor its cards (#384), nor its system map (#1002)
+                    "function paintPvBoard(){}function pvSystemPaint(){}")
     assert got == {"drawn": True, "after": False}, got
 
 

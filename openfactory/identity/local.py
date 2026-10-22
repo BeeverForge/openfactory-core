@@ -37,13 +37,22 @@ with "cannot check" (503) instead of "you are nobody" (401), which would send a 
 to sign in again against a store that cannot record it. A credential from the environment does
 not need the store and keeps resolving. The provider is built per request, so the next request
 reads again and recovers by itself.
+
+AND A CLOSING VARIABLE ITS CREDENTIAL STORE REFUSES CLOSES THE DOOR TO EVERYBODY (review of #822).
+The variables are read through the credential store (#742), and a refused one — a file the store
+will not trust, a store that cannot be read, a kind nobody installed — used to be simply absent,
+so `open_to_everyone` found nothing configured and the panel served every read endpoint with
+`OPENFACTORY_PANEL_TOKEN` set. A refusal is not "nothing is configured": it is a credential this
+deployment did configure and nobody can check against. So the provider is misconfigured
+(`misconfiguration`, refused when it is built, which the panel answers 503 by name), and on its own
+it opens nothing and resolves nobody — not even a token the store did hand over, because the
+operator meant the refused one to be the way in and an answer without it would be a guess.
 """
 
 from __future__ import annotations
 
 import hmac
 import logging
-import os
 
 from openfactory.identity.base import LOGIN_PATH, UNKNOWN, Subject
 
@@ -91,7 +100,19 @@ class LocalIdentity:
     def __init__(self, *, env: dict[str, str] | None = None, store=None) -> None:
         #: Read at construction, not per call: a provider whose answers change between two
         #: requests of the same session is a provider that can grant and revoke silently.
-        self._env = dict(env if env is not None else os.environ)
+        #:
+        #: THE DEPLOYMENT'S OWN ARE READ THROUGH THE CREDENTIAL STORE (#742) — every variable that
+        #: closes the door, and nothing else of the environment, which this provider never read.
+        #:
+        #: AND WHICH OF THEM ITS STORE REFUSES, `{name: why}`, read at the same moment: a refused
+        #: closing variable keeps the door shut and admits nobody (see the module docstring).
+        self._refused: dict[str, str] = {}
+        if env is None:
+            from openfactory.adapters.credential_store.registry import held, refusals
+
+            env = held(CLOSING_ENVS)
+            self._refused = refusals(CLOSING_ENVS)
+        self._env = dict(env)
         #: The people registered by invitation (`people.py`), opened on first use: most calls
         #: are answered by the environment map and never read the store.
         self._store = store
@@ -120,6 +141,21 @@ class LocalIdentity:
 
     def _could_not_read(self, exc: Exception) -> None:
         self._unreadable = str(exc).strip() or "the people store could not be read"
+
+    def misconfiguration(self) -> str:
+        """One sentence naming the closing variables the credential store refuses — or `""`. The
+        registry refuses a provider that answers this (`identity.registry`), as it refuses an
+        `oidc` row with no issuer, so the panel answers "cannot check" to everybody.
+
+        NAMES ONLY, NOT THE STORE'S REASONS: the login route answers a caller nobody identified
+        with this sentence, and a reason names a path. Each reason is in the log already — the
+        store says every refusal as it reads — and `openfactory doctor` says it with its repair."""
+        if not self._refused:
+            return ""
+        return (f"the credential store refuses {', '.join(sorted(self._refused))}, which this "
+                f"deployment configured to close the panel, so nobody can be checked and nobody "
+                f"is let in — `openfactory doctor` says why, and the panel's log names each "
+                f"refusal")
 
     def unavailable(self) -> str:
         """`""`, or one sentence: an answer this provider gave was given WITHOUT the people store,
@@ -156,7 +192,7 @@ class LocalIdentity:
         is the scoped one, as a secret in a product and a board variable is the product's."""
         try:
             token = str(credential or "").strip()
-            if not token:
+            if not token or self._refused:
                 return None
             for person in _people(self._env.get(PRODUCT_PEOPLE_ENV, "")):
                 if hmac.compare_digest(token, person.token):
@@ -236,7 +272,14 @@ class LocalIdentity:
         product credentials — the exact shape of "a BA needs to write requirements and nobody else
         needs the panel yet" — would otherwise answer "nothing is configured" and serve every read
         endpoint to the internet unauthenticated, which is the one direction this gate must never
-        fail in and the direction it already failed in once (C-26)."""
+        fail in and the direction it already failed in once (C-26).
+
+        A REFUSED ONE COUNTS TOO (review of #822): what the store would not hand over is still
+        what the operator configured, and "I could not read it" is not "it is not there"."""
+        if self._refused:
+            log.error("OPENFACTORY_IDENTITY_REFUSED the panel stays closed: %s",
+                      self.misconfiguration())
+            return False
         if any(self._env.get(name, "").strip() for name in CLOSING_ENVS):
             return False
         # A REGISTERED PERSON CLOSES THE DOOR TOO (#33) — and only a registered one: an invitation

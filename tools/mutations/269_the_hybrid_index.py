@@ -42,7 +42,6 @@ ROLE = "openfactory/product/role.py"
 MODULE = "openfactory/product/module.py"
 FACTS = "openfactory/product/facts.py"
 LOCAL = "openfactory/adapters/embed/local.py"
-ACTIVITIES = "openfactory/runtime/temporal/activities.py"
 
 MUTATIONS = [
     # ── 1. a superseded item is never handed over as current ──────────────────────────────────
@@ -345,7 +344,9 @@ MUTATIONS = [
      "    return (os.environ.get(SWITCH_ENV) or \"\").strip().lower() not in SWITCHED_OFF",
      "    return True", STEP),
 
-    ("the scheduled pass leaves the index behind its documents", ACTIVITIES,
+    # re-pinned 2026-10-21: the scheduled pass's index step moved to `product/refresh.py` (#1004),
+    # the pass an asked refresh runs too — the same import, the same claim
+    ("the scheduled pass leaves the index behind its documents", "openfactory/product/refresh.py",
      "        from openfactory.product.index.retrieval import refresh\n",
      "        refresh = None\n", STEP),
 

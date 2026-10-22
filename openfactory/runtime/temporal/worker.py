@@ -13,9 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import tempfile
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -87,6 +84,7 @@ from openfactory.runtime.temporal.activities import (
     record_job_metrics,
     record_outcome,
     refresh_knowledge,
+    refresh_product_knowledge,
     release_prod,
     repair_ci,
     review_pr,
@@ -130,6 +128,7 @@ from openfactory.runtime.temporal.workflow import (
     ProductBaselineWorkflow,
     ProductBreakdownWorkflow,
     ProductCardWorkflow,
+    ProductKnowledgeRefreshWorkflow,
     ProductNeedsActionWorkflow,
     ProductQueueWorkflow,
     ProductSayWorkflow,
@@ -184,6 +183,8 @@ WORKER_ACTIVITIES = [
     # #269 — the product's documents, read on the knowledge refresh's own tick, and its quiet
     # conversations distilled just before them (slice 3)
     ingest_documents, distil_conversations,
+    # #1004 — a product's knowledge brought up to date when somebody asks, not only on the tick
+    refresh_product_knowledge,
     # the tech-lead's chat runs WHERE AGENTS AUTHENTICATE — the panel dispatches here
     techlead_ask,
     # …and so does the product role's drafting, for the same reason and by the same route (#98).
@@ -300,13 +301,9 @@ def start_channel_listeners(projects) -> list:
 
 async def main() -> None:
     load_dotenv()  # bot credentials + Claude token for the activities
-    # Secrets Manager delivers the bot App key as CONTENT; light forge reads on the
-    # worker (check_pr_merged, the board poll) need it as a file for token minting.
-    from openfactory.runtime.boxed_job import materialize_app_key
-
-    materialize_app_key(
-        dict(os.environ), dest_dir=Path(tempfile.mkdtemp(prefix="openfactory-worker-"))
-    )
+    # NO KEY IS WRITTEN TO DISK AT BOOT (#742). An App key handed over as content used to be copied
+    # into a temp file here; the minter takes the content (`credentials.app_private_key` reads it
+    # first, through the credential store), so the copy was read by nothing.
     # C-12: the registry the worker DRIVES is writable and outlives the image; the image only
     # carries a seed. Copy it in on first boot, and never over projects that are already there —
     # otherwise every deploy silently reverts whatever was registered at runtime.
@@ -408,6 +405,8 @@ async def main() -> None:
                    ProductBaselineWorkflow, ProductAnswerWorkflow,
                    PreviewReapWorkflow, PreviewWorkflow,
                    KnowledgeRefreshWorkflow,
+                   # an asked refresh of a product's knowledge, one flight per product (#1004)
+                   ProductKnowledgeRefreshWorkflow,
                    # one per conversation with the product role (#266 slice 3)
                    ConversationWorkflow,
                    # `openfactory doctor`'s question: does this worker accept the key there?

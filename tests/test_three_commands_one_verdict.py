@@ -958,7 +958,8 @@ def test_every_probe_is_reached_by_some_check():
                   {"box_honours_image": lambda kind: False},               # the inert gate
                   {"declared_route": lambda: "anthropic"},                 # a route disagreement
                   {"floor_reason": lambda: "no `security` validation"},    # advice or a hold
-                  {"product_enabled": lambda: True}):                      # the client's surface
+                  {"product_enabled": lambda: True},                       # the client's surface
+                  {"environ": lambda: {}}):                                # the store is asked
         R.assess(watched(**world))
 
     every = {f.name for f in dataclasses.fields(R.Probes) if f.name != "project_name"}

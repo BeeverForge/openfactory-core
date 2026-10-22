@@ -30,6 +30,37 @@ GUESSED = {
 }
 
 
+class LoginRefused(RuntimeError):
+    """The credential a GitHub adapter was built to use is REFUSED by the credential store, so it
+    runs nothing (#742): with no token, `gh` would run on whatever login the machine has — the
+    ambient `GH_TOKEN`, a person's `gh auth login` — and a refusal is never answered by a login.
+    A `RuntimeError`, as every other failure of a `gh` call these adapters raise is."""
+
+
+def credential_of(adapter) -> str | None:
+    """`adapter`'s token, read now — its provider's, else its static one — or a `LoginRefused`
+    when there is none and the store refused the one meant (`adapter.refused`). What each GitHub
+    adapter's `token` is, so every `gh` call, every board read and every push asks it."""
+    provider = getattr(adapter, "_token_provider", None)
+    found = provider() if provider else getattr(adapter, "_static_token", None)
+    refused = getattr(adapter, "refused", "")
+    if not found and not refused and provider is not None:
+        # A PROVIDER THAT ANSWERS NOTHING IS ASKED THE KEY'S REFUSAL NOW (review of 256c5b0): the
+        # refusal handed at construction was the store's answer then. The shipped App mint holds
+        # the key it was built with and never answers nothing — it mints or raises — so a key
+        # file changed afterwards changes nothing it mints. A provider that does answer nothing,
+        # an add-on credential row's, is asked the key's refusal again, so a refusal it meets
+        # later is as final as one at construction; with nothing refused, this is the
+        # development path it always was.
+        from openfactory.credentials import app_key_refusal
+
+        refused = app_key_refusal()
+    if not found and refused:
+        raise LoginRefused(f"the GitHub credential {refused} — `gh` is not run on this machine's "
+                           f"own login in its place")
+    return found
+
+
 def nothing_named(args: list[str]) -> str:
     """Why this `gh` call must not run, or `""` when it may: it passes one of `GUESSED`'s flags
     with nothing in it, which `gh` would fill in by guessing rather than refuse."""

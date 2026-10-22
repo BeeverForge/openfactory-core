@@ -166,6 +166,12 @@ it is not the Google "Open Knowledge Format" for data sharing — different prob
 > the per-source bundles. Deterministic as this section asks: OpenAPI, AsyncAPI, proto, migrations,
 > compose, Kubernetes and Terraform, read as text, nothing run. `openfactory/knowledge/system/`.
 >
+> **UPDATE (#1002): the map is read through the front-end API.** `GET
+> /api/v1/product/{project}/system` reads the published files back whole
+> (`render.read_published`, through the one `LAYOUT` both directions use) and answers every part,
+> each entry cited, names only; a map not published or one file of which cannot be read is said in
+> `state` and `why`, never answered as an empty map. The product page draws it in its System tab.
+>
 > **UPDATE (#268 slice 3, ADR-0052 D19–D22): the flows across the sources, and a request from the
 > product role.** A requirement whose `Affects` names several sources is observed as a FLOW — the
 > system map's components and interfaces between those sources, and the concepts of each that name

@@ -1,0 +1,45 @@
+# The evaluation battery for the product role, on the `saltmarsh` fixture (#994) — a product right
+# after an import.
+#
+# WHAT THIS FIXTURE IS. A community kitchen's weekly orders. Its context repository held one agreed
+# requirement (REQ-0001, signing in with a one-time code); then the second prototyping round was
+# imported into it by the core's own import (`product_import`, #993), and the context below is
+# exactly what that import wrote:
+#
+#   requirements/0002-weekly-order-cut-off.md   proposed — with an open question of its own
+#   requirements/0003-allergen-labels.md        proposed — the folder said `accepted`; an import
+#                                               never lands a promise
+#   imported/design/order-flow.md               the design, as the person saw it in the prototype
+#   .openfactory/imports/<id>/record.json       where it came from, the order to review it in
+#                                               (REQ-0003, then REQ-0002), and a question the
+#                                               record addresses to the person who asked
+#
+# WHO WRITES WHAT (ADR-0051, decision 9). The QUESTION below is the product owner's: the
+# conversation that opens after an import, as #994 states it — judged on whether the role names
+# where the requirements came from, proposes the order the record suggests, and asks an open
+# question instead of inventing an answer. The EXPECTED ANSWER is the implementer's, written
+# against this fixture. The format of an entry is `larkledger/questions.yaml`'s.
+#
+# `make eval-product` asks each question to the live role, in a conversation of its own, and
+# writes the score under `tests/fixtures/evaluation/results/`. How to write one well:
+# docs/reference/product-role-evaluation.md.
+
+questions:
+  - id: after-the-import
+    question: We have just brought in the second round of the prototype. Where do we start?
+    audience: product admin
+    facts:
+      - any: [second prototyping round, second round of the prototype, second round]
+      - any: [REQ-0003, requirement 3, allergen]
+      - claim: it proposes reviewing the allergen labels (REQ-0003) first and the weekly cut-off
+          (REQ-0002) after, as the import suggests, and asks the person to confirm that order
+      - claim: it asks a question that is still open — whether the cut-off moves on a public
+          holiday, whether volunteers have a later cut-off, or which allergens must be listed —
+          instead of answering it
+    must_not:
+      - claim: it says the imported requirements are agreed, or ready to be broken into work
+      - claim: it decides an open question itself — a cut-off that moves on public holidays,
+          a later cut-off for volunteers, or a list of allergens — as if it had been settled
+    sources:
+      - path: context/requirements/0003-allergen-labels.md
+        cited_as: [REQ-0003]

@@ -48,9 +48,12 @@ DEAF = "deaf"
 SPENT = "spent"
 #: The engine could not be asked — nothing was sent, and nothing changed.
 UNREACHABLE = "unreachable"
+#: The answer could not be sealed: the deployment's gate key is refused by its credential store
+#: (#742). The job may well be waiting — this is not `NOT_WAITING`, and nothing was sent.
+KEY_REFUSED = "key_refused"
 #: Every reason `Gate.why` and `send_back` may answer. A closed set, so the voice holds a sentence
 #: for each and a test walks them (`tests/test_the_requester_asks_for_another_pass.py`).
-WHY = frozenset({NOT_WAITING, WORKING, DEAF, SPENT, UNREACHABLE})
+WHY = frozenset({NOT_WAITING, WORKING, DEAF, SPENT, UNREACHABLE, KEY_REFUSED})
 
 
 @dataclass(frozen=True)
@@ -206,12 +209,17 @@ def _not_yet(project, card: str, *, instruction: str, by: str) -> str:
     name, card = str(getattr(project, "name", "") or ""), canonical_ref(card)
 
     async def _run() -> str:
+        from openfactory import gate_seal
         from openfactory.product.release import _client
         from openfactory.runtime.temporal import view as tv
 
         client = await _client()
         try:
             await tv.another_change(client, name, card, instruction=instruction, by=by)
+        except gate_seal.KeyRefused as exc:  # before RuntimeError: it is not "not waiting"
+            log.error("OPENFACTORY_NOT_YET_NOT_SEALED project=%s card=#%s by=%s (%s)", name,
+                      card, by, exc)
+            return KEY_REFUSED
         except tv.AdjustsSpent:
             return SPENT
         except tv.GateDeaf:
@@ -244,6 +252,7 @@ def answer_gate(project, card: str, *, answer: str, instruction: str = "", by: s
     said = answer
 
     async def _run() -> str:
+        from openfactory import gate_seal
         from openfactory.product.release import _client
         from openfactory.runtime.temporal import view as tv
 
@@ -251,6 +260,10 @@ def answer_gate(project, card: str, *, answer: str, instruction: str = "", by: s
         try:
             await tv.answer_merge_gate(client, name, card, answer=said,
                                        instruction=instruction, by=by)
+        except gate_seal.KeyRefused as exc:  # before RuntimeError: it is not "not waiting"
+            log.error("OPENFACTORY_ADJUST_NOT_SEALED project=%s card=#%s answer=%s by=%s (%s)",
+                      name, card, said, by, exc)
+            return KEY_REFUSED
         except tv.AdjustsSpent:
             return SPENT
         except tv.GateDeaf:

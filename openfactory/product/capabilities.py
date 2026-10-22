@@ -50,6 +50,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from openfactory.knowledge.flows import ConceptLink, Flow, Flows, InterfaceLink
+from openfactory.util import yaml_io
 
 log = logging.getLogger("openfactory.product")
 
@@ -123,8 +124,8 @@ def render_capability(cap: Capability) -> str:
                               for i in cap.interfaces]
     if cap.concepts:
         head["concepts"] = [{k: v for k, v in c.model_dump().items() if v} for c in cap.concepts]
-    body = yaml.safe_dump(head, sort_keys=True, default_flow_style=False, allow_unicode=True,
-                          width=100).rstrip()
+    body = yaml_io.dump(head, sort_keys=True, default_flow_style=False, allow_unicode=True,
+                        width=100).rstrip()
     lines = ["---", body, "---", "", f"# {cap.title}", ""]
     if cap.summary.strip():
         lines += [cap.summary.strip(), ""]
@@ -140,7 +141,7 @@ def parse_capability(text: str, *, path: str) -> tuple[Capability | None, list[F
         return None, [Finding(level="error", code="no-front-matter", slug=slug,
                               message="no front matter — nothing says what it links")]
     try:
-        head = yaml.safe_load(match.group(1)) or {}
+        head = yaml_io.load(match.group(1)) or {}
     except yaml.YAMLError as exc:
         return None, [Finding(level="error", code="unreadable", slug=slug,
                               message=f"its front matter is not YAML ({str(exc)[:120]})")]

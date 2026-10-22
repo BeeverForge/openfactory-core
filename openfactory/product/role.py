@@ -416,6 +416,10 @@ class RequirementDraft(BaseModel):
     ask_first: list[str] = Field(default_factory=list)
     conflicts: list[Conflict] = Field(default_factory=list)
     supersedes: list[int] = Field(default_factory=list)
+    #: the product's own fields and sections (`template.yaml`, ADR-0058), by name. Written only
+    #: when the product has a template; a name it does not declare is ignored.
+    fields: dict[str, str] = Field(default_factory=dict)
+    sections: dict[str, str] = Field(default_factory=dict)
 
 
 class IssueDraft(BaseModel):
@@ -713,15 +717,20 @@ def requirement_index(corpus: Corpus, *, include_superseded: bool = False,
     rows = corpus.requirements if include_superseded else corpus.live()
     if not rows:
         return "(this product has no requirements written down yet)"
-    lines = (["| req | status | title | affects | file |", "|---|---|---|---|---|"]
-             if breakdowns is None else
-             ["| req | status | title | affects | file | breakdown |",
-              "|---|---|---|---|---|---|"])
+    # THE PRODUCT'S OWN LISTED FIELDS come after the core's columns (ADR-0058), so a company's
+    # business owner or priority is where the role looks first. Without a template: as it was.
+    extra = [f.name for f in corpus.template.listed()] if corpus.template else []
+    head = ["req", "status", "title", "affects", "file", *extra]
+    if breakdowns is not None:
+        head.append("breakdown")
+    lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for r in sorted(rows, key=lambda x: x.number):
         status = r.status if r.superseded_by is None else f"superseded-by {r.superseded_by:04d}"
         # the file column is the point of the index: it is the path the agent opens next
         line = (f"| REQ-{r.number:04d} | {status} | {r.title or r.slug} | "
                 f"{', '.join(r.affects) or '—'} | `{r.path}` |")
+        for name in extra:
+            line += f" {r.fields.get(name) or '—'} |"
         if breakdowns is not None:
             line += f" {breakdowns.get(r.number, '—')} |"
         lines.append(line)
