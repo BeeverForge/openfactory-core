@@ -1840,8 +1840,7 @@ def test_every_door_to_the_engine_is_a_case():
     (`_connect_for`) is made from `connection.connect` alone, so every door's cost is that one's."""
     doors, attempts = set(), set()
     for module in ("connection", "view"):
-        tree = ast.parse((ROOT / "openfactory" / "runtime" / "temporal" / f"{module}.py")
-                         .read_text(encoding="utf-8"))
+        tree = parsed(ROOT / "openfactory" / "runtime" / "temporal" / f"{module}.py")
         for node in tree.body:
             if not isinstance(node, ast.AsyncFunctionDef):
                 continue

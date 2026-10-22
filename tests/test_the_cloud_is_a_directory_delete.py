@@ -488,7 +488,7 @@ def test_promotion_on_a_local_box_is_refused_by_name_not_by_a_vendors_keyerror(p
 
 def _promotion_input_calls() -> dict[str, ast.Call]:
     """The two places the workflow builds a promotion input, by the input's name."""
-    tree = ast.parse((ROOT / "openfactory/runtime/temporal/workflow.py").read_text())
+    tree = parsed(ROOT / "openfactory/runtime/temporal/workflow.py")
     calls = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \

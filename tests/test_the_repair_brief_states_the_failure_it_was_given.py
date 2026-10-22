@@ -40,6 +40,7 @@ from tests.test_walking_skeleton import (
     _sizing_ticket_id,
     repo,  # noqa: F401 — the fixture: a real repository with a bare origin to push to
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 LOG = "FAILED tests/test_export.py::test_it - AssertionError: 3 != 4"
@@ -140,7 +141,7 @@ def test_a_persons_comment_is_not_announced_as_a_red_build(repo, tmp_path):  # n
 def test_the_machines_repair_names_no_vendor():
     """Parsed, not grepped: string constants in `repair_ci`'s CODE, its docstring excluded (the
     docstring tells the incident, by name)."""
-    tree = ast.parse((ROOT / "openfactory/orchestrator/machine.py").read_text())
+    tree = parsed(ROOT / "openfactory/orchestrator/machine.py")
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "repair_ci")
     doc = fn.body[0].value if isinstance(fn.body[0], ast.Expr) else None

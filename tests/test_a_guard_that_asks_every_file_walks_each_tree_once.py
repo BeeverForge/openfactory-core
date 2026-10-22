@@ -29,6 +29,8 @@ import pytest
 import test_schedules_are_reachable as schedules
 import test_the_core_addon_ledger as ledger
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -59,7 +61,7 @@ def test_the_schedule_guard_walks_no_file_twice_for_a_second_name(
         f"asking for {second!r} after {first!r} walked {len(whole_modules)} whole modules again"
     )
     # What remains is schedule.py's own per-function check, one entry point at a time.
-    functions = [n for n in ast.parse(schedules.SCHEDULE.read_text(encoding="utf-8")).body
+    functions = [n for n in parsed(schedules.SCHEDULE).body
                  if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef)]
     assert len(walks) <= len(functions), (
         f"{len(walks)} walks for a second name, more than schedule.py's {len(functions)} functions"

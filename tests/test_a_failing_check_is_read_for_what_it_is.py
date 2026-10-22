@@ -55,6 +55,7 @@ from openfactory.runtime.temporal.io import (
 from openfactory.runtime.temporal.workflow import JobWorkflow
 from tests.test_the_ado_forge import FX_ADO_REPO, REPO_ID
 from tests.test_the_ado_forge import forge as ado_forge
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -136,7 +137,7 @@ def test_the_table_names_no_forge():
     constants in the module's CODE (docstrings excluded — they tell the incident, by name)."""
     import ast
 
-    tree = ast.parse((ROOT / "openfactory/contracts/checks.py").read_text())
+    tree = parsed(ROOT / "openfactory/contracts/checks.py")
     docstrings = {id(n.body[0].value) for n in ast.walk(tree)
                   if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef))
                   and n.body and isinstance(n.body[0], ast.Expr)

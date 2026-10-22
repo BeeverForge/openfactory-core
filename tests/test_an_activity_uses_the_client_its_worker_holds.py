@@ -374,7 +374,7 @@ def test_the_SDK_call_is_spelled_ONCE_in_the_package_and_the_five_ask_the_seam()
                     for name in _sdk_client_calls(parsed(path))]
     assert spelled == ["openfactory/runtime/temporal/activities.py::engine_client"], spelled
 
-    tree = ast.parse((PACKAGE / "runtime/temporal/activities.py").read_text())
+    tree = parsed(PACKAGE / "runtime/temporal/activities.py")
     asks = {fn.name for fn in ast.walk(tree)
             if isinstance(fn, ast.AsyncFunctionDef)
             and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)

@@ -28,11 +28,13 @@ import ast
 import pathlib
 import re
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _command(func: str = "env_rehearse_cmd") -> ast.FunctionDef:
-    tree = ast.parse((ROOT / "openfactory/cli.py").read_text())
+    tree = parsed(ROOT / "openfactory/cli.py")
     node = next((n for n in ast.walk(tree)
                  if isinstance(n, ast.FunctionDef) and n.name == func), None)
     assert node is not None, f"{func} is gone from openfactory/cli.py — the first round has no door again"

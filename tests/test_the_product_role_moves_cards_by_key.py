@@ -550,7 +550,7 @@ def test_there_is_one_inverse_of_stage_key():
     assert inverses == ["stage_column"], inverses
     assert not hasattr(base, "column_for")
 
-    app = ast.parse((ROOT / "openfactory" / "api" / "app.py").read_text(encoding="utf-8"))
+    app = parsed(ROOT / "openfactory" / "api" / "app.py")
     asked = [c for c in ast.walk(app) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
              and c.func.id in ("stage_column", "column_for")]
     assert asked, "the panel's Done no longer asks the board what it calls the stage"
@@ -741,13 +741,13 @@ def test_the_product_role_names_a_column_only_through_its_two_keys():
     assert named["FILING_KEY"] == {"_filed_through_the_door", "reorder"}, named
     assert filers == {"file_ticket", "file_defect", "_file_one"}, filers
 
-    executor = ast.parse((ROOT / "openfactory" / "lifecycle" / "executor.py").read_text("utf-8"))
+    executor = parsed(ROOT / "openfactory" / "lifecycle" / "executor.py")
     [placing] = [c for c in ast.walk(executor) if isinstance(c, ast.Call)
                  and isinstance(c.func, ast.Attribute) and c.func.attr == "place"]
     [name] = [k.value for k in placing.keywords if k.arg == "name"]
     words = {n.value for n in ast.walk(name) if isinstance(n, ast.Constant)}
     assert words == {"column_name", ""}, "the door places by a name the role did not hand it"
-    ports = ast.parse((ROOT / "openfactory" / "lifecycle" / "ports.py").read_text("utf-8"))
+    ports = parsed(ROOT / "openfactory" / "lifecycle" / "ports.py")
     writes = [(fn.name, c) for fn in ast.walk(ports) if isinstance(fn, ast.FunctionDef)
               for c in ast.walk(fn) if isinstance(c, ast.Call)
               and isinstance(c.func, ast.Attribute) and c.func.attr == "set_column"]

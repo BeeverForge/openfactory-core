@@ -35,6 +35,7 @@ from openfactory.adapters.notify.registry import (
     fallback_state,
 )
 from openfactory.doctor import notifier_fallback_line
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -201,7 +202,7 @@ def test_the_doctor_names_no_vendor_and_no_package_variable():
     """Vendor-neutral BY CONSTRUCTION: the doctor's own text holds no product name and no
     variable of any package — the package name in the uninstalled case arrives through
     `plugins.install_hint`, the core's own table of which package carries which row."""
-    tree = ast.parse((ROOT / "openfactory" / "doctor.py").read_text())
+    tree = parsed(ROOT / "openfactory" / "doctor.py")
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "notifier_fallback_line")
     text = " ".join(n.value for n in ast.walk(fn)

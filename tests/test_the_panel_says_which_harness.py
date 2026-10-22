@@ -216,7 +216,7 @@ def test_the_panel_never_asks_the_ENVIRONMENT_for_the_route():
     # AST, not substring: the comment above the fix NAMES `resolve_route` while explaining why the
     # panel must not call it. Text matching would trip on the explanation — the third time that
     # exact trap has been hit in this codebase.
-    tree = ast.parse((ROOT / "openfactory/api/app.py").read_text())
+    tree = parsed(ROOT / "openfactory/api/app.py")
     called = {n.func.id for n in ast.walk(tree)
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}

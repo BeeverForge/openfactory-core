@@ -418,7 +418,7 @@ def test_a_box_that_declares_no_cache_volume_mounts_none():
 
 
 def _set_state_body() -> ast.FunctionDef:
-    tree = ast.parse((ROOT / "openfactory/adapters/tracker/github.py").read_text())
+    tree = parsed(ROOT / "openfactory/adapters/tracker/github.py")
     cls = next(n for n in tree.body
                if isinstance(n, ast.ClassDef) and any(
                    isinstance(f, ast.FunctionDef) and f.name == "set_state" for f in n.body))
@@ -506,7 +506,7 @@ CAPABILITIES = {
 
 
 def _constructed_in_factory() -> set[str]:
-    tree = ast.parse((ROOT / "openfactory/factory.py").read_text())
+    tree = parsed(ROOT / "openfactory/factory.py")
     return {node.func.id for node in ast.walk(tree)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
 

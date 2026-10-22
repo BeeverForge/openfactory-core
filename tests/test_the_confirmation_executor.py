@@ -459,7 +459,7 @@ def _agent_reaching_kinds() -> set[str]:
     from test_the_product_role_lives_outside_slack import _agent_spending_verbs
 
     spending = _agent_spending_verbs((ROOT / "openfactory/product/module.py").read_text())
-    tree = ast.parse((ROOT / "openfactory/product/confirm.py").read_text())
+    tree = parsed(ROOT / "openfactory/product/confirm.py")
     bodies = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
 
     def _spends(fn, seen: frozenset[str]) -> bool:

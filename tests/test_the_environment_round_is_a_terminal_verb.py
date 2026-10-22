@@ -32,6 +32,8 @@ import re
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: The `env` subcommand that is deliberately terminal-only, and why. A dict rather than a set so
@@ -46,7 +48,7 @@ TERMINAL_ONLY = {
 
 def _env_subcommands() -> set[str]:
     """Every `openfactory env <name>`, read off the CLI rather than listed here."""
-    tree = ast.parse((ROOT / "openfactory/cli.py").read_text())
+    tree = parsed(ROOT / "openfactory/cli.py")
     found = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef):

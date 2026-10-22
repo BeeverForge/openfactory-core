@@ -375,7 +375,7 @@ def test_the_older_names_are_the_very_objects_vocabulary_defines():
 def test_the_vocabulary_module_imports_nothing_of_the_engine():
     """Parsed, not grepped: its docstring names every module it must not import."""
     engine = {"view", "workflow", "activities", "connection", "schedule", "poller", "worker"}
-    tree = ast.parse((ROOT / "openfactory/runtime/temporal/vocabulary.py").read_text())
+    tree = parsed(ROOT / "openfactory/runtime/temporal/vocabulary.py")
 
     imported = set()
     for node in ast.walk(tree):

@@ -1403,9 +1403,9 @@ def test_every_module_that_asks_the_store_is_a_consumer_here():
     # …AND EVERYTHING THAT SEALS OR VERIFIES WITH THE GATE KEY, which reads the store through
     # `gate_seal` without importing it — how the gate's callers escaped this guard (#822)
     sealing = {path.relative_to(ROOT).as_posix() for path in sorted(PACKAGE.rglob("*.py"))
-               if "gate_seal" in {alias.name for node in ast.walk(ast.parse(
-                   path.read_text(encoding="utf-8"))) if isinstance(node, ast.ImportFrom)
-                   for alias in node.names} | {
+               if "gate_seal" in {alias.name for node in ast.walk(parsed(path))
+                                  if isinstance(node, ast.ImportFrom)
+                                  for alias in node.names} | {
                    node.module for node in ast.walk(parsed(path))
                    if isinstance(node, ast.ImportFrom) and node.module == "openfactory.gate_seal"}}
     # …and everything that ASKS the refusal itself, the GitHub rows deciding whether an adapter may

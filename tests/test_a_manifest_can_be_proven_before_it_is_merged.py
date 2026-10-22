@@ -29,6 +29,7 @@ from typer.testing import CliRunner
 
 from openfactory.box_prove import Finding, Proof
 from openfactory.cli import app
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -207,7 +208,7 @@ def test_resolve_repo_path_syncs_the_ref_when_given_one_and_the_base_branch_othe
 def test_the_command_cannot_record_a_ref_proof(monkeypatch):
     """Reachability, by AST — the sibling guard's technique, for the same reason: the helper
     being right is worth nothing if the command can still reach `save` with a ref in hand."""
-    tree = ast.parse((ROOT / "openfactory" / "cli.py").read_text())
+    tree = parsed(ROOT / "openfactory" / "cli.py")
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "box_prove_cmd")
     saves = [n for n in ast.walk(fn)

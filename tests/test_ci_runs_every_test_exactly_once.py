@@ -288,7 +288,7 @@ def test_every_test_that_asserts_its_own_cpu_time_is_marked_alone():
 
 def test_the_reader_sees_a_cpu_clock_and_a_mark():
     """Verify the verifier on the one test that carries both today."""
-    tree = ast.parse((ROOT / "tests" / "test_knowledge_derived_not_cached.py").read_text())
+    tree = parsed(ROOT / "tests" / "test_knowledge_derived_not_cached.py")
     [timed] = [n for n in tree.body if isinstance(n, ast.FunctionDef)
                and n.name == "test_generating_is_fast_enough_to_do_every_time"]
 

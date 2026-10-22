@@ -36,6 +36,7 @@ from tests.test_no_portuguese_is_welded_into_the_core import (
     fragments,
     is_portuguese,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -88,7 +89,7 @@ def test_a_card_held_for_an_unread_review_says_so_in_the_projects_language():
 
 
 def test_the_module_hands_the_vet_its_projects_language():
-    tree = ast.parse((ROOT / "openfactory/product/module.py").read_text(encoding="utf-8"))
+    tree = parsed(ROOT / "openfactory/product/module.py")
     [call] = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
               and isinstance(n.func, ast.Attribute) and n.func.attr == "vet_issue"]
 

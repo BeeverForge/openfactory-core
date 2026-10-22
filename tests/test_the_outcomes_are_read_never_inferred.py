@@ -31,6 +31,7 @@ from openfactory.observability import query
 from openfactory.observability.metrics import MetricRecord
 from openfactory.observability.sqlite_metrics import SqliteMetricsSink
 from openfactory.techlead.classify import CLASSES
+from tests.the_tree_read_once import parsed
 
 UNTIL = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
 SINCE = UNTIL - timedelta(days=90)
@@ -407,7 +408,7 @@ def test_a_measured_block_carries_no_ref_and_no_word_anybody_wrote(d):
 # ── the definitions shared with the autonomy reading (#85) ──────────────────────────────────────
 
 def _roles_the_orchestrator_counts() -> set[str]:
-    tree = ast.parse((ROOT / "openfactory/orchestrator/machine.py").read_text())
+    tree = parsed(ROOT / "openfactory/orchestrator/machine.py")
     return {node.args[1].value for node in ast.walk(tree)
             if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "_count"
             and len(node.args) == 2 and isinstance(node.args[1], ast.Constant)}

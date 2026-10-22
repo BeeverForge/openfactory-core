@@ -30,6 +30,7 @@ from openfactory.product.authoring import (
 )
 from tests.test_no_portuguese_is_welded_into_the_core import fragments, is_portuguese
 from tests.test_requirement_can_be_dropped import _git, _rendered
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 PATH = "requirements/0002-pacote-de-fecho.md"
@@ -163,7 +164,7 @@ _WRITERS = {"propose_requirement", "accept_requirement", "drop_requirement", "re
 
 
 def test_every_write_the_module_makes_is_handed_the_projects_language():
-    tree = ast.parse((ROOT / "openfactory/product/module.py").read_text(encoding="utf-8"))
+    tree = parsed(ROOT / "openfactory/product/module.py")
     calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
              and isinstance(n.func, ast.Name) and n.func.id in _WRITERS]
 

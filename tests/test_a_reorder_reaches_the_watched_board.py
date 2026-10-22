@@ -50,6 +50,7 @@ from openfactory.product import module as product_module
 from openfactory.product import staging
 from openfactory.product.module import _IMP_WRITE, ProductModule, _WatchedWrites
 from openfactory.product.voice import reordered
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 ADMIN = "U1"
@@ -257,7 +258,7 @@ def _protocols_the_module_checks() -> set[type]:
     """Every `runtime_checkable` protocol `module.py` hands to `isinstance`, resolved through the
     module's own imports — so the next capability the module asks about is in this guard without
     anybody adding it here."""
-    tree = ast.parse((ROOT / "openfactory" / "product" / "module.py").read_text(encoding="utf-8"))
+    tree = parsed(ROOT / "openfactory" / "product" / "module.py")
     where = {alias.asname or alias.name: node.module
              for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module
              for alias in node.names}

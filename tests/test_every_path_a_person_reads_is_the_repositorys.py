@@ -138,7 +138,7 @@ REWRITTEN_DOWNSTREAM = {
 
 def _role_phases() -> dict[str, str]:
     """`ProductRole`'s methods → the phase each asks the model under, read from `role.py`."""
-    tree = ast.parse((PRODUCT / "role.py").read_text())
+    tree = parsed(PRODUCT / "role.py")
     [cls] = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ProductRole"]
     phases = {}
     for fn in cls.body:

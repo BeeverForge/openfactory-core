@@ -61,6 +61,7 @@ from tests.test_walking_skeleton import (
     _sizing_ticket_id,
     repo,  # noqa: F401 — the fixture: a real repository with a bare origin to push to
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 ROWS = sorted(HARNESSES)  # every shipped row, by the table that ships them: a fifth joins this
@@ -395,7 +396,7 @@ def test_a_harness_that_never_heard_of_it_is_handed_one_text(repo, tmp_path, age
 def test_every_repair_leaves_the_machine_through_the_one_door():
     """Parsed, not grepped. A sixth caller that reaches `agent.repair` on its own writes no close
     at all — and the row, asked without one, no longer supplies the safety order for it."""
-    tree = ast.parse((ROOT / "openfactory/orchestrator/machine.py").read_text())
+    tree = parsed(ROOT / "openfactory/orchestrator/machine.py")
     callers = [fn.name for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)
                for call in ast.walk(fn)
                if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)

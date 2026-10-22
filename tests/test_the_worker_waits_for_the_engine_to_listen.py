@@ -40,6 +40,7 @@ import pytest
 pytest.importorskip("temporalio")
 
 from openfactory.runtime.temporal import connection  # noqa: E402
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -241,7 +242,7 @@ def test_the_wait_ends_when_it_is_cancelled(dialled, monkeypatch):
 def test_the_worker_is_BORN_through_the_wait():
     """Read off the worker's own syntax tree: `main` awaits `connect_at_birth`, and nothing in it
     awaits the bare `connect` that dies on the first refusal."""
-    tree = ast.parse((ROOT / "openfactory/runtime/temporal/worker.py").read_text())
+    tree = parsed(ROOT / "openfactory/runtime/temporal/worker.py")
     main = next(node for node in ast.walk(tree)
                 if isinstance(node, ast.AsyncFunctionDef) and node.name == "main")
     awaited = {node.value.func.id for node in ast.walk(main)
@@ -255,7 +256,7 @@ def test_the_worker_is_BORN_through_the_wait():
 def test_openfactory_worker_comes_through_the_same_door():
     """`openfactory worker` is the second entry point. It imported `main` and ran it bare, so the
     sentence existed for `-m` and the traceback survived for the command a person types."""
-    tree = ast.parse((ROOT / "openfactory/cli.py").read_text())
+    tree = parsed(ROOT / "openfactory/cli.py")
     command = next(node for node in ast.walk(tree)
                    if isinstance(node, ast.FunctionDef) and node.name == "worker_cmd")
     imported = {alias.name for node in ast.walk(command) if isinstance(node, ast.ImportFrom)

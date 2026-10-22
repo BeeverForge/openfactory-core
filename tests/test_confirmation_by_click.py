@@ -422,7 +422,7 @@ def test_every_staging_site_offers_the_buttons(site):
 def test_the_bot_supplies_the_confirm_seam():
     import ast
 
-    tree = ast.parse(add_ons.source("openfactory/runtime/slack/bot.py").read_text())
+    tree = parsed(add_ons.source("openfactory/runtime/slack/bot.py"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "handle"
              and any(k.arg == "confirm" for k in n.keywords)]
