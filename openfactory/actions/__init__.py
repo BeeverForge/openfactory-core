@@ -456,7 +456,8 @@ _DOOR_STATUS = {400: INVALID, 401: DENIED, 403: DENIED, 404: NOT_FOUND, 409: CON
 
 def _door_outcome(exc: BaseException) -> Outcome:
     """How a door that did not return ended, as the record keeps it: an HTTP refusal by its
-    status (`http_<status>`), a command's exit by its code (`exit_<code>`, `ok` when 0), an abort
+    status (`http_<status>`) and the code that status reads as (`_DOOR_STATUS`, `failed` for any
+    other), a command's exit by its code (`exit_<code>`, `ok` when 0), an abort
     at a prompt as `aborted`, anything else as `raised`. Read by attribute, so this module imports
     neither the panel's framework nor the command line's."""
     status = getattr(exc, "status_code", None)

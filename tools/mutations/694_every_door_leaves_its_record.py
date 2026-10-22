@@ -5,8 +5,9 @@ Run:  .venv/bin/python tools/mutate.py tools/mutations/694_every_door_leaves_its
 
 The claims: `POST /api/projects`, `POST /api/messages/{project}/answer` and the commands
 `project add`, `project init`, `init`, `product init` and `approver add` run inside
-`actions.door_recorded`, which records how each ended — `ok`, an HTTP status, an exit code. On
-c310ba28 none of them left a record.
+`actions.door_recorded`, which records how each ended — `ok`, an HTTP status and the code it
+reads as (`invalid http_400`), an exit code. On c310ba28 none of them left a record; on 58cbd307
+every HTTP refusal read as `failed` left the tests green (branch review, 2026-10-22).
 """
 
 TEST = "tests/test_every_door_that_goes_around_perform_leaves_its_record.py"
@@ -43,5 +44,9 @@ MUTATIONS = [
     ("an HTTP status is not the record's reason", _ACTIONS,
      '                       data={"reason": f"http_{status}"})\n',
      '                       data={"reason": RAISED})\n',
+     _T + "test_answering_a_question_on_the_panel_leaves_one_record"),
+    ("every HTTP refusal is recorded as failed", _ACTIONS,
+     "        return Outcome(ok=False, code=_DOOR_STATUS.get(status, FAILED),\n",
+     "        return Outcome(ok=False, code=FAILED,\n",
      _T + "test_answering_a_question_on_the_panel_leaves_one_record"),
 ]

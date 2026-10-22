@@ -9,8 +9,8 @@ and `openfactory audit` then said `audit.db … holds no audit record yet`.
 
 WHAT HOLDS NOW: each door is wrapped in `actions.door_recorded(name, by=…, params=…)`, which
 leaves the INFO line and the record `perform` leaves — the same `_leave_record` — once, whatever
-way the door ends: `ok` when it returned, `failed` with the HTTP status or the exit code when it
-refused, `raised` when it raised. One test per door; each reads the store the record went to.
+way the door ends: `ok` when it returned, `refused` with the code an HTTP refusal's status reads
+as (`invalid http_400`), `failed` with any other status or the exit code, `raised` when it raised. One test per door; each reads the store the record went to.
 """
 
 from __future__ import annotations
@@ -72,16 +72,17 @@ def test_registering_a_project_on_the_panel_leaves_one_record(store, tmp_path):
 
 def test_answering_a_question_on_the_panel_leaves_one_record(store):
     """`POST /api/messages/{project}/answer` is a person's decision; even refused (no token) it
-    leaves one `message_answer` record, `failed` with the status the door answered. On c310ba28
-    it left none."""
+    leaves one `message_answer` record, `refused` with the code the door's status reads as,
+    `invalid http_400`. On c310ba28 it left none; on 58cbd307 nothing held the code, and every
+    door refusal read as `failed` left this test green (branch review, 2026-10-22)."""
     from openfactory.api.app import app
 
     answer = TestClient(app).post("/api/messages/demo/answer", json={"answer": "approve"})
 
     assert answer.status_code == 400, answer.text
     record = _the_record(store)
-    assert (record["action"], record["project"], record["ok"], record["reason"]) == (
-        "message_answer", "demo", False, "http_400"), record
+    assert (record["action"], record["project"], record["ok"], record["code"], record["reason"]) == (
+        "message_answer", "demo", False, "invalid", "http_400"), record
 
 
 def test_adding_a_project_on_the_command_line_leaves_one_record(store, tmp_path):

@@ -311,8 +311,11 @@ stands.
 command line, the product chat or the factory itself; and the doors that change the deployment
 without a catalog row: `POST /api/projects` and `POST /api/messages/{project}/answer` on the
 panel, and `openfactory project add`, `project init`, `init`, `product init` and `approver add`.
-Each of those leaves one record named for it (`project_add`, `message_answer`, …), `ok`, or
-`failed` with the HTTP status (`http_400`) or the exit code (`exit_2`) it ended with.
+Each of those leaves one record named for it (`project_add`, `message_answer`, …): `ok`;
+`refused` with the HTTP status's code and the status (`invalid http_400`, `denied http_403`,
+`not_found http_404`, `conflict http_409`, `invalid http_422`, `unavailable http_503`), a refusal
+that did nothing; or `failed` with any other status (`http_500`), the exit code (`exit_2`),
+`aborted` or `raised`.
 
 **When the record is written: after the action, and it does not hold the action back.** The record
 is made once the row has answered (or raised, or been cancelled), so it carries the outcome. Two
