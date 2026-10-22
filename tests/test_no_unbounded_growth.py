@@ -260,6 +260,10 @@ _CACHES = {
     ("openfactory/adapters/embed/local.py", "_HASHED"):
         "one per (model weights file, size, mtime) this process has loaded — the deployment's "
         "model, never traffic",
+    # #753 — the local board's missing review column, warned about once per board
+    ("openfactory/adapters/board/local.py", "_FELL_BACK_SAID"):
+        "one per (board file, project, key with a fallback) this process has moved a card on — "
+        "the deployment's projects times `FALLS_BACK_TO`'s one key, never traffic",
 }
 
 
