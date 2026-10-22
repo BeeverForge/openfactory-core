@@ -383,7 +383,9 @@ report and `openfactory certify` also measure an environment or audit `.env.comp
 store beside it; the stack preflight, which runs before the stack and its store exist, reads
 `.env.compose` alone, and when `OPENFACTORY_CREDENTIAL_STORE` declares a store other than `env` it
 sends a missing agent credential to that store, not to `.env.compose`, and names `openfactory
-doctor` as the check once the stack is up. `tests/test_every_stored_credential_is_read_through_the_store.py`
+doctor` as the check once the stack is up; the doctor's own remedy for that missing credential
+names the same store (and, for `file`, the directory `OPENFACTORY_CREDENTIAL_DIR` names), not
+`.env.compose`. `tests/test_every_stored_credential_is_read_through_the_store.py`
 holds every module of the package to that: a credential read by a name the code spells (a
 literal, a constant, a table of them), from the environment or through any other mapping, fails it
 outside the store unless the function says what its mapping is. A name computed while running is

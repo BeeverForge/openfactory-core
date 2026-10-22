@@ -1149,6 +1149,29 @@ def _agent_cred(p: Probes) -> Finding:
                  "exercises the real call: an expired login looks exactly like this line until "
                  "it does",
         )
+    # WHERE IT GOES IS THE DEPLOYMENT'S (#904). Under a declared credential store the preflight
+    # says the doctor checks it once the stack is up, and this line then said "for compose:
+    # .env.compose" on every miss (review of #904, measured on bdaa3b4f under
+    # `OPENFACTORY_CREDENTIAL_STORE=file` with an empty directory): one command later, the place
+    # the issue says is wrong. The doctor runs in the stack and reads the store, so the store is
+    # named with no "cannot read" half. An unknown kind never reaches here: its refusal answers
+    # first (#822).
+    from openfactory.adapters.credential_store.file import DIR_VAR
+    from openfactory.adapters.credential_store.registry import (
+        ENV,
+        FILE,
+        STORE_VAR,
+        deployment_store,
+    )
+
+    declared = deployment_store()
+    if declared == ENV:
+        where = (" — in the environment the worker reads; for compose: .env.compose, then restart "
+                 "with --env-file")
+    else:
+        where = f" — in the `{declared}` credential store this deployment declares ({STORE_VAR})"
+        if declared == FILE:
+            where += f", as a file named after the setting in the directory {DIR_VAR} names"
     return Finding(
         "agent_credential", False,
         f"no agent credential ({detail}) — the coding agent cannot authenticate, so no job can "
@@ -1158,8 +1181,7 @@ def _agent_cred(p: Probes) -> Finding:
         # pool, not replaced by a single token
         (repair[0] if repair else
          "set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY")
-        + " — in the environment the worker reads; for compose: .env.compose, then restart with "
-          "--env-file",
+        + where,
     )
 
 

@@ -158,3 +158,50 @@ def test_inside_the_running_stack_the_remedy_does_not_say_the_stack_is_not_up(
 
     assert "this check runs before the stack" not in line.remedy, line.remedy
     _assert_sent_to_the_store(line.remedy, registry.FILE)
+
+
+def test_the_doctor_the_remedy_names_does_not_send_the_credential_back_to_env_compose(
+        installation, monkeypatch, tmp_path):
+    """The store's remedy hands the person to `openfactory doctor`, whose agent line appended
+    "— in the environment the worker reads; for compose: .env.compose" on every miss: one command
+    later the person was at the place #904 says is wrong (review of #904, measured on bdaa3b4f
+    under a `file` store with an empty directory)."""
+    from types import SimpleNamespace
+
+    from openfactory import doctor
+
+    installation()
+    secrets = tmp_path / "secrets"
+    secrets.mkdir(mode=0o700)
+    monkeypatch.setenv(STORE_VAR, registry.FILE)
+    monkeypatch.setenv(DIR_VAR, str(secrets))
+
+    line = doctor._agent_cred(doctor.probes_for(SimpleNamespace(executor="claude_code", box=None)))
+
+    assert not line.ok, line
+    assert ".env.compose" not in line.remedy, line.remedy
+    assert f"`{registry.FILE}`" in line.remedy and STORE_VAR in line.remedy, line.remedy
+    assert f"in the directory {DIR_VAR} names" in line.remedy, (
+        f"the doctor does not say where the file store's file goes: {line.remedy}")
+    assert "cannot read" not in line.remedy and "does not read" not in line.remedy, (
+        f"the doctor reads the store; the preflight's half does not belong here: {line.remedy}")
+
+
+@pytest.mark.parametrize("declared", [registry.ENV, ""])
+def test_the_doctor_under_the_env_store_keeps_its_env_compose_remedy(
+        installation, monkeypatch, declared):
+    """THE CONTROL for the doctor (Q1): `env` is the environment, and the line it printed before
+    #904 is the line it prints now."""
+    from types import SimpleNamespace
+
+    from openfactory import doctor
+
+    installation()
+    monkeypatch.setenv(STORE_VAR, declared)
+
+    line = doctor._agent_cred(doctor.probes_for(SimpleNamespace(executor="claude_code", box=None)))
+
+    assert not line.ok, line
+    assert line.remedy.endswith(" — in the environment the worker reads; for compose: "
+                                ".env.compose, then restart with --env-file"), line.remedy
+    assert STORE_VAR not in line.remedy, line.remedy

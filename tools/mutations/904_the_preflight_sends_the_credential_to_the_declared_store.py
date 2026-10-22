@@ -17,11 +17,14 @@ each a row:
      is down, which is false where the installer's last line runs it, inside the worker;
   4. the preflight names the store and never builds it: the CLI image may lack its add-on (#822);
   5. under `file` the sentence says which directory the file goes in, and which file: the one
-     named after the setting the harness's repair asks for (the pool's own for a pool repair).
+     named after the setting the harness's repair asks for (the pool's own for a pool repair);
+  6. `openfactory doctor`, which that sentence sends the person to, names the same store in its
+     own remedy and not `.env.compose`, and keeps today's line under `env`.
 """
 
 TEST = "tests/test_preflight_sends_a_missing_agent_credential_to_the_store_the_deployment_declares.py"
 PREFLIGHT = "openfactory/preflight.py"
+DOCTOR = "openfactory/doctor.py"
 REGISTRY = "openfactory/adapters/credential_store/registry.py"
 
 MUTATIONS = [
@@ -83,4 +86,22 @@ MUTATIONS = [
     ("the file store's sentence always names the pool's file, for a single token too", PREFLIGHT,
      '        named = next((n for n in credential_names(harness) if n in repair), "")\n',
      '        named = credential_names(harness)[0]\n'),
+
+    # 6. the doctor the sentence sends the person to (review of #904)
+    ("THE DOCTOR'S DEFECT, BACK: its remedy says .env.compose under every store", DOCTOR,
+     "    declared = deployment_store()\n    if declared == ENV:\n",
+     "    declared = deployment_store()\n    if True:\n"),
+    ("the doctor takes `env` for a declared store", DOCTOR,
+     "    declared = deployment_store()\n    if declared == ENV:\n",
+     "    declared = deployment_store()\n    if False:\n"),
+    ("the doctor's remedy does not name the declared store's kind", DOCTOR,
+     'where = f" — in the `{declared}` credential store this deployment declares ({STORE_VAR})"',
+     'where = f" — in the credential store this deployment declares ({STORE_VAR})"'),
+    ("the doctor's remedy does not say where the file store's file goes", DOCTOR,
+     "        if declared == FILE:\n            where +=",
+     "        if False:\n            where +="),
+    ("the doctor's remedy borrows the preflight's \"cannot read\" half", DOCTOR,
+     '            where += f", as a file named after the setting in the directory {DIR_VAR} names"',
+     '            where += (f", as a file named after the setting in the directory {DIR_VAR} names"\n'
+     '                      "; this check cannot read that store")'),
 ]
