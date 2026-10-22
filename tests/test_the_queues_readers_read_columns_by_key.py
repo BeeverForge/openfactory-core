@@ -264,7 +264,7 @@ def test_the_local_board_counts_what_the_role_filed_and_queued(local, renamed, b
 def test_a_board_that_cannot_be_built_is_read_by_the_platforms_own_names(tmp_path,
                                                                         monkeypatch):
     """A reader degrades, it does not raise: a board nobody can build is asked nothing, and the
-    columns are read by the platform's six — the role's read and the tech-lead's alike."""
+    columns are read by the platform's seven — the role's read and the tech-lead's alike."""
     from openfactory.adapters import board as boards
     from openfactory.contracts.project import Project
     from openfactory.product.board import stages_for

@@ -17,7 +17,7 @@ is the money gate, and it stays closed — and each board names the key from the
   · the REAL `JiraTracker` and `JiraProjectBoard`, built by the registry rows from a project's
     tracker options, against a fake at the one place the adapter touches the network
     (`urllib.request.urlopen`), as `test_a_jira_key_is_a_card_ref.py` does. The site's statuses are
-    its own words and the platform's six appear nowhere on it;
+    its own words and the platform's seven appear nowhere on it;
   · the REAL `GitHubProjectBoard`, built from a registered project whose `columns:` renames both,
     against a fake `gh` (the module's `_run_gh`) that answers the board's own reads and records the
     option each move wrote;
@@ -431,7 +431,7 @@ def test_the_local_board_files_and_queues_where_its_own_columns_say(local, renam
 # ── the seam ────────────────────────────────────────────────────────────────────────────────────
 
 def test_every_shipped_board_row_names_its_own_stages():
-    """A row that forgot the verb degrades SILENTLY to the platform's six — which is the defect."""
+    """A row that forgot the verb degrades SILENTLY to the platform's seven — which is the defect."""
     from openfactory.adapters.board.azure_devops import AzureBoardsBoard
     from openfactory.adapters.board.jira import JiraProjectBoard
     from openfactory.adapters.board.local import LocalBoard

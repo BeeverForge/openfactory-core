@@ -84,7 +84,7 @@ def readiness(tickets: list[Ticket], *, todo_key: str = "todo",
     from a backlog it could not see — while the product role itself had just filed the cards into
     the board's own `Pendências` (#496). `stages` is that board's answer for each of its columns
     (`triage.stage_of`); a caller with no board to ask passes none and is read by the platform's
-    own six names, as before."""
+    own seven names, as before."""
     out = Readiness()
     for t in tickets:
         if t.state != "open":

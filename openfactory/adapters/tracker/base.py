@@ -144,11 +144,12 @@ STATE_KEYS: dict[JobState, str] = {
 }
 
 #: A key a deployment may leave unmapped → the key whose column it takes instead (#753). ONE table,
-#: in the contract, for the reason `STATE_KEYS` is one: six callers resolve a key to a column
-#: (two local rows, GitHub Projects, Jira, and both Azure rows), and six private spellings of the
-#: fallback would drift exactly as the two spellings of the lifecycle did. `needs_review` is the
-#: only entry: it is new, so every board that existed before it maps nothing for it, and such a
-#: board must keep putting a person-gated pull request where it always did — Needs Action.
+#: in the contract, for the reason `STATE_KEYS` is one: seven callers resolve a key to a column
+#: (both local rows, GitHub Projects, both Jira rows and both Azure rows), and seven private
+#: spellings of the fallback would drift exactly as the two spellings of the lifecycle did.
+#: `needs_review` is the only entry: it is new, so every board that existed before it maps nothing
+#: for it, and such a board must keep putting a person-gated pull request where it always did —
+#: Needs Action.
 #: "Not mapped" is the only reason to fall back; a board that could not be READ is not a board
 #: without the column, and no caller may read it as one.
 FALLS_BACK_TO: dict[str, str] = {"needs_review": "needs_action"}

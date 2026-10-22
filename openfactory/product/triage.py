@@ -232,7 +232,7 @@ def stage_of(column: str, stages: dict[str, str] | None) -> str:
     column the map does not name is `""` — a column nobody maps, which is what `stage_key` answers
     for one and what every rule here already skips.
 
-    `None` IS A CALLER WITH NO BOARD TO ASK, read by the platform's own six names — the degrade
+    `None` IS A CALLER WITH NO BOARD TO ASK, read by the platform's own seven names — the degrade
     `stage_key` takes for a row that says nothing, and exactly what every caller read before."""
     if stages is None:
         return key_for(column)

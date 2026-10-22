@@ -74,7 +74,7 @@ def test_every_other_answer_of_the_resolver_is_unchanged():
 def test_the_fallback_is_declared_once_in_the_contract():
     """AC3's table, in the contract beside `STATE_KEYS`: an unmapped `needs_review` resolves to
     `needs_action`'s column, so a deployment that maps nothing keeps today's board. ONE table, not
-    six adapters each spelling the fallback. On 1be1835a it does not exist (ImportError)."""
+    seven adapters each spelling the fallback. On 1be1835a it does not exist (ImportError)."""
     from openfactory.adapters.tracker.base import FALLS_BACK_TO
 
     assert FALLS_BACK_TO == {"needs_review": "needs_action"}

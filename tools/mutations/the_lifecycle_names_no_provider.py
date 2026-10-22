@@ -2,8 +2,8 @@
 
 THREE CLAIMS, AND EACH ONE HAS A RED TWIN HERE:
 
-  1. **The columns are the platform's and live in one place.** Six names, six neutral keys, one
-     board order. Cutting the home, the order or any of the four neutral callers must be seen.
+  1. **The columns are the platform's and live in one place.** Seven names, seven neutral keys
+     (six in slice 0; `needs_review` since #753), one board order. Cutting the home, the order or any of the four neutral callers must be seen.
   2. **The row answers who a person is and how to address them.** The lifecycle used to compare
      the provider's name; the port now carries the question. Cutting the degradation, the
      precedence between a declared map and a row, or the row's own answer must be seen.
