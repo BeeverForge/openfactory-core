@@ -16,12 +16,13 @@ grepping them.
 from __future__ import annotations
 
 import ast
+import uuid
 from pathlib import Path
 
 import pytest
-from tests.the_tree_read_once import cached, parsed
 
 from tests.test_the_product_role_lives_outside_slack import _code_without_prose
+from tests.the_tree_read_once import cached, parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,8 +30,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_the_same_bytes_are_one_tree_wherever_they_live(tmp_path: Path) -> None:
     a, b = tmp_path / "a.py", tmp_path / "sub" / "b.py"
     b.parent.mkdir()
-    a.write_text("x = 1\n")
-    b.write_text("x = 1\n")
+    # Bytes no other test in this worker parses: the cache is per process, so `x = 1\n` alone was
+    # already cached whenever the same-length test below ran first, and `cached()` did not move
+    # (3 of 3 random-order runs of this file red on 2026-10-22, `assert 5 == (5 + 1)`).
+    text = f"x = 1  # {uuid.uuid4().hex}\n"
+    a.write_text(text)
+    b.write_text(text)
     before = cached()
     tree = parsed(a)
     assert parsed(a) is tree, "the second read of one file parsed again"
