@@ -692,8 +692,8 @@ def test_a_symlink_loop_at_a_tree_that_does_not_hold_the_branch_does_not_stop_th
     """A loop at ANY working tree's path, one holding no branch at all, leaves the job and the
     person's link alone: `prepare` and `cleanup` compare every listed tree with the box's own.
 
-    A 3.12 defect: resolve() raises RuntimeError on a loop there (3.12.3 and the worker image's
-    3.12.15), while 3.13.16 and 3.14.8 return the path unchanged (measured 2026-10-20). On 686bf120
+    A 3.12 defect: resolve() raises RuntimeError on a loop there (3.12.3, and 3.12.15 in
+    python:3.12-slim), while 3.13.16 and 3.14.8 return the path unchanged (measured 2026-10-20). On 686bf120
     with 3.12.3 both cases failed by `RuntimeError: Symlink loop from '.../other'` out of
     `_same_dir` via `_clear_our_own`, so one stray link stopped every job on the repository."""
     repo = _repository(tmp_path / "myapp")

@@ -225,9 +225,12 @@ def _same_dir(a, b) -> bool:
     real path and the box's root may be relative or reached through a symlink.
 
     A path that cannot be resolved is compared as written. On a symlink loop, `resolve()` raises
-    `RuntimeError` on 3.12 (3.12.3, and 3.12.15 in the worker image), while 3.13.16 and 3.14.8
-    return the path unchanged (non-strict; measured 2026-10-20). Either way a loop is not the box's
-    own tree, and the caller goes on to ask about it rather than stopping the job."""
+    `RuntimeError` on 3.12 (3.12.3, 3.12.12, and 3.12.15 in `python:3.12-slim`), while 3.13 and
+    3.14 return the looped name with its parents resolved (non-strict; measured 2026-10-20/21). So a
+    loop at another tree's path is not the box's own tree on any version, and the caller goes on to
+    ask about it rather than stopping the job. A loop at the box's own path compares equal on every
+    version, except on 3.12 when the box's root is reached through a symlink: there it reads as
+    another tree's, where 3.13+ read it as the box's own."""
     try:
         return Path(a).resolve() == Path(b).resolve()
     except (OSError, RuntimeError):  # 3.12's resolve() raises RuntimeError on a symlink loop

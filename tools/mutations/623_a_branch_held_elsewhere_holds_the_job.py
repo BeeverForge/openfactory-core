@@ -168,9 +168,10 @@ MUTATIONS = [
      "    gone = not tree.main and not Path(tree.path).exists()\n"),
 
     # ── #939: a symlink loop at a tree's path ──────────────────────────────────────────────────
-    # Red on 3.12 only, which is what CI and the worker image run: 3.13.16 and 3.14.8 return a
-    # looped path unchanged from a non-strict resolve() (measured 2026-10-20), so under 3.13+ this
-    # row survives with nothing broken. It is not a weak guard there; there is no defect to hold.
+    # The first two rows are red on 3.12 only, which is what CI runs: 3.13 and 3.14 return a looped
+    # path from a non-strict resolve() instead of raising (measured 2026-10-20/21), so under 3.13+
+    # neither `except` is reached and both rows survive with nothing broken. They are not weak
+    # guards there; there is no defect to hold. The third row is red on every version.
     ("_same_dir catches only OSError, so on 3.12 a symlink loop at a working tree's path is a "
      "traceback out of prepare", BOX,
      "    except (OSError, RuntimeError):  # 3.12's resolve() raises RuntimeError on a symlink loop",
