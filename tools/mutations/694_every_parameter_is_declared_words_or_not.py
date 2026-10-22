@@ -15,12 +15,22 @@ _T = TEST + "::"
 
 MUTATIONS = [
     ("the page context is not a person's words", _BASE,
-     '    "context", "requirement", "violates", "capability",\n',
-     '    "requirement", "violates", "capability",\n',
+     '    "context", "requirement", "violates", "capability", "origin",\n',
+     '    "requirement", "violates", "capability", "origin",\n',
      _T + "test_the_free_text_1032_found_is_kept_as_its_length_and_digest"),
     ("a name a row takes is declared neither way", _BASE,
-     '    "target", "thread", "token", "token_env", "unit", "version", "wait", "write", "yes",\n',
-     '    "target", "thread", "token", "token_env", "unit", "version", "wait", "write",\n',
+     '    "source", "target", "thread", "token", "token_env", "unit", "version", "wait", "write",'
+     ' "yes",\n',
+     '    "source", "target", "thread", "token", "token_env", "unit", "version", "wait", "write",\n',
+     _T + "test_every_parameter_the_catalog_takes_is_declared_a_persons_words_or_not"),
+    # main's #993 row (merged b3c9f8b3): its `origin` is typed by a person, its `source` a path
+    ("product_import's origin is declared neither way", _BASE,
+     '    "context", "requirement", "violates", "capability", "origin",\n',
+     '    "context", "requirement", "violates", "capability",\n',
+     _T + "test_every_parameter_the_catalog_takes_is_declared_a_persons_words_or_not"),
+    ("product_import's source is declared neither way", _BASE,
+     '    "source", "target",',
+     '    "target",',
      _T + "test_every_parameter_the_catalog_takes_is_declared_a_persons_words_or_not"),
     ("a name is declared both ways", _BASE,
      '    "accept", "approver", "attachment",',
