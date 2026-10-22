@@ -379,4 +379,4 @@ outcome and period ([the command reference](reference/cli.md#the-rest)).
 - `openfactory/product/forget.py` — `RECORD_KINDS`, which does not list `audit`.
 - `openfactory/cli.py` — `openfactory audit`, the reader.
 - `openfactory/observability/retention.py` — `purge_expired` and `PURGE_BOUND`, which the
-  worker (`runtime/temporal/worker.py`) and `openfactory serve` run as they start.
+  worker (`openfactory/runtime/temporal/worker.py`) and `openfactory serve` run as they start.

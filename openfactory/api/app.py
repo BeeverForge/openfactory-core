@@ -1543,7 +1543,7 @@ def read_address(repo_path: str = "", repo: str = "", provider: str = "") -> dic
 @app.post("/api/projects", dependencies=_AUTH)
 def add_project(body: NewProject, request: Request) -> dict:
     """Register a project. Leaves one audit record, `project_add`, however it ends: this door
-    calls no catalog row (`actions.door_recorded`, PR #1039 review)."""
+    calls no catalog row (`actions.door_recorded`)."""
     with actions.door_recorded("project_add", by=_actor(request), params=body.model_dump()):
         return _add_project(body)
 
@@ -2462,8 +2462,8 @@ def _staged_suggestion(project: str, channel) -> dict | None:
 def answer_channel_message(project: str, body: dict, request: Request) -> dict:
     """A person answering a question the factory asked on the panel — `_answer_channel_message`,
     with one audit record, `message_answer`, however it ends: this door calls no catalog row
-    (`actions.door_recorded`, PR #1039 review). The question's `token` is masked in the record and
-    the `answer` kept as its digest, as any parameter of those names is."""
+    (`actions.door_recorded`). The question's `token` is masked in the record and the `answer`
+    kept as its digest, as any parameter of those names is."""
     params = {**(body if isinstance(body, dict) else {}), "project": project}
     with actions.door_recorded("message_answer", by=_actor(request), params=params):
         return _answer_channel_message(project, body, request)
