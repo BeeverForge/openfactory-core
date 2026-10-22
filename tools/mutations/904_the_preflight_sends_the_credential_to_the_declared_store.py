@@ -15,7 +15,8 @@ each a row:
   3. the store's sentence says the check cannot read the store before the stack runs, and names
      `openfactory doctor` as the check once it is up;
   4. the preflight names the store and never builds it: the CLI image may lack its add-on (#822);
-  5. under `file` the sentence says which directory the file goes in.
+  5. under `file` the sentence says which directory the file goes in, and which file: the one
+     named after the setting the harness's repair asks for (the pool's own for a pool repair).
 """
 
 TEST = "tests/test_preflight_sends_a_missing_agent_credential_to_the_store_the_deployment_declares.py"
@@ -63,4 +64,12 @@ MUTATIONS = [
      '                 if named else f"a file named after the setting in the directory {DIR_VAR} names, ")',
      '        where = (f"a file named after the setting ({named}), "\n'
      '                 if named else "a file named after the setting, ")'),
+    # 5b. the file store's file is the one the repair asks for (review of #904: both survived
+    # while the test read `TOKEN in remedy`, which the harness's own repair text satisfies)
+    ("the file store's sentence names no file", PREFLIGHT,
+     '        named = next((n for n in credential_names(harness) if n in repair), "")\n',
+     '        named = ""\n'),
+    ("the file store's sentence always names the pool's file, for a single token too", PREFLIGHT,
+     '        named = next((n for n in credential_names(harness) if n in repair), "")\n',
+     '        named = credential_names(harness)[0]\n'),
 ]

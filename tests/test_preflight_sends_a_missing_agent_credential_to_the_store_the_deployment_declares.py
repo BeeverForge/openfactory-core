@@ -78,6 +78,12 @@ def test_a_declared_file_store_is_where_the_remedy_sends_the_credential(installa
     assert TOKEN in line.remedy and DIR_VAR in line.remedy, (
         f"the file store's remedy does not say which file goes where: {line.remedy}")
     assert claude_code._REPAIR["none"] in line.remedy, "how to get the token stays"
+    # THE FILE'S NAME, NOT THE REPAIR'S TEXT (review of #904): the harness's repair already says
+    # "put the result in CLAUDE_CODE_OAUTH_TOKEN", so `TOKEN in remedy` held whatever file the
+    # store's sentence named, `OPENFACTORY_AGENT_TOKENS` for a single token included.
+    assert f"a file named after the setting ({TOKEN}) in the directory {DIR_VAR}" in line.remedy, (
+        f"the file is not named after the setting the repair asks for: {line.remedy}")
+    assert "once the stack is up" in line.remedy, line.remedy
 
 
 def test_a_store_kind_this_image_cannot_name_is_still_named_and_left_to_the_doctor(
@@ -106,6 +112,8 @@ def test_a_broken_pool_under_a_declared_store_is_not_sent_to_env_compose(install
     assert not line.ok, line
     assert line.remedy.startswith(f"fix {POOL}:"), line.remedy
     _assert_sent_to_the_store(line.remedy, registry.FILE)
+    assert f"a file named after the setting ({POOL}) in the directory {DIR_VAR}" in line.remedy, (
+        f"a broken pool is not sent to the pool's own file: {line.remedy}")
 
 
 @pytest.mark.parametrize("declared", [registry.ENV, registry.ENV.upper(), f" {registry.ENV} ", ""])
