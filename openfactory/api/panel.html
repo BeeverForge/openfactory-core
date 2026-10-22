@@ -5081,7 +5081,7 @@ const _BCOL = [
   {name:"TO-DO",        tone:"queued", pickup:true, note:"the pickup queue — the poller reads this column every tick"},
   {name:"In progress",  tone:"run",    note:"the factory is spending money here"},
   {name:"In review",    tone:"idle",   note:"machine-owned: review, CI, merge, staging"},
-  {name:"Needs Review", tone:"queued", note:"a pull request waiting on a person's review — not stuck"},
+  {name:"Needs Review", tone:"queued", note:"a pull request waiting on a person — the factory's review may have rejected it"},
   {name:"Needs Action", tone:"err",    note:"a person is the blocker — this column reading non-zero is the alarm"},
   {name:"Done",         tone:"ok",     note:"delivered, and the report that has to stay trustworthy"},
 ];

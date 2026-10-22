@@ -270,8 +270,8 @@ MUTATIONS = [
 
     # ── 6. the panel ────────────────────────────────────────────────────────────────────────────
     ("the panel gives Needs Review no tone and no note", PANEL,
-     '  {name:"Needs Review", tone:"queued", note:"a pull request waiting on a person\'s review'
-     ' — not stuck"},\n',
+     '  {name:"Needs Review", tone:"queued", note:"a pull request waiting on a person'
+     ' — the factory\'s review may have rejected it"},\n',
      "",
      "tests/test_the_panel_says_what_every_platform_column_means.py"),
 

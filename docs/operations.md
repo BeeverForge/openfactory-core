@@ -166,7 +166,7 @@ board driven by the framework needs these six single-select Status options, and 
 | **TO-DO** | Queued — the poller picks these up (one at a time). | the framework |
 | **In progress** | Running (or a rate-limit **pause**, which auto-resumes). | the framework |
 | **In review** | PR open / merged / promoting — being overseen. | the framework |
-| **Needs Review** *(optional)* | PR open, **waiting on a person** — their review, or the click that merges it; nothing is wrong with it. | **you** (review, merge) |
+| **Needs Review** *(optional)* | PR open, **waiting on a person** — their review, or the click that merges it. The factory's own review may have rejected it (the PR says so). | **you** (review, merge) |
 | **Needs Action** | **Parked, waiting on YOUR decision** — the ticket comment says what. | **you** |
 | **Done** | Completed. | — |
 

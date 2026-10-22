@@ -38,7 +38,7 @@ def _bcol_rows(page: str) -> list[dict]:
 def test_the_panel_has_a_meaning_for_every_column_the_platform_creates():
     """#753 AC4: `needs_review` is a seventh canonical column ("Needs Review"), and the panel's
     `_BCOL` held the six of main (1be1835a), so the seventh column was drawn with no tone and no
-    note — the one column whose whole point is to say "not stuck" said nothing."""
+    note — the one column whose whole point is to say whose the wait is said nothing."""
     from openfactory.adapters.board.columns import column_names
 
     rows = _bcol_rows(PANEL.read_text(encoding="utf-8"))

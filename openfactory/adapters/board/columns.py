@@ -51,7 +51,8 @@ CANONICAL_COLUMNS: dict[str, str] = {
 #: apart once already: the creating act listed six names in order and the runtime map five plus a
 #: sixth appended after it, so a reader comparing them saw two different vocabularies.
 #: `needs_review` sits between the factory's review and the parks (#753): a pull request a person
-#: must review is past the factory's own review and is not stuck.
+#: must review is past the factory's own review, which may have rejected it; the wait is that
+#: person's.
 BOARD_ORDER: tuple[str, ...] = (
     "backlog", "todo", "in_progress", "in_review", "needs_review", "needs_action", "done",
 )
