@@ -1551,8 +1551,9 @@ def read_address(repo_path: str = "", repo: str = "", provider: str = "") -> dic
 def add_project(body: NewProject, request: Request) -> dict:
     """Register a project. Leaves one audit record, `project_add`, however it ends: this door
     calls no catalog row (`actions.door_recorded`). The record names the project as `project`, the
-    key `openfactory audit -p` reads: the body names it `name`, and on 58cbd307 the record's project
-    was empty (branch review, 2026-10-22)."""
+    key `openfactory audit -p` reads."""
+    # the body names it `name`; on 58cbd307 the record's project was empty, and `openfactory audit
+    # -p demo` found nothing (branch review, 2026-10-22)
     with actions.door_recorded("project_add", by=_actor(request),
                                params={"project": body.name, **body.model_dump()}):
         return _add_project(body)

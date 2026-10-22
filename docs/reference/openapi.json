@@ -240,7 +240,7 @@
       },
       "post": {
         "summary": "Add Project",
-        "description": "Register a project. Leaves one audit record, `project_add`, however it ends: this door\ncalls no catalog row (`actions.door_recorded`).",
+        "description": "Register a project. Leaves one audit record, `project_add`, however it ends: this door\ncalls no catalog row (`actions.door_recorded`). The record names the project as `project`, the\nkey `openfactory audit -p` reads.",
         "operationId": "add_project_api_projects_post",
         "parameters": [
           {
