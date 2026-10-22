@@ -652,8 +652,10 @@ class GitHubProjectBoard:
         and a board whose options could not be read raises out of `_ensure_meta` as it always
         did: unreadable is not "has no Needs Review", and is never answered with the fallback.
         `needs_review`'s DEFAULT name is no candidate when the deployment gave it to another key
-        (`columns.yields_its_name`, the rule `stage_key` reads by), so a card is never moved to a
-        column it then reads back as someone else's.
+        (`columns.yields_its_name`, the rule `stage_key` reads by), so a card is never moved by
+        that default name to a column it then reads back as someone else's. A name the deployment
+        wrote is its choice and is taken: `{needs_review: "In review"}` lands there and reads back
+        as `in_review`.
 
         If the last candidate's column doesn't exist on this board either (e.g. 'Needs Action'
         before the owner adds it in the UI — GitHub has no API to create it), `set_column` falls

@@ -47,7 +47,9 @@ THE CLAIMS, each with a red twin below:
      deployment called that, so the card a person must review reads back as RUNNING; row 45 makes
      the default name yield on every board, so a GitHub board that HAS a Needs Review option sends
      the pull request to Needs Action. Row 46 makes the local board's fallback warning fire on
-     every move of a board 0.6 wrote, instead of once per board (PR #1040's review).
+     every move of a board 0.6 wrote, instead of once per board (PR #1040's review). Row 47 lets
+     a name the deployment WROTE for `needs_review` yield too, so `{needs_review: "In review"}`
+     sends the pull request to Needs Action instead of where the deployment put it.
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -325,4 +327,10 @@ MUTATIONS = [
      "                (log.debug if said in _FELL_BACK_SAID else log.warning)(",
      "                log.warning(",
      f"{AC3}::test_the_local_board_says_it_once_and_not_on_every_move"),
+
+    ("a name the deployment wrote for `needs_review` yields like its default", COLUMNS,
+     "    if CANONICAL_COLUMNS.get(key, \"\").casefold() != wanted:\n"
+     "        return False\n",
+     "",
+     f"{AC2}::test_a_github_deployment_that_maps_needs_review_onto_its_review_column_gets_what_it_mapped"),
 ]

@@ -47,3 +47,23 @@ def test_a_github_board_the_platform_made_gets_the_pull_request_in_its_needs_rev
 
     assert moved and sent == ["OPT_NEEDS_REVIEW"], (moved, sent)
     assert board.stage_key("Needs Review") == "needs_review"
+
+
+def test_a_github_deployment_that_maps_needs_review_onto_its_review_column_gets_what_it_mapped(
+        monkeypatch):
+    """`columns: {needs_review: "In review"}` is the deployment's explicit choice, as on Jira: the
+    pull request goes there and reads back as `in_review` (two keys, one status — the documented
+    behaviour). `columns.yields_its_name` yields only `needs_review`'s DEFAULT name, never one the
+    deployment wrote.
+
+    GREEN ON 64a666dd, as it must be: it holds the default-name check in `yields_its_name`. With that
+    check dropped, the mapped "In review" yields to `in_review`'s default, and the card goes to
+    Needs Action (the branch review of 64a666dd, cut c1, measured 2026-10-22; plan 753, row 47)."""
+    options = [{"name": n, "id": "OPT_" + n} for n in
+               ("Backlog", "TO-DO", "In progress", "In review", "Needs Action", "Done")]
+
+    moved, sent, board = github_person_gated_move(monkeypatch, options,
+                                                  columns={"needs_review": "In review"})
+
+    assert moved and sent == ["OPT_In review"], (moved, sent)
+    assert board.stage_key("In review") == "in_review"

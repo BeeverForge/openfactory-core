@@ -162,8 +162,10 @@ def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
 
 def yields_its_name(key: str, name: str, *, renamed: dict[str, str] | None = None) -> bool:
     """Whether `key` gives up the column `name` to another key that carries it — the ONE rule
-    `key_for` reads by and a board's write takes, so a card is never moved to a column it then
-    reads back as another key's.
+    `key_for` reads by and a board's write takes, so a card is never moved by `needs_review`'s
+    default name to a column it then reads back as another key's. A name the deployment WROTE never
+    yields: `columns: {needs_review: "In review"}` sends the card to "In review", which reads back
+    as `in_review` (two keys, one status), as on Jira.
 
     True only for a key in `YIELDS_ITS_DEFAULT_NAME` whose `name` is its DEFAULT spelling while
     another key of the deployment's map (merged over the defaults, as `key_for` merges it) spells
