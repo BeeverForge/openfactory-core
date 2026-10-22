@@ -140,3 +140,21 @@ def test_a_store_declared_in_the_environment_and_not_the_file_is_still_seen(
 
     assert not line.ok, line
     _assert_sent_to_the_store(line.remedy, registry.FILE)
+
+
+def test_inside_the_running_stack_the_remedy_does_not_say_the_stack_is_not_up(
+        installation, monkeypatch, tmp_path):
+    """The installer's last lines send every install to `compose exec worker openfactory
+    preflight` (`install.sh`), where the store is declared and mounted. The sentence said "this
+    check runs before the stack", false there (review of #904, measured on bdaa3b4f in the
+    worker's form: store and directory in the environment, the token file present)."""
+    installation()
+    secrets = tmp_path / "secrets"
+    secrets.mkdir(mode=0o700)
+    monkeypatch.setenv(STORE_VAR, registry.FILE)
+    monkeypatch.setenv(DIR_VAR, str(secrets))
+
+    line = _credential_line()
+
+    assert "this check runs before the stack" not in line.remedy, line.remedy
+    _assert_sent_to_the_store(line.remedy, registry.FILE)

@@ -12,8 +12,9 @@ each a row:
   1. a declared store other than `env` replaces the `.env.compose` location with the store's
      sentence, read over the deployment's settings (the file under the environment, #560);
   2. `env`, in any case, padded or empty, is the environment and keeps today's remedy (Q1);
-  3. the store's sentence says the check cannot read the store before the stack runs, and names
-     `openfactory doctor` as the check once it is up;
+  3. the store's sentence says this check does not read the store, being made to run before the
+     stack, and names `openfactory doctor` as the check once it is up; it does not say the stack
+     is down, which is false where the installer's last line runs it, inside the worker;
   4. the preflight names the store and never builds it: the CLI image may lack its add-on (#822);
   5. under `file` the sentence says which directory the file goes in, and which file: the one
      named after the setting the harness's repair asks for (the pool's own for a pool repair).
@@ -43,13 +44,23 @@ MUTATIONS = [
      '            or "") or ENV'),
 
     # 3. the sentence's two halves
+    # Re-pinned on the review's wording (review of #904): the check is "made to run before the
+    # stack", true inside the worker as well, where the installer's last line runs it.
     ("the sentence drops `openfactory doctor`", PREFLIGHT,
-     '"this check runs before the stack and cannot read that store, so `openfactory doctor` "\n'
-     '            "checks it once the stack is up")',
-     '"this check runs before the stack and cannot read that store")'),
-    ("the sentence drops that this check cannot read the store before the stack runs", PREFLIGHT,
-     '"this check runs before the stack and cannot read that store, so `openfactory doctor` "',
-     '"so `openfactory doctor` "'),
+     '"exists, so `openfactory doctor` checks it once the stack is up")',
+     '"exists")'),
+    ("the sentence drops that this check does not read the store and is made to run before the "
+     "stack", PREFLIGHT,
+     '"this check does not read that store, because it is made to run before the stack "\n'
+     '            "exists, so `openfactory doctor` checks it once the stack is up")',
+     '"so `openfactory doctor` checks it once the stack is up")'),
+    ("the sentence says the doctor checks it, not when", PREFLIGHT,
+     '"exists, so `openfactory doctor` checks it once the stack is up")',
+     '"exists, so `openfactory doctor` checks it")'),
+    ("the sentence says the stack is not up, false inside the running worker", PREFLIGHT,
+     '"this check does not read that store, because it is made to run before the stack "\n'
+     '            "exists, so',
+     '"this check runs before the stack and cannot read that store, so'),
 
     # 4. named, never built
     ("the preflight builds the declared store to name it", PREFLIGHT,

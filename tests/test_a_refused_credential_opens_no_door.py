@@ -1385,7 +1385,7 @@ NOT_A_CONSUMER: dict[str, str] = {
                                                   "as the reason an answer is refused",
     "openfactory/preflight.py": "it reads which store the deployment declares, a selector, and "
                                 "names that store in a missing credential's remedy (#904): it "
-                                "runs before the stack, builds, lists and asks no store, and "
+                                "is made to run before the stack, builds, lists and asks no store, and "
                                 "reads no credential through one",
 }
 
