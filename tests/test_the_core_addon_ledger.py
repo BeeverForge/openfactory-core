@@ -40,11 +40,14 @@ not tag files by name.
 from __future__ import annotations
 
 import ast
+import functools
 import pathlib
 import re
 
 import add_ons
 import pytest
+
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "core" / "07-extensibility.md"
@@ -102,8 +105,17 @@ def _imported_modules(path: pathlib.Path, rel: str) -> set[str]:
     package = _module_name(rel)
     if not rel.endswith("/__init__.py"):
         package = package.rpartition(".")[0]
+    return set(_imports_resolved_against(parsed(path), package))
+
+
+@functools.cache
+def _imports_resolved_against(tree: ast.Module, package: str) -> frozenset[str]:
+    """The walk of `_imported_modules`, ONCE per (tree, package). `test_the_public_cut_is_written_down`
+    asks it for every core file once per vendor entry — 46 s in CI on 2026-10-21, re-parsing the
+    package each time. The tree is `the_tree_read_once`'s one object per content, so it is its own
+    key: a file that changed is a new tree and is walked again."""
     found: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             found |= {a.name for a in node.names}
         elif isinstance(node, ast.ImportFrom):
@@ -114,13 +126,13 @@ def _imported_modules(path: pathlib.Path, rel: str) -> set[str]:
                 base = ".".join([*parts, base] if base else parts)
             found.add(base)
             found |= {f"{base}.{a.name}" for a in node.names}
-    return found
+    return frozenset(found)
 
 
 def _vendor_sdk_imports(path: pathlib.Path) -> set[str]:
     """Every vendor SDK this module imports, at any depth — module scope or lazy."""
     hits: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(parsed(path)):
         if isinstance(node, ast.Import):
             hits |= {a.name.split(".")[0] for a in node.names}
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
