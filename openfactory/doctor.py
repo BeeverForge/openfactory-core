@@ -1154,8 +1154,8 @@ def _agent_cred(p: Probes) -> Finding:
     # .env.compose" on every miss (review of #904, measured on bdaa3b4f under
     # `OPENFACTORY_CREDENTIAL_STORE=file` with an empty directory): one command later, the place
     # the issue says is wrong. The doctor runs in the stack and reads the store, so the store is
-    # named with no "cannot read" half. An unknown kind never reaches here: its refusal answers
-    # first (#822).
+    # named with no "cannot read" half. A refusal comes here too, with the store's own remedy as
+    # the repair, and the same suffix says where that store keeps it (#822).
     from openfactory.adapters.credential_store.file import DIR_VAR
     from openfactory.adapters.credential_store.registry import (
         ENV,

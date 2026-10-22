@@ -21,6 +21,8 @@ each a row:
   6. `openfactory doctor`, which that sentence sends the person to, names the same store in its
      own remedy and not `.env.compose`, and keeps today's line under `env`;
   7. under a declared store a `.env.compose` that cannot be read is still said (#583).
+  8. a refusal reaches the doctor's line too, with the store's own remedy as the repair, and
+     its suffix names the declared store, not `.env.compose` (#822).
 """
 
 TEST = "tests/test_preflight_sends_a_missing_agent_credential_to_the_store_the_deployment_declares.py"
@@ -110,4 +112,10 @@ MUTATIONS = [
     ("the store branch drops that .env.compose could not be read", PREFLIGHT,
      '        return False, said + _unread(), f"{repair} — {_in_the_store(store, kind, repair)}"\n',
      '        return False, said, f"{repair} — {_in_the_store(store, kind, repair)}"\n'),
+
+    # 8. a refusal reaches the doctor's line too, with the store's remedy as the repair (review of
+    # #904, round 2: this cut survived the 72 covering modules)
+    ("the doctor sends a refused credential back to .env.compose", DOCTOR,
+     "    declared = deployment_store()\n",
+     "    declared = ENV if repair and 'refusal' in repair[0] else deployment_store()\n"),
 ]

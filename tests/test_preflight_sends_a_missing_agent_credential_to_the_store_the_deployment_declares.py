@@ -209,6 +209,26 @@ def test_the_doctor_under_the_env_store_keeps_its_env_compose_remedy(
     assert STORE_VAR not in line.remedy, line.remedy
 
 
+def test_the_doctor_sends_a_refused_credential_to_the_declared_store_not_to_env_compose(
+        installation, monkeypatch):
+    """A refusal reaches `_agent_cred` too, with the store's own remedy as the repair: under a
+    declared `file` store with no directory, `main` appended "for compose: .env.compose" to "not
+    the variable of the same name" (measured on c546f5d7)."""
+    from types import SimpleNamespace
+
+    from openfactory import doctor
+
+    installation()
+    monkeypatch.setenv(STORE_VAR, registry.FILE)
+
+    line = doctor._agent_cred(doctor.probes_for(SimpleNamespace(executor="claude_code", box=None)))
+
+    assert not line.ok, line
+    assert "refused" in line.message, line
+    assert ".env.compose" not in line.remedy, line.remedy
+    assert f"`{registry.FILE}`" in line.remedy and STORE_VAR in line.remedy, line.remedy
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
 def test_an_unreadable_env_compose_is_still_said_under_a_declared_store(
         installation, monkeypatch, tmp_path):
