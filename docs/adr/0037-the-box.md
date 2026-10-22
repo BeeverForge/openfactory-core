@@ -306,6 +306,15 @@ about a credential the deployment stores:
   configuration carries the person's current context and links their contexts, and nothing else
   of theirs — no `auths`, no credential helper.
 
+A **remote** box's launcher carries the launch environment to another machine, where it may be
+kept where others can read it, so there a stored secret is handed only as a reference, and only to
+a launcher that declares it resolves references itself (`resolves_references = True`, issue #903):
+that launcher resolves the reference on its own side, and a launcher that declares nothing is
+handed short-lived minted tokens only and is refused a stored secret by name before anything is
+launched. The `fargate` row declares nothing. The declaration lives on the launcher, not in
+`BoxTraits`, because the traits are stamped into workflow histories;
+`docs/core/07-extensibility.md` §10.1 says why.
+
 What stays open is the other option §7.2 names, where clients push into a repository the platform
 runs for them. That is a choice about who operates a registry, not about where a stored secret
 comes from, and nothing here forecloses it. A credential the machine's own identity provides,

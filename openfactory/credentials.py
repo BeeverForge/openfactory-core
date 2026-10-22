@@ -29,6 +29,7 @@ from __future__ import annotations
 import errno
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from openfactory.adapters.credential_store import registry as credential_store
@@ -702,9 +703,11 @@ def _generic_reference(axis: str) -> str:
     return found.reference if found.value else ""
 
 
-#: What a remote box's launcher would have to declare to be handed a secret the credential store
-#: holds: that it resolves a credential reference itself, on its own side. No launcher declares it
-#: yet, so none is handed one (#742).
+#: What a remote box's launcher must declare to be handed a secret the credential store holds:
+#: that it resolves a credential reference itself, on its own side. The launcher says it with
+#: `resolves_references = True` (`adapters.sandbox.registry.RESOLVES_REFERENCES_ATTR`); one that
+#: does is handed the reference and never the value, and one that does not is refused the secret by
+#: name (#742, #903).
 RESOLVES_REFERENCES = "it resolves credential references itself"
 
 
@@ -715,10 +718,10 @@ def _held_in_a_store(project, axis: str) -> str:
     A REMOTE BOX CANNOT READ THE WORKER'S FILES, and it is not handed what they hold either. A
     launcher may copy its launch environment where others can read it (a task's overrides, a pod's
     spec), and a minted token lives an hour there while a stored secret lives as long as its
-    owner keeps it. So a remote launcher is handed only short-lived minted tokens, and a secret a
-    store holds is refused for it by name, until a launcher can declare `RESOLVES_REFERENCES` and
-    be handed the reference instead. A variable the box can read for itself is handed over by name
-    only, as before."""
+    owner keeps it. So a secret a store holds is never put into a launch environment: a launcher
+    that declares `RESOLVES_REFERENCES` is handed this reference instead, and one that does not is
+    refused by name (`box_launch_credentials`, #903). A variable the box can read for itself is
+    handed over by name only, as before."""
     generic = tracker_token if axis == "tracker" else forge_token
     found, value = _axis_credential(project, axis, generic, announce=False)
     if not value:
@@ -732,9 +735,10 @@ def _held_in_a_store(project, axis: str) -> str:
 
 # ── a box is handed a value, never the declaration (#373) ─────────────────────────────────────────
 
-#: The variable a REMOTE box reads an axis's credential from, when the axis declares the machine's
-#: own identity and the worker minted it. Named per axis, so a tracker and a forge on two
-#: identities stay two credentials.
+#: The variable a REMOTE box reads an axis's credential from: the token the worker minted for an
+#: axis that declares the machine's own identity, or the secret a declaring launcher resolved from
+#: the reference it was handed (#903). Named per axis, so a tracker and a forge on two identities
+#: stay two credentials.
 BOX_TOKEN_ENV = {"tracker": "OPENFACTORY_BOX_TRACKER_TOKEN",
                  "forge": "OPENFACTORY_BOX_FORGE_TOKEN"}
 
@@ -743,23 +747,32 @@ class CredentialUnavailable(RuntimeError):
     """A credential an axis declared could not be obtained, said in one sentence naming the axis."""
 
 
-def box_options(project, axis: str) -> dict[str, str]:
-    """`axis`'s options AS A BOX RECEIVES THEM.
+def box_options(project, axis: str, *,
+                references: Mapping[str, str] | None = None) -> dict[str, str]:
+    """`axis`'s options AS A BOX RECEIVES THEM. `references` is what `box_launch_credentials`
+    answered for the launch, so the options and the hand-over cannot disagree.
 
     THE BOX IS HANDED A VALUE, NEVER THE DECLARATION. An axis that declares the machine's own
     identity would, inside a box, ask the metadata endpoint of whatever machine the box runs on —
     and a box runs agent-written code: an endpoint it can reach hands that code the identity with
-    no bound but the identity's own. So the worker mints (`box_credential_env`) and the box's
-    options name the variable the minted token travels in, in the declaration's place. Every
-    other axis's options are handed over whole, exactly as before (#162)."""
+    no bound but the identity's own. So the worker mints (`box_launch_credentials`) and the box's
+    options name the variable the minted token travels in, in the declaration's place.
+
+    AN AXIS HANDED AS A REFERENCE (#903) is read from the variable the launcher fills on its side,
+    `BOX_TOKEN_ENV[axis]`: the name or reference the project wrote names a file or a store entry on
+    the worker, which the box cannot read. Every other axis's options are handed over whole,
+    exactly as before (#162)."""
     ref = getattr(project, axis, None)
     options = {str(k): str(v) for k, v in (getattr(ref, "options", None) or {}).items()}
     declared, problem = _declared(ref)
     if problem:
         return options
     if not declared:
-        # A SECRET A STORE HOLDS IS NOT HANDED TO A REMOTE BOX (#742): `box_credential_env` refuses
-        # it by name, so its options stay what the project wrote.
+        # A SECRET A STORE HOLDS IS NOT HANDED TO A REMOTE BOX AS A VALUE (#742): a launcher that
+        # resolves references fills the box's variable, and any other is refused by name in
+        # `box_launch_credentials`, so the options stay what the project wrote.
+        if BOX_TOKEN_ENV[axis] in (references or {}):
+            options["token_env"] = BOX_TOKEN_ENV[axis]
         return options
     from openfactory.adapters.credential.registry import (
         IDENTITY_CLIENT_ID_OPTION,
@@ -772,28 +785,45 @@ def box_options(project, axis: str) -> dict[str, str]:
     return options
 
 
-def box_credential_env(project) -> dict[str, str]:
-    """`{variable: token}` a remote box needs for every axis that declares the machine's own
-    identity — minted HERE, on the worker, freshly, so the box starts with the most life the token
-    has. RAISES `CredentialUnavailable` when a declared identity does not answer: a box launched
-    without its credential would fail inside with a sentence about the wrong thing.
+def box_launch_credentials(project, kind: str,
+                           runner: object) -> tuple[dict[str, str], dict[str, str]]:
+    """What the launcher of the `kind` box, `runner`, is handed for `project`'s credentials:
+    `(extra_env, references)`, both `{variable: …}` under `BOX_TOKEN_ENV`.
 
-    AND WHEN AN AXIS'S SECRET IS HELD IN THE CREDENTIAL STORE (#742): a remote launcher is handed
-    short-lived minted tokens only, and no launcher declares `RESOLVES_REFERENCES` yet, so a
-    store's long-lived secret is refused for it by name rather than written into its launch."""
+    `extra_env` holds VALUES, and only short-lived ones: the token minted HERE, on the worker,
+    freshly, for every axis that declares the machine's own identity, so the box starts with the
+    most life the token has. RAISES `CredentialUnavailable` when a declared identity does not
+    answer: a box launched without its credential would fail inside with a sentence about the
+    wrong thing.
+
+    `references` holds the reference (`<store>:<name>`) of every axis whose secret the credential
+    store holds, and is non-empty only for a launcher that declares `RESOLVES_REFERENCES`
+    (`adapters.sandbox.registry.resolves_references`): it resolves each one on its own machine.
+    For a launcher that declares nothing, such an axis RAISES `CredentialUnavailable` naming the
+    box kind and the declaration it lacks, rather than writing a long-lived secret into a launch
+    environment someone else may read back (an ECS task's overrides, #903). The caller asks this
+    before `launch`, so a refused job has launched nothing."""
+    from openfactory.adapters.sandbox.registry import resolves_references
+
+    declares = resolves_references(runner)
     out: dict[str, str] = {}
+    references: dict[str, str] = {}
     for axis in BOX_TOKEN_ENV:
         ref = getattr(project, axis, None)
         declared, problem = _declared(ref)
         if not (declared or problem):
             if held := _held_in_a_store(project, axis):
+                if declares:
+                    references[BOX_TOKEN_ENV[axis]] = held
+                    continue
                 raise CredentialUnavailable(
                     f"{getattr(project, 'name', '?')}'s {axis} credential `{held}` is held in the "
-                    f"credential store, and a remote box's launcher is handed only short-lived "
-                    f"minted tokens: none declares that {RESOLVES_REFERENCES}, so the store's "
-                    f"secret is not put into a launch environment — hold it in a variable the box "
-                    f"reads for itself, which is handed over by name, or declare the machine's own "
-                    f"identity (`identity: workload`)")
+                    f"credential store, and the `{kind}` box's launcher does not declare that "
+                    f"{RESOLVES_REFERENCES}, so it is handed only short-lived minted tokens and "
+                    f"the store's secret is not put into its launch environment — hold it in a "
+                    f"variable the box reads for itself, which is handed over by name, declare the "
+                    f"machine's own identity (`identity: workload`), or run on a box whose "
+                    f"launcher declares `resolves_references = True`")
             continue
         provider = _deployment_provider(ref)
         token = provider() if provider is not None else None
@@ -803,7 +833,7 @@ def box_credential_env(project) -> dict[str, str]:
                 f"and it did not answer on the worker — "
                 f"{credential_problem(ref) or 'nothing was launched'}")
         out[BOX_TOKEN_ENV[axis]] = token
-    return out
+    return out, references
 
 
 def discover_forge_token(kind: str) -> str | None:

@@ -510,9 +510,11 @@ def test_a_remote_box_is_refused_a_secret_the_store_holds_and_handed_a_variable_
     from openfactory.credentials import (
         RESOLVES_REFERENCES,
         CredentialUnavailable,
-        box_credential_env,
+        box_launch_credentials,
         box_options,
     )
+
+    launcher = object()  # a remote launcher that declares nothing (#903)
 
     axes, put, declares_store = HELD_IN_THE_STORE[case]
     if declares_store:
@@ -520,7 +522,7 @@ def test_a_remote_box_is_refused_a_secret_the_store_holds_and_handed_a_variable_
     put(secrets)
     held = Project(name="acme", repo_path="/tmp/acme", **axes)
     with pytest.raises(CredentialUnavailable, match=RESOLVES_REFERENCES) as refused:
-        box_credential_env(held)
+        box_launch_credentials(held, "fargate", launcher)
     assert SECRET not in str(refused.value)
     axis = next(iter(axes))
     assert box_options(held, axis) == dict(axes[axis].options or {}), \
@@ -532,7 +534,8 @@ def test_a_remote_box_is_refused_a_secret_the_store_holds_and_handed_a_variable_
                     tracker=ProviderRef(kind="jira", repo="ACME",
                                         options={"token_env": "ACME_JIRA_TOKEN"}))
     assert box_options(named, "tracker") == {"token_env": "ACME_JIRA_TOKEN"}
-    assert box_credential_env(named) == {}, "a value was written where a name sufficed"
+    assert box_launch_credentials(named, "fargate", launcher) == ({}, {}), \
+        "a value was written where a name sufficed"
 
 
 def test_readiness_counts_a_box_env_name_the_store_answers_for_as_set(file_store):
