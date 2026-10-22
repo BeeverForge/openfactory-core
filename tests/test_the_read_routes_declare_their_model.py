@@ -16,6 +16,7 @@ WHAT IS PROVEN HERE:
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import get_args
 
 import pytest
@@ -26,7 +27,8 @@ from pydantic import BaseModel, RootModel
 
 #: The read routes #678 lists: the floor, the jobs, a job's detail, the board, attention, the inbox,
 #: the budget, the decisions, the loops, the messages, the product room, its documents, the
-#: metrics, whoami and the action catalogue.
+#: metrics, whoami and the action catalogue — and, since #940, the projects, how an address would
+#: be read, the coordinator's messages and what the production approval asks.
 LISTED = (
     "/api/floor", "/api/floor/{project}",
     "/api/jobs", "/api/temporal/jobs", "/api/jobs/{project}/{issue}/detail",
@@ -35,6 +37,8 @@ LISTED = (
     "/api/product/projects", "/api/product/{project}/attachments",
     "/api/product/{project}/documents",
     "/api/metrics", "/api/whoami", "/api/actions",
+    "/api/projects", "/api/address", "/api/coordinator/messages",
+    "/api/promote/{project}/{issue}",
 )
 
 
@@ -119,6 +123,11 @@ def bench(monkeypatch, tmp_path):
     monkeypatch.setattr(tv, "intake", _intake)
     monkeypatch.setattr(tv, "review_verdicts", _verdicts)
     monkeypatch.setattr(tv, "job_detail", _detail)
+
+    async def _coordinator_messages(_client):
+        return [{"project": "acme", "id": 1, "text": "picked up #12", "kind": "pickup"}]
+
+    monkeypatch.setattr(tv, "coordinator_messages", _coordinator_messages)
     monkeypatch.setattr(tv, "temporal_config", lambda: ("localhost:7233", "default"))
     monkeypatch.setattr(tv, "ui_base", lambda: "")
     monkeypatch.setattr("openfactory.box_prove.health",
@@ -192,6 +201,11 @@ def bench(monkeypatch, tmp_path):
         {"pk": "acme", "kind": "job", "ticket": "12", "ts": "2026-10-12T08:05:00Z",
          "state": "merged", "title": "Render the board", "wall_s": 300}])
 
+    # what the production approval asks: the forge's latest tag and who may approve
+    forge = SimpleNamespace(latest_tag=lambda: "v1.2.3")
+    monkeypatch.setattr("openfactory.actions.catalog._forge_and_manifest", lambda _p: (
+        None, SimpleNamespace(prod_approvers=["ana"], prod_tag_prefix="v"), forge))
+
     reading.forget_intake()
     yield TestClient(__import__("openfactory.api.app", fromlist=["app"]).app)
     reading.forget_intake()
@@ -217,6 +231,10 @@ CALLED = (
     ("/api/metrics", "/api/metrics?project=acme"),
     ("/api/whoami", "/api/whoami"),
     ("/api/actions", "/api/actions"),
+    ("/api/projects", "/api/projects"),
+    ("/api/address", "/api/address?repo_path=/srv/acme"),
+    ("/api/coordinator/messages", "/api/coordinator/messages"),
+    ("/api/promote/{project}/{issue}", "/api/promote/acme/12"),
 )
 
 

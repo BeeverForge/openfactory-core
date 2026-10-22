@@ -1415,7 +1415,7 @@ async def floor_state(project: str = "") -> dict:
     return floor.state(inputs, project).as_dict()
 
 
-@app.get("/api/projects")
+@_read("/api/projects", read_models.ProjectsRead)
 def list_projects() -> list[dict]:
     return [
         {
@@ -1474,7 +1474,7 @@ class NewProject(BaseModel):
 # the form's reading silently blank. The mutation that removed `_AUTH` survived every test here —
 # the middleware answers first — which is how the extra dependency turned out to be decoration
 # that only cost something.
-@app.get("/api/address")
+@_read("/api/address", read_models.AddressRead)
 def read_address(repo_path: str = "", repo: str = "", provider: str = "") -> dict:
     """What the door below would write for this address — the READING the panel's form asks for.
 
@@ -2541,7 +2541,8 @@ async def approve_suggestion(project: str, body: dict, request: Request) -> JSON
     return JSONResponse(payload, status_code=_STATUS.get(outcome.code, 200))
 
 
-@app.get("/api/coordinator/messages")
+@_read("/api/coordinator/messages", read_models.CoordinatorMessagesRead, refusals={
+    503: "the durable engine is not declared, or it did not answer"})
 async def coordinator_messages() -> list[dict]:
     """The tech-lead coordinators' recent narrated updates (pickup / merge / deploy) — the panel
     polls this and toasts what's new; the SAME feed a future Slack/PO bot reads (API-first)."""
@@ -2942,7 +2943,8 @@ async def trigger_job(body: NewJob, request: Request) -> dict:
     return {"ok": True, "project": body.project, "issue": outcome.data.get("issue", body.issue)}
 
 
-@app.get("/api/promote/{project}/{issue}")
+@_read("/api/promote/{project}/{issue}", read_models.PromoteRead, refusals={
+    404: "no project of that name in this deployment"})
 def promote_info(project: str, issue: str) -> dict:
     """Info for the prod-approval dialog: current version + suggested bumps + approvers.
 

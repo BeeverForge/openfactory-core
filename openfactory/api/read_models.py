@@ -72,6 +72,59 @@ class FloorRead(ReadModel):
     ok: bool | None = None
 
 
+# ── the projects ────────────────────────────────────────────────────────────────────────────────
+
+class ProjectRow(ReadModel):
+    """One project this deployment runs: the kind of each axis, its board, whether pickup is on,
+    and its box's verdict (`box_prove.health`). `board` is the tracker's board option as the
+    registry holds it, a number or a name."""
+
+    name: str | None = None
+    repo_path: str | None = None
+    tracker: str | None = None
+    forge: str | None = None
+    ci: str | None = None
+    board: str | int | None = None
+    enabled: bool | None = None
+    box: dict[str, Any] | None = None
+
+
+class ProjectsRead(RootModel[list[ProjectRow]]):
+    """`/api/projects` — the projects this deployment runs."""
+
+
+class AddressRead(ReadModel):
+    """`/api/address` — how the door would read a repository address: the kind every axis would be
+    written as (`""` when refused), whether owner/name and a board apply, and the door's refusal."""
+
+    kind: str | None = None
+    coordinates: bool | None = None
+    refusal: str | None = None
+
+
+class CoordinatorMessage(ReadModel):
+    """One narrated update from a tech-lead coordinator (pickup, merge, deploy)."""
+
+    project: str | None = None
+    id: Number | None = None
+    text: str | None = None
+    kind: str | None = None
+
+
+class CoordinatorMessagesRead(RootModel[list[CoordinatorMessage]]):
+    """`/api/coordinator/messages` — the coordinators' recent narrated updates."""
+
+
+class PromoteRead(ReadModel):
+    """`/api/promote/{project}/{issue}` — what the production approval asks: the latest tag, the
+    suggested bumps of it, who may approve, and the prefix a release tag carries."""
+
+    latest_tag: str | None = None
+    suggestions: dict[str, str | None] | None = None
+    approvers: list[Any] | None = None
+    tag_prefix: str | None = None
+
+
 # ── the jobs ────────────────────────────────────────────────────────────────────────────────────
 
 class JournalJob(ReadModel):
