@@ -97,7 +97,8 @@ def _callers_of(name: str) -> list[str]:
 def _calls_in_the_module(tree: ast.Module) -> frozenset[str]:
     """`_calls_in` over a whole module, walked ONCE per tree. Eight `ensure_*` names each ask every
     file of both trees, and before 2026-10-22 each ask re-read and re-parsed all 1,300 of them —
-    58 s in CI for one test. The trees are `the_tree_read_once`'s: one object per content, so the
+    58.07 s in CI for `test_every_ensure_is_called_from_production_code` (run 39603992891, shard
+    4, 2026-10-21). The trees are `the_tree_read_once`'s: one object per content, so the
     tree is its own cache key and a file that changed is a new tree, never a stale answer."""
     return frozenset(_calls_in(tree))
 

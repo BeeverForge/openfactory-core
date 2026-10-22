@@ -24,6 +24,12 @@ visitors read; the one guard that strips docstrings in place deep-copies first
 (`test_the_product_role_lives_outside_slack._code_without_prose`). A caller that wants to edit a
 tree copies it, as that one does.
 
+READ AS UTF-8, WHATEVER THE LOCALE. `parsed` passes `encoding="utf-8"` where most inline sites
+called a bare `read_text()`, which uses the locale's encoding. On a UTF-8 locale (pt_BR.UTF-8 where it
+was measured, and CI) the text is the same; on a non-UTF-8 locale the old read could mis-decode a
+source file Python itself reads as UTF-8 (PEP 3120), so this is the stricter and the right read.
+No inline site on 923d7d0f read with another encoding.
+
 WHAT IT COSTS: the package's trees are ~260 MB of Python objects in the worker that first asked;
 the suite's own trees another ~450 MB in a worker that runs one of the two guards that read
 `tests/` too. Measured 2026-10-22 against the sizes above; a worker already holds 300–500 MB.

@@ -111,8 +111,8 @@ def _imported_modules(path: pathlib.Path, rel: str) -> set[str]:
 @functools.cache
 def _imports_resolved_against(tree: ast.Module, package: str) -> frozenset[str]:
     """The walk of `_imported_modules`, ONCE per (tree, package). `test_the_public_cut_is_written_down`
-    asks it for every core file once per vendor entry — 46 s in CI on 2026-10-21, re-parsing the
-    package each time. The tree is `the_tree_read_once`'s one object per content, so it is its own
+    asks it for every core file once per vendor entry — 46.42 s in CI for one test (run
+    39603992891, shard 1, 2026-10-21), re-parsing the package each time. The tree is `the_tree_read_once`'s one object per content, so it is its own
     key: a file that changed is a new tree and is walked again."""
     found: set[str] = set()
     for node in ast.walk(tree):
