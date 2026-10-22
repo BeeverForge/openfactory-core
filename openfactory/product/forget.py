@@ -64,7 +64,10 @@ LAYERS = (CONVERSATIONS, ENGINE, LOOPS, RECORDS, INTAKE, CLOSED_CARDS, CONTEXT, 
 #: The metrics-store kinds `records` forgets, each with what it is called when it is counted.
 #: A CLOSED LIST, and the reason is the list of what is NOT in it: `person` (the deployment's
 #: identity store), `agent_run` and `job` (what the work cost), `techlead_watch` and
-#: `product_sweep` (what the rounds already reported — clearing them re-sends old notices).
+#: `product_sweep` (what the rounds already reported — clearing them re-sends old notices), and
+#: `audit` (who asked for what, #694: an audit trail a forget erased is no audit trail, and it holds
+#: a person's words only as their length and sha256 — nothing of the client's to erase; it goes by
+#: the store's TTL after `audit.AUDIT_KEPT_DAYS`).
 RECORD_KINDS = {"card_verdict": "card verdicts", "preview": "preview records",
                 "channel_message": "panel messages",
                 # THE CARD'S DOOR KEEPS A RECORD OF EVERY TRANSITION (ADR-0055): who closed which

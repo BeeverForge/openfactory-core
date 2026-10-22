@@ -11,8 +11,9 @@ THREE ANSWERS, AND WHAT EACH MAY COST:
 
   · `alive()` — the process serves. NO I/O AND NO CREDENTIAL: a liveness probe that reads a disk or
     asks an engine restarts a healthy process for somebody else's outage.
-  · `ready()` — the engine answers, the registry reads and the identity provider can admit. Each
-    failing check is named, and only a check that failed; a supervisor reads 503.
+  · `ready()` — the engine answers, the registry reads, the identity provider can admit, and the
+    last action's audit record was kept (#694). Each failing check is named, and only a check that
+    failed; a supervisor reads 503.
   · `version()` — the package, the image, the kind of address the engine is reached at, and every
     add-on installed with its distribution, version, axis and kind. Behind the credential like the
     rest of `/api/`, because which add-ons a deployment carries is a fact about the deployment.
@@ -108,6 +109,7 @@ SAID = {
     "engine": "the durable engine did not answer",
     "registry": "the project registry could not be read",
     "identity": "the identity provider cannot check credentials",
+    "audit": "the last action's audit record was not kept",
 }
 
 #: …and for an engine nobody declared, which is not an engine that did not answer: that sentence
@@ -259,6 +261,25 @@ async def _identity() -> None:
     await _off_the_loop(_identity_admits)
 
 
+def _audit_kept() -> None:
+    """The last audit record this process wrote was kept (`audit.not_kept`, #694): a store that
+    refused it, raised, or could not be built fails the check until a record lands. Reads two
+    numbers this process holds — no store is asked, so the check costs nothing and cannot hang on
+    the store; the cause logged counts every record not kept since the process started."""
+    from openfactory.observability import audit
+
+    count, why = audit.not_kept()
+    if why:
+        raise NotReady(f"{count} audit record{'' if count == 1 else 's'} not kept since this "
+                       f"process started; the last: {why}")
+
+
+async def _audit() -> None:
+    """`_audit_kept`, off the event loop like every other check, so it is single-flighted and
+    bounded the same way."""
+    await _off_the_loop(_audit_kept)
+
+
 #: Every check `ready()` runs, by the name a 503 says. A check is an async callable that returns
 #: when its dependency is ready and raises `NotReady` when it is not; `ready()` asks each through
 #: its own `_Slot`, so every check is single-flighted, kept for the window and bounded alike.
@@ -266,6 +287,7 @@ CHECKS: dict[str, Callable[[], Awaitable[None]]] = {
     "engine": _engine,
     "registry": _registry,
     "identity": _identity,
+    "audit": _audit,
 }
 
 

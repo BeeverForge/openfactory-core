@@ -151,7 +151,34 @@ components: {}
 """
 
 
+def _door(action: str):
+    """A command that changes the deployment without a catalog row, recorded: its body runs inside
+    `actions.door_recorded(action, …)` as the shell's own user, the parameters it was called with
+    being the record's (PR #1039 review: `project add`, `project init`, `init`, `product init` and
+    `approver add` left no record). A command's `name` is the project it registers, so the record
+    names it as `project` too, the key `openfactory audit -p` reads (on 58cbd307 it was empty).
+    `functools.wraps` keeps the signature typer reads."""
+    import functools
+    import getpass
+
+    def wrap(command):
+        @functools.wraps(command)
+        def recorded(*args, **kwargs):
+            from openfactory import actions as act_layer
+
+            try:
+                who = getpass.getuser()
+            except (KeyError, OSError):
+                who = "unknown"
+            named = {"project": kwargs["name"]} if "name" in kwargs else {}
+            with act_layer.door_recorded(action, by=_cli_actor(who), params={**named, **kwargs}):
+                return command(*args, **kwargs)
+        return recorded
+    return wrap
+
+
 @project_app.command("add")
+@_door("project_add")
 def project_add(
     name: str,
     repo_path: str = typer.Argument(..., help="Local path or clone URL of the repo"),
@@ -604,6 +631,7 @@ def project_remove(name: str) -> None:
 
 
 @project_app.command("init")
+@_door("project_init")
 def project_init(
     name: str,
     repo_path: str = typer.Argument(None, help="Local path or clone URL (only needed when the "
@@ -894,6 +922,7 @@ def _foreign_refusal(foreign: str, provider: str | None) -> str:
 
 
 @app.command("init")
+@_door("init")
 def init_deployment(
     runtime: str = typer.Option(None, help="Where the FACTORY runs — `local` (three processes on "
                                            "this machine) or `compose` (Docker), plus whatever an "
@@ -3135,6 +3164,7 @@ app.add_typer(approver_app, name="approver")
 
 
 @approver_app.command("add")
+@_door("approver_add")
 def approver_add(login: str) -> None:
     """Add/update an approver; prompts for a password (stored only as a hash)."""
     from openfactory import approvals
@@ -3255,7 +3285,7 @@ def people_invite(
 
     voucher = by.strip() or getpass.getuser()
     outcome = asyncio.run(act_layer.perform(
-        "people_invite", by=act_layer.Actor(id=voucher, display=voucher, via="cli", admin=True),
+        "people_invite", by=_cli_actor(voucher),
         person=person, display=display, product="yes" if product else "",
         board="yes" if board else ""))
     if not outcome.ok:
@@ -3408,6 +3438,15 @@ def serve(
     from openfactory import namespace
 
     namespace.announce_build(PANEL_ROLE)
+    # ROWS PAST THEIR PERIOD ARE DELETED BEFORE THE PANEL SERVES (#1027): on a host deployment
+    # with no worker this is the one process that starts; bounded, and never in the way.
+    from openfactory.observability import retention
+
+    try:
+        retention.purge_expired()
+    except Exception as exc:  # noqa: BLE001 — serving the panel matters more than old rows
+        logging.getLogger("openfactory.observability.retention").warning(
+            "could not delete the rows past their period (%s); the next start tries again", exc)
     # Printed for a person, as it always was — or, with JSON log lines, logged, so stdout carries
     # JSON too (#681): said once the log is set up, which is why it is no longer the first line.
     logs.announce(log, f"panel: http://{host}:{port}")
@@ -3910,8 +3949,10 @@ def act_cmd(
         # audit line, not the authority. Named rather than a catch-all, so this stays a defined
         # branch instead of a swallow (`tests/test_no_silent_failures.py`).
         who = "unknown"
+    # ONE MAPPING, NOT SPREAD: `-P by=…` or `-P name=…` met `perform`'s own arguments and
+    # ended in a TypeError with no record (PR #1039 review N1).
     outcome = asyncio.run(act_layer.perform(
-        name, by=act_layer.Actor(id=who, display=who, via="cli", admin=True), **params))
+        name, by=_cli_actor(who), params=params))
     if as_json:
         typer.echo(_json.dumps({"ok": outcome.ok, "code": outcome.code,
                                 "message": outcome.message, "data": dict(outcome.data)}, indent=2))
@@ -3919,6 +3960,187 @@ def act_cmd(
         typer.echo(("" if outcome.ok else f"{outcome.code}: ") + outcome.message)
     if not outcome.ok:
         raise typer.Exit(1)
+
+
+#: How many audit rows `openfactory audit` asks a paging store for at once (`KindPagingSink`):
+#: few enough that a page parsed is a page held, and each page costs the store one walk of its
+#: table (81-95 ms on a 336 MB store, measured 2026-10-21) — so the page is `--limit` + 1 when
+#: that is smaller, and an answer that fits one page costs one walk.
+AUDIT_PAGE = 500
+
+
+def _audit_day(flag: str, text: str | None):
+    """`--since`/`--until` as a UTC date, or None when not given; anything but `YYYY-MM-DD` is
+    refused by name with exit 2 rather than read as "no bound" and listing the whole year."""
+    from datetime import date
+
+    if text is None:
+        return None
+    try:
+        return date.fromisoformat(text.strip())
+    except ValueError:
+        typer.echo(f"audit: {flag} takes a UTC date, YYYY-MM-DD; {text!r} is not one", err=True)
+        raise typer.Exit(2) from None
+
+
+def _audit_when(ts: str):
+    """A record's `ts` as an aware datetime; a time written without a zone is read as UTC, the zone
+    `now_iso` writes in."""
+    from datetime import UTC, datetime
+
+    when = datetime.fromisoformat(ts)
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
+
+
+@app.command("audit")
+def audit_cmd(
+    actor: str = typer.Option(None, "--actor", help="Only what this person asked for (their id)"),
+    action: str = typer.Option(None, "--action", help="Only this action (`openfactory actions`)"),
+    project: str = typer.Option(None, "--project", "-p", help="Only what was done on this project"),
+    outcome: str = typer.Option(
+        None, "--outcome",
+        help="ok, refused, failed (a row that raised, a call cancelled), or a code or reason "
+             "(denied, not_found, not_admin, …)"),
+    since: str = typer.Option(None, "--since", help="From this UTC date on, YYYY-MM-DD, inclusive"),
+    until: str = typer.Option(None, "--until", help="Up to this UTC date, YYYY-MM-DD, inclusive"),
+    limit: int = typer.Option(500, "--limit", min=1,
+                              help="List at most this many, the most recent; a cut list says so"),
+    as_json: bool = typer.Option(False, "--json", help="Print each record's own fields as JSON"),
+) -> None:
+    """List who asked the factory to do what, on which project, what came of it and when.
+
+    One line per record, oldest first, in UTC: the time, who asked (their id), the action, the
+    project (`-` for either when none) and `ok`, `refused` with its code and reason, or `failed`
+    with its reason (a row that raised, a call cancelled: it may have done its work). Reads the
+    store every action writes its record to. Exits 2 naming the store when it cannot be read, or
+    when this deployment's metrics sink keeps nothing that can be read back."""
+    import json as _json
+    from datetime import UTC, datetime, time, timedelta
+
+    from openfactory.actions.base import FAILED
+    from openfactory.observability import audit
+    from openfactory.observability.metrics import KindPagingSink, ReadableSink
+    from openfactory.observability.registry import metrics_sink_kind
+
+    # NOT A CATALOG ROW, AND NO ROUTE (#694 Q2). Every capability is reachable from both
+    # transports (ADR-0039 §3) — this one deliberately is not: who may read the audit trail is the
+    # authorisation decision ADR-0057 leaves to its own issues, and a catalog row would be served
+    # by `POST /api/act/*` the moment it existed. A shell where the factory runs already holds the
+    # store's file.
+    lo, hi = _audit_day("--since", since), _audit_day("--until", until)
+    start = datetime.combine(lo, time(), UTC) if lo else None
+    end = datetime.combine(hi + timedelta(days=1), time(), UTC) if hi else None
+    kind = metrics_sink_kind()
+
+    # READ THROUGH `audit.sink()`, NOT `query.records_of_kind`. That reader resolves the
+    # deployment's sink (`metrics_view._configured_sink`), which answers [] for `null` — and on a
+    # host CLI with no store named, `null` is exactly where `audit.write` keeps its records in
+    # `audit.db` instead. Reading apart from the writer would list nothing about rows on disk.
+    try:
+        store = audit.sink()
+    except Exception as exc:  # noqa: BLE001 — an add-on's builder raises its own errors; said below
+        typer.echo(f"audit: the metrics sink {kind!r} (OPENFACTORY_METRICS_SINK) could not be "
+                   f"built, so no record can be read — {exc}", err=True)
+        raise typer.Exit(2) from None
+    if not isinstance(store, ReadableSink):
+        typer.echo(f"audit: this deployment's metrics sink {kind!r} keeps no record that can be "
+                   f"read back, so there is nothing this command can list — set "
+                   f"OPENFACTORY_METRICS_SINK to a store that reads (sqlite)", err=True)
+        raise typer.Exit(2)
+    # THE AUDIT ROWS, NEWEST FIRST, READ UNTIL THE ANSWER IS WHOLE (PR #1039 review). A store that
+    # pages one kind (`KindPagingSink`, the sqlite sink) is asked for `audit` alone, a page at a
+    # time, until `limit` + 1 records match — one more, to know the list was cut — or the rows are
+    # older than --since; on c310ba28 every row of every kind was parsed into memory first (204
+    # for `--limit 1` over 4 records and 200 cost rows). One that cannot is read as before,
+    # through `scan`, and sorted here. Filtered HERE, even with --project: `records_of_kind` keeps
+    # the most recent `limit` rows BEFORE --actor, --outcome or the period are applied, so a bound
+    # there would drop records that match and call rows that do not "cut".
+    def newest_first():
+        if isinstance(store, KindPagingSink):
+            size = min(limit + 1, AUDIT_PAGE)
+            before: tuple[str, str] | None = None
+            while True:
+                page = store.page_of_kind("audit", before=before, limit=size)
+                yield from page
+                if len(page) < size:
+                    return
+                before = (str(page[-1].get("sk", "")), str(page[-1].get("pk", "")))
+
+        def when(r: dict):
+            ts = (r.get("extra") or {}).get("ts")
+            return (_audit_when(ts) if ts else datetime.min.replace(tzinfo=UTC)), r.get("sk", "")
+
+        yield from sorted((r for r in store.scan() if r.get("kind") == "audit"), key=when,
+                          reverse=True)
+
+    def matches(r: dict) -> bool:
+        if actor is not None and r.get("actor_id") != actor:
+            return False
+        if action is not None and r.get("action") != action.strip().lower():
+            return False
+        if project is not None and r.get("project") != project:
+            return False
+        if outcome == "ok" and not r.get("ok"):
+            return False
+        if outcome == "refused" and (r.get("ok") or r.get("code") == FAILED):
+            return False
+        if outcome not in (None, "ok", "refused") and (
+                r.get("ok") or outcome not in (r.get("code"), r.get("reason"))):
+            return False
+        when = _audit_when(r["ts"])
+        # --since is the read's own stop (below): rows come newest first, so the first one
+        # older than it ends the read, and none of them reaches here.
+        return end is None or when < end
+
+    seen = False
+    found: list[dict] = []
+    try:
+        for row in newest_first():
+            seen = True
+            r = row.get("extra") or {}
+            if not r.get("ts"):
+                continue
+            if start is not None and _audit_when(r["ts"]) < start:
+                break   # newest first: every row after this one is older still
+            if matches(r):
+                found.append(r)
+                if len(found) > limit:
+                    break
+    except Exception as exc:  # noqa: BLE001 — StoreUnreadable, or an add-on's vendor error
+        typer.echo(f"audit: {audit._named(store)} cannot be read, so this cannot say who did "
+                   f"what — {exc}", err=True)
+        raise typer.Exit(2) from None
+    cut = len(found) > limit
+    # The most recent `limit`, printed oldest first: a trail cut to its oldest says nothing of now.
+    found = sorted(found[:limit], key=lambda r: (_audit_when(r["ts"]), r.get("record_id", "")))
+    if as_json:
+        typer.echo(_json.dumps({"store": audit._named(store), "limit": limit, "cut": cut,
+                                "records": found}, indent=2, default=str))
+    elif not seen:
+        typer.echo(f"audit: {audit._named(store)} holds no audit record yet", err=True)
+    elif not found:
+        typer.echo(f"audit: no audit record in {audit._named(store)} matches what was asked",
+                   err=True)
+    for r in [] if as_json else found:
+        # A CALL THAT FAILED IS NOT A REFUSAL (PR #1039 review N5): a row that raised after its
+        # side effect, or a call cancelled mid-row, may have done what it was asked, and on
+        # c310ba28 the listing called it `refused`. Code `failed` reads `failed <reason>`.
+        code = r.get("code") or ""
+        said = "ok" if r.get("ok") else " ".join(
+            w for w in ("failed" if code == FAILED else "refused",
+                        "" if code == FAILED else code, r.get("reason") or "") if w)
+        # A caller the panel could not name has an empty `actor_id`; printed bare it left an empty
+        # column and `split()` read the action as who asked (by hand on 2026-10-21, one curl to
+        # `openfactory serve`). `-` holds the place, as for a record with no project.
+        # EACH COLUMN ESCAPED (`audit.printable`): `action` and `project` are whatever a caller
+        # sent, and printed as stored three calls became six lines on c310ba28, one reading as
+        # Alice approving a release (PR #1039 review B1). `--json` keeps them as they were kept.
+        shown = (_audit_when(r["ts"]).isoformat(), r.get("actor_id") or "-", r.get("action"),
+                 r.get("project") or "-", said)
+        typer.echo("  ".join(audit.printable(column) for column in shown))
+    if cut:
+        typer.echo(f"audit: only the {limit} most recent matching records are listed — "
+                   f"raise --limit to see more", err=True)
 
 
 
@@ -3952,6 +4174,26 @@ _NAME_COL = 26
 _WIDTH = 96
 
 
+def _cli_actor(who: str):
+    """The actor every CLI verb acts as: the shell login `who`, carried as the subject the identity
+    axis would name for it — `Subject(id=<shell login>, via="cli")`, ADR-0057 D1 — so the audit
+    record writes `cli` as the provider. One helper for the three verbs that used to build it by
+    hand, so they cannot drift apart.
+
+    `admin=True` for the reason `openfactory act` gives: a shell where the factory runs already
+    outranks every gate in this layer.
+
+    Each call mints its own correlation id (`audit.new_correlation_id`, #694): one command is one
+    request, and the records it causes — a relayed row's included — carry it."""
+    from openfactory import actions as act_layer
+    from openfactory.identity.base import Subject
+    from openfactory.observability.audit import new_correlation_id
+
+    return act_layer.Actor(id=who, display=who, via="cli", admin=True,
+                           subject=Subject(id=who, display=who, via="cli"),
+                           correlation=new_correlation_id())
+
+
 def _perform(name: str, **params: object):
     """Run one catalogued action as the shell's own user. The CLI's whole job in this sub-app.
 
@@ -3968,7 +4210,7 @@ def _perform(name: str, **params: object):
     except (KeyError, OSError):
         who = "unknown"
     return asyncio.run(act_layer.perform(
-        name, by=act_layer.Actor(id=who, display=who, via="cli", admin=True), **params))
+        name, by=_cli_actor(who), **params))
 
 
 def _show(value: object) -> list[str]:
@@ -4853,6 +5095,7 @@ def product_declare(name: str, docs_repo: str) -> None:
 
 
 @product_app.command("init")
+@_door("product_init")
 def product_init(
     name: str,
     source: list[str] = typer.Option(None, "--source",  # noqa: B008 — typer's own idiom

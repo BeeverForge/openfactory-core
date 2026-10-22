@@ -158,11 +158,30 @@ def _break_the_people_store(monkeypatch, _engine, registry):
     return {people.log.name, sqlite_metrics.log.name}
 
 
+def _break_the_audit_trail(monkeypatch, _engine, _registry):
+    """The last audit record this process wrote was not kept (#694): a store that answers False,
+    driven through `audit._keep`, the write's own body — the people store and every other check's
+    dependency untouched. RETURNS the logger the write says its own failure through, once."""
+    from openfactory import actions
+    from openfactory.observability import audit
+
+    class _Refusing:
+        def record(self, rec) -> bool:
+            return False
+
+    monkeypatch.setattr(audit, "sink", lambda: _Refusing())
+    record = audit.AuditRecord.of("product_status", actions.SYSTEM, {"project": "acme"},
+                                  actions.done("fine"), product_of=lambda _name: "")
+    assert audit._keep(record) is False
+    return {audit.log.name}
+
+
 #: EVERY way each check's own dependency is broken here, by the name `health.CHECKS` gives it — the
 #: first is `BREAK`'s. A way returns the loggers its dependency says its own failure through when
 #: it is read, or nothing.
 BREAKS = {"engine": [_break_engine], "registry": [_break_registry],
-          "identity": [_break_identity, _break_the_people_store]}
+          "identity": [_break_identity, _break_the_people_store],
+          "audit": [_break_the_audit_trail]}
 BREAK = {name: ways[0] for name, ways in BREAKS.items()}
 WAYS = [pytest.param(name, way, id=way.__name__.removeprefix("_break_"))
         for name, ways in BREAKS.items() for way in ways]
@@ -436,6 +455,7 @@ HANG = {
     "engine": _hang_engine,
     "registry": lambda monkeypatch, _engine: _hanging(monkeypatch, "_registry_reads"),
     "identity": lambda monkeypatch, _engine: _hanging(monkeypatch, "_identity_admits"),
+    "audit": lambda monkeypatch, _engine: _hanging(monkeypatch, "_audit_kept"),
 }
 
 

@@ -53,7 +53,15 @@ MetricKind = Literal["agent_run", "job", "product_sweep", "techlead_watch", "age
                      # What happened to a card, one row per transition and one per effect's
                      # outcome (ADR-0055 D4) — written only through `KeyedSink`, under keys the
                      # card's lifecycle chooses (`lifecycle/record.py`), never under a time.
-                     "card_transition"]
+                     "card_transition",
+                     # Who did what (#694): one row per `actions.perform` call on every way out
+                     # of it, written only by `observability/audit.write`. Append-only — each row
+                     # is keyed by its own record id, so two calls in one instant are two rows and
+                     # nothing rewrites one — and kept for `audit.AUDIT_KEPT_DAYS` through
+                     # `expires_at`. `project forget` keeps it: the record holds no client's words
+                     # as text (only their length and unsalted sha256, which reveals a short
+                     # message), and an audit trail a forget erased would be no audit trail.
+                     "audit"]
 
 
 class MetricRecord(BaseModel):
@@ -94,9 +102,11 @@ class MetricRecord(BaseModel):
     # the arms apart and the experiment is unmeasurable. "" for pre-instrumentation rows.
     knowledge: str = ""
     #: Unix epoch SECONDS after which DynamoDB deletes this row (ADR-0024: client conversation is
-    #: retained, not kept forever). Set ONLY on `kind="message"` — an operational-memory row that
-    #: carried this would make the tech-lead forget what it learned. Rows without it never expire,
-    #: which is why enabling TTL on this shared table is safe.
+    #: retained, not kept forever). Set only on rows held for a period — `kind="message"`, the
+    #: people store's invitations, and `kind="audit"` for `audit.AUDIT_KEPT_DAYS` — never on
+    #: operational memory: a row of it that carried this would make the tech-lead forget what
+    #: it learned. Rows without it never expire, which is why enabling TTL on this shared table
+    #: is safe.
     expires_at: int | None = None
     extra: dict = Field(default_factory=dict)
 
@@ -204,6 +214,57 @@ class KeyedSink(Protocol):
 
     def records_under(self, project: str, prefix: str) -> list[dict]:
         """Every row of `project` whose key starts with `prefix`, in key order."""
+        ...
+
+
+#: The kinds a reader that scans the whole store never gets (`api/metrics_view._scanned`): rows
+#: of these are read by their kind, apart. `audit` (#694) is one row per action call, kept for a
+#: year — one opening of the product page writes five — and on c310ba28 the cost dashboard over
+#: 50 cost rows took 0.002 s, and 9.99 s with 100,000 audit rows beside them (PR #1039 review N2).
+#: Left out by the sqlite store, the same 183 MB store's dashboard went from 1.23 s to 0.14 s here
+#: (2026-10-21, best of 3, load 8; 0.001 s with no audit rows): the walk of the table remains, the
+#: parse of 100,000 rows does not.
+SCANNED_APART = ("audit",)
+
+
+@runtime_checkable
+class KindExcludingSink(Protocol):
+    """A sink that scans every live row EXCEPT those of the kinds named — so a whole-store reader
+    neither parses nor holds the rows it would only drop (#694, PR #1039 review N2).
+
+    A SEPARATE PROTOCOL, like `KindPagingSink`: a store that does not implement it is scanned
+    and the rows dropped after (`api/metrics_view._scanned`), so what a reader gets is the same.
+    RAISES `query.StoreUnreadable` WHEN THE STORE WILL NOT ANSWER."""
+
+    def scan_except(self, kinds: list[str]) -> list[dict]:
+        """Every live row whose kind is not in `kinds`, as `ReadableSink.scan` returns them."""
+        ...
+
+
+@runtime_checkable
+class KindPagingSink(Protocol):
+    """A sink that reads the live rows of ONE kind, across projects, NEWEST FIRST, a page at a time
+    (#694, PR #1039 review) — so a reader that wants the most recent rows of a kind stops when it
+    has them, rather than holding the whole store.
+
+    WHY. `openfactory audit` read `scan()` — every row of every kind, each parsed from its JSON —
+    to keep the rows of kind `audit` and print the last `--limit` of them: on a store whose rows
+    are mostly a job's cost, its memory and its time were the store's size, not the answer's.
+
+    A PAGE, NOT AN ITERATOR: every port signature stays serialisable
+    (`tests/test_ports_are_serialisable.py`), and a page of rows with a cursor is what a provider
+    out of process could answer. THE CURSOR IS THE LAST ROW'S `(sk, pk)`: `sk` begins with the
+    row's time for every row `record` writes (`dynamo_key`), and with `pk` it is the primary key,
+    so a page boundary never skips nor repeats a row.
+
+    A SEPARATE PROTOCOL, like `TicketReadingSink`: a store added from outside declares it by
+    implementing the method, and one that does not is read the old way, through `scan`
+    (`cli.audit_cmd`). RAISES `query.StoreUnreadable` WHEN THE STORE WILL NOT ANSWER."""
+
+    def page_of_kind(self, kind: str, *, before: tuple[str, str] | None = None,
+                     limit: int = 500) -> list[dict]:
+        """At most `limit` live rows of `kind`, every project's, newest first by `(sk, pk)`, each
+        of whose `(sk, pk)` comes before `before` (the previous page's last row; None = now)."""
         ...
 
 

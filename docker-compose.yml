@@ -527,7 +527,8 @@ services:
     container_name: openfactory-panel
     depends_on: [worker]
     # READY, NOT MERELY RUNNING (#681): the panel's own /readyz, on the port its command serves —
-    # the engine answers, the registry reads and the identity provider can admit.
+    # the engine answers, the registry reads, the identity provider can admit and the action
+    # audit records are kept (`audit`).
     healthcheck:
       test: ["CMD", "python", "-m", "openfactory.observability.health", "--port", "8787"]
       interval: 15s

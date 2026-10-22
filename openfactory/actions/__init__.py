@@ -41,8 +41,12 @@ implemented by none of them.**
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import dataclasses
 import logging
 import re
+from collections.abc import Iterator, Mapping
 
 from openfactory.actions.base import (
     AROUND_EVERY_ROW,
@@ -77,6 +81,8 @@ from openfactory.actions.base import (
     not_moved_yet,
     refused,
 )
+from openfactory.observability import audit
+from openfactory.observability.audit import SECRET, redact
 
 log = logging.getLogger("openfactory.actions")
 
@@ -266,8 +272,17 @@ def proposable(by: Actor) -> tuple[str, ...]:
     return tuple(out)
 
 
-async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
-    """Run one action. Never raises. Always returns an `Outcome`.
+async def perform(name: str, /, *, by: Actor, params: Mapping[str, object] | None = None,
+                  **named: object) -> Outcome:
+    """Run one action and answer with an `Outcome`; what it raises is said below.
+
+    THE PARAMETERS COME AS `params=` FROM A DOOR, as keywords from code. A door hands on what a
+    caller sent as one mapping, so a name the caller chose never meets this function's own: when
+    both doors spread a body into `**params`, a parameter named `by` or `name` raised `TypeError`
+    before anything here ran — a 500 at `POST /api/act/*`, a traceback at `openfactory act`, and
+    no record (PR #1039 review N1, measured on c310ba28). Now the row refuses it as any name it
+    does not take. `name` is positional-only for the same reason. Keywords and `params` merge,
+    the keywords winning.
 
     THE SIX THINGS THAT HAPPEN HERE RATHER THAN IN THREE FRONT ENDS:
 
@@ -283,17 +298,72 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
        nothing; now the three answers meet in `Actor.admin` and the decision is made in one place.
     5. **A row that needs the code waits for it** (`ActionSpec.needs_code`, #992): on a project
        whose product started before its code it is refused by name, naming the first source.
-    6. **Everything is logged with the actor**, whatever the result. This is the audit line — the
-       first time this platform can say who asked for a thing, which is the question an enterprise
-       security review opens with.
+    6. **Every call leaves its trace, once, whatever the result** (`_leave_record`, in a `finally`
+       around `_decide`, so a `return` added there later cannot skip it): the INFO line
+       `action=… by=… ok=… code=… params=…`, now on every way out including the refusals, and one
+       `observability.audit.AuditRecord` handed to `audit.write` — who asked (the `Subject` and
+       the provider that named them), what, with which parameters (as `audit._kept` keeps them,
+       made once and printed in the line too: a secret's name (`audit.is_secret`) masked at
+       every depth, every string scrubbed of credentials, a person's words as their length and
+       digest, other values bounded), the answer, the deployment, the product, and the
+       correlation id that ties it to the request that caused it — `by.correlation`, or one minted
+       here before the row runs when the caller carried none, so a relayed call shares it. A call
+       cancelled before it answered is recorded as `failed`/`cancelled`. Who asked for a thing is
+       the question an enterprise security review opens with. Whether the record is kept is
+       `audit.write`'s to answer, not this function's: it writes the record as a row of kind
+       `audit` to the deployment's metrics store, off the event loop, or to `audit.db` beside
+       `registry.yaml` when the deployment declares none (`audit.sink`); a person's words go in as
+       their length and digest, never as text. WRITTEN AFTER THE ROW, AND NOT FAIL-CLOSED: the
+       record carries the outcome, so a process killed while a row runs leaves no record of it,
+       and a store that refuses records does not stop the action (it is said, and `/readyz`'s
+       `audit` check fails) — `docs/rotation-and-retention.md` §5.
 
-    NEVER RAISING IS NOT POLITENESS. Both front ends already have a hard must-always-reply rule,
-    and both implemented it by wrapping every call in `except Exception`. Doing it here means an
-    action author cannot forget, and means the exception's real message survives — `first_message`
-    walks the chain, because an error crossing a Temporal activity boundary otherwise arrives as
-    the fixed string "Activity task failed" (#66).
+    WHAT IT RAISES, PRECISELY. Nothing a row or the audit seam does: a row's exception becomes a
+    `raised` refusal, and a record that could not be made or kept is said at WARNING while the
+    outcome stands. Two things do pass through, each after the call's line and record: the
+    `CancelledError` of a cancelled call, re-raised unchanged so the cancel reaches whoever asked
+    for it; and an exception raised in `_decide` outside the row's own guard (the catalog failing
+    to import, a parameter check that breaks), recorded as `raised` and then propagated.
+
+    NOT RAISING FOR A ROW IS NOT POLITENESS. Both front ends already have a hard must-always-reply
+    rule, and both implemented it by wrapping every call in `except Exception`. Doing it here
+    means an action author cannot forget, and means the exception's real message survives —
+    `first_message` walks the chain, because an error crossing a Temporal activity boundary
+    otherwise arrives as the fixed string "Activity task failed" (#66).
     """
+    params = {**(params or {}), **named}
     key = (name or "").strip().lower()
+    if not by.correlation:
+        # ONE ID PER REQUEST, MINTED BEFORE THE ROW RUNS (#694): a caller that carried none (the
+        # factory's own `SYSTEM`, the product socket, the Slack add-on) is given one here, on the
+        # `by` the row receives, so a row that relays to another `perform` (`ask` → `run_staged`)
+        # hands it the same id and the two records read as one request. Minted when the record
+        # is written instead, the yes and the skip it caused would carry two unrelated ids.
+        by = dataclasses.replace(by, correlation=audit.new_correlation_id())
+    outcome: Outcome | None = None
+    try:
+        outcome = await _decide(name, key, by, params)
+    except asyncio.CancelledError:
+        # A CANCELLED CALL IS STILL A CALL (#694): the record says it did not finish, and the
+        # cancel goes on to whoever asked for it — swallowing it would keep a shutting-down worker
+        # or a hung-up panel request running the row it meant to stop.
+        outcome = Outcome(ok=False, code=FAILED, data={"reason": audit.CANCELLED},
+                          message=f"{key or name!r} was cancelled before it answered")
+        raise
+    finally:
+        # ONE EXIT, so a `return` added to `_decide` later cannot leave a call unrecorded. `None`
+        # here is what escaped `_decide` without being an answer: an exception raised outside the
+        # row's own guard (the catalog failing to import). It is recorded as `raised` and goes on.
+        if outcome is None:
+            outcome = Outcome(ok=False, code=FAILED, data={"reason": RAISED},
+                              message=f"{key or name!r} raised before it answered")
+        await asyncio.shield(_leave_record(name, key, by, params, outcome))
+    return outcome
+
+
+async def _decide(name: str, key: str, by: Actor, params: dict[str, object]) -> Outcome:
+    """What `perform` answers — every check and the row itself, with no record: `perform` makes
+    the one record of the call around this, whichever `return` it took."""
     found = _catalog().get(key)
     if found is None:
         return refused(
@@ -317,7 +387,8 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
     # requirement is the most consequential act there — and must still be refused `merge` outright.
     # Asking `admin` first would let that credential through on every row it happens to satisfy.
     if not by.may_enter(found.scope):
-        log.warning("DENIED_SCOPE %s (%s) by %s (%s)", key, found.scope, by, _loggable(params))
+        log.warning("DENIED_SCOPE %s (%s) by %s (%s)", key, found.scope, audit.printable(by),
+                    _loggable(params))
         return refused(
             DENIED,
             f"this credential is scoped to {', '.join(sorted(by.scopes or ())) or 'nothing'} and "
@@ -327,7 +398,7 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
         )
 
     if found.needs_admin and not by.admin:
-        log.warning("DENIED %s by %s (%s)", key, by, _loggable(params))
+        log.warning("DENIED %s by %s (%s)", key, audit.printable(by), _loggable(params))
         return refused(
             DENIED,
             f"{by} is not allowed to {key} — ask somebody listed as an admin for this project.",
@@ -374,19 +445,121 @@ async def perform(name: str, *, by: Actor, **params: object) -> Outcome:
         # row's refusals off its source; this is for the one they could not see.
         log.error("action %s refused with an undeclared reason %r — it declares %s", key,
                   outcome.data.get("reason"), ", ".join(reasons(key)))
-    # A LABEL IS PRINTED AS ONE (`Actor.label`): what an anonymous caller says it is, beside the
-    # credential it used — never in `by=`, which is who that credential is.
-    label = str(getattr(by, "label", "") or "")
-    log.info("action=%s by=%s%s ok=%s code=%s params=%s", key, by,
-             f" label={label!r}" if label else "", outcome.ok, outcome.code or "-",
-             _loggable(params))
     return outcome
 
 
-#: Parameters whose VALUE must never reach a log line. `approve_prod` and `promote` take the
-#: approver's password, and this module writes an audit line on every call including the refusals —
-#: which is precisely the path a wrong password takes.
-_SECRET = frozenset({"password", "token", "secret", "key"})
+#: What a door's HTTP refusal is, as a code (`door_recorded`): the status's meaning in the layer's
+#: own words; any other status is `failed`.
+_DOOR_STATUS = {400: INVALID, 401: DENIED, 403: DENIED, 404: NOT_FOUND, 409: CONFLICT,
+                422: INVALID, 503: UNAVAILABLE}
+
+
+def _door_outcome(exc: BaseException) -> Outcome:
+    """How a door that did not return ended, as the record keeps it: an HTTP refusal by its
+    status (`http_<status>`) and the code that status reads as (`_DOOR_STATUS`, `failed` for any
+    other), a command's exit by its code (`exit_<code>`, `ok` when 0), an abort
+    at a prompt as `aborted`, anything else as `raised`. Read by attribute, so this module imports
+    neither the panel's framework nor the command line's."""
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        if status < 400:
+            return done(f"answered {status}")
+        return Outcome(ok=False, code=_DOOR_STATUS.get(status, FAILED),
+                       message=str(getattr(exc, "detail", "") or status),
+                       data={"reason": f"http_{status}"})
+    code = getattr(exc, "exit_code", None)
+    if code is None and isinstance(exc, SystemExit):
+        code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+    if isinstance(code, int):
+        if code == 0:
+            return done("exited 0")
+        return Outcome(ok=False, code=FAILED, message=f"exited {code}",
+                       data={"reason": f"exit_{code}"})
+    if type(exc).__name__ == "Abort" or isinstance(exc, KeyboardInterrupt):
+        return Outcome(ok=False, code=FAILED, message="aborted", data={"reason": "aborted"})
+    return Outcome(ok=False, code=FAILED, message=f"raised {type(exc).__name__}",
+                   data={"reason": RAISED})
+
+
+@contextlib.contextmanager
+def door_recorded(name: str, *, by: Actor, params: Mapping[str, object]) -> Iterator[None]:
+    """The record of a door that changes the deployment without a catalog row — `POST
+    /api/projects`, `POST /api/messages/{project}/answer`, `openfactory project add`, `project
+    init`, `init`, `product init`, `approver add` — left once, as `perform` leaves its own: the
+    INFO line and the `AuditRecord`, through the same `_leave_record`, whatever way the door ends
+    (`_door_outcome`). The exception, if any, goes on unchanged.
+
+    WHY. These doors call no row, so on c310ba28 they left no record at all: `openfactory project
+    add demo <repo>` registered the project, and `openfactory audit` then said the store held no
+    record (PR #1039 review, hermesfelipe). A catalog row for each would move seven doors' code
+    for what is, to the audit, one line; the record is the same shape either way.
+
+    For a door with no running event loop (a command, a FastAPI `def` route on its threadpool):
+    the record is written with `asyncio.run`, as the command line's `perform` calls are."""
+    if not by.correlation:
+        by = dataclasses.replace(by, correlation=audit.new_correlation_id())
+    outcome: Outcome | None = None
+    try:
+        yield
+        outcome = done(f"{name} done")
+    except BaseException as exc:
+        outcome = _door_outcome(exc)
+        raise
+    finally:
+        asyncio.run(_leave_record(name, name, by, dict(params), outcome or done(f"{name} done")))
+
+
+async def _leave_record(name: str, key: str, by: Actor, params: dict[str, object],
+                        outcome: Outcome) -> None:
+    """The call's trace, once, on every way out of `perform`: the INFO line and the record.
+
+    The record is made and written off the event loop. Never raises: a record that could not be
+    made or kept is said at WARNING — by `audit.write` when a store refused it, here when it could
+    not be made or no store could be built — and the outcome stands, because `perform` never
+    takes its caller down (its docstring)."""
+    # A LABEL IS PRINTED AS ONE (`Actor.label`): what an anonymous caller says it is, beside the
+    # credential it used — never in `by=`, which is who that credential is.
+    label = str(getattr(by, "label", "") or "")
+    # THE LINE PRINTS WHAT THE RECORD KEEPS (#694, the human's decision of 2026-10-21): secrets
+    # masked, a person's words as their length and digest, every other value bounded — one view,
+    # made once here and handed to the record, so the two cannot differ and a cut is said once.
+    # On the loop: 1.45 ms for a 1,000,000-character message and as long a context, measured
+    # 2026-10-21; a request is far smaller. Unreadable (a value whose `str` raises), the line
+    # says so in their place rather than print them as sent, and no record is made.
+    try:
+        kept: dict[str, object] | None = audit._kept(key or name, params)
+        shown: object = kept
+    except Exception as exc:  # noqa: BLE001 — the line is written on every way out
+        kept, unread = None, exc
+        shown = f"<not shown: they could not be read ({exc})>"
+    # THE ACTION AS THE RECORD KEEPS IT TOO, AND ON ONE LINE: an unknown one is whatever a caller
+    # typed, a token or a newline included — on c310ba28 `teleport\nINFO … action=approve_prod …`
+    # was one record of two lines (PR #1039 reviews, 2026-10-21). The params are a `repr`.
+    log.info("action=%s by=%s%s ok=%s code=%s params=%s", audit.printable(audit._scrub(key)),
+             audit.printable(by),
+             f" label={label!r}" if label else "", outcome.ok, outcome.code or "-",
+             shown)
+    try:
+        if kept is None:
+            raise unread
+        # MADE OFF THE LOOP TOO, not only written: naming the product parses `registry.yaml`
+        # (`audit._product_of`) on every call that names a project — 0.95 ms with one project and
+        # 18.2 ms (p95 20.8) with twenty, measured 2026-10-20 — a read the panel keeps off its loop
+        # everywhere else (`asyncio.to_thread(lambda: ProjectRegistry().list())` in `api/app.py`).
+        # The hop costs 0.027 ms (`api/app.py` `_ask_the_gate`'s measurement).
+        record = await asyncio.to_thread(audit.AuditRecord.of, name, by, params, outcome,
+                                         kept=kept)
+        await audit.write(record)
+    except Exception as exc:  # noqa: BLE001 — the record must never take the call down
+        log.warning("audit: the record of %s by %s was not kept (%s)",
+                    audit.printable(audit._scrub(key or name)), audit.printable(by), exc)
+        audit.lost(f"the record could not be made or no store could be built ({exc})")
+
+
+#: The catalog's own secret names, `audit.SECRET`, which `_ADDRESSABLE` is held apart from. What
+#: masks a value in the line, the record and the denial warnings is `audit.is_secret`, which
+#: matches these and every name of their shape (#694).
+_SECRET = SECRET
 
 
 def _why(exc: Exception) -> str:
@@ -412,8 +585,11 @@ def _why(exc: Exception) -> str:
     return first_message(exc)
 
 
-def _loggable(params: dict[str, object]) -> dict[str, object]:
-    return {k: ("***" if k in _SECRET else v) for k, v in params.items()}
+#: What the denial warnings (`DENIED_SCOPE`, `DENIED`, `NO_CODE_YET`) print of the parameters:
+#: `audit.redact` — every secret's name masked at every depth and every string scrubbed of
+#: credentials, by the record's own rule. The INFO line prints what the record keeps instead
+#: (`audit._kept`, in `_leave_record`).
+_loggable = redact
 
 
 def _check_params(found: ActionSpec, params: dict[str, object]) -> str:

@@ -519,6 +519,22 @@ def _a_readiness_answer_does_not_outlive_its_test() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _an_audit_record_not_kept_does_not_outlive_its_test() -> None:
+    """Clear what `openfactory/observability/audit.py` holds of this process's writes (#694): the
+    count of records not kept and why the last was not, which readiness's `audit` check reads, and
+    the sink kinds it already said it falls back from. A test whose store refused a record would
+    otherwise leave the next test's readiness failing. A tree without the seam (a red-first run
+    against an older `openfactory/`) has nothing to clear."""
+    try:
+        from openfactory.observability import audit as _audit
+    except ImportError:
+        return
+    forget = getattr(_audit, "forget", None)
+    if forget is not None:
+        forget()
+
+
+@pytest.fixture(autouse=True)
 def _a_product_read_for_the_logs_does_not_outlive_its_test() -> None:
     """Clear `openfactory/observability/logs.py`'s copy of the products and its read in flight
     (second review of #818) — the same leak one module over: a case that read one registry's

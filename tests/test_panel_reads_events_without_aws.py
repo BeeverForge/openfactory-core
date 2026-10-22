@@ -115,3 +115,108 @@ def test_remote_boxes_are_detected_from_the_deployments_declared_box(monkeypatch
     for k, v in env.items():
         monkeypatch.setenv(k, v)
     assert api._boxes_are_remote() is expected
+
+
+def _a_start_noted_on_the_panels_host(project) -> dict:
+    """What `start` writes on the host the action ran on (#694): `job_record.record_started`, the
+    one writer, so the line is the shape the action process writes and not a copy of it."""
+    import json
+
+    from openfactory.observability.job_record import record_started
+    from openfactory.paths import events_file
+
+    record_started(project, "1", by="alice", correlation="c0ffee")
+    lines = events_file(project, "1").read_text().splitlines()
+    assert len(lines) == 1, lines
+    return json.loads(lines[0])
+
+
+def test_a_start_noted_on_the_panels_host_does_not_hide_the_remote_boxs_journal(project,
+                                                                                monkeypatch):
+    """#694's own regression. On a remote deployment the job's journal is on the worker's disk
+    and the panel reads the box's tail; a `start` pressed on the panel now writes its `started`
+    note into the panel host's journal. `_events` took any local line as "the journal is right
+    here" and returned the note alone: the run's page showed one line for the whole job, and the
+    box was never read again. The note is the action's, not the job's: the box's lines follow it."""
+    from openfactory.api import app as api
+
+    note = _a_start_noted_on_the_panels_host(project)
+    monkeypatch.setattr(api, "_boxes_are_remote", lambda: True)
+    monkeypatch.setattr(api, "_remote_tail",
+                        lambda *_a, **_kw: _Tail([{"kind": "state", "message": "implementing"}]))
+
+    got = api._events("demo", "1")
+
+    assert [(e.get("kind"), e.get("message")) for e in got] == \
+        [("note", "started"), ("state", "implementing")], got
+    assert got[0]["data"] == note["data"]
+
+
+def test_the_live_feed_reads_the_remote_box_past_a_start_noted_on_the_panels_host(project,
+                                                                                  monkeypatch):
+    """The same reading, on the stream: it tailed the local file whenever the file existed, so a
+    start's note on the panel host stopped the remote tail before its first tick. Two ticks: the
+    note, then the box's line, each once."""
+    import asyncio
+    import json
+
+    from starlette.requests import Request
+
+    from openfactory.api import app as api
+
+    _a_start_noted_on_the_panels_host(project)
+    monkeypatch.setattr(api, "_boxes_are_remote", lambda: True)
+    answers = [[{"kind": "state", "message": "implementing"}], []]
+    monkeypatch.setattr(api, "_remote_tail",
+                        lambda *_a, **_kw: type("T", (), {"fetch_new": lambda self: answers.pop(0)
+                                                          if answers else []})())
+    ticks: list[float] = []
+
+    async def _sleep(seconds):
+        ticks.append(seconds)
+        if len(ticks) == 2:
+            raise StopAsyncIteration  # ends the generator after two ticks
+
+    monkeypatch.setattr(api.asyncio, "sleep", _sleep)
+
+    async def _drive():
+        request = Request({"type": "http", "method": "GET", "path": "/api/jobs/demo/1/stream",
+                           "query_string": b"", "headers": []})
+        response = await api.job_stream("demo", "1", request)
+        frames = []
+        try:
+            async for frame in response.body_iterator:
+                frames.append(frame)
+        except (StopAsyncIteration, RuntimeError):  # the second sleep ends the generator
+            pass
+        return frames
+
+    frames = asyncio.run(_drive())
+    sent = [json.loads(f[len("data: "):]) for f in frames if f.startswith("data: ")]
+
+    assert [(e.get("kind"), e.get("message")) for e in sent] == \
+        [("note", "started"), ("state", "implementing")], frames
+
+
+def test_the_job_grid_shows_the_jobs_own_state_when_its_start_is_noted_after_it(project):
+    """#694: a durable `start` writes its `started` note after `tv.start_job` returns, so it can
+    land after the box's first line. `/api/jobs` reads a job's state as its journal's last `state`
+    line (`list_jobs`), so the note must stay a `note`: as a `state` the grid would show the job
+    `started` while its box says `implementing`. Green on this branch; red when `START_NOTE` is
+    spelled as a `state` (`tools/mutations/694_one_correlation_id_ties_a_request_to_what_it_caused.py`)."""
+    import json
+
+    from openfactory.api import app as api
+    from openfactory.observability.job_record import record_started
+    from openfactory.paths import events_file
+
+    path = events_file(project, "1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"ts": "2026-10-21T10:00:00+00:00", "job_id": "#1",
+                                "ticket_id": "#1", "kind": "state",
+                                "message": "implementing"}) + "\n")
+    record_started(project, "1", by="alice", correlation="c0ffee")
+
+    [row] = api.list_jobs()
+
+    assert row["state"] == "implementing", row

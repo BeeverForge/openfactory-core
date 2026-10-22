@@ -35,6 +35,17 @@ makes too: `GET /api/board/{project}` for a project with a product role, never w
 origins explicitly; a CORS preflight is answered without a credential, and the request after it is
 gated like any other.
 
+**A request may name its correlation id** in `X-Request-ID`, the header nginx (`$request_id`) and
+most proxies and load balancers already set, so an action's audit record lines up with the proxy's
+access log (`docs/rotation-and-retention.md` §5). An id is 1 to 128 characters of letters, digits
+and `. _ : -`; a header that is anything else (a space, a newline, a 129th character) is replaced
+whole by a new id (32 lower-case hex digits) and none of it is kept. A request without the header
+is given a new id the same way. The id is read for the record and the job it starts, nothing
+decides on it, and the response does not echo it. It is the caller's word, not proof: any caller
+may send another request's id, so two records sharing one tie them only as far as the callers are
+trusted. A socket cannot set a header, so each action
+sent on `/api/product/stream` is given an id of its own.
+
 ## 2. Refusals
 
 Every refusal is JSON with a `detail` sentence — but for the framework's 422, whose `detail` is
@@ -250,7 +261,7 @@ processes from inside their containers through
 | method | path | answers |
 |---|---|---|
 | GET | `/healthz` | `200 {"alive": true}` while the process serves. It reads nothing, so it never fails for somebody else's outage |
-| GET | `/readyz` | `200` when the durable engine answers, the registry reads and the identity provider can admit; otherwise `503`, naming each check that failed |
+| GET | `/readyz` | `200` when the durable engine answers, the registry reads, the identity provider can admit and the last action's audit record was kept; otherwise `503`, naming each check that failed |
 <!-- probes:end -->
 
 A `503` from `/readyz` names each failing check and says one sentence about it; the cause is in the
@@ -259,9 +270,14 @@ process's log, never in the body, because nobody identified the caller:
 ```json
 {"ready": false,
  "checks": {"engine": {"ok": false, "detail": "the durable engine did not answer"},
-            "registry": {"ok": true}, "identity": {"ok": true}},
+            "registry": {"ok": true}, "identity": {"ok": true}, "audit": {"ok": true}},
  "failing": ["engine"]}
 ```
+
+The `audit` check fails while the last record of an action this process wrote was not kept — a
+store that refused it, raised, or could not be built — and passes again once one is; its logged
+cause counts the records not kept since the process started. It asks no store itself, so a process
+no action reaches stays unready until one does, or until it restarts.
 
 It answers within a bounded time whatever a check is waiting on — twice the engine's read deadline
 (`OPENFACTORY_ENGINE_DEADLINE`, three seconds by default) and a second more, seven seconds by

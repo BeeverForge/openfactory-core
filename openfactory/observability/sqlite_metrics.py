@@ -13,6 +13,12 @@ agents' memory depend on without ever saying so, and none of them is a property 
     numbers survive the round trip      stored as strings there, parsed back by the reader
     a write failure never fails a job   telemetry is additive
 
+The overwrite is a promise for a retried write, and a hazard for a row that must never be replaced:
+an action's audit row (kind `audit`, #694) is keyed by its own record id (`audit.metric_of`), and
+this store writes it with a plain `INSERT` (`WRITTEN_ONCE`) and refuses an `UPDATE` of it (a
+trigger), so a second write under its key is refused rather than replacing it. That is not
+evidence against someone who can write the file: they can drop the trigger.
+
 The TTL one is the trap. Nothing raises and nothing logs if it is missed: the deployment simply
 keeps client messages for ever while its own ADR says otherwise, and the first person to find out
 is a client asking how long their data is held. So `expires_at` is honoured on every read AND
@@ -59,7 +65,16 @@ CREATE TABLE IF NOT EXISTS metrics (
 CREATE INDEX IF NOT EXISTS metrics_by_kind ON metrics (pk, kind, ts);
 CREATE INDEX IF NOT EXISTS metrics_by_ticket_key ON metrics (pk, kind, ticket, sk);
 CREATE INDEX IF NOT EXISTS metrics_expiry  ON metrics (expires_at);
+-- AN AUDIT ROW IS NEVER REWRITTEN (#694): who did what is not an estimate a retry refines.
+CREATE TRIGGER IF NOT EXISTS audit_rows_are_never_rewritten BEFORE UPDATE ON metrics
+    WHEN OLD.kind = 'audit' BEGIN SELECT RAISE(ABORT, 'an audit row is never rewritten'); END;
 """
+
+#: The kinds a write never replaces: a plain `INSERT`, so a second row under one's key is refused
+#: and the first stands (`record`). On the #694 branch an `approve_prod` record by alice was
+#: replaced by a second `record()` saying mallory, which answered True (PR #1039 review,
+#: hermesfelipe, 2026-10-21); the trigger above refuses an `UPDATE` of one.
+WRITTEN_ONCE = frozenset({"audit"})
 
 
 #: The files whose schema this process has already made sure of, for READS (#137). A write applies
@@ -158,9 +173,10 @@ class SqliteMetricsSink:
         try:
             key = rec.dynamo_key()
             payload = {**rec.model_dump(), **key}
+            verb = "INSERT" if rec.kind in WRITTEN_ONCE else "INSERT OR REPLACE"
             with self._connect(write=True) as conn:
                 conn.execute(
-                    "INSERT OR REPLACE INTO metrics"
+                    f"{verb} INTO metrics"
                     " (pk, sk, kind, ts, ticket, expires_at, data) VALUES (?,?,?,?,?,?,?)",
                     (key["pk"], key["sk"], rec.kind, rec.ts, rec.ticket, rec.expires_at,
                      json.dumps(payload, default=str)),
@@ -251,14 +267,21 @@ class SqliteMetricsSink:
                 copy.close()
         return target
 
-    def purge_expired(self, *, now: int | None = None) -> int:
-        """Delete rows past their TTL, returning how many went. Filtering on read keeps the answer
-        correct; only this keeps the promise — "we delete it" has to mean the bytes are gone."""
+    def purge_expired(self, *, now: int | None = None, limit: int | None = None) -> int:
+        """Delete rows past their TTL, at most `limit` of them (all when None), returning how many
+        went. Filtering on read keeps the answer correct; only this keeps the promise — "we delete
+        it" has to mean the bytes are gone. Run at each start (`observability.retention`)."""
+        when = now if now is not None else int(time.time())
         try:
             with self._connect(write=True) as conn:
-                cur = conn.execute("DELETE FROM metrics WHERE expires_at IS NOT NULL"
-                                   " AND expires_at <= ?", (now if now is not None else
-                                                            int(time.time()),))
+                if limit is None:
+                    cur = conn.execute("DELETE FROM metrics WHERE expires_at IS NOT NULL"
+                                       " AND expires_at <= ?", (when,))
+                else:
+                    cur = conn.execute(
+                        "DELETE FROM metrics WHERE rowid IN (SELECT rowid FROM metrics"
+                        " WHERE expires_at IS NOT NULL AND expires_at <= ? LIMIT ?)",
+                        (when, max(0, limit)))
                 return cur.rowcount or 0
         except Exception as exc:  # noqa: BLE001
             log.warning("metrics purge failed: %s", exc)
@@ -277,6 +300,17 @@ class SqliteMetricsSink:
             "SELECT data FROM metrics WHERE (expires_at IS NULL OR expires_at > ?)"
             " ORDER BY pk, sk", (int(time.time()),))
 
+    def scan_except(self, kinds: list[str]) -> list[dict]:
+        """Every live row whose kind is not in `kinds` (`KindExcludingSink`, #694): `scan` with
+        the rows of those kinds left in the file, never parsed. RAISES `StoreUnreadable`."""
+        if not kinds:   # `NOT IN ()` is not SQL, and `NOT IN (NULL)` matches no row at all
+            return self.scan()
+        marks = ", ".join("?" for _ in kinds)
+        return self._query(
+            f"SELECT data FROM metrics WHERE kind NOT IN ({marks})"
+            " AND (expires_at IS NULL OR expires_at > ?) ORDER BY pk, sk",
+            (*kinds, int(time.time())))
+
     def records_of_kind(self, project: str, kind: str, *, limit: int = 500) -> list[dict]:
         """Rows of one kind for one project, **oldest first**, keeping the most RECENT `limit`.
 
@@ -288,6 +322,30 @@ class SqliteMetricsSink:
             " ORDER BY ts DESC, sk DESC LIMIT ?",
             (project, kind, int(time.time()), max(0, limit)))
         return list(reversed(rows))
+
+    def page_of_kind(self, kind: str, *, before: tuple[str, str] | None = None,
+                     limit: int = 500) -> list[dict]:
+        """At most `limit` live rows of `kind`, across projects, newest first by `(sk, pk)`, each
+        before the cursor `before` (`KindPagingSink`, #694). RAISES `StoreUnreadable`.
+
+        NO INDEX OF ITS OWN. The table's indexes lead with `pk`, so each page walks the table and
+        sorts the rows of `kind`, parsing `data` only for the page it hands back: on a 336 MB
+        store of 200,000 `agent_run` rows and 2,000 audit rows a page of 21 took 81-82 ms and one
+        of 500 92-95 ms, and `openfactory audit --limit 20` 0.26-0.27 s at a peak RSS of 45 MB,
+        against 2.45-2.46 s and 1,011 MB through `scan` (measured 2026-10-21). An index on
+        `(kind, sk, pk)` made a page 0.1 ms, and took 11.5 s to build on that store — inside the
+        first write after an upgrade, holding the lock every other writer waits 5 s for — and
+        would cost every write of every kind after it, for one command an operator runs."""
+        live = " AND (expires_at IS NULL OR expires_at > ?)"
+        if before is not None:
+            # A ROW VALUE, `(sk, pk) < (?, ?)`: SQLite 3.15 and later; the images carry 3.40+.
+            return self._query(
+                "SELECT data FROM metrics WHERE kind = ? AND (sk, pk) < (?, ?)" + live
+                + " ORDER BY sk DESC, pk DESC LIMIT ?",
+                (kind, before[0], before[1], int(time.time()), max(0, limit)))
+        return self._query(
+            "SELECT data FROM metrics WHERE kind = ?" + live + " ORDER BY sk DESC, pk DESC LIMIT ?",
+            (kind, int(time.time()), max(0, limit)))
 
     def records_of_ticket(self, project: str, kind: str, ticket: str, *, before: str = "",
                           limit: int = 50) -> list[dict]:

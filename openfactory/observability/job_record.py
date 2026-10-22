@@ -139,3 +139,42 @@ def record_ending(project, issue: str, state: str, *, by: str, note: str = "") -
         ts=now_iso(), job_id=f"#{issue}", ticket_id=f"#{issue}", kind="state", message=state,
         data={"reason": (note or "").strip() or None, "by": by}))
     return state
+
+
+#: The `kind` and `message` of the line `record_started` writes, ONE spelling for the writer and
+#: for `is_start_note`, so a reader cannot recognise a line the writer has stopped writing.
+START_NOTE = ("note", "started")
+
+
+def is_start_note(event: object) -> bool:
+    """Whether a journal line is the start an ACTION wrote (`record_started`), not a line the job
+    wrote. The panel asks it (`api.app._the_job_wrote`): on a remote deployment the action's host
+    is not the job's, and a journal holding only this line there is not the job's journal."""
+    return isinstance(event, dict) and (event.get("kind"), event.get("message")) == START_NOTE
+
+
+def record_started(project, issue: str, *, by: object, correlation: str) -> None:
+    """Append a job's START to its card's journal: one `note` line, `started`, carrying who asked
+    and the correlation id of the action that started it (#694). RAISES what building the journal
+    raises, as `record_ending` does: each caller decides what a failure means, and every caller in
+    `actions.catalog` logs it and keeps the start.
+
+    WHY THE ACTION WRITES IT, NOT THE JOB. The id ties a request to every record it caused, and
+    the job's events are one of those records. The workflow and `openfactory run` are not told
+    the id (no `JobParams` field, so no replay versioning), so the process that started the job
+    writes the line, as `stop` writes a stopped job's ending from the action process.
+
+    A `note`, NEVER A `state`: `/api/jobs` shows a job's last `state` line as its state, and a
+    durable start's note can land after the box's first line. `query.outcomes` skips it
+    (`is_start_note`): the job's own lines say when it began, not the request.
+
+    WRITTEN WHERE THE ACTION RAN. On a remote deployment that is the panel's host, and the job's
+    journal is on the worker's disk: the panel reads the box's tail after this line, not instead
+    of it (`is_start_note`)."""
+    from openfactory.observability.events import JobEvent, now_iso
+    from openfactory.observability.registry import journal_for
+    from openfactory.paths import events_file
+
+    journal_for(events_file(project, issue)).emit(JobEvent(
+        ts=now_iso(), job_id=f"#{issue}", ticket_id=f"#{issue}", kind=START_NOTE[0],
+        message=START_NOTE[1], data={"by": str(by), "correlation_id": correlation}))

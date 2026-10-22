@@ -588,6 +588,33 @@ def test_the_socket_speaks_as_the_person_the_COOKIE_names(chat):
     assert chat.engine.arrivals[-1].conversation == "person:ana"
 
 
+def test_a_message_sent_on_the_socket_leaves_one_record_naming_who_sent_it(chat, tmp_path):
+    """#694 criterion 2 through the third door, driven for real (PR #1039 review N7: the socket
+    was simulated with `_actor_of(object(), UNKNOWN)`): a message Ana sends on
+    `/api/product/stream` leaves one `product_say` record, naming Ana as the panel's `local`
+    provider named her, with an id `perform` minted for the call — a socket cannot set a header —
+    and her words as their length and digest."""
+    import re as _re
+
+    from openfactory.api import app as api
+    from openfactory.observability.sqlite_metrics import SqliteMetricsSink
+
+    client = TestClient(api.app)
+    client.cookies.set("openfactory_token", ANA)
+    with client, client.websocket_connect(SOCKET) as ana:
+        subscribe(ana, room=False)
+        say(ana, "pelo socket")
+        until(ana, answered("pelo socket"))
+
+    said = [r["extra"] for r in SqliteMetricsSink(tmp_path / "audit.db").scan()
+            if r.get("kind") == "audit" and r["extra"]["action"] == "product_say"]
+    assert len(said) == 1, said
+    [record] = said
+    assert (record["actor_id"], record["provider"], record["via"]) == ("ana", "local", "panel")
+    assert _re.fullmatch(r"[0-9a-f]{32}", record["correlation_id"]), record["correlation_id"]
+    assert set(record["params"]["message"]) == {"chars", "sha256"}, record["params"]
+
+
 # ── the workflow's own account, on the engine ───────────────────────────────────────────────────
 
 @pytest.mark.owns_its_engine

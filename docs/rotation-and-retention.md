@@ -3,17 +3,19 @@
 > **§2 drives `infra/`, which is not in this tree.** The image registry and its lifecycle
 > policies belong to the reference deployment on one cloud, which ships with the
 > `openfactory-aws` **add-on package** ([STATUS.md](STATUS.md) lists what leaves with it); every
-> `infra/…` path here is a path inside that package's checkout. §1, §3 and §4 are the platform's
-> own and hold on any deployment, cloud or none.
+> `infra/…` path here is a path inside that package's checkout. §1, §3, §4 and §5 are the
+> platform's own and hold on any deployment, cloud or none.
 
-Four things that expire, and each must be unambiguous, because getting one wrong either drains
-credits, deletes an image that is still in use, or loses the record of what shipped. This is the
+Five things that expire, and each must be unambiguous, because getting one wrong either drains
+credits, deletes an image that is still in use, loses the record of what shipped, or loses the
+record of who asked for it. This is the
 authoritative reference; ADR-0012 records *why* the pause/resume rules exist.
 
 - [1. Token-pool rotation & pauses](#1-token-pool-rotation--pauses) — how a rate limit is handled
 - [2. Image retention & prune](#2-image-retention--prune) — what deletes which images, and what is protected
 - [3. The conversation and its staged decisions](#3-the-conversation-and-its-staged-decisions) — how long a thread and a proposed action last
 - [4. The engine's memory, and the record that outlives it](#4-the-engines-memory-and-the-record-that-outlives-it) — how long a finished job is answerable for
+- [5. Who did what: the action audit record](#5-who-did-what-the-action-audit-record) — how long the record of every call into the action layer is kept, and where
 
 ---
 
@@ -250,9 +252,135 @@ in-box orchestrator, while the terminal state is decided by the workflow after t
 of `JobWorkflow.run` now records its outcome (`record_outcome`), appended — the run's own states
 stay true, and what it became is added after them.
 
+**The journal also says who started the job, and which request it was** (#694). The action that
+starts a job (a durable `start`, a local `start`, and each card a `scan` starts, never one it
+skipped) appends one line to its journal: `kind` `note`, `message` `started`, and `data`
+holding `by` (who asked) and `correlation_id`, the id that action's audit record carries (§5), so
+the job's events read back to the click, the command or the scan that caused them. It is a `note`
+and not a `state`, so it is never read as how the job ended or as the job's state, and the
+outcome aggregates (`openfactory certify deployment`) do not count it as a line of the job: the
+time from pickup to `pr_open` still starts at the job's own first line. The action's process
+writes it, not the job: the workflow is not told the id. On a deployment whose jobs run on a remote box that
+process is the panel's host, so the line sits in the panel's copy of the journal and the panel
+reads the box's journal after it, never instead of it. A journal that cannot be written is logged
+as `OPENFACTORY_START_NOT_JOURNALLED project=… issue=…`, naming the cause, and the start stands.
+
 ### Where it lives
 
 - `docker-compose.yml` — `DEFAULT_NAMESPACE_RETENTION` on the `temporal` service.
 - `openfactory/runtime/temporal/schedule.py` — `RETENTION_DAYS`, `ensure_retention`.
 - `openfactory/runtime/temporal/workflow.py` — `JobWorkflow._journal_outcome`, at the one exit.
 - `openfactory/runtime/temporal/activities.py` — `record_outcome`, the append itself.
+- `openfactory/observability/job_record.py` — `record_started`, the started note, and
+  `is_start_note`, how a reader tells it from the job's own lines.
+- `openfactory/actions/catalog.py` — `_journal_the_start`, called by the three paths that start a
+  job, and the `OPENFACTORY_START_NOT_JOURNALLED` line.
+
+---
+
+## 5. Who did what: the action audit record
+
+Every call into the action layer — from the panel, the command line or a relayed row, kept or
+refused — leaves **one record**: who asked (and which identity provider named them), the action,
+its parameters, what came of it, the correlation id, the deployment, the project and its product,
+and when. It is written beside the action's INFO log line, not instead of it. Before #694 that line
+was the only trace, eight of `perform`'s nine ways out never wrote it, and on a host CLI it reached
+nobody, so *who approved that production release* had no answer anyone could read back.
+
+**The correlation id** is the panel request's `X-Request-ID` when that is an id
+([the front end's API](reference/the-front-end-api.md#1-credentials)), one per command on the
+command line, and otherwise one the action layer mints for the call. A row relayed from another
+call shares its caller's id, and a job the call starts carries it in its journal (§4).
+
+| what | how long | where |
+|---|---|---|
+| one record per call | **365 days** (`audit.AUDIT_KEPT_DAYS = 365`), carried by each row as `expires_at` | the metrics store, as rows of kind `audit` |
+
+**Where the rows go.** The deployment's metrics store (`OPENFACTORY_METRICS_SINK`) when it declares
+one that keeps a row. A deployment that declares none (`null`, a host CLI with no compose
+environment), or declares `memory` — which keeps a row no longer than the call that wrote it, said
+once per process at WARNING — keeps them in a sqlite file instead: `OPENFACTORY_METRICS_DB` when set, else `audit.db` beside `registry.yaml` —
+never a file relative to wherever the shell stood. That file is created readable by its owner alone
+(`0600`, its `-wal` and `-shm` with it), and one an earlier version left wider is made `0600` by
+the next record, said once at INFO. A store that refuses a row is said in one
+WARNING naming the action and the store, and makes the process's `/readyz` fail its `audit` check
+until a record lands ([the front end's API](reference/the-front-end-api.md)); the action's outcome
+stands.
+
+**Which calls leave one.** Every call into the action layer (`perform`), from the panel, the
+command line, the product chat or the factory itself; and the doors that change the deployment
+without a catalog row: `POST /api/projects` and `POST /api/messages/{project}/answer` on the
+panel, and `openfactory project add`, `project init`, `init`, `product init` and `approver add`.
+Each of those leaves one record named for it (`project_add`, `message_answer`, …): `ok`;
+`refused` with the HTTP status's code and the status (`invalid http_400`, `denied http_403`,
+`not_found http_404`, `conflict http_409`, `invalid http_422`, `unavailable http_503`), a refusal
+that did nothing; or `failed` with any other status (`http_500`), the exit code (`exit_2`),
+`aborted` or `raised`.
+
+**When the record is written: after the action, and it does not hold the action back.** The record
+is made once the row has answered (or raised, or been cancelled), so it carries the outcome. Two
+things follow, and neither is fail-closed: a process killed while a long row runs (a merge, a
+release) leaves that row's effect with no record, and a store that cannot take records lets
+actions go on, each with its WARNING and the `audit` readiness check failing. Nothing is recorded
+before a row runs.
+
+**Two command lines, two places.** `openfactory` run on the host, outside the compose environment,
+declares no store, so its records — and what `openfactory audit` there reads back — are in
+`audit.db` beside that host's `registry.yaml` (`~/.openfactory/audit.db` by default). Under compose,
+the command line is `docker compose --env-file .env.compose exec worker openfactory …`: it runs with
+the worker's environment, whose `OPENFACTORY_METRICS_SINK=sqlite` and
+`OPENFACTORY_METRICS_DB=/var/lib/openfactory/metrics.db` name the store the panel writes to as well
+(both mount the `openfactory_state` volume there), so the panel's records and the command line's
+are one list. A host command line does not see a compose deployment's records, nor the reverse.
+
+**What a record holds of a person's words.** Never the text: a free-text parameter (a message, a
+comment, an instruction, an answer, the page context the product chat sends, a requirement or a
+capability named in their words) is kept as its length and its sha256 (ADR-0024). Every
+parameter the catalog takes is declared a person's words or not (`actions.base.FREE_TEXT`,
+`NOT_WORDS`), and a value under any other name — an id, a number, a flag, the name of a thing,
+or a name no row takes — is kept as sent, scrubbed and bounded as below. That digest
+proves a known text, and it reveals a short one: it is not salted, so a six-digit code, a "yes" or
+an "approve" is read back by trying the candidates (a six-digit message took 0.22 s of plain
+Python, measured 2026-10-21). Any other value is cut at 2,000 characters, the cut said in the
+value. A record keeps at most 32 parameters, the project first, and 64 characters of each one's
+name; what is left out is counted in the record. The action's INFO line prints the parameters
+exactly as the record keeps them, so a person's words reach neither.
+
+**What a record holds of a credential.** Nothing, however it is sent. A parameter whose name holds
+`password` (or `passw`), `secret`, `token` or `key` in any case, or has `pat` as one of its words
+(`github_pat`, `githubPat` — but not `path` or `repo_path`, which the catalog takes as file names),
+is kept as `***`. The same rule reads every name inside a mapping or a list a parameter carries,
+four levels deep; what is deeper is not kept. Every string — a value, a name, the project, the
+action — is scrubbed before it is cut: a URL's `user:token@` is dropped, a string shaped like a
+forge, chat, cloud or model vendor's credential is `[credential withheld]`, and so is the value of
+any secret-named variable of the process that writes the record. A name that matches the rule
+and is no credential (`token_env`, the name of a variable; `product_import`'s `token`, which
+names the plan it was shown) is masked too. The denial warnings
+(`DENIED`, `DENIED_SCOPE`, `NO_CODE_YET`) mask and scrub the same way.
+
+**`openfactory project forget` keeps the records.** An audit trail that forgetting a project erases
+is no audit trail, and the records hold no client's words as text. They do hold the digest of
+each, which reveals a short message (above), and the forget leaves it for the record's period. They leave when
+their period does, and not before: no write ever replaces an audit row (each is keyed by its own
+record id).
+
+**On a sqlite store, the period ends in a deletion at the next start.** A row past its
+`expires_at` is never read again, and its bytes leave the file when the worker starts, and when
+`openfactory serve` starts (`observability.retention.purge_expired`): at most 10,000 rows a store
+each start, the count said at INFO and a bound hit said as "more remain". The same is true of
+every other row the sqlite store keeps for a period — a client's message among them. A store that
+deletes by a TTL on `expires_at` (the DynamoDB add-on) deletes the bytes itself.
+
+**Read it back** with `openfactory audit`, which lists the records by actor, action, project,
+outcome and period ([the command reference](reference/cli.md#the-rest)).
+
+### Where it lives
+
+- `openfactory/observability/audit.py` — `AuditRecord`, `AUDIT_KEPT_DAYS`, `sink` and `audit_path`
+  (where the rows go), `metric_of` (the row and its `expires_at`), `write`.
+- `openfactory/actions/__init__.py` — `perform`, which leaves the line and the record on every way
+  out, cancellation included.
+- `openfactory/product/forget.py` — `RECORD_KINDS`, which does not list `audit`.
+- `openfactory/cli.py` — `openfactory audit`, the reader.
+- `openfactory/observability/retention.py` — `purge_expired` and `PURGE_BOUND`, which the
+  worker (`openfactory/runtime/temporal/worker.py`) and `openfactory serve` run as they start.

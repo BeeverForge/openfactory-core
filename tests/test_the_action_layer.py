@@ -1803,12 +1803,16 @@ def test_a_row_that_hands_back_another_rows_outcome_declares_which(name):
 
 def test_perform_emits_every_reason_it_declares_and_declares_every_one_it_emits():
     """`perform` refuses around every row — a missing parameter, a credential scoped away, an
-    engine that did not answer — and those reasons are part of every row's list."""
+    engine that did not answer — and those reasons are part of every row's list. Read off
+    `perform` AND `_decide`, the body it records around (#694): a refusal moved from one to the
+    other is still one `perform` says."""
     tree = ast.parse(_LAYER_SOURCE.read_text())
-    perform = next(n for n in ast.walk(tree)
-                   if isinstance(n, ast.AsyncFunctionDef) and n.name == "perform")
+    said: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name in {"perform", "_decide"}:
+            said |= _refusals_in(node)
 
-    assert _refusals_in(perform) == set(base.AROUND_EVERY_ROW) | {base.UNKNOWN_ACTION}
+    assert said == set(base.AROUND_EVERY_ROW) | {base.UNKNOWN_ACTION}
 
 
 def test_every_reason_is_in_the_vocabulary():

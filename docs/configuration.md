@@ -132,7 +132,10 @@ ARM/Graviton). Defined in `infra/terraform/panel_apprunner.tf`, OFF by default.
     OPENFACTORY_PANEL_TOKENS="s3cret-a:ana:Ana Lima,s3cret-b:leo:Leo Martins"
     ```
 
-    Every action's audit line then names the person instead of the word `panel`. The shared token
+    Every action's audit line, and the audit record kept beside it, then names the person instead
+    of the word `panel` — the record also names the identity provider (`local`), and
+    `openfactory audit --actor ana` reads back what Ana asked for and what came of it
+    ([how long it is kept](rotation-and-retention.md#5-who-did-what-the-action-audit-record)). The shared token
     keeps working alongside it (a caller presenting it is recorded as `anonymous`, and one
     `OPENFACTORY_IDENTITY_ANONYMOUS` log line says so), so a deployment can migrate without an outage —
     and **either variable alone closes the panel**. With *neither* set the panel is open, which is
@@ -504,6 +507,13 @@ TEMPORAL_API_KEY=<from $SSM_PREFIX/temporal-api-key>
 ```
 The panel's **Engine ↗** deep-links resolve automatically: a `*.tmprl.cloud` endpoint →
 the Cloud console; anything else → the local dev-server UI.
+
+**The deployment's name.** Every action's audit record names the deployment that wrote it. Unset,
+that name is `TEMPORAL_NAMESPACE`'s value (`default` when that is unset too). Two deployments
+that share one Temporal namespace name themselves apart:
+```
+OPENFACTORY_DEPLOYMENT=<a name for this deployment>
+```
 
 **The gate key.** The panel seals every answer to a human gate (the production approval, the
 merge gate) and the worker acts only on a sealed one, so a signal sent to the engine by anybody

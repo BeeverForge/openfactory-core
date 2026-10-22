@@ -82,18 +82,22 @@ MUTATIONS = [
      _APP, '    return actions.Actor(id=(subject.id or "") if known else "",\n',
      '    return actions.Actor(id=subject.id or "",\n'),
 
+    # Re-pinned 2026-10-20: the line now also hands the subject to the actor (#694, `_actor_of`),
+    # so the anchor carries `subject=subject` and the cut leaves it in place. Re-pinned again the
+    # same day: the actor's correlation id follows on the next line (#694), in this anchor and the
+    # two below, and each cut leaves it in place.
     ("a named person keeps the label they sent",
-     _APP, '                         label="" if known else label)\n',
-     '                         label=label)\n'),
+     _APP, '                         label="" if known else label, subject=subject,\n',
+     '                         label=label, subject=subject,\n'),
 
     ("the header is read a second time, outside `_label_of`",
-     _APP, "    return _actor_of(request, _subject(request), label=_label_of(request))\n",
+     _APP, "    return _actor_of(request, _subject(request), label=_label_of(request),\n",
      '    return _actor_of(request, _subject(request),\n'
-     '                     label=request.headers.get("x-openfactory-actor", ""))\n'),
+     '                     label=request.headers.get("x-openfactory-actor", ""),\n'),
 
     ("the label is not carried at all, so a script on a shared token cannot say what it is",
-     _APP, "    return _actor_of(request, _subject(request), label=_label_of(request))\n",
-     '    return _actor_of(request, _subject(request), label="")\n', _LABEL_TEST),
+     _APP, "    return _actor_of(request, _subject(request), label=_label_of(request),\n",
+     '    return _actor_of(request, _subject(request), label="",\n', _LABEL_TEST),
 
     ("the audit line no longer prints the label",
      _ACTIONS,

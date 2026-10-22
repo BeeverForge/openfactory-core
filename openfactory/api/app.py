@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from html import escape as _h
 from pathlib import Path, PurePosixPath
@@ -1212,6 +1213,20 @@ def _label_of(request) -> str:
     return (request.headers.get("x-openfactory-actor") or "").strip()[:_LABEL_MAX]
 
 
+def _correlation_of(request) -> str:
+    """The correlation id of this request: its `X-Request-ID` when that is an id, else a new one
+    (`audit.correlation_or_new`).
+
+    `X-Request-ID` because it is what nginx (`$request_id`), most proxies and load balancers in
+    front of the panel already set (#694 Q4), so a record lines up with the proxy's access log with
+    no setting. A header that is not an id — a newline, a space, more than 128 characters — is
+    replaced whole and never kept, even in part. Read for the record only: the response does not
+    echo it, and nothing decides on it."""
+    from openfactory.observability.audit import correlation_or_new
+
+    return correlation_or_new(request.headers.get("x-request-id"))
+
+
 def _subject_of(credential: str):
     """WHO one credential names, or `UNKNOWN` — the provider's answer, asked the one way.
 
@@ -1253,11 +1268,17 @@ def _actor(request: Request) -> actions.Actor:
 
     A CALLER NOBODY NAMED MAY LABEL ITSELF, and the label is carried as `Actor.label` — beside the
     actor, never in its id or its display (`_label_of`). A person the provider named carries none:
-    they must not be able to rename themselves in the audit trail."""
-    return _actor_of(request, _subject(request), label=_label_of(request))
+    they must not be able to rename themselves in the audit trail.
+
+    THE REQUEST'S CORRELATION ID rides on the actor too (`_correlation_of`): its `X-Request-ID`
+    when that is an id, else a new one, so every request reaches `perform` with an id and the
+    audit record, a relayed row's record and the started job's journal all carry that one (#694).
+    It is not echoed in the response, and no gate reads it."""
+    return _actor_of(request, _subject(request), label=_label_of(request),
+                     correlation=_correlation_of(request))
 
 
-def _actor_of(connection, subject, *, label: str = "") -> actions.Actor:
+def _actor_of(connection, subject, *, label: str = "", correlation: str = "") -> actions.Actor:
     """`_actor`, for a subject already resolved — a request's, or a socket's (`HTTPConnection`
     either way, so the conversation is keyed off the same cookies).
 
@@ -1267,14 +1288,22 @@ def _actor_of(connection, subject, *, label: str = "") -> actions.Actor:
     marked anonymous carries no id here even if it filled one in.
 
     `label` is what the request said about itself (`_label_of`): kept for an anonymous subject, as
-    a hint beside it, and dropped for a named one."""
+    a hint beside it, and dropped for a named one.
+
+    The subject itself rides on the actor (ADR-0057 D1), anonymous or not, so the audit record
+    names the provider that resolved the caller (`local`, `oidc`, `anonymous`) — before #694 it
+    was dropped here, and a record could not tell a token row from the shared token.
+
+    `correlation` is the request's id (`_correlation_of`). The product socket passes none — a
+    browser cannot set a header on a socket — and `perform` mints one for each of its calls."""
     scopes = _scopes_of(subject)
     known = getattr(subject, "known", False)
     return actions.Actor(id=(subject.id or "") if known else "",
                          display=subject.display or subject.id or "panel",
                          via="panel", admin=True, scopes=scopes,
                          conversation=_conversation_of(connection, subject),
-                         label="" if known else label)
+                         label="" if known else label, subject=subject,
+                         correlation=correlation)
 
 
 #: The cookie a browser nobody has identified carries, so that ITS conversation with the product
@@ -1380,6 +1409,14 @@ def _read_events(path: Path) -> list[dict]:
             except json.JSONDecodeError:
                 log.debug("skipping an unreadable journal line")
     return out
+
+
+def _a_line(line: str) -> object:
+    """One journal line as `_read_events` reads it, or `None` for one that is not JSON."""
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError:
+        return None
 
 
 def _box_health(project) -> dict:
@@ -1511,7 +1548,18 @@ def read_address(repo_path: str = "", repo: str = "", provider: str = "") -> dic
 
 
 @app.post("/api/projects", dependencies=_AUTH)
-def add_project(body: NewProject) -> dict:
+def add_project(body: NewProject, request: Request) -> dict:
+    """Register a project. Leaves one audit record, `project_add`, however it ends: this door
+    calls no catalog row (`actions.door_recorded`). The record names the project as `project`, the
+    key `openfactory audit -p` reads."""
+    # the body names it `name`; on 58cbd307 the record's project was empty, and `openfactory audit
+    # -p demo` found nothing (branch review, 2026-10-22)
+    with actions.door_recorded("project_add", by=_actor(request),
+                               params={"project": body.name, **body.model_dump()}):
+        return _add_project(body)
+
+
+def _add_project(body: NewProject) -> dict:
     options: dict[str, str] = {}
     if body.board_owner and body.board_number:
         options = {"board_owner": body.board_owner, "board_number": body.board_number}
@@ -1690,9 +1738,14 @@ def _events(project: str, issue: str) -> list[dict]:
     on a remote deployment is `[]`, and the page drew that as "this run wrote no journal on this
     machine": a claim about the run, made out of a read that never landed. They raise
     `JournalUnreadable` now, which the route answers as a 503 in one sentence. `[]` is still the
-    answer when the box was read and had nothing, or when no box is remote."""
+    answer when the box was read and had nothing (after any start noted here), or when no box is
+    remote.
+
+    A START NOTED HERE IS NOT THE JOB'S JOURNAL (#694). `start` writes its `started` line where
+    the action ran, which on a remote deployment is this host and not the worker's: a local
+    journal holding only that line is followed by the box's tail, never answered alone."""
     local = _read_events(events_file(ProjectRegistry().get(project), issue))
-    if local or not _boxes_are_remote():
+    if _the_job_wrote(local) or not _boxes_are_remote():
         return local
     tail = _remote_tail(project, issue)
     if tail is None:
@@ -1700,11 +1753,19 @@ def _events(project: str, issue: str) -> list[dict]:
             f"could not read the box's journal for {project}#{issue}: the remote box's event tail "
             f"could not be built — the panel's log says why")
     try:
-        return tail.fetch_new()
+        return local + tail.fetch_new()
     except Exception as exc:  # noqa: BLE001 — the remote feed unreachable → said, never `[]`
         log.info("remote events unavailable for %s#%s (%s)", project, issue, exc)
         raise JournalUnreadable(
             f"could not read the box's journal for {project}#{issue} ({str(exc)[:160]})") from exc
+
+
+def _the_job_wrote(events: Iterable[object]) -> bool:
+    """Whether a journal read on this host holds a line the JOB wrote, not only the start notes an
+    action wrote from here (`job_record.is_start_note`, #694)."""
+    from openfactory.observability.job_record import is_start_note
+
+    return any(not is_start_note(e) for e in events)
 
 
 class JournalUnreadable(RuntimeError):
@@ -2410,6 +2471,16 @@ def _staged_suggestion(project: str, channel) -> dict | None:
 
 @app.post("/api/messages/{project}/answer", dependencies=_AUTH)
 def answer_channel_message(project: str, body: dict, request: Request) -> dict:
+    """A person answering a question the factory asked on the panel — `_answer_channel_message`,
+    with one audit record, `message_answer`, however it ends: this door calls no catalog row
+    (`actions.door_recorded`). The question's `token` is masked in the record and the `answer`
+    kept as its digest, as any parameter of those names is."""
+    params = {**(body if isinstance(body, dict) else {}), "project": project}
+    with actions.door_recorded("message_answer", by=_actor(request), params=params):
+        return _answer_channel_message(project, body, request)
+
+
+def _answer_channel_message(project: str, body: dict, request: Request) -> dict:
     """A person answering a question the factory asked on the panel.
 
     THE TOKEN IS THE SUBJECT, not the position in a list. It identifies what the reader was SHOWN,
@@ -2890,14 +2961,19 @@ async def job_stream(project: str, issue: str, request: Request) -> StreamingRes
     async def gen():
         emitted = start
         seen: list[str] = []  # one canonical, append-only event sequence for this stream
+        fetched: list[str] = []  # what the remote tail has handed over, in order
         # the remote box's incremental tail (built only if needed — R6; once per stream, with a
         # bounded retry — `_StreamTail`)
         stream_tail = _StreamTail(project, issue)
         remote: bool | None = None  # asked once per stream: the answer is the deployment's
         for tick in range(86400):  # up to ~24h; a client disconnect ends the generator
-            if path.exists():  # local journal — cheap live tail (co-located worker)
-                seen = [ln for ln in path.read_text().splitlines() if ln.strip()]
+            local = [ln for ln in path.read_text().splitlines() if ln.strip()] \
+                if path.exists() else []
+            if _the_job_wrote(_a_line(ln) for ln in local):
+                seen = local  # local journal — cheap live tail (co-located worker)
             else:
+                # A START NOTED HERE (#694) is the action's line, not the job's journal: on a
+                # remote deployment the box's lines follow it, as `_events` answers.
                 # GUARDED, like `_events` — C-11c fixed that reader and left this one, with
                 # nothing asserting the two agree. On a local install the journal is absent (the
                 # panel reads a volume the journal is not written to, #67), so this branch was not
@@ -2908,10 +2984,11 @@ async def job_stream(project: str, issue: str, request: Request) -> StreamingRes
                 tail = (await asyncio.to_thread(stream_tail.get, tick)) if remote else None
                 if tail is not None:
                     try:
-                        seen += [json.dumps(e) for e in await asyncio.to_thread(tail.fetch_new)]
+                        fetched += [json.dumps(e) for e in await asyncio.to_thread(tail.fetch_new)]
                     except Exception:
                         logging.getLogger("openfactory.panel").warning("remote tail failed",
                                                                 exc_info=True)
+                seen = local + fetched
             if len(seen) > emitted:
                 for line in seen[emitted:]:
                     yield f"data: {line}\n\n"
@@ -3775,7 +3852,9 @@ async def act(name: str, body: ActRequest, request: Request) -> JSONResponse:
     Returns the Outcome verbatim — `ok`, `message`, `code`, `data` — with the HTTP status mapped
     from `code`, and `detail` mirroring `message` so the panel's existing error handling (which
     reads `d.detail`, the FastAPI convention) works unchanged."""
-    outcome = await actions.perform(name, by=_actor(request), **(body.params or {}))
+    # ONE MAPPING, NOT SPREAD: a body naming `by` or `name` collided with `perform`'s own
+    # arguments and answered 500 with no record (PR #1039 review N1).
+    outcome = await actions.perform(name, by=_actor(request), params=body.params or {})
     payload: dict[str, object] = {"ok": outcome.ok, "message": outcome.message,
                                   "code": outcome.code, "data": dict(outcome.data)}
     if not outcome.ok:

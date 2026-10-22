@@ -254,6 +254,7 @@
       },
       "post": {
         "summary": "Add Project",
+        "description": "Register a project. Leaves one audit record, `project_add`, however it ends: this door\ncalls no catalog row (`actions.door_recorded`). The record names the project as `project`, the\nkey `openfactory audit -p` reads.",
         "operationId": "add_project_api_projects_post",
         "parameters": [
           {
@@ -979,7 +980,7 @@
     "/api/messages/{project}/answer": {
       "post": {
         "summary": "Answer Channel Message",
-        "description": "A person answering a question the factory asked on the panel.\n\nTHE TOKEN IS THE SUBJECT, not the position in a list. It identifies what the reader was SHOWN,\nso an answer arriving after the staged proposal changed cannot be applied to its replacement —\nthe difference between approving a proposal and approving something else in its name.\n\nRefuses an answer to a question that does not exist or is already answered, rather than\nrecording it: a second click on a stale page must not read as a second decision.\n\nWHO ANSWERED IS RESOLVED, NEVER DECLARED (adversarial review of C-25/C-26). The first\nversion read `by` from the request body: the panel sent none — so every answer's audit row\nnamed nobody — and any caller holding a panel credential could write somebody ELSE's name\ninto the append-only record, the precise spoofing `_subject`'s named-person rule exists to\nprevent. The body's `by` is now ignored; identity comes from the credential, and so does the\nname an anonymous caller is recorded under: the one its credential is known by. A label it\nsends in X-OpenFactory-Actor is not who answered, and not who the product gate is asked\nabout.",
+        "description": "A person answering a question the factory asked on the panel — `_answer_channel_message`,\nwith one audit record, `message_answer`, however it ends: this door calls no catalog row\n(`actions.door_recorded`). The question's `token` is masked in the record and the `answer`\nkept as its digest, as any parameter of those names is.",
         "operationId": "answer_channel_message_api_messages__project__answer_post",
         "parameters": [
           {

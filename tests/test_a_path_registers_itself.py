@@ -156,7 +156,8 @@ def test_every_registering_door_asks_the_SAME_two_questions():
     from openfactory.api import app as api_module
 
     for where, src in (("project add / project init", inspect.getsource(cli)),
-                       ("POST /api/projects", inspect.getsource(api_module.add_project))):
+                       # the route's body is `_add_project` since it is recorded (#694)
+                       ("POST /api/projects", inspect.getsource(api_module._add_project))):
         assert "kind_for(" in src, f"{where} decides the kind on its own"
         assert "foreign_host(" in src, f"{where} does not ask whose host it is"
 
