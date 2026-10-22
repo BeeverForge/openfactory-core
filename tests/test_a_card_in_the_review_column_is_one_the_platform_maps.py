@@ -251,6 +251,20 @@ def test_a_park_a_github_deployment_already_called_needs_review_still_reads_as_a
     assert board.stage_key("Needs Review") == "needs_action"
 
 
+def test_a_park_called_needs_review_in_another_case_is_still_a_park():
+    """A park the deployment called "Needs Review" stays a park when the site spells the status
+    "NEEDS REVIEW": Jira matches status names case-insensitively, so the read can differ in case
+    from the map. `needs_review`'s default name yields in any case, as `key_for` matches in any.
+
+    GREEN ON 64a666dd, as on `main` (1be1835a answered `needs_action`). With `yields_its_name`
+    comparing case-sensitively it reads `needs_review`, round 1's park-read-as-review defect again,
+    and the product role's parked review goes empty (the branch review of 64a666dd, cut c2,
+    measured 2026-10-22; plan 753, row 48)."""
+    from openfactory.adapters.board.columns import key_for
+
+    assert key_for("NEEDS REVIEW", renamed={"needs_action": "Needs Review"}) == "needs_action"
+
+
 def test_a_github_wait_pointed_at_the_review_column_still_reads_as_the_factorys_review():
     """A GitHub deployment that puts the wait in its review column (`columns: {"needs_review":
     "In review"}`, the default spelling of `in_review`) still reads a card there as the factory's

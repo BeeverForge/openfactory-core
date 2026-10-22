@@ -49,7 +49,9 @@ THE CLAIMS, each with a red twin below:
      the pull request to Needs Action. Row 46 makes the local board's fallback warning fire on
      every move of a board 0.6 wrote, instead of once per board (PR #1040's review). Row 47 lets
      a name the deployment WROTE for `needs_review` yield too, so `{needs_review: "In review"}`
-     sends the pull request to Needs Action instead of where the deployment put it.
+     sends the pull request to Needs Action instead of where the deployment put it. Row 48 compares
+     the collision case-sensitively, so a park called "Needs Review" that Jira spells "NEEDS
+     REVIEW" reads as `needs_review` again (round 1's defect).
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -333,4 +335,9 @@ MUTATIONS = [
      "        return False\n",
      "",
      f"{AC2}::test_a_github_deployment_that_maps_needs_review_onto_its_review_column_gets_what_it_mapped"),
+
+    ("the collision is compared case-sensitively", COLUMNS,
+     "    return any(other != key and str(spelled).strip().casefold() == wanted",
+     "    return any(other != key and str(spelled) == name",
+     f"{AC456}::test_a_park_called_needs_review_in_another_case_is_still_a_park"),
 ]
