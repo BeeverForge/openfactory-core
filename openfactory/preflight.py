@@ -121,6 +121,9 @@ class Probes:
     #: that cannot be postponed, and the stack boots happily without it.
     #: `(visible, detail)`, and on a miss the REPAIR the harness names as a third item — its own
     #: words for how its credential is fixed, which the finding says where the file is (#582).
+    #: Under a declared credential store other than `env`, "where" is that store, named and never
+    #: read: this check is made to run before the stack, and `openfactory doctor` checks the
+    #: store (#904).
     agent_credential: Callable[[], tuple[bool, str] | tuple[bool, str, str]]
     #: The published ports this deployment will actually use, after its own overrides.
     ports: Callable[[], tuple[tuple[str, int], ...]]
@@ -585,10 +588,49 @@ def _probe_agent_credential() -> tuple[bool, str] | tuple[bool, str, str]:
     name, said, repair = reading
     if not name:
         # THE REPAIR IS THE HARNESS'S (review of #584): a pool that cannot be used is fixed in the
-        # pool, and the old fixed sentence sent it to replace the pool with one token
-        return False, said + _unread(), f"{repair} — in .env.compose"
+        # pool, and the old fixed sentence sent it to replace the pool with one token.
+        # WHERE IT GOES IS THE DEPLOYMENT'S (#904): under a declared credential store the worker
+        # asks that store first, and "— in .env.compose" sent the person past the place they chose
+        # for their secrets. Read from `settings`, never the environment alone (#560). The store
+        # is named, never built or asked: why is `_in_the_store`'s.
+        from openfactory.adapters.credential_store.registry import ENV, deployment_store
+
+        store = deployment_store(settings)
+        if store == ENV:
+            return False, said + _unread(), f"{repair} — in .env.compose"
+        return False, said + _unread(), f"{repair} — {_in_the_store(store, kind, repair)}"
     where = "in the environment" if os.environ.get(name) else "in .env.compose"
     return True, f"{name} is set {where}" + (f" — {said}" if said else "")
+
+
+def _in_the_store(store: str, harness: str, repair: str) -> str:
+    """Where a missing agent credential goes under the declared credential store `store`, and why
+    this check cannot say whether it is there (#904).
+
+    NAMED, NEVER READ. The installer runs this check in the CLI image before the stack exists
+    (`install.sh:591`, `in_the_cli preflight`), with `/out` mounted and no credential directory,
+    and that image may lack the add-on a worker's store comes from, where an unknown kind refuses
+    every credential (#822). So no store is built, listed or asked here and no value is read: the
+    kind is named as declared and the doctor, which runs in the stack, is the check. The same
+    sentence is printed when the check is run inside the worker, where the store is mounted, so it
+    says the check does not read the store, not that the stack is down."""
+    from openfactory.adapters.agent.registry import credential_names
+    from openfactory.adapters.credential_store.file import DIR_VAR
+    from openfactory.adapters.credential_store.registry import FILE, STORE_VAR
+
+    where = ""
+    if store == FILE:
+        # THE FILE IS NAMED AFTER THE SETTING THE REPAIR ASKS FOR: the harness's own names, in its
+        # order, the first one its repair says — never a copy of them here
+        named = next((n for n in credential_names(harness) if n in repair), "")
+        where = (f"a file named after the setting ({named}) in the directory {DIR_VAR} names, "
+                 if named else f"a file named after the setting in the directory {DIR_VAR} names, ")
+    # TRUE IN BOTH PLACES IT RUNS: the installer's last lines also send every install to `compose
+    # exec worker openfactory preflight` (`install.sh`), where the store is declared and mounted;
+    # "this check runs before the stack" was false there (review of #904, measured on bdaa3b4f).
+    return (f"in {where}the `{store}` credential store this deployment declares ({STORE_VAR}); "
+            "this check does not read that store, because it is made to run before the stack "
+            "exists, so `openfactory doctor` checks it once the stack is up")
 
 
 def _unread(path: str = ".env.compose") -> str:

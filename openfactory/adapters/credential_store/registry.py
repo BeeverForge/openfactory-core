@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 
 from openfactory import plugins
@@ -122,9 +122,20 @@ def parse(reference: object) -> tuple[str, str]:
     return kind.strip().lower(), name.strip()
 
 
-def deployment_store() -> str:
-    """The store this deployment's own credentials are asked of first (`STORE_VAR`), `env` unset."""
-    return (os.environ.get(STORE_VAR) or "").strip().lower() or ENV
+def deployment_store(settings: Mapping[str, str] | None = None) -> str:
+    """The store this deployment's own credentials are asked of first (`STORE_VAR`), `env` unset,
+    empty or padded, in any case.
+
+    `settings` is where the deployment's settings are read from, the process environment by
+    default. THE MAPPING IS FOR A READER THAT RUNS BEFORE THE STACK (#904): the stack preflight
+    reads `.env.compose` under the environment (`preflight._settings`), because the installer runs
+    it in the CLI container whose environment holds nothing of that file. Read from the
+    environment alone, a probe there told an upgrade to replace a token that was in the file and
+    worked (#560), and a store declared in the file would be missed the same way. One body, so
+    the normalisation has one spelling; the `.get(STORE_VAR)` stays literal here, which is how
+    `environ.names_read` keeps the selector counted."""
+    return ((settings if settings is not None else os.environ).get(STORE_VAR)
+            or "").strip().lower() or ENV
 
 
 @dataclass(frozen=True)
