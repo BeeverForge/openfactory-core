@@ -7,7 +7,9 @@ Run:  .venv/bin/python tools/mutate.py \
 The claims: every column the listing prints, the INFO line's action and who asked, and the
 WARNING when a record is not kept, write each control character a caller sent as its escape
 (`audit.printable`), so one call is one line — and `printable` itself escapes every `C`
-category character, the three a reader knows by name as Python writes them.
+category character, the three a reader knows by name as Python writes them, and the line and
+paragraph separators (`Zl`, `Zp`) that `str.splitlines()` breaks on too (branch review of
+58cbd307, 2026-10-22: a U+2028 in a project was two lines of the listing).
 
 Every row names the one test that holds its claim. On c310ba28 three calls by an anonymous
 caller printed six listing lines, and the unknown-action INFO line was one record of two lines.
@@ -20,6 +22,9 @@ _ACTIONS = "openfactory/actions/__init__.py"
 _CLI = "openfactory/cli.py"
 _T = TEST + "::"
 _ONE_LINE = _T + "test_one_call_is_one_line_of_the_listing_whatever_the_caller_sent"
+_PLAIN = _T + "test_the_plain_action_line_is_one_line_whatever_separator_was_asked"
+_ESCAPES = ('        elif unicodedata.category(char)[0] == "C"'
+            " or unicodedata.category(char) in _BREAKS:\n")
 
 MUTATIONS = [
     ("the listing prints each column as stored", _CLI,
@@ -35,9 +40,22 @@ MUTATIONS = [
      "                    key or name, by, exc)\n",
      _T + "test_no_log_line_about_the_record_carries_a_callers_newline"),
     ("printable lets a control character through", _AUDIT,
-     '        elif unicodedata.category(char).startswith("C"):\n',
-     "        elif False:\n",
+     _ESCAPES,
+     '        elif unicodedata.category(char) in _BREAKS:\n',
      _ONE_LINE + "[a_terminal_escape_in_the_project]"),
+    # branch review of 58cbd307 (2026-10-22): U+2028 and U+2029 are no `C`, and split the line
+    ("printable lets a line separator through", _AUDIT,
+     _ESCAPES,
+     '        elif unicodedata.category(char)[0] == "C":\n',
+     _ONE_LINE + "[a_line_separator_in_the_project]"),
+    ("printable lets a paragraph separator through", _AUDIT,
+     _ESCAPES,
+     '        elif unicodedata.category(char)[0] == "C" or unicodedata.category(char) == "Zl":\n',
+     _ONE_LINE + "[a_paragraph_separator_in_the_project]"),
+    ("the INFO line escapes the newline only", _ACTIONS,
+     "audit.printable(audit._scrub(key)),\n",
+     "audit._scrub(key).replace(\"\\n\", \"\\\\n\"),\n",
+     _PLAIN),
     ("printable writes a newline as \\x0a, not \\n", _AUDIT,
      "        if char in _NAMED_ESCAPES:\n            shown.append(_NAMED_ESCAPES[char])\n"
      "        elif",

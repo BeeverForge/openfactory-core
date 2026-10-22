@@ -11,9 +11,13 @@ unknown-action path printed the name with `%s`, so `teleport\\nINFO … action=a
 one log record of two lines.
 
 WHAT HOLDS NOW: every column the listing prints, and every caller string the action's log lines
-print, has each control character (a `unicodedata` category starting with `C`) written as its
-escape — so one record is one line, and the stored record is unchanged (`--json` prints it as
-it was kept).
+print, has each control character (a `unicodedata` category starting with `C`) and each line or
+paragraph separator (`Zl`, `Zp`) written as its escape — so one record is one line, and the stored
+record is unchanged (`--json` prints it as it was kept).
+
+The separators are since the branch review of 58cbd307 (2026-10-22): `str.splitlines()` breaks on
+U+2028 and U+2029, which are not `C`, and the review's forged line with U+2028 in place of the
+newline was two lines of the listing again (`assert 2 == 1`).
 """
 
 from __future__ import annotations
@@ -31,6 +35,12 @@ from openfactory import actions
 #: erases its line on a terminal, and an action name that does both through the URL's path.
 FORGED_LINE = "nosuch\n2026-10-21T09:00:00+00:00  alice  approve_prod  books  ok"
 ERASED_LINE = "nosuch\x1b[2K\rFAKE"
+#: The forged line with a Unicode line separator, a paragraph separator, and a NEL (U+0085, a `Cc`
+#: that the `C` rule already escaped) in place of the newline: `str.splitlines()` breaks on all
+#: three, as `observability.logs._STILL_LINE_BREAKS` measured for the JSON log lines (#818).
+SEPARATED_LINE = FORGED_LINE.replace("\n", "\u2028")
+PARAGRAPHED_LINE = FORGED_LINE.replace("\n", "\u2029")
+NEL_LINE = FORGED_LINE.replace("\n", "\x85")
 FORGED_ACTION = "teleport%0A2026-10-21T09:00:01+00:00%20%20bob%20%20merge%20%20books%20%20ok"
 
 
@@ -59,18 +69,23 @@ def _listing() -> list[str]:
     pytest.param("product_status", FORGED_LINE, id="a_newline_in_the_project"),
     pytest.param("product_status", ERASED_LINE, id="a_terminal_escape_in_the_project"),
     pytest.param(FORGED_ACTION, "nosuch", id="a_newline_in_the_action"),
+    pytest.param("product_status", SEPARATED_LINE, id="a_line_separator_in_the_project"),
+    pytest.param("product_status", PARAGRAPHED_LINE, id="a_paragraph_separator_in_the_project"),
+    pytest.param("product_status", NEL_LINE, id="a_next_line_in_the_project"),
 ])
 def test_one_call_is_one_line_of_the_listing_whatever_the_caller_sent(panel, path, project):
     """B1: one call through `POST /api/act/{name}` is one line of `openfactory audit`, its control
-    characters written as escapes. On c310ba28 each of these calls printed two lines, and the
-    second read as somebody else's action."""
+    characters and separators written as escapes. On c310ba28 each of these calls printed two
+    lines, and the second read as somebody else's action; on 58cbd307 the two separators still
+    did."""
     panel.post(f"/api/act/{path}", json={"params": {"project": project}})
 
     lines = _listing()
 
     assert len(lines) == 1, lines
-    assert not [c for c in lines[0] if c in "\n\r\x1b"], repr(lines[0])
-    assert "\\n" in lines[0] or "\\x1b" in lines[0], repr(lines[0])
+    assert not [c for c in lines[0] if c in "\n\r\x1b\x85\u2028\u2029"], repr(lines[0])
+    assert any(escape in lines[0] for escape in ("\\n", "\\x1b", "\\x85", "\\u2028", "\\u2029")), \
+        repr(lines[0])
 
 
 def test_the_json_listing_keeps_the_record_as_it_was_kept(panel):
@@ -100,6 +115,27 @@ async def test_the_action_line_is_one_line_whatever_action_was_asked(tmp_path, m
     lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("action=")]
     assert len(lines) == 1, lines
     assert "\n" not in lines[0] and "teleport\\ninfo" in lines[0], repr(lines[0])
+
+
+async def test_the_plain_action_line_is_one_line_whatever_separator_was_asked(tmp_path,
+                                                                             monkeypatch, caplog):
+    """B1, the log with no JSON: the deployment's plain formatter (`logs._UTC(logs.FORMAT)`) does
+    not escape what a message holds, so the INFO line `perform` writes is one line only if the
+    name a caller typed is escaped first. On 58cbd307 a U+2028 or U+2029 in it was kept raw, and
+    `splitlines()` read that one record as two lines (branch review, 2026-10-22)."""
+    from openfactory.observability import logs
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    plain = logs._UTC(logs.FORMAT)
+
+    with caplog.at_level(logging.INFO, logger="openfactory.actions"):
+        for separator in ("\u2028", "\u2029"):
+            await actions.perform(f"teleport{separator}INFO openfactory.actions action=approve_prod",
+                                  by=actions.SYSTEM)
+
+    lines = [plain.format(r) for r in caplog.records if r.getMessage().startswith("action=")]
+    assert len(lines) == 2, lines
+    assert [len(line.splitlines()) for line in lines] == [1, 1], lines
 
 
 async def test_no_log_line_about_the_record_carries_a_callers_newline(tmp_path, monkeypatch,

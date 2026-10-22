@@ -240,6 +240,11 @@ def _clean(value: object, *, depth: int, words: bool) -> object:
     return _scrub(str(value))
 
 
+#: The two categories that are no `C` and still end a line: Zl and Zp (U+2028, U+2029), on both
+#: of which `str.splitlines()` breaks. On 58cbd307 a U+2028 in a project was two lines of the
+#: listing, the second the caller's forged record (branch review, 2026-10-22).
+_BREAKS = ("Zl", "Zp")
+
 #: The three control characters a reader knows by name, written as Python writes them.
 _NAMED_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
 
@@ -247,7 +252,8 @@ _NAMED_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
 def printable(text: object) -> str:
     """`text` as one line a person reads: each control or other non-printing character (a
     `unicodedata` category starting with `C`: a newline, a carriage return, an escape, a lone
-    surrogate) written as its escape — `\\n`, `\\r`, `\\t`, else `\\xNN`, `\\uNNNN` or
+    surrogate, U+0085) and each line or paragraph separator (`Zl`, `Zp`: U+2028, U+2029) written
+    as its escape — `\\n`, `\\r`, `\\t`, else `\\xNN`, `\\uNNNN` or
     `\\UNNNNNNNN`; every other character as it is. For what is SHOWN — the `openfactory audit`
     listing, the action's log lines — never for what is kept: the record keeps what was sent, and
     `--json` escapes it on its own.
@@ -264,7 +270,7 @@ def printable(text: object) -> str:
     for char in text:
         if char in _NAMED_ESCAPES:
             shown.append(_NAMED_ESCAPES[char])
-        elif unicodedata.category(char).startswith("C"):
+        elif unicodedata.category(char)[0] == "C" or unicodedata.category(char) in _BREAKS:
             code = ord(char)
             shown.append(f"\\x{code:02x}" if code < 0x100 else
                          f"\\u{code:04x}" if code < 0x10000 else f"\\U{code:08x}")
