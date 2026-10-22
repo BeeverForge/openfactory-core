@@ -108,3 +108,24 @@ def test_the_worker_purges_as_it_starts():
             or getattr(n.func, "id", "") == "purge_expired"
             or any(getattr(a, "attr", "") == "purge_expired" for a in n.args)], (
         "the worker never purges")
+
+
+def test_a_deployment_with_no_store_has_its_fallback_audit_file_purged(tmp_path, monkeypatch):
+    """With no metrics store declared — the host command line, where #1027's records sit — an
+    audit record past its period in `audit.db` leaves the file when `openfactory serve` starts,
+    and one inside its period stays. Every other test here declares a sqlite store, so the
+    deployment's store and the audit's were one file, and on 58cbd307 dropping `audit.sink` from
+    `retention._stores()` left all of them green (branch review, 2026-10-22)."""
+    from openfactory.observability import audit
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    monkeypatch.delenv("OPENFACTORY_METRICS_SINK", raising=False)
+    fallback = SqliteMetricsSink(audit.audit_path())
+    now = int(time.time())
+    for i, at in enumerate((now - 60, now + 86_400)):
+        assert fallback.record(MetricRecord(kind="audit", project="acme", ticket=f"r{i}",
+                                            ts=f"2026-10-21T10:00:0{i}+00:00", expires_at=at))
+
+    _serve(monkeypatch)
+
+    assert _bytes_left(fallback) == 1, "the expired record is still in the fallback file"
