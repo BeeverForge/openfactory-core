@@ -26,4 +26,9 @@ MUTATIONS = [
      "    params = {**(params or {}), **named}\n",
      "    params = dict(named)\n",
      _T + "test_the_panel_refuses_a_parameter_named_like_performs_own_and_records_the_call"),
+    # branch review of 58cbd307 (2026-10-22): the docstring's "the keywords winning" had no test
+    ("the mapping wins over perform's keywords", "openfactory/actions/__init__.py",
+     "    params = {**(params or {}), **named}\n",
+     "    params = {**named, **(params or {})}\n",
+     _T + "test_a_keyword_wins_over_the_same_name_in_the_mapping"),
 ]

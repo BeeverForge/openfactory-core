@@ -71,3 +71,17 @@ def test_the_command_line_refuses_a_parameter_named_like_performs_own_and_record
     assert f"does not take {reserved}" in done.output, done.output
     [record] = _records(store)
     assert (record["reason"], record["params"][reserved]) == ("bad_parameters", "mallory"), record
+
+
+async def test_a_keyword_wins_over_the_same_name_in_the_mapping(store):
+    """`perform`'s docstring promises that keywords and `params` merge, the keywords winning: code
+    that names a parameter itself is not overridden by what a door handed on. No caller passes
+    both today, and on 58cbd307 swapping the merge left every test green (branch review,
+    2026-10-22)."""
+    from openfactory import actions
+
+    await actions.perform("product_status", by=actions.SYSTEM, params={"project": "a"},
+                          project="b")
+
+    [record] = _records(store)
+    assert record["project"] == "b", record
