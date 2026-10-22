@@ -128,3 +128,76 @@ def test_a_second_rerun_on_the_seven_row_board_changes_nothing(six_row_board):
     assert code == 0, out
     assert _columns(root) == seven
     assert "added" not in out, f"a re-run that changed nothing said it added something:\n{out}"
+
+
+@pytest.fixture
+def a_hand_ordered_seven_row_board(six_row_board):
+    """The seven-row board a re-run made, after a person moved Needs Action to the end by hand
+    (position 99, as @robertocsp measured it on PR #1040, 2026-10-22)."""
+    root, repo = six_row_board
+    code, out = om.cli("project", "init", "myapp", str(repo))
+    assert code == 0, out
+    with sqlite3.connect(root / "board.db") as db:
+        db.execute("UPDATE columns SET position = 99 WHERE project = 'myapp' "
+                   "AND key = 'needs_action'")
+    return root, repo
+
+
+def test_a_rerun_keeps_the_order_a_person_gave_the_board(a_hand_ordered_seven_row_board):
+    """A re-run that adds nothing moves nothing: the board a person ordered by hand keeps its order.
+
+    RED ON 3cfca18d AND ON fa0171c1 (@robertocsp, PR #1040's review, Not-blocking 3, 2026-10-22):
+    `LocalBoardSetup.create` wrote every row's position on every call, so the board read
+    `…, Needs Review, Done, Needs Action` before the re-run and `…, Needs Review, Needs Action,
+    Done` after it, a person's order undone by a command that added nothing."""
+    root, repo = a_hand_ordered_seven_row_board
+    before = _columns(root)
+
+    code, out = om.cli("project", "init", "myapp", str(repo))
+
+    assert code == 0, out
+    assert _columns(root) == before, f"a re-run that added nothing re-ordered the board:\n{out}"
+
+
+def test_a_rerun_that_adds_nothing_does_not_say_it_added_columns(a_hand_ordered_seven_row_board):
+    """`init` says "added the columns it lacked" only when the board has a key it lacked before.
+
+    RED ON 3cfca18d AND ON fa0171c1 (the same review point): the sentence was decided by comparing
+    `attached()`'s position-ordered names, so the re-order above made `init` print "✓ board: added
+    the columns it lacked" on a board it had added nothing to."""
+    _, repo = a_hand_ordered_seven_row_board
+
+    _, out = om.cli("project", "init", "myapp", str(repo))
+
+    assert "added the columns it lacked" not in out, out
+
+
+def test_init_decides_added_by_the_keys_not_by_the_sentence(a_hand_ordered_seven_row_board,
+                                                             monkeypatch):
+    """A row whose `create` re-orders a board and adds no key has added nothing, whatever its
+    `attached()` sentence now reads: `init` compares the keys before and after.
+
+    The local row no longer re-orders a board it adds nothing to, so the CLI's own rule is held
+    here against a row that still does: `create` wrapped to write board order on every call, as
+    `LocalBoardSetup.create` did on 3cfca18d. RED ON fa0171c1: `cli.py` compared the sentences."""
+    from openfactory.adapters.board.columns import BOARD_ORDER
+    from openfactory.adapters.board_setup.local import LocalBoardSetup
+
+    root, repo = a_hand_ordered_seven_row_board
+    create = LocalBoardSetup.create
+
+    def create_and_reorder(self, *, project, owner, title, token):
+        answer = create(self, project=project, owner=owner, title=title, token=token)
+        with sqlite3.connect(root / "board.db") as db:
+            for position, key in enumerate(BOARD_ORDER):
+                db.execute("UPDATE columns SET position = ? WHERE project = 'myapp' AND key = ?",
+                           (position, key))
+        return answer
+
+    monkeypatch.setattr(LocalBoardSetup, "create", create_and_reorder)
+
+    _, out = om.cli("project", "init", "myapp", str(repo))
+
+    assert [key for key, _, _ in _columns(root)][-2:] == ["needs_action", "done"], (
+        f"the stand-in row did not re-order the board: {_columns(root)}")
+    assert "added the columns it lacked" not in out, out

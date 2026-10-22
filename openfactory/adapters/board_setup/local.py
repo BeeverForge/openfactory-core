@@ -9,11 +9,11 @@ registry, because there is nothing to point at.
 IDEMPOTENT, AND SAYS SO THROUGH `attached`. `openfactory project init` promises whoever re-runs it
 that the board step can be repeated, and this row keeps that promise twice over: it reports the
 columns it already has, and the write itself only fills in what is missing — in board order,
-renaming nothing. That is how a board made before #753 gets its "Needs Review" row: `init` calls
-`create` on a board that is already attached, because this row says it may
-(`completes_an_attached_board`). Unless another of its rows is already called "Needs Review": that
-name is the other row's (`columns.yields_its_name`), no second row of it is written, and `left_out`
-tells `init` which row carries it and how to opt in.
+renaming nothing, and moving nothing when nothing was missing. That is how a board made before
+#753 gets its "Needs Review" row: `init` calls `create` on a board that is already attached,
+because this row says it may (`completes_an_attached_board`). Unless another of its rows is
+already called "Needs Review": that name is the other row's (`columns.yields_its_name`), no second
+row of it is written, and `left_out` tells `init` which row carries it and how to opt in.
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ class LocalBoardSetup:
         return f"{len(names)} columns ({', '.join(names)})" if names else ""
 
     def create(self, *, project, owner: str, title: str, token: str | None) -> tuple[str, str]:
-        """Write the columns this project lacks, place every one in board order; answer
-        `("", <the board's page>)`.
+        """Write the columns this project lacks and, when it wrote one, place every one in board
+        order; answer `("", <the board's page>)`.
 
         `owner` and `token` ARE ACCEPTED AND UNUSED, which is the port's shape rather than an
         oversight: the caller resolves a credential on the tracker axis for every row and a row
@@ -56,6 +56,7 @@ class LocalBoardSetup:
         named = declared_columns(project, (getattr(project.tracker, "options", None) or {})) or {}
         with connect(_db_of(project), write=True) as conn:
             had = _rows(conn, name)
+            inserted = 0
             for position, key in enumerate(BOARD_ORDER):
                 # A NAME ANOTHER ROW ALREADY CARRIES IS NOT `needs_review`'s TO TAKE, by the rule
                 # reads and GitHub's write take (`columns.yields_its_name`). A board whose
@@ -69,17 +70,29 @@ class LocalBoardSetup:
                 # INSERT OR IGNORE, so a re-run adds what is missing and RENAMES NOTHING: a person
                 # who renamed a column is entitled to keep the name (C-14), and an idempotent
                 # command that quietly restored the platform's word would undo their edit.
-                conn.execute(
+                inserted += conn.execute(
                     "INSERT OR IGNORE INTO columns(project, key, name, position) VALUES (?,?,?,?)",
-                    (name, key, named.get(key) or CANONICAL_COLUMNS[key], position))
-                # AND EVERY ROW TAKES ITS PLACE IN BOARD ORDER, the existing ones included. A board
-                # made before #753 holds six rows at 0-5; the seventh key is fifth in order, so the
-                # INSERT above gives it 4, which Needs Action already holds — and a tie sorts by
-                # insertion, so the board read "Needs Action, Needs Review" (measured 2026-10-21 on
-                # a board written by 1be1835a's `project init`). Only the position is written.
-                conn.execute("UPDATE columns SET position = ? WHERE project = ? AND key = ?",
-                             (position, name, key))
+                    (name, key, named.get(key) or CANONICAL_COLUMNS[key], position)).rowcount
+            # AND WHEN A ROW WAS ADDED, EVERY ROW TAKES ITS PLACE IN BOARD ORDER. A board made
+            # before #753 holds six rows at 0-5; the seventh key is fifth in order, so the INSERT
+            # gives it 4, which Needs Action already holds — and a tie sorts by insertion, so the
+            # board read "Needs Action, Needs Review" (measured 2026-10-21 on a board written by
+            # 1be1835a's `project init`). ONLY THEN: writing the order on every call undid a
+            # person's own on a re-run that added nothing — Needs Action moved to position 99 by
+            # hand came back before Done (PR #1040's review, @robertocsp, 2026-10-22, on
+            # 3cfca18d). Only the position is written.
+            if inserted:
+                for position, key in enumerate(BOARD_ORDER):
+                    conn.execute("UPDATE columns SET position = ? WHERE project = ? AND key = ?",
+                                 (position, name, key))
         return "", f"{panel_url()}/p/{name}/board"
+
+    def keys(self, project) -> frozenset[str]:
+        """The keys of the columns this project has. `init` compares them before and after `create`
+        to say whether it added any: `attached()` is ordered by position, so comparing it read a
+        re-order as an addition (PR #1040's review, 2026-10-22)."""
+        with connect(_db_of(project)) as conn:
+            return frozenset(_rows(conn, _name_of(project)))
 
     def left_out(self, project) -> str:
         """Why `create` added no "Needs Review" column to this project's board, or `""`.

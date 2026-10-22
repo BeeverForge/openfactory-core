@@ -59,6 +59,11 @@ THE CLAIMS, each with a red twin below:
      so a row called "Needs review" gets the duplicate; row 52 reads only the board's rows, not the
      deployment's `columns:`, so a FIRST `init` writes the duplicate; row 53 makes `init` silent
      about the column it declined to add.
+ 11. **A re-run that adds nothing moves nothing, and does not say it added (PR #1040's review,
+     round 5, @robertocsp's Not-blocking 3).** Row 54 writes board order on every call again, so a
+     board a person ordered by hand (Needs Action at position 99) is re-ordered by a re-run that
+     added nothing; row 55 decides `init`'s "added the columns it lacked" by comparing
+     `attached()`'s position-ordered sentence again instead of the keys.
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -293,9 +298,8 @@ MUTATIONS = [
      f"{RERUN}::test_the_rerun_adds_needs_review_between_in_review_and_needs_action"),
 
     ("the existing rows keep their positions, so the new one ties", L_SETUP,
-     '                conn.execute("UPDATE columns SET position = ? WHERE project = ? AND key = ?",\n'
-     "                             (position, name, key))\n",
-     "",
+     "            if inserted:\n",
+     "            if False:\n",
      f"{RERUN}::test_the_rerun_gives_every_column_a_position_of_its_own"),
 
     ("a re-run restores the platform's names", L_SETUP,
@@ -311,12 +315,12 @@ MUTATIONS = [
      f"{RERUN}::test_the_rerun_leaves_the_cards_where_they_were"),
 
     ("a re-run that added a column says nothing about it", CLI,
-     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if now != attached",
-     "                typer.echo(f\"✓ board: the columns are there — {now}\" if now != attached",
+     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if added",
+     "                typer.echo(f\"✓ board: the columns are there — {now}\" if added",
      f"{RERUN}::test_the_rerun_says_what_it_added"),
 
     ("a re-run that added nothing says it added the columns", CLI,
-     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if now != attached",
+     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if added",
      "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if True",
      f"{RERUN}::test_a_second_rerun_on_the_seven_row_board_changes_nothing"),
 
@@ -374,4 +378,15 @@ MUTATIONS = [
      "            if callable(left_out) and (why := left_out(project)):",
      "            if False and callable(left_out) and (why := left_out(project)):",
      f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
+
+    # ── 11. a re-run that adds nothing moves nothing, and says it added nothing ─────────────────
+    ("a re-run writes board order over a person's on every call", L_SETUP,
+     "            if inserted:\n",
+     "            if True:\n",
+     f"{RERUN}::test_a_rerun_keeps_the_order_a_person_gave_the_board"),
+
+    ("`init` decides \"added\" by the position-ordered sentence again", CLI,
+     "                added = (keys_of(project) - keys_before if keys_before is not None",
+     "                added = (now != attached if keys_before is not None",
+     f"{RERUN}::test_init_decides_added_by_the_keys_not_by_the_sentence"),
 ]

@@ -764,6 +764,10 @@ def project_init(
         # and a command that exited on an empty owner would refuse to create a board that needs
         # none.
         owner = board_owner or (project.tracker.repo or "").split("/")[0]
+        # WHICH KEYS THE BOARD HAS BEFORE `create`, for a row that can say (`keys`, optional): the
+        # "added" sentence below is decided by them.
+        keys_of = getattr(create_board, "keys", None)
+        keys_before = keys_of(project) if callable(keys_of) and attached else None
         try:
             # the static token first (a PERSONAL account's board needs it — the App token
             # cannot drive user-owned Projects v2), then what this deployment can mint for THIS
@@ -795,8 +799,15 @@ def project_init(
                 # rather than minting a second one. Main's re-run skipped `create` here and so never
                 # gave a six-row board its seventh column (measured 2026-10-21); what it added is
                 # said, because a re-run that changed the board in silence is one nobody can check.
+                # ADDED IS A KEY THE BOARD LACKED BEFORE, not a sentence that changed: `attached()`
+                # lists names by position, so a re-order read as an addition and `init` printed
+                # "added the columns it lacked" on a hand-ordered board it added nothing to (PR
+                # #1040's review, @robertocsp, 2026-10-22). A row with no `keys` is compared by
+                # its sentence, the only answer it gives.
                 now = create_board.attached(project)
-                typer.echo(f"✓ board: added the columns it lacked — {now}" if now != attached
+                added = (keys_of(project) - keys_before if keys_before is not None
+                         else now != attached)
+                typer.echo(f"✓ board: added the columns it lacked — {now}" if added
                            else f"· board already attached ({attached})")
             # A COLUMN THE ROW DECLINED TO ADD IS SAID, with the way in: a local board whose
             # `in_review` or `needs_action` was already called "Needs Review" keeps one column of

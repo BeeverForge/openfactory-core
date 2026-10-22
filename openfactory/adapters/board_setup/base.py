@@ -25,13 +25,16 @@ class BoardCreator(Protocol):
 
     So the row answers both, and `init` compares nothing.
 
-    TWO OPTIONAL ATTRIBUTES, read with `getattr` so a row that predates them stays conformant:
+    THREE OPTIONAL ATTRIBUTES, read with `getattr` so a row that predates them stays conformant:
     `completes_an_attached_board = True` says `create` may be called on a board `attached` already
     answers, and adds only what that board lacks. `init` then calls it on a re-run, which is how a
     board made before a column existed gets it. The platform's own row says so; GitHub's does not,
     because its `create` mints a second board. `left_out(project) -> str` answers, after `create`,
     why a column was not added (or `""`), and `init` prints it: the platform's own row declines
-    "Needs Review" when another of its columns already carries that name."""
+    "Needs Review" when another of its columns already carries that name. `keys(project) ->
+    frozenset[str]` answers the keys of the columns the board has; `init` reads it before and after
+    `create` to say whether a column was added, and compares `attached`'s sentence for a row
+    without it."""
 
     def attached(self, project) -> str:
         """What board this project ALREADY has, as a sentence a person reads, or `""`.
