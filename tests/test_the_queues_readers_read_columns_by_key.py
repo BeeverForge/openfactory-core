@@ -392,8 +392,11 @@ def test_a_park_whose_status_is_called_needs_review_is_still_in_the_parked_revie
 def test_and_triage_and_the_stage_read_it_as_a_park(site, jira):
     """The same board, through the one door generic code asks (`stage_key`): the status the
     deployment gave `needs_action` reads as `needs_action`, not as `needs_review`, whose default
-    name yields to it. Before the fix it read `needs_review`, so the panel drew the park with the
-    "queued … not stuck" note."""
+    name yields to it. Before the fix it read `needs_review`, so what reads a column through
+    `stage_key` (the card's lifecycle in `lifecycle/ports.py`, `card_move`, the doctor's
+    `board_stages`) took the park for the review wait. The panel is not one of them: it matches
+    its column notes by name (`_BCOL` in `api/panel.html`), because the board view carries no
+    column keys, so this fix does not change how the panel draws that column."""
     from openfactory.adapters.board.base import stage_key
 
     site.put("DAR-1", "Needs Review")

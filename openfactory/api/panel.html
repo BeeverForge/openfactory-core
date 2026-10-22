@@ -5069,6 +5069,13 @@ let _bd = {project:null, data:null, card:null, pr:null, drawer:null, timer:null,
 // "Needs Review" is NOT the alarm: before #753 a pull request waiting on a person's review sat in
 // Needs Action, so the alarm column read non-zero for every merge gate that was working as meant.
 // Its tone is "queued" — in line, waiting its turn — and Needs Action keeps "err".
+// THE LIMIT OF MATCHING BY NAME: a column is drawn with the note of whichever row here carries its
+// name, whatever key the deployment mapped to it. A park mapped `needs_action: "Needs Review"`, or
+// an `in_review` called "Needs Review", is drawn "queued" with the review note, although the
+// factory itself reads that column by its key (`stage_key`) as the park or the machine's stage.
+// Matching by key needs the board view to carry each column's key, and it does not:
+// `/api/board/{project}` answers `columns` as names only (`BoardRead.columns: list[str]`,
+// measured 2026-10-22), part of the published contract in `docs/reference/openapi.json`.
 const _BCOL = [
   {name:"Backlog",      tone:"idle",   note:"a ticket a person took off the floor — nobody is waiting on it"},
   {name:"TO-DO",        tone:"queued", pickup:true, note:"the pickup queue — the poller reads this column every tick"},
