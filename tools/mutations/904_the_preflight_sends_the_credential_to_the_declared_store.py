@@ -22,7 +22,9 @@ each a row:
      own remedy and not `.env.compose`, and keeps today's line under `env`;
   7. under a declared store a `.env.compose` that cannot be read is still said (#583).
   8. a refusal reaches the doctor's line too, with the store's own remedy as the repair, and
-     its suffix names the declared store, not `.env.compose` (#822).
+     its suffix names the declared store, not `.env.compose` (#822);
+  9. only the `file` store is given the directory: the doctor's remedy under any other declared
+     kind names the kind and no `OPENFACTORY_CREDENTIAL_DIR`.
 """
 
 TEST = "tests/test_preflight_sends_a_missing_agent_credential_to_the_store_the_deployment_declares.py"
@@ -118,4 +120,10 @@ MUTATIONS = [
     ("the doctor sends a refused credential back to .env.compose", DOCTOR,
      "    declared = deployment_store()\n",
      "    declared = ENV if repair and 'refusal' in repair[0] else deployment_store()\n"),
+
+    # 9. only the `file` store is given the directory (review of #904, round 3: this cut survived
+    # the new module and every doctor module, 259 passed)
+    ("the doctor sends every declared store to the file store's directory", DOCTOR,
+     "        if declared == FILE:\n",
+     "        if declared != ENV:\n"),
 ]

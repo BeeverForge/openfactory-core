@@ -242,3 +242,23 @@ def test_an_unreadable_env_compose_is_still_said_under_a_declared_store(
     line = _credential_line()
 
     assert "could not be read" in line.message, line
+
+
+def test_the_doctor_under_a_store_kind_that_is_not_file_names_no_credential_directory(
+        installation, monkeypatch):
+    """Only the `file` store keeps a credential as a file in OPENFACTORY_CREDENTIAL_DIR: under any
+    other declared kind the doctor's remedy names the kind and no directory (review of #904,
+    round 3: `if declared == FILE` widened to `!= ENV` survived every doctor module)."""
+    from types import SimpleNamespace
+
+    from openfactory import doctor
+
+    installation()
+    monkeypatch.setenv(STORE_VAR, "vault")
+
+    line = doctor._agent_cred(doctor.probes_for(SimpleNamespace(executor="claude_code", box=None)))
+
+    assert not line.ok, line
+    assert ".env.compose" not in line.remedy, line.remedy
+    assert "`vault`" in line.remedy and STORE_VAR in line.remedy, line.remedy
+    assert DIR_VAR not in line.remedy, line.remedy
