@@ -63,6 +63,18 @@ forget, and means the real message survives: `first_message` walks `__cause__`/`
 because an error crossing a Temporal activity boundary otherwise arrives as the fixed string
 `"Activity task failed"` (#66).
 
+> **Amended (2026-10-23, #741): a row of several steps says what each came to.** Some rows are
+> several acts with the network between them: `project_init` registers a project, creates its
+> board, seeds its context repository and scaffolds its manifest, and `product_init` creates a
+> context repository and proposes a declaration in it. One `message` about the last thing that
+> broke says nothing about the half that worked. So such a row also returns `data.steps`, in
+> order: each step is `{step, state, said}`, and `state` is `done`, `already`, `skipped` or
+> `failed` (`actions.base.step`). The row is `ok` when no step failed and `failed` otherwise, and
+> its `message` names every step. Every step asks first whether its result is already there, so
+> the retry is the same call made again, and it does only what is missing. A registered project
+> is never written over, a board or a repository is never made twice, and a review already open
+> is the one the call updates.
+
 ### 2. Every action takes who asked — and this layer does not yet decide
 
 `Actor(id, display, via, admin)`. `admin` is answered **by the transport**: Slack knows

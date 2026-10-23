@@ -275,6 +275,17 @@ credential: its `data` is the `openfactory.doctor/1` document `openfactory docto
 and its `ok` is about the doctor having run — the document's own `ok` says whether the project can
 run a ticket.
 
+**Rows of several steps.** `project_init` and `product_init` take several steps with the network
+between them, and say in `data.steps` what each came to: in order, each `{step, state, said}`, the
+state one of `done` (this call did it), `already` (it was there before), `skipped` (not this
+project's to do) and `failed`. A failed step makes the answer a 500 with the code `failed`, whose
+`message` names every step, the ones that were done included. The steps after it that do not need
+it still run. The retry is the same call, made again: every step asks first whether its result is
+there, so nothing is made twice, nothing registered is written over, and a review already open is
+the one the call updates. `project_add` is one write, safe to repeat the same way. A project
+already registered as asked answers `data.changed: false`. One registered differently is a 409,
+and `data.differs` names the fields that differ.
+
 ### Outside `/api/`: what a supervisor asks
 
 Two routes answer **without a credential**, with the default front end on or off, so a container's
