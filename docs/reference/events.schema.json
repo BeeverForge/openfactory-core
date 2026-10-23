@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "OpenFactory event",
-  "description": "One typed event, for every stream the API pushes (#679, slice a).",
+  "description": "One typed event, for every stream the API pushes.",
   "discriminator": {
     "mapping": {
       "ack": "#/$defs/AckEvent",
@@ -407,7 +407,7 @@
     },
     "EndedData": {
       "additionalProperties": true,
-      "description": "Why a stream stopped: the gate's answer to the credential it was opened with (#208) — `why`\nand `status`, beside the refusal's own body. Every refusal says `detail`; a 401 from a provider\nwith a login page also names it (`login`, #33), so the page can send the browser there.",
+      "description": "Why a stream stopped: the gate's answer to the credential it was opened with — `why` and\n`status`, beside the refusal's own body. Every refusal says `detail`; a 401 from a provider\nwith a login page also names it (`login`), so the page can send the browser there.",
       "properties": {
         "why": {
           "enum": [
@@ -887,7 +887,7 @@
     },
     "JobsData": {
       "additionalProperties": true,
-      "description": "The durable jobs' state (`/api/temporal/stream`). `jobs` is ALWAYS sent, and is `null` when\nthe engine could not be read — never `[]`, which is an engine that answered with nothing.\nA connected frame says where the engine's UI is (`ui_base`), and the sentence that stands in\nfor the link when nobody said (`ui_hint`, `\"\"` when `ui_base` is known) — #183.",
+      "description": "The durable jobs' state (`/api/temporal/stream`). `jobs` is ALWAYS sent, and is `null` when\nthe engine could not be read — never `[]`, which is an engine that answered with nothing.\nA connected frame says where the engine's UI is (`ui_base`), and the sentence that stands in\nfor the link when nobody said (`ui_hint`, `\"\"` when `ui_base` is known).",
       "properties": {
         "connected": {
           "title": "Connected",

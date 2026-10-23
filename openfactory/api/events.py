@@ -50,6 +50,11 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 from openfactory.api.read_models import EngineJob, MessagesRead, Number, ProjectRow
 from openfactory.observability.events import EventKind
 
+#: What the published schema says it is. NOT the module's first line, which names the card it
+#: came from: the schema is read by whoever builds a front end of their own, who cannot open the
+#: tracker a card id points to (`tests/test_no_card_id_reaches_a_stranger.py`).
+DESCRIPTION = "One typed event, for every stream the API pushes."
+
 #: Where the description is committed, from the repository's root — beside `openapi.json`.
 COMMITTED = Path("docs") / "reference" / "events.schema.json"
 
@@ -97,10 +102,12 @@ class HelloData(EventData):
     tick: Number | None = None
 
 
+# The gate's answer since #208; `login` since #33. Ids stay in comments: a docstring here is a
+# published description.
 class EndedData(EventData):
-    """Why a stream stopped: the gate's answer to the credential it was opened with (#208) — `why`
-    and `status`, beside the refusal's own body. Every refusal says `detail`; a 401 from a provider
-    with a login page also names it (`login`, #33), so the page can send the browser there."""
+    """Why a stream stopped: the gate's answer to the credential it was opened with — `why` and
+    `status`, beside the refusal's own body. Every refusal says `detail`; a 401 from a provider
+    with a login page also names it (`login`), so the page can send the browser there."""
 
     why: Literal["signed_out", "not_allowed", "unavailable"]
     status: int
@@ -127,11 +134,12 @@ class UpdateData(EventData):
     chat: MessagesRead | None = None
 
 
+# `ui_base` and `ui_hint` since #183.
 class JobsData(EventData):
     """The durable jobs' state (`/api/temporal/stream`). `jobs` is ALWAYS sent, and is `null` when
     the engine could not be read — never `[]`, which is an engine that answered with nothing.
     A connected frame says where the engine's UI is (`ui_base`), and the sentence that stands in
-    for the link when nobody said (`ui_hint`, `""` when `ui_base` is known) — #183."""
+    for the link when nobody said (`ui_hint`, `""` when `ui_base` is known)."""
 
     connected: bool
     jobs: list[EngineJob] | None
@@ -437,7 +445,7 @@ def schema() -> dict:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "OpenFactory event",
-        "description": (__doc__ or "").split("\n\n")[0].strip(),
+        "description": DESCRIPTION,
         **described,
         "$defs": dict(sorted(defs.items())),
     }

@@ -24,6 +24,9 @@ THE TYPED SHAPES (review point 7): the floor's `projects` rows are `/api/project
 line's `kind` is the journal's closed set, and the temporal read's model names the engine UI's
 two keys the stream's model already named.
 
+THE PUBLISHED TEXT (review point 9): a description in the schema names no card; the ids stay
+in the code's comments.
+
 THE LAST ROWS hold the rules the tests state that the first review named and no row covered:
 how `from_frame` reads a frame (C10, C11), what the command answers when it cannot write (C12),
 and which kinds carry a product (C5, C6, C14) — the latter aimed, like the model rows above, at
@@ -156,4 +159,15 @@ MUTATIONS = [
     ("`EngineJobsRead` stops naming `ui_base` and `ui_hint`, which `/api/temporal/jobs` answers",
      READS, "    ui_base: str | None = None\n    ui_hint: str | None = None\n", "",
      ONE + "test_the_temporal_read_names_every_key_it_answers"),
+
+    # ── the published text names no card ───────────────────────────────────────────────────────
+    ("the schema's own description is the module's first line again, card id and all", EVENTS,
+     '        "description": DESCRIPTION,\n',
+     '        "description": (__doc__ or "").split("\\n\\n")[0].strip(),\n',
+     ONE + "test_no_description_the_schema_publishes_names_a_card"),
+
+    ("`JobsData`'s published description names the card its UI fields came from", EVENTS,
+     'for the link when nobody said (`ui_hint`, `""` when `ui_base` is known)."""',
+     'for the link when nobody said (`ui_hint`, `""` when `ui_base` is known) — #183."""',
+     ONE + "test_no_description_the_schema_publishes_names_a_card"),
 ]

@@ -161,6 +161,38 @@ def test_the_command_says_why_it_could_not_write(tmp_path, capsys):
     assert "could not write" in capsys.readouterr().err
 
 
+def _descriptions(node: object) -> list[str]:
+    """Every `description` a schema carries, however deep."""
+    if isinstance(node, dict):
+        own = [node["description"]] if isinstance(node.get("description"), str) else []
+        return own + [d for value in node.values() for d in _descriptions(value)]
+    if isinstance(node, list):
+        return [d for value in node for d in _descriptions(value)]
+    return []
+
+
+def test_no_description_the_schema_publishes_names_a_card():
+    """The schema is read by whoever builds a front end of their own, who cannot open the tracker
+    a card id points to — the line `tests/test_no_card_id_reaches_a_stranger.py` holds for what a
+    stranger reads. The ids stay in the code, as comments."""
+    from openfactory.api.events import schema
+    from tests.test_no_card_id_reaches_a_stranger import CARD_ID
+
+    said = _descriptions(schema())
+    assert len(said) >= 20, f"the sweep read {len(said)} descriptions — has the schema moved?"
+    assert [d for d in said if CARD_ID.search(d)] == []
+
+
+def test_the_description_sweep_can_SEE_a_card_id(monkeypatch):
+    """Its positive twin: an id written into a model's docstring reaches the schema, and is seen."""
+    from openfactory.api.events import JobsData, schema
+    from tests.test_no_card_id_reaches_a_stranger import CARD_ID
+
+    monkeypatch.setattr(JobsData, "__doc__", "The durable jobs' state — #183.")
+    assert [d for d in _descriptions(schema()) if CARD_ID.search(d)] == [
+        "The durable jobs' state — #183."]
+
+
 # ── every frame of today, on the envelope ───────────────────────────────────────────────────────
 
 def test_every_kind_has_a_representative_frame_here():
