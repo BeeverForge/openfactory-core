@@ -23,6 +23,7 @@ from openfactory.product.followup import (
     questions_from,
     to_open,
 )
+from tests.the_tree_read_once import parsed
 
 
 def _obs(kind: str, ticket: int = 412):
@@ -220,7 +221,7 @@ def _real_triage_kinds() -> set[str]:
     from pathlib import Path
 
     kinds = set()
-    tree = ast.parse(Path("openfactory/product/triage.py").read_text())
+    tree = parsed(Path("openfactory/product/triage.py"))
     for node in ast.walk(tree):
         if isinstance(node, ast.keyword) and node.arg == "kind" \
                 and isinstance(getattr(node.value, "value", None), str):

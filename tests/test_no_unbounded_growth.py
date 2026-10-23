@@ -28,6 +28,8 @@ from pathlib import Path
 import add_ons
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 SDLC = Path(__file__).resolve().parent.parent / "openfactory"
 
 
@@ -36,7 +38,7 @@ def _modules() -> list[tuple[Path, ast.Module]]:
     for path in sorted(SDLC.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
-        out.append((path, ast.parse(path.read_text(), filename=str(path))))
+        out.append((path, parsed(path)))
     return out
 
 
@@ -387,7 +389,7 @@ def test_declared_caches_still_exist(site):
     and a declaration saying `BoundedDict(N)` over a plain `{}` protects even less: reverting
     `bot._PENDING = BoundedDict(200)` to `{}` used to keep every guard here green."""
     rel, name = site
-    tree = ast.parse(add_ons.source(rel).read_text())
+    tree = parsed(add_ons.source(rel))
     node = _module_dicts(tree).get(name)
     assert node is not None, f"{rel} no longer declares {name}"
     cap = _declared_cap(site)

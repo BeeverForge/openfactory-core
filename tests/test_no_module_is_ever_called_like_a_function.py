@@ -34,6 +34,8 @@ import tempfile
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 PKG = pathlib.Path(__file__).resolve().parents[1] / "openfactory"
 
 
@@ -153,7 +155,7 @@ def _offenders(path: pathlib.Path, *, package: str | None = None) -> list[str]:
     # appears inside the tree for even a moment can fail a neighbour that is scanning it
     # (`knowledge/staleness.py::is_stale` checksums every source file). Measured 2026-09-04.
     package = package or "openfactory." + ".".join(path.relative_to(PKG).with_suffix("").parts[:-1])
-    tree = ast.parse(path.read_text())
+    tree = parsed(path)
 
     # Module-scope imports only: a name bound at the top of the file is what every scope in it
     # sees unless that scope says otherwise.

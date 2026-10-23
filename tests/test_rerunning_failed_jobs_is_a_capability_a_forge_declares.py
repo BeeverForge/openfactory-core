@@ -42,6 +42,7 @@ from openfactory.adapters.forge.local import LocalForge
 from openfactory.contracts import JobState, RunResult
 from openfactory.runtime.temporal import activities as acts
 from openfactory.runtime.temporal.io import CiRepairInput
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -488,7 +489,7 @@ def test_generic_code_never_reaches_a_forge_cli():
     into the repair activity to turn it red."""
     offenders = {}
     for path in sorted((ROOT / "openfactory" / "runtime").rglob("*.py")):
-        hits = _reaches_a_forge_cli(ast.parse(path.read_text(encoding="utf-8")))
+        hits = _reaches_a_forge_cli(parsed(path))
         if hits:
             offenders[str(path.relative_to(ROOT))] = hits
     assert offenders == {}, f"the core reaches a forge CLI itself: {offenders}"

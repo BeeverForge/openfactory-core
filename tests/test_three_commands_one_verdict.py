@@ -32,6 +32,7 @@ import pytest
 
 from openfactory import doctor, namespace
 from openfactory.onboarding import readiness as R
+from tests.the_tree_read_once import parsed
 
 # ── a world, and every dial on it ───────────────────────────────────────────────────────────────
 
@@ -501,7 +502,7 @@ def test_every_call_site_this_file_cites_actually_exists():
     assert cited, "the scan found no citations at all — the pattern, not the code, is wrong"
 
     def defines(path: Path, symbol: str) -> bool:
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) \
                     and node.name == symbol:
@@ -529,7 +530,7 @@ def _role_prompt_call_sites(root: Path) -> dict[str, set[str]]:
     fix is to stop scanning prose rather than to forbid the sentence."""
     found: dict[str, set[str]] = {}
     for path in sorted(root.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if not (isinstance(node, ast.Call) and node.args):
                 continue
             callee = node.func.id if isinstance(node.func, ast.Name) else (

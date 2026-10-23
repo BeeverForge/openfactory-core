@@ -20,6 +20,8 @@ from pathlib import Path
 
 import add_ons
 
+from tests.the_tree_read_once import parsed
+
 # ── A. the reply must not be truncated ──────────────────────────────────────────────────────────
 
 class _Res:
@@ -57,7 +59,7 @@ def test_it_falls_back_to_the_summary_when_the_stream_is_unreadable():
 
 def test_the_conversational_answer_no_longer_reads_the_capped_summary():
     """Guarded at the call site: `answer()` must not go back to `res.summary` directly."""
-    tree = ast.parse(Path("openfactory/product/role.py").read_text())
+    tree = parsed(Path("openfactory/product/role.py"))
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "answer")
     body = ast.unparse(fn)

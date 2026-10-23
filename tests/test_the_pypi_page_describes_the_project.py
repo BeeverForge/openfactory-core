@@ -36,6 +36,8 @@ from urllib.parse import urlsplit
 import pytest
 from test_the_docs_do_not_drift import _the_cli_tree
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
 
@@ -267,7 +269,7 @@ def test_the_page_lists_every_harness_the_registry_ships_and_no_other():
 def _imports_fcntl_at_module_scope() -> list[str]:
     hits = []
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         for node in tree.body:
             names = ([a.name for a in node.names] if isinstance(node, ast.Import)
                      else [node.module or ""] if isinstance(node, ast.ImportFrom) else [])

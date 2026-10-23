@@ -38,6 +38,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parent.parent
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 SLICES = 3
@@ -270,7 +272,7 @@ def _marked_alone(decorators: list[ast.expr]) -> bool:
 def test_every_test_that_asserts_its_own_cpu_time_is_marked_alone():
     unmarked = []
     for path in sorted((ROOT / "tests").glob("test_*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         module_alone = any(isinstance(n, ast.Assign) and any(
             isinstance(t, ast.Name) and t.id == "pytestmark" for t in n.targets)
             and "alone" in ast.unparse(n.value) for n in tree.body)
@@ -286,7 +288,7 @@ def test_every_test_that_asserts_its_own_cpu_time_is_marked_alone():
 
 def test_the_reader_sees_a_cpu_clock_and_a_mark():
     """Verify the verifier on the one test that carries both today."""
-    tree = ast.parse((ROOT / "tests" / "test_knowledge_derived_not_cached.py").read_text())
+    tree = parsed(ROOT / "tests" / "test_knowledge_derived_not_cached.py")
     [timed] = [n for n in tree.body if isinstance(n, ast.FunctionDef)
                and n.name == "test_generating_is_fast_enough_to_do_every_time"]
 
@@ -310,7 +312,7 @@ def _real_daemon_tests() -> dict[str, bool]:
     module's `pytestmark`, or by its own decorators."""
     found = {}
     for path in sorted((ROOT / "tests").glob("test_*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         marks = next((n.value.elts for n in tree.body if isinstance(n, ast.Assign)
                       and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in n.targets)
                       and isinstance(n.value, ast.List)), [])

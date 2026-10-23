@@ -34,6 +34,7 @@ import pytest
 from openfactory.adapters.agent.roles import MACHINE_PHASES
 from openfactory.product.module import ProductModule
 from tests.test_product_module import _module
+from tests.the_tree_read_once import parsed
 
 PRODUCT = Path("openfactory/product")
 WEB, API = "acme/reservas-web", "acme/reservas-api"
@@ -137,7 +138,7 @@ REWRITTEN_DOWNSTREAM = {
 
 def _role_phases() -> dict[str, str]:
     """`ProductRole`'s methods → the phase each asks the model under, read from `role.py`."""
-    tree = ast.parse((PRODUCT / "role.py").read_text())
+    tree = parsed(PRODUCT / "role.py")
     [cls] = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ProductRole"]
     phases = {}
     for fn in cls.body:
@@ -202,7 +203,7 @@ def _functions():
     for path in sorted(PRODUCT.glob("*.py")):
         if path.name == "role.py":
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.FunctionDef):
                 yield path.name, node
 

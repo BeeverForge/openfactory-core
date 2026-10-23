@@ -39,6 +39,8 @@ import textwrap
 import installer_script
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "install.sh"
 
@@ -1338,7 +1340,7 @@ class _InstallerDrivers:
     def tree(self, module: str) -> ast.Module | None:
         if module not in self._trees:
             path = self.directory / f"{module}.py"
-            self._trees[module] = ast.parse(path.read_text()) if path.is_file() else None
+            self._trees[module] = parsed(path) if path.is_file() else None
         return self._trees[module]
 
     def functions(self, module: str) -> dict[str, ast.AST]:

@@ -27,6 +27,7 @@ from vendor_addons import install, require
 
 from openfactory import environ, plugins
 from openfactory.onboarding.deployment import Answers, render
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MODULE = ROOT / "openfactory" / "onboarding" / "deployment.py"
@@ -78,7 +79,7 @@ def _rows(text: str) -> set[str]:
 # ── the negative: the core's text spells no variable the core does not read ─────────────────────
 
 def test_the_renderer_spells_no_variable_the_public_core_does_not_read(tmp_path):
-    tree = ast.parse(MODULE.read_text())
+    tree = parsed(MODULE)
     mentioned: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):

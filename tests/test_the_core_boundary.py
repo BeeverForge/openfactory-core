@@ -26,6 +26,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: The Core, by the test in `docs/core/02` §1.
@@ -97,7 +99,7 @@ def _files():
 
 
 def _imports(path: pathlib.Path):
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(parsed(path)):
         if isinstance(node, ast.Import):
             for a in node.names:
                 yield node.lineno, a.name
@@ -179,7 +181,7 @@ def test_the_only_thing_the_core_reads_is_its_own_presets():
     the parser quietly allows reading a client repository, a config file or a cache."""
     reads: list[str] = []
     for path in FILES:
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr in (
                 "read_text", "read_bytes", "open", "glob", "rglob", "iterdir", "listdir"

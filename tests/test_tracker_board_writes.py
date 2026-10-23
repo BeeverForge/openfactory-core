@@ -28,6 +28,7 @@ import pytest
 from openfactory.adapters.tracker.github import GitHubIssuesTracker
 from openfactory.adapters.tracker.github_project import GitHubProjectBoard
 from openfactory.contracts import JobState
+from tests.the_tree_read_once import parsed
 
 _GRAPHQL_ITEMS = json.dumps({
     "data": {"organization": {"projectV2": {"items": {
@@ -540,7 +541,7 @@ def test_no_comment_in_the_orchestrator_can_abort_what_it_describes():
 
     bare: list[str] = []
     for path in (Path("openfactory/orchestrator/machine.py"), Path("openfactory/orchestrator/promotion.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         # ONLY a `try` that actually HANDLES the failure counts. The first version accepted any
         # `ast.Try` ancestor, so a `try/finally` — which swallows nothing — read as protected, and
         # the guard reported zero while the park was still aborting.

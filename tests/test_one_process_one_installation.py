@@ -26,6 +26,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: The two variables this card is about. `OPENFACTORY_GH_APP_KEY` / `_CONTENT` are excluded: they are
@@ -53,7 +55,7 @@ def _env_reads(path: pathlib.Path) -> list[str]:
                                               override could ever reach
     """
     reads: list[str] = []
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(parsed(path)):
         if isinstance(node, ast.Call):
             rendered = ast.unparse(node.func)
             if rendered in ("os.environ.get", "environ.get"):

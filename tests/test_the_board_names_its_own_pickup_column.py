@@ -23,6 +23,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: Every board implementation, and what it must call its pickup column with no client override.
@@ -41,7 +43,7 @@ def test_every_board_implementation_answers_the_question():
     that quietly drops the method is caught even if nothing constructs it in a test.
     """
     for path, class_name, _ in IMPLEMENTATIONS:
-        tree = ast.parse((ROOT / path).read_text())
+        tree = parsed(ROOT / path)
         cls = next((n for n in ast.walk(tree)
                     if isinstance(n, ast.ClassDef) and n.name == class_name), None)
         assert cls is not None, f"{class_name} vanished from {path}"

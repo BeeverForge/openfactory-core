@@ -19,6 +19,7 @@ import pytest
 
 from tests import one_live_preview
 from tests.one_live_preview import Probe, explained, required
+from tests.the_tree_read_once import parsed
 
 TESTS = Path(__file__).parent
 
@@ -46,7 +47,7 @@ def test_no_live_preview_test_reads_the_build_log_inside_an_assert_message():
     """The shape that crashed: a file read in the message of the assertion meant to explain."""
     crashing = []
     for path in sorted(TESTS.glob("test_a_preview_*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.Assert) and node.msg is not None \
                     and "build.log" in ast.unparse(node.msg):
                 crashing.append(f"{path.name}:{node.lineno}")

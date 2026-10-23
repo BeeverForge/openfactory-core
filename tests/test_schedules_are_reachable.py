@@ -17,7 +17,10 @@ reason and after the same kind of incident.
 from __future__ import annotations
 
 import ast
+import functools
 from pathlib import Path
+
+from tests.the_tree_read_once import parsed
 
 SCHEDULE = Path("openfactory/runtime/temporal/schedule.py")
 
@@ -25,7 +28,7 @@ SCHEDULE = Path("openfactory/runtime/temporal/schedule.py")
 def _ensure_functions() -> set[str]:
     """Derived from the source, never a hand-kept list — a list somebody must remember to update is
     the same class of bug one level up."""
-    tree = ast.parse(SCHEDULE.read_text())
+    tree = parsed(SCHEDULE)
     return {
         n.name
         for n in tree.body
@@ -65,7 +68,7 @@ def _callers_of(name: str) -> list[str]:
     hits = []
     for path in list(Path("openfactory").rglob("*.py")) + list(Path("tests").rglob("*.py")):
         try:
-            source = path.read_text()
+            tree = parsed(path)
         except FileNotFoundError:
             # A SIBLING TEST WRITES AND DELETES A REAL FILE UNDER `tests/`
             # (`test__live_engine_probe__.py`, in the guard that proves the live-engine barrier is
@@ -76,7 +79,6 @@ def _callers_of(name: str) -> list[str]:
             # exist, so the only way to reach this branch is a file that vanished BETWEEN the
             # listing and the read. A missing caller is still a missing caller.
             continue
-        tree = ast.parse(source)
         if path == SCHEDULE:
             # inside its own module, only a call from a proven entry point counts
             for node in tree.body:
@@ -86,9 +88,19 @@ def _callers_of(name: str) -> list[str]:
                     and name in _calls_in(node)
                 ):
                     hits.append(f"{path}::{node.name}")
-        elif name in _calls_in(tree):
+        elif name in _calls_in_the_module(tree):
             hits.append(str(path))
     return hits
+
+
+@functools.cache
+def _calls_in_the_module(tree: ast.Module) -> frozenset[str]:
+    """`_calls_in` over a whole module, walked ONCE per tree. Eight `ensure_*` names each ask every
+    file of both trees, and before 2026-10-22 each ask re-read and re-parsed all 1,300 of them —
+    58.07 s in CI for `test_every_ensure_is_called_from_production_code` (run 39603992891, shard
+    4, 2026-10-21). The trees are `the_tree_read_once`'s: one object per content, so the
+    tree is its own cache key and a file that changed is a new tree, never a stale answer."""
+    return frozenset(_calls_in(tree))
 
 
 def test_every_ensure_is_called_from_production_code():
@@ -107,7 +119,7 @@ def test_every_ensure_is_called_from_production_code():
 def test_ensure_all_covers_every_ensure():
     """The aggregator must not drift behind a newly added schedule — the drift would be silent, and
     the symptom would be a watcher that simply never watches."""
-    tree = ast.parse(SCHEDULE.read_text())
+    tree = parsed(SCHEDULE)
     agg = next(
         n
         for n in tree.body

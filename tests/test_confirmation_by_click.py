@@ -34,6 +34,7 @@ from openfactory.contracts.project import Project, ProviderRef
 from openfactory.product import engine
 from tests.the_chat_turn import AS_NAMED, CHAT, chat_turn
 from tests.the_sink_door import SINK_DOOR
+from tests.the_tree_read_once import parsed
 
 ADMIN, OUTSIDER = "U1", "U9"
 KEY = "C0PROD"
@@ -239,7 +240,7 @@ def test_nothing_in_the_channel_pops_a_proposal_by_KEY_ALONE():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/product/engine.py").read_text())
+    tree = parsed(Path("openfactory/product/engine.py"))
     offenders = [n.lineno for n in ast.walk(tree)
                  if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "forget"]
 
@@ -421,7 +422,7 @@ def test_every_staging_site_offers_the_buttons(site):
 def test_the_bot_supplies_the_confirm_seam():
     import ast
 
-    tree = ast.parse(add_ons.source("openfactory/runtime/slack/bot.py").read_text())
+    tree = parsed(add_ons.source("openfactory/runtime/slack/bot.py"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "handle"
              and any(k.arg == "confirm" for k in n.keywords)]
@@ -625,7 +626,7 @@ def test_a_posted_proposal_is_returned_WHOLE_not_interpolated():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/product/engine.py").read_text())
+    tree = parsed(Path("openfactory/product/engine.py"))
     offenders = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.JoinedStr):        # an f-string

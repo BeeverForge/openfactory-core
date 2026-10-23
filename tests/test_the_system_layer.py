@@ -55,6 +55,7 @@ from openfactory.knowledge.system.contracts import (
     Cite,
 )
 from openfactory.knowledge.system.tree import Read, read_text, walk
+from tests.the_tree_read_once import parsed
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "evaluation" / "quayside"
 SOURCES = ("quayside-billing", "quayside-freight", "quayside-orders", "quayside-platform")
@@ -377,7 +378,7 @@ def test_the_derivation_does_not_import_a_process_module():
     root = Path(__file__).resolve().parent.parent / "openfactory" / "knowledge" / "system"
     for name in ("tree.py", "text.py", "interfaces.py", "schemas.py", "deployments.py",
                  "adrs.py", "derive.py", "render.py", "contracts.py"):
-        tree = ast.parse((root / name).read_text())
+        tree = parsed(root / name)
         imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import)
                     for a in n.names}
         imported |= {(n.module or "").split(".")[0] for n in ast.walk(tree)

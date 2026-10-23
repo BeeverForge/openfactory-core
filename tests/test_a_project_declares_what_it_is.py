@@ -36,6 +36,7 @@ from openfactory.orchestrator import context as ctx
 from openfactory.orchestrator.merge_policy import should_auto_merge
 from openfactory.policy import profiles as prof
 from openfactory.policy.conformance import profile_gate_reason
+from tests.the_tree_read_once import parsed
 
 _PASS = [ValidationResult(name="test", command="t", exit_code=0, passed=True)]
 
@@ -522,7 +523,7 @@ def test_the_core_ships_worked_examples_rather_than_only_a_mechanism():
 def _machine_source() -> ast.Module:
     from openfactory.orchestrator import machine
 
-    return ast.parse(Path(machine.__file__).read_text(encoding="utf-8"))
+    return parsed(Path(machine.__file__))
 
 
 def _calls_named(tree: ast.Module, name: str) -> list[ast.Call]:

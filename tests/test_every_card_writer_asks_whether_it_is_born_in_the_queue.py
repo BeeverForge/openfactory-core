@@ -74,6 +74,7 @@ from tests.test_a_jira_key_is_a_card_ref import (
     _Answer,
     _Site,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -130,7 +131,7 @@ def _every_function() -> dict[tuple[str, str], ast.AST]:
     found: dict[tuple[str, str], ast.AST] = {}
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
         rel = path.relative_to(ROOT).as_posix()
-        for fn in _functions(ast.parse(path.read_text()).body):
+        for fn in _functions(parsed(path).body):
             found[(rel, fn.name)] = fn
     return found
 

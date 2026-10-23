@@ -24,11 +24,13 @@ import re
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 def _names_called_in(path: str, func: str) -> set[str]:
     """Every attribute and bare name CALLED inside one function — `ctx.survey(...)` → `survey`."""
-    tree = ast.parse((ROOT / path).read_text())
+    tree = parsed(ROOT / path)
     node = next((n for n in ast.walk(tree)
                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == func),
                 None)

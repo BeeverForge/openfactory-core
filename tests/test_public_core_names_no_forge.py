@@ -38,6 +38,7 @@ import pytest
 
 from openfactory import plugins
 from openfactory.contracts.project import Project, ProviderRef
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PKG = ROOT / "openfactory"
@@ -58,7 +59,7 @@ def _imports_of(path: pathlib.Path) -> set[str]:
     """Every absolute module a file imports, FUNCTION-LEVEL INCLUDED — the four offenders all
     imported inside a function body, which a top-of-file scan never sees."""
     found: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(parsed(path)):
         if isinstance(node, ast.Import):
             found |= {alias.name for alias in node.names}
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:

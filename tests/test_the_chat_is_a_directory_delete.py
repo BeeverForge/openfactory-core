@@ -41,6 +41,7 @@ from openfactory import plugins
 from openfactory.adapters.channel.registry import CHANNELS, build_channel, refusal
 from openfactory.adapters.notify.registry import FALLBACK_ENV, NOTIFIERS, build_notifier
 from openfactory.contracts.project import Project
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -113,7 +114,7 @@ def test_no_core_module_imports_the_chat_connector():
     sweep sees a lazy import as well as a module-level one."""
     offenders = {}
     for path in _core_sources():
-        hits = imports_of_chat(ast.parse(path.read_text()))
+        hits = imports_of_chat(parsed(path))
         if hits:
             offenders[path.relative_to(ROOT).as_posix()] = sorted(set(hits))
     assert not offenders, (
@@ -399,7 +400,7 @@ def test_the_fallback_is_taken_when_a_projects_own_row_cannot_post(monkeypatch):
 # ── 8. the core reads no Telegram variable ──────────────────────────────────────────────────────
 
 def _string_constants(path: pathlib.Path) -> set[str]:
-    return {n.value for n in ast.walk(ast.parse(path.read_text()))
+    return {n.value for n in ast.walk(parsed(path))
             if isinstance(n, ast.Constant) and isinstance(n.value, str)}
 
 

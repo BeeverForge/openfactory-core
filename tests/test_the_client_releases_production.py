@@ -36,6 +36,7 @@ from openfactory.memory.ledger import ACCEPTANCE, DELIVERY, open_loop
 from openfactory.product import followup
 from tests.the_card_at_its_last_gate import at_its_last_gate
 from tests.the_chat_turn import chat_turn
+from tests.the_tree_read_once import parsed
 
 
 class _Product:
@@ -298,7 +299,7 @@ def test_the_release_goes_through_the_gate_QUERY_and_not_straight_to_the_signal(
     # with this guard still green. An AST walk cannot be satisfied by prose.
     import ast
 
-    tree = ast.parse(Path("openfactory/product/release.py").read_text())
+    tree = parsed(Path("openfactory/product/release.py"))
     called = {getattr(n.func, "id", "") or getattr(n.func, "attr", "")
               for n in ast.walk(tree) if isinstance(n, ast.Call)}
     assert "approve_job" in called, "the release does not go through the checked entry point"

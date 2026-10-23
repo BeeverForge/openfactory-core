@@ -43,6 +43,8 @@ import re
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 #: The calls that carry words out of this process to a person.
@@ -174,7 +176,7 @@ def _welded_sites(*, registered: bool = False) -> list[tuple[str, int, str]]:
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
         rel = str(path.relative_to(ROOT))
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover — a broken file fails louder elsewhere
             continue
         for line, function, said in _welded_in(tree):
@@ -221,7 +223,7 @@ def test_the_walk_actually_INSPECTS_the_package():
     inspect zero files and report success for three months."""
     seen = 0
     for path in (ROOT / "openfactory").rglob("*.py"):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if (isinstance(node, ast.Call)
                     and (getattr(node.func, "attr", None) or "") in SURFACES):

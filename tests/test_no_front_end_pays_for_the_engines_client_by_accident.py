@@ -43,6 +43,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parents[1]
 
 LIBRARY = "temporalio"
@@ -194,7 +196,7 @@ def costly_modules(root: Path) -> set[str]:
     top_level: dict[str, set[str]] = {}
     for name, path in modules.items():
         loaded: set[str] = set()
-        for node, stack, _ in _walk(ast.parse(path.read_text())):
+        for node, stack, _ in _walk(parsed(path)):
             if not stack and isinstance(node, ast.Import | ast.ImportFrom):
                 loaded |= _loads(node, name, modules)
         top_level[name] = loaded
@@ -215,7 +217,7 @@ def sweep(root: Path) -> list[Reach]:
         file = path.relative_to(root).as_posix()
         if file.startswith(ENGINE_DIR):
             continue
-        rows = list(_walk(ast.parse(path.read_text())))
+        rows = list(_walk(parsed(path)))
         calls = [(node, stack, tried) for node, stack, tried in rows if isinstance(node, ast.Call)]
 
         def reached_only_under_a_try(function, stack, rows=rows) -> bool:
@@ -325,7 +327,7 @@ def test_the_action_rows_are_only_reached_through_the_layer_that_guards_them():
     for name, path in modules.items():
         if name.startswith("openfactory.actions"):
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.ImportFrom) and node.module == catalog:
                 borrowed.update({alias.name: name for alias in node.names})
     direct = {fn: by for fn, by in borrowed.items() if fn in reaching}

@@ -33,6 +33,7 @@ from openfactory.adapters.agent import registry
 from openfactory.adapters.agent.roles import HUMAN_PHASES, REPLY_CLAUSE
 from openfactory.product.role import ProductRole
 from openfactory.product.voice import LANGUAGE_RULES, language_rules
+from tests.the_tree_read_once import parsed
 
 #: every language the platform has rules for, one it has none for, and none set at all
 LANGUAGES = [*sorted(LANGUAGE_RULES), "xx-YY", None]
@@ -109,7 +110,7 @@ def _owners(tree: ast.Module) -> dict[int, str]:
 def test_no_prompt_writes_a_language_section_of_its_own():
     found = []
     for path in sorted(Path("openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         owner = _owners(tree)
         for node in ast.walk(tree):
             if (isinstance(node, ast.Constant) and isinstance(node.value, str)

@@ -37,6 +37,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from tests.test_a_refusal_is_not_an_answer import ANA, REFUSED, _const, run
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 GOOD = "correct horse battery staple"
@@ -652,7 +653,7 @@ def test_NOTHING_in_the_panel_builds_a_streaming_response_but_the_seam():
     would not show."""
     built = {}
     for module in sorted((ROOT / "openfactory/api").glob("*.py")):
-        tree = ast.parse(module.read_text())
+        tree = parsed(module)
         for fn in ast.walk(tree):
             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and _calls(fn) & _STREAMING:
                 inner = {n.name for n in ast.walk(fn) if n is not fn

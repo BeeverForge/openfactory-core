@@ -29,6 +29,7 @@ from openfactory.contracts.product import ProductConfig
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.product import confirm as executor
 from tests.the_chat_turn import AS_NAMED, CHAT
+from tests.the_tree_read_once import parsed
 
 ADMIN, OUTSIDER = "U1", "U9"
 KEY = "C0PROD"
@@ -82,7 +83,7 @@ def _staged_kinds() -> set[str]:
     """
     kinds: set[str] = set()
     for path in ROOT.joinpath("openfactory").rglob("*.py"):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "remember"):
                 continue
@@ -458,7 +459,7 @@ def _agent_reaching_kinds() -> set[str]:
     from test_the_product_role_lives_outside_slack import _agent_spending_verbs
 
     spending = _agent_spending_verbs((ROOT / "openfactory/product/module.py").read_text())
-    tree = ast.parse((ROOT / "openfactory/product/confirm.py").read_text())
+    tree = parsed(ROOT / "openfactory/product/confirm.py")
     bodies = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
 
     def _spends(fn, seen: frozenset[str]) -> bool:

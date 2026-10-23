@@ -52,6 +52,7 @@ from openfactory.product.corpus import _status_of, parse_requirement
 from openfactory.product.intents import match_intent
 from openfactory.product.role import Conflict, RequirementDraft, read_answer
 from openfactory.product.voice import accept_confirmation, accepted, written_up
+from tests.the_tree_read_once import parsed
 
 
 @pytest.fixture(autouse=True)
@@ -457,7 +458,7 @@ def test_the_sweep_lands_them():
     """Reach: a recovery that depends on somebody remembering to run it is not a recovery."""
     import ast
 
-    tree = ast.parse(Path("openfactory/runtime/temporal/activities.py").read_text())
+    tree = parsed(Path("openfactory/runtime/temporal/activities.py"))
     assert any(isinstance(n, ast.Call)
                and getattr(n.func, "id", None) == "land_open_proposals"
                for n in ast.walk(tree)), "the recovery exists and nothing calls it"
@@ -560,7 +561,7 @@ def test_the_writer_stamps_both_sides():
     defect rather than the fix."""
     import ast
 
-    tree = ast.parse(Path("openfactory/product/authoring.py").read_text())
+    tree = parsed(Path("openfactory/product/authoring.py"))
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "propose_requirement")
     assert any(isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_mark_superseded"

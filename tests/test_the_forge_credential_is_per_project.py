@@ -20,6 +20,7 @@ import pathlib
 import pytest
 
 from openfactory.contracts.project import Project, ProviderRef
+from tests.the_tree_read_once import parsed
 
 FACTORY = pathlib.Path(__file__).resolve().parents[1] / "openfactory" / "factory.py"
 
@@ -164,7 +165,7 @@ def test_the_remaining_process_wide_readers_do_not_grow():
         f"{path.relative_to(ROOT)}::{node.name}"
         for path in sorted((ROOT / "openfactory").rglob("*.py"))
         if path.name != "credentials.py"
-        for node in ast.walk(ast.parse(path.read_text()))
+        for node in ast.walk(parsed(path))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and "forge_token" in _calls_named(node)
     ]

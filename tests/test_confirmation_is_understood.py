@@ -32,6 +32,7 @@ from openfactory.contracts.product import ProductConfig
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.product.voice import claims_a_write
 from tests.the_chat_turn import chat_turn
+from tests.the_tree_read_once import parsed
 
 APPROVER = "U1"
 ALICES_REPLY = ("Sim — registre.\n\nE duas coisas antes das decisões. Você estava certa e eu "
@@ -277,7 +278,7 @@ def test_the_channel_hands_the_pending_state_to_the_module():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path("openfactory/product/engine.py").read_text())
+    tree = parsed(Path("openfactory/product/engine.py"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "answer"
              and any(k.arg == "pending" for k in n.keywords)]

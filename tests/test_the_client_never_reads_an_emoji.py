@@ -40,6 +40,8 @@ import re
 import add_ons
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: The astral plane — coloured pictographs. Deliberately NOT `✓ ✗ → • ⚠`, which are type.
@@ -70,7 +72,7 @@ def _strings_in(path: str):
     The AST, not the text: a comment explaining why an emoji was removed must never fail the
     guard that removed it — that is a rule which teaches people to delete the explanation.
     """
-    tree = ast.parse(add_ons.source(path).read_text())
+    tree = parsed(add_ons.source(path))
     owner: dict[int, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
@@ -99,7 +101,7 @@ def test_the_guard_can_SEE_one_it_is_given(tmp_path):
     """The positive twin. A scanner that stopped matching would report a clean codebase."""
     probe = tmp_path / "m.py"
     probe.write_text('GREETING = "🤖 hello"\nMARK = "✓ done"\n')
-    tree = ast.parse(probe.read_text())
+    tree = parsed(probe)
     found = [n.value for n in ast.walk(tree)
              if isinstance(n, ast.Constant) and isinstance(n.value, str)
              and PICTOGRAPH.search(n.value)]

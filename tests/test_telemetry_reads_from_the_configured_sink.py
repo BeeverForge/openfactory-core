@@ -30,6 +30,7 @@ from __future__ import annotations
 import pytest
 
 from openfactory.observability.metrics import MetricRecord
+from tests.the_tree_read_once import parsed
 
 
 @pytest.fixture(autouse=True)
@@ -169,7 +170,7 @@ def test_neither_reader_asks_the_environment_for_a_table_first():
                ("openfactory/observability/query.py", "records_of_kind", ""))
     offenders = []
     for rel, fn, delegate in readers:
-        tree = ast.parse((root / rel).read_text())
+        tree = parsed(root / rel)
         node = next(n for n in ast.walk(tree)
                     if isinstance(n, ast.FunctionDef) and n.name == fn)
         body = ast.unparse(node)

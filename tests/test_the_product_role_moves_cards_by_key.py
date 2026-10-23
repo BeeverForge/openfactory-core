@@ -41,6 +41,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "openfactory" / "product" / "module.py"
 
@@ -541,14 +543,14 @@ def test_there_is_one_inverse_of_stage_key():
     for a column that exists."""
     import openfactory.adapters.board.base as base
 
-    tree = ast.parse(Path(base.__file__).read_text(encoding="utf-8"))
+    tree = parsed(Path(base.__file__))
     inverses = [fn.name for fn in tree.body if isinstance(fn, ast.FunctionDef)
                 and not fn.name.startswith("_")
                 and [a.arg for a in fn.args.args[:2]] == ["board", "key"]]
     assert inverses == ["stage_column"], inverses
     assert not hasattr(base, "column_for")
 
-    app = ast.parse((ROOT / "openfactory" / "api" / "app.py").read_text(encoding="utf-8"))
+    app = parsed(ROOT / "openfactory" / "api" / "app.py")
     asked = [c for c in ast.walk(app) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
              and c.func.id in ("stage_column", "column_for")]
     assert asked, "the panel's Done no longer asks the board what it calls the stage"
@@ -689,7 +691,7 @@ def test_the_product_role_names_a_column_only_through_its_two_keys():
     from openfactory.product.module import ProductModule
 
     assert (ProductModule.FILING_KEY, ProductModule.QUEUE_KEY) == ("backlog", "todo")
-    tree = ast.parse(MODULE.read_text(encoding="utf-8"))
+    tree = parsed(MODULE)
     functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
     named: dict[str, set[str]] = {}
     filers: set[str] = set()
@@ -739,13 +741,13 @@ def test_the_product_role_names_a_column_only_through_its_two_keys():
     assert named["FILING_KEY"] == {"_filed_through_the_door", "reorder"}, named
     assert filers == {"file_ticket", "file_defect", "_file_one"}, filers
 
-    executor = ast.parse((ROOT / "openfactory" / "lifecycle" / "executor.py").read_text("utf-8"))
+    executor = parsed(ROOT / "openfactory" / "lifecycle" / "executor.py")
     [placing] = [c for c in ast.walk(executor) if isinstance(c, ast.Call)
                  and isinstance(c.func, ast.Attribute) and c.func.attr == "place"]
     [name] = [k.value for k in placing.keywords if k.arg == "name"]
     words = {n.value for n in ast.walk(name) if isinstance(n, ast.Constant)}
     assert words == {"column_name", ""}, "the door places by a name the role did not hand it"
-    ports = ast.parse((ROOT / "openfactory" / "lifecycle" / "ports.py").read_text("utf-8"))
+    ports = parsed(ROOT / "openfactory" / "lifecycle" / "ports.py")
     writes = [(fn.name, c) for fn in ast.walk(ports) if isinstance(fn, ast.FunctionDef)
               for c in ast.walk(fn) if isinstance(c, ast.Call)
               and isinstance(c.func, ast.Attribute) and c.func.attr == "set_column"]

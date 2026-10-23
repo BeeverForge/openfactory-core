@@ -34,6 +34,7 @@ import pytest
 
 from openfactory import floor
 from openfactory.floor import ladder as fs
+from tests.the_tree_read_once import parsed
 
 NOW = datetime(2026, 8, 19, 22, 8, tzinfo=UTC)
 
@@ -703,7 +704,7 @@ def test_the_standing_wait_does_not_hand_write_its_own_sentence():
     import ast
 
     src = pathlib.Path(__file__).resolve().parent.parent / "openfactory/runtime/temporal/workflow.py"
-    tree = ast.parse(src.read_text())
+    tree = parsed(src)
     loop = next(n for n in ast.walk(tree)
                 if isinstance(n, ast.AsyncFunctionDef) and n.name == "_ci_merge_loop")
 

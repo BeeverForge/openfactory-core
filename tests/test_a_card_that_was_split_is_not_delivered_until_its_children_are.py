@@ -33,6 +33,7 @@ from openfactory.product.board import _ticket
 from openfactory.product.triage import Ticket
 from openfactory.runtime.temporal import activities as acts
 from openfactory.runtime.temporal.io import SplitInput
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 CHILDREN = [{"title": "harden the guest surface", "objective": "o", "criteria": ["c1"]},
@@ -254,7 +255,7 @@ def test_no_generic_caller_closes_a_card_on_the_row_directly():
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
         if rows in path.parents:
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "close_ticket"):
                 around.append(f"{path.relative_to(ROOT)}:{node.lineno}")

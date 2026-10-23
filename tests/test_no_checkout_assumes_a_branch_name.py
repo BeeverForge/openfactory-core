@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 
 from openfactory.runtime.repo_cache import current_branch
+from tests.the_tree_read_once import parsed
 
 
 def _repo(tmp_path, branch: str) -> str:
@@ -162,7 +163,7 @@ def _sync_calls(root: Path | None = None) -> list[tuple[str, int, ast.AST | None
     package = root or Path(inspect.getfile(current_branch)).parent.parent
     out: list[tuple[str, int, ast.AST | None]] = []
     for path in sorted(package.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if not (isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute) and node.func.attr == "sync"):
                 continue

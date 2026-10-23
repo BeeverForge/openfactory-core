@@ -72,6 +72,7 @@ from tests.test_every_process_the_deployment_starts_logs_with_a_time_a_level_and
     UNLISTED,
     _a_fresh_process,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 TS = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
@@ -272,7 +273,7 @@ def _writes(tree: ast.AST) -> list[tuple[str, int, str]]:
 def _the_package_writes() -> list[tuple[str, str, int, str]]:
     return [(path.relative_to(ROOT).as_posix(), where, line, what)
             for path in sorted((ROOT / "openfactory").rglob("*.py"))
-            for where, line, what in _writes(ast.parse(path.read_text(encoding="utf-8")))]
+            for where, line, what in _writes(parsed(path))]
 
 
 def _allowed(path: str, where: str) -> bool:
@@ -338,7 +339,7 @@ def test_every_place_the_sweep_lets_write_still_writes():
     stale = [f"{path} :: {row}" for path, rows in OUTSIDE_THE_LOG.items() for row in rows
              if not any(row == "*" or where == row or where.startswith(f"{row}.")
                         for where in found.get(path, ()))]
-    commands = {path: {node.name for node in ast.parse((ROOT / path).read_text()).body
+    commands = {path: {node.name for node in parsed(ROOT / path).body
                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
                 for path in BECOME_A_PROCESS}
 
@@ -546,7 +547,7 @@ def _the_lines_said_for_a_person() -> dict[tuple[str, str, str], list[str]]:
 
     for module in sorted((ROOT / "openfactory").rglob("*.py")):
         rel = module.relative_to(ROOT).as_posix()
-        visit(ast.parse(module.read_text(encoding="utf-8")), rel, "")
+        visit(parsed(module), rel, "")
     return found
 
 
@@ -1839,8 +1840,7 @@ def test_every_door_to_the_engine_is_a_case():
     (`_connect_for`) is made from `connection.connect` alone, so every door's cost is that one's."""
     doors, attempts = set(), set()
     for module in ("connection", "view"):
-        tree = ast.parse((ROOT / "openfactory" / "runtime" / "temporal" / f"{module}.py")
-                         .read_text(encoding="utf-8"))
+        tree = parsed(ROOT / "openfactory" / "runtime" / "temporal" / f"{module}.py")
         for node in tree.body:
             if not isinstance(node, ast.AsyncFunctionDef):
                 continue

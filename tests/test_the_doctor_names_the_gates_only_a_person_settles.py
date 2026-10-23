@@ -33,6 +33,7 @@ from openfactory.adapters.forge.local import LocalForge
 from tests.pinned_probes import GREEN_ANSWERS, a_fully_pinned_probe_set
 from tests.test_the_ado_forge import FX_ADO_REPO, REPO_ID
 from tests.test_the_ado_forge import forge as ado_forge
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -301,7 +302,7 @@ def test_an_older_probe_set_gets_no_finding_rather_than_an_invented_one():
 def test_the_doctor_names_no_vendor_about_gates():
     """Parsed, not grepped: string constants in the check's and the probe's CODE, docstrings
     excluded (they tell the incident)."""
-    tree = ast.parse((ROOT / "openfactory/doctor.py").read_text())
+    tree = parsed(ROOT / "openfactory/doctor.py")
     said = []
     for fn in ast.walk(tree):
         if isinstance(fn, ast.FunctionDef) and fn.name in ("_merge_gates", "_merge_gates_probe"):

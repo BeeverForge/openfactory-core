@@ -21,6 +21,7 @@ from __future__ import annotations
 import pytest
 
 from openfactory.contracts.refs import ref_number
+from tests.the_tree_read_once import parsed
 
 # ── the primitive ───────────────────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ def test_the_product_module_has_no_bare_int_of_a_ref():
     for rel in ("openfactory/product/module.py", "openfactory/product/release.py", "openfactory/product/followup.py",
                 "openfactory/product/engine.py"):
         path = root / rel
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                     and node.func.id == "int"):
                 continue

@@ -25,6 +25,7 @@ import pytest
 
 from openfactory.api.app import _axes
 from openfactory.contracts.project import Project
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -165,7 +166,7 @@ def test_no_library_module_loads_dotenv_ON_IMPORT():
     offenders = []
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for node in tree.body:  # MODULE SCOPE ONLY — inside a function is the correct place
@@ -215,7 +216,7 @@ def test_the_panel_never_asks_the_ENVIRONMENT_for_the_route():
     # AST, not substring: the comment above the fix NAMES `resolve_route` while explaining why the
     # panel must not call it. Text matching would trip on the explanation — the third time that
     # exact trap has been hit in this codebase.
-    tree = ast.parse((ROOT / "openfactory/api/app.py").read_text())
+    tree = parsed(ROOT / "openfactory/api/app.py")
     called = {n.func.id for n in ast.walk(tree)
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}

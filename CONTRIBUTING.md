@@ -52,7 +52,9 @@ and an import-time writer with a sentinel registry and verifies that the sentine
 `addons/*/tests` where the tree has them) in one process, in a random order — pytest-randomly
 shuffles every run. The same suite across every core is `python -m pytest -q -n auto`; the fixed
 order the house rules below also ask for is `python -m pytest -q -n auto -p no:randomly`; one file
-is `python -m pytest -q tests/<the file>.py`.
+is `python -m pytest -q tests/<the file>.py`. Each xdist worker holds the parsed package once it
+runs a guard that reads it (`tests/the_tree_read_once.py`: ~260 MB, and ~450 MB more in a worker
+that runs a guard reading `tests/` too), so a box running `-n 12` should budget that per worker.
 
 **What green looks like.** pytest's last line reads `N passed, M skipped` and some warnings — no
 `failed`, no `error` — and `make test` exits 0. Skips are normal and each says why: in this public

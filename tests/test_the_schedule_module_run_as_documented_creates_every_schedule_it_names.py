@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 MODULE = "openfactory.runtime.temporal.schedule"
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -192,7 +194,7 @@ def test_the_main_block_is_the_last_statement_of_every_module_that_has_one():
     statements after it, and the documented command died with `NameError`."""
     found, late = 0, []
     for path in _sources():
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        tree = parsed(path)
         for index, node in enumerate(tree.body):
             if not _is_main_guard(node):
                 continue

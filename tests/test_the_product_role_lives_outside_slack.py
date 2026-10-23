@@ -39,6 +39,7 @@ import textwrap
 import pytest
 
 from tests.the_card_at_its_last_gate import at_its_last_gate
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -295,7 +296,7 @@ def test_no_product_row_names_slack(name):
 
     Docstrings are stripped first — see `_code_without_prose`. A row is allowed to EXPLAIN that a
     capability used to live in the Slack package; it is not allowed to reach for it."""
-    tree = ast.parse((ROOT / "openfactory/actions/catalog.py").read_text())
+    tree = parsed(ROOT / "openfactory/actions/catalog.py")
     fn = next((n for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
                and n.name == f"_{name}"), None)
@@ -323,7 +324,7 @@ def test_the_draft_runs_where_agents_AUTHENTICATE_not_where_the_request_lands():
     since #266 slice 3 through THE ONE DOOR: the row hands the message to `door.converse`, which
     enqueues it on its conversation's workflow on the worker and never calls a model itself.
     """
-    tree = ast.parse((ROOT / "openfactory/actions/catalog.py").read_text())
+    tree = parsed(ROOT / "openfactory/actions/catalog.py")
     fn = next((n for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
                and n.name == "_product_say"), None)
@@ -335,7 +336,7 @@ def test_the_draft_runs_where_agents_AUTHENTICATE_not_where_the_request_lands():
         "the request drafts, and on the panel that process has the harness binary but no "
         "credential"
     )
-    door = ast.unparse(ast.parse((ROOT / "openfactory/product/door.py").read_text()))
+    door = ast.unparse(parsed(ROOT / "openfactory/product/door.py"))
     assert "WORKFLOW = 'ConversationWorkflow'" in door and "start_signal=SIGNAL" in door, (
         "the door no longer enqueues on the conversation's workflow")
     assert ".draft(" not in door and ".answer(" not in door and "turn(" not in door, (
@@ -402,7 +403,7 @@ def test_the_ASK_calls_the_verb_that_can_actually_answer():
     Read as CODE rather than by running it: the real call needs a corpus, a worktree and an agent
     pass, and a test that mocked all three would be asserting against its own mock.
     """
-    tree = ast.parse((ROOT / "openfactory/product/engine.py").read_text())
+    tree = parsed(ROOT / "openfactory/product/engine.py")
     fns = {n.name: ast.unparse(n) for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
 
     assert ".answer(" in fns["converse"], (
@@ -883,7 +884,7 @@ def test_the_channel_still_reaches_the_SAME_staged_state():
 
 def _engine_fn(name: str) -> str:
     """One function of the turn engine, as code."""
-    tree = ast.parse((ROOT / "openfactory/product/engine.py").read_text())
+    tree = parsed(ROOT / "openfactory/product/engine.py")
     return ast.unparse(next(n for n in ast.walk(tree)
                             if isinstance(n, ast.FunctionDef) and n.name == name))
 
@@ -992,7 +993,7 @@ def test_the_typed_sentence_is_ROUTED_through_perform_and_not_around_it():
         "the one row is admin-gated, so a client could not even ask — the writes are gated where "
         "they happen, by the product's admins list")
     body = ast.unparse(next(
-        n for n in ast.walk(ast.parse((ROOT / "openfactory/actions/catalog.py").read_text()))
+        n for n in ast.walk(parsed(ROOT / "openfactory/actions/catalog.py"))
         if isinstance(n, ast.AsyncFunctionDef) and n.name == "_product_say"))
     assert "speaker=by.id" in body, "the worker is not told who typed the sentence"
     assert "actions.perform(" not in body, (
@@ -2116,7 +2117,7 @@ def test_a_typed_sentence_is_routed_from_the_door_the_PANEL_actually_opens():
     assert "/api/product/stream" in html and '"product_say", by=actor' in chat, (
         f"the panel's free-text box does not reach the one row — it offers {sorted(named)}")
     assert "product_ask" not in named, "the panel still calls a row that no longer exists"
-    activities = ast.parse((ROOT / "openfactory/runtime/temporal/activities.py").read_text())
+    activities = parsed(ROOT / "openfactory/runtime/temporal/activities.py")
     turn_call = next(n for n in ast.walk(activities)
                      if isinstance(n, ast.FunctionDef) and n.name == "_conversation_turn")
     assert "turn(" in ast.unparse(turn_call), "the worker's side of the row skips the engine"
@@ -2192,7 +2193,7 @@ def test_no_product_row_interpolates_a_RAW_EXCEPTION_into_the_client_sentence():
 
     Scoped to the PRODUCT rows on purpose. The floor's rows answer an operator who has a checkout
     and wants the error — widening this would be asserting a rule nobody agreed to."""
-    tree = ast.parse((ROOT / "openfactory/actions/catalog.py").read_text())
+    tree = parsed(ROOT / "openfactory/actions/catalog.py")
     offenders = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.AsyncFunctionDef) or not node.name.startswith("_product_"):

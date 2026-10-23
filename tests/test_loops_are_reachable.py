@@ -16,6 +16,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.the_tree_read_once import parsed
+
 PROD = [p for p in Path("openfactory").rglob("*.py")]
 
 
@@ -24,7 +26,7 @@ def _calls_anywhere(name: str) -> list[str]:
     out = []
     for path in PROD:
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for node in ast.walk(tree):
@@ -121,7 +123,7 @@ def _call_graph(*, without: tuple[str, ...] = ()) -> tuple[dict[str, set[str]], 
         if any(str(path).startswith(prefix) for prefix in without):
             continue
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         # module level: runs on import
@@ -187,7 +189,7 @@ def _open_loop_sites() -> dict[str, list[tuple[str, str]]]:
         if "openfactory/memory" in str(path):
             continue
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for fn in ast.walk(tree):
@@ -241,7 +243,7 @@ def _functions_referencing(kind_const: str):
     real delivery-closer kept it green because a docstring elsewhere said the word."""
     for path in PROD:
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for fn in ast.walk(tree):
@@ -269,7 +271,7 @@ def test_EVERY_kind_has_a_reachable_closer():
         for file, fn_name in _functions_referencing(kind.upper()):
             if "openfactory/memory" in file or fn_name not in alive:
                 continue
-            tree = ast.parse(Path(file).read_text())
+            tree = parsed(Path(file))
             fn = next(n for n in ast.walk(tree)
                       if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
                       and n.name == fn_name)

@@ -25,6 +25,7 @@ from openfactory.adapters.board.azure_devops import AzureBoardsBoard
 from openfactory.adapters.board.base import BoardAdapter
 from openfactory.contracts import JobState
 from openfactory.contracts.project import Project, ProviderRef
+from tests.the_tree_read_once import parsed
 
 # ── recorded live, 2026-08-06, acme-ai/factory ──────────────────────────────────────────────────
 
@@ -282,7 +283,7 @@ def test_nothing_outside_the_factory_names_this_vendors_board():
     stray = set()
     for path in Path("openfactory").rglob("*.py"):
         try:
-            tree = ast.parse(path.read_text())
+            tree = parsed(path)
         except SyntaxError:  # pragma: no cover
             continue
         for node in ast.walk(tree):

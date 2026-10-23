@@ -52,6 +52,7 @@ import pytest
 from openfactory.runtime.temporal import view as tv
 from openfactory.runtime.temporal.vocabulary import EngineUnreachable
 from tests.job_list_scans import PROJECT, RECENT, WRITTEN, CountedEngine, forget, scans_of
+from tests.the_tree_read_once import parsed
 
 #: Q1's default, used only where `main` has no window to read: the expiry test must pass there.
 _Q1_WINDOW = 2.0
@@ -245,7 +246,7 @@ def _writes_in_view() -> list[str]:
     """Every `async def` in `view.py` that makes a write call on the client or on a handle the
     client gave it (`client.get_workflow_handle(...)`, named or chained), read from the module's
     syntax tree."""
-    tree = ast.parse(Path(inspect.getsourcefile(tv)).read_text(encoding="utf-8"))
+    tree = parsed(Path(inspect.getsourcefile(tv)))
 
     def a_handle(node) -> bool:
         return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)

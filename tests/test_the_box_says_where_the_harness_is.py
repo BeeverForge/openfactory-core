@@ -31,6 +31,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -111,7 +113,7 @@ def test_no_adapter_emits_a_bare_harness_name(rel):
     """The guard, in the positive-twin shape: not "nothing is wrong here" but "the command starts
     with something the box gave us"."""
     offenders: list[str] = []
-    for node in ast.walk(ast.parse((ROOT / rel).read_text())):
+    for node in ast.walk(parsed(ROOT / rel)):
         if not isinstance(node, ast.List) or not node.elts:
             continue
         # ANY element, not just the first. It checked only `elts[0]`, which silently stopped

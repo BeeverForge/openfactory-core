@@ -22,6 +22,7 @@ import pathlib
 import pytest
 
 from openfactory.techlead import conversation
+from tests.the_tree_read_once import parsed
 
 
 class _Proj:
@@ -249,7 +250,7 @@ def _capability_uses(root: pathlib.Path) -> list[str]:
     the prose in a docstring naming one of them is not mistaken for using it."""
     hits: list[str] = []
     for path in sorted(root.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         for node in ast.walk(tree):
             names: list[str] = []
             if isinstance(node, ast.ImportFrom):

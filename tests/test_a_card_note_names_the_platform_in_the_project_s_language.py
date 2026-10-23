@@ -18,6 +18,7 @@ import pathlib
 import pytest
 
 from openfactory.product import voice
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -29,7 +30,7 @@ NOTES = {"card_note", "card_close_note", "card_reopen_note", "card_edit_note"}
 def _module_strings(path: pathlib.Path) -> dict[str, str]:
     """`NAME = "text"` at a module's top level."""
     out: dict[str, str] = {}
-    for node in ast.parse(path.read_text()).body:
+    for node in parsed(path).body:
         if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
                 and isinstance(node.value.value, str)):
             for target in node.targets:
@@ -57,7 +58,7 @@ def _resolved(name: str, path: pathlib.Path, tree: ast.Module) -> str | None:
 def _actors_the_code_passes() -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for call in ast.walk(tree):
             if not isinstance(call, ast.Call):
                 continue

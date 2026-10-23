@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 
 from openfactory.credentials import deployment_forge_token, deployment_tracker_token
+from tests.the_tree_read_once import parsed
 
 
 def _project(*, tracker="github", forge="github"):
@@ -435,7 +436,7 @@ def _crossed(root: Path) -> list[str]:
     """
     out: list[str] = []
     for path in sorted(root.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(parsed(path)):
             if not (isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or)):
                 continue
             axes = [getattr(v.func, "id", "") for v in node.values if isinstance(v, ast.Call)]

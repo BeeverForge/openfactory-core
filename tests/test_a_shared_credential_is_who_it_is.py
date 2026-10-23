@@ -41,6 +41,7 @@ from openfactory.identity.local import CLOSING_ENVS, LocalIdentity
 from openfactory.memory import messages
 from tests.test_a_person_is_invited_not_signed_up import local  # noqa: F401 — the fixture
 from tests.test_the_panel_is_a_channel import sink  # noqa: F401 — the fixture
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -488,7 +489,7 @@ def test_the_label_is_read_in_one_place():
     nothing."""
     readers = []
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = parsed(path)
         functions = [fn for fn in ast.walk(tree)
                      if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef)]
         for node in ast.walk(tree):

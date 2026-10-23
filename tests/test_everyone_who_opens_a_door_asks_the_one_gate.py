@@ -46,6 +46,7 @@ from tests.test_a_stream_ends_when_its_credential_does import (  # noqa: F401 â€
     register,
     sign_in,
 )
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 SOCKET = "/api/stream"
@@ -493,7 +494,7 @@ def who_asks(tree: ast.AST) -> tuple[set[str], set[str]]:
 
 
 def _api_modules() -> dict[str, ast.AST]:
-    return {m.name: ast.parse(m.read_text()) for m in sorted((ROOT / "openfactory/api").glob("*.py"))}
+    return {m.name: parsed(m) for m in sorted((ROOT / "openfactory/api").glob("*.py"))}
 
 
 def test_NOBODY_in_the_panel_asks_who_somebody_is_but_the_gate_and_the_named_few():

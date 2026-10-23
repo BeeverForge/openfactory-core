@@ -24,6 +24,7 @@ from openfactory import doctor, preflight
 from openfactory.adapters.agent import claude_code
 from openfactory.adapters.agent.claude_code import CREDENTIALS, POOL
 from openfactory.contracts.project import Project
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GOOD_POOL = '[{"id": "a", "token": "sk-ant-oat01-a"}, {"id": "b", "token": "sk-ant-oat01-b"}]'
@@ -197,7 +198,7 @@ def test_no_probe_keeps_a_list_of_credentials_of_its_own(module):
     """A GUARD on the shape of the defect: a tuple, list or set holding a credential's name, or a
     credential read straight from the environment. A remedy may NAME one in a sentence."""
     names = set(CREDENTIALS)
-    tree = ast.parse((ROOT / module).read_text())
+    tree = parsed(ROOT / module)
     kept = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Tuple | ast.List | ast.Set) and any(

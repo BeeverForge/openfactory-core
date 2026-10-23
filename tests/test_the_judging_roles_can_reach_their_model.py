@@ -34,6 +34,7 @@ import pytest
 from openfactory.adapters.sandbox.registry import judging_worktree
 from openfactory.adapters.sandbox.worktree import _scrubbed_env
 from openfactory.contracts.project import Project
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -139,7 +140,7 @@ def test_no_judging_role_builds_a_bare_worktree(rel):
     """AST, not substring: the docstrings in these files legitimately discuss `WorktreeSandbox`
     while explaining why it must not be constructed directly."""
     offenders = []
-    for node in ast.walk(ast.parse((ROOT / rel).read_text())):
+    for node in ast.walk(parsed(ROOT / rel)):
         if not isinstance(node, ast.Call):
             continue
         fn = node.func

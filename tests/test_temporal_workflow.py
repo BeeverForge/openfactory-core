@@ -43,6 +43,7 @@ from openfactory.runtime.temporal.io import (
     StartJobsInput,
 )
 from openfactory.runtime.temporal.workflow import JobWorkflow
+from tests.the_tree_read_once import parsed
 
 #: THIS FILE STARTS ITS OWN ENGINE, and says so rather than being guessed at.
 #: `WorkflowEnvironment.start_time_skipping` boots an ephemeral Temporal on a port it picked and
@@ -1794,7 +1795,7 @@ def test_every_merge_wait_says_what_it_is_waiting_on():
 
     src = pathlib.Path(__file__).resolve().parent.parent / "openfactory/runtime/temporal/workflow.py"
     missing: list[str] = []
-    for node in ast.walk(ast.parse(src.read_text())):
+    for node in ast.walk(parsed(src)):
         if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
             continue
         targets = {ast.unparse(t) for t in node.targets}

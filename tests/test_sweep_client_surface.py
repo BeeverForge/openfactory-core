@@ -26,6 +26,7 @@ from openfactory.contracts import AgentRunResult
 from openfactory.product import engine
 from openfactory.product.role import ProductRole
 from tests.the_chat_turn import AS_NAMED, CHAT, chat_turn
+from tests.the_tree_read_once import parsed
 
 # ── stand-ins at the production seams ────────────────────────────────────────────────────────────
 
@@ -447,7 +448,7 @@ def test_no_message_this_module_can_SAY_carries_a_link():
     # `tests/test_the_requester_hears_the_change_is_theirs_to_try.py`.
     CLIENT_OWNED = {"_DEPLOY_INVITATION", "_PREVIEW_UP", "_READY_TRY_LIVE", "_READY_CARD_LINK"}
 
-    tree = ast.parse(Path("openfactory/product/voice.py").read_text())
+    tree = parsed(Path("openfactory/product/voice.py"))
     offenders = []
     for node in tree.body:
         if not isinstance(node, ast.Assign):
@@ -478,7 +479,7 @@ def test_the_deploy_invitation_sends_them_to_THEIR_product_and_nothing_else():
 
     from openfactory.product.voice import deploy_invitation, jargon_in
 
-    tree = ast.parse(Path("openfactory/product/voice.py").read_text())
+    tree = parsed(Path("openfactory/product/voice.py"))
     catalogue = next(n.value for n in tree.body
                      if isinstance(n, ast.Assign)
                      and getattr(n.targets[0], "id", "") == "_DEPLOY_INVITATION")

@@ -22,6 +22,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: Every place a job is composed from a ticket. Named one by one, because a sweep would be
@@ -34,7 +36,7 @@ ENTRY_POINTS = [
 
 
 def _calls_in(path: str, func: str) -> set[str]:
-    tree = ast.parse((ROOT / path).read_text())
+    tree = parsed(ROOT / path)
     node = next((n for n in ast.walk(tree)
                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == func), None)
     assert node is not None, f"{func} vanished from {path} — this guard now guards nothing"

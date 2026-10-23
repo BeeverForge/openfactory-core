@@ -24,6 +24,7 @@ import pytest
 
 from openfactory import namespace
 from openfactory.contracts import AcceptanceCriterion, JobState, Manifest, Ticket
+from tests.the_tree_read_once import parsed
 
 pytest_plugins = ["tests.test_walking_skeleton"]
 
@@ -126,7 +127,7 @@ def _old_prefix_constructions(path: pathlib.Path) -> list[tuple[int, str]]:
     because the trap itself was an f-string: a plain constant starting with `sdlc/`, and an
     f-string whose LITERAL head starts with `sdlc/` (`f"sdlc/{ticket.id}"` — the exact line this
     rename removed twice from `machine.py`)."""
-    tree = ast.parse(path.read_text())
+    tree = parsed(path)
     prose = _docstring_ids(tree)
     # an f-string's literal pieces are Constant nodes too — mark them so the plain-constant arm
     # does not report the same construction twice (the positive twin caught exactly this)

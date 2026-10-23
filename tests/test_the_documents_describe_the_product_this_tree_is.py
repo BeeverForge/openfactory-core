@@ -42,6 +42,8 @@ import add_ons
 import pytest
 import yaml
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: The documents this package owns. Every scan below runs over all of them, so a defect fixed in
@@ -214,7 +216,7 @@ def _defined_in(rel: str) -> set[str]:
 
     Methods count: `JobWorkflow._journal_outcome` and `_pause_backoff` are what the operator
     pages cite, and a guard that only saw top-level defs would call both of them missing."""
-    tree = ast.parse((ROOT / rel).read_text())
+    tree = parsed(ROOT / rel)
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
@@ -416,7 +418,7 @@ def test_a_box_that_declares_no_cache_volume_mounts_none():
 
 
 def _set_state_body() -> ast.FunctionDef:
-    tree = ast.parse((ROOT / "openfactory/adapters/tracker/github.py").read_text())
+    tree = parsed(ROOT / "openfactory/adapters/tracker/github.py")
     cls = next(n for n in tree.body
                if isinstance(n, ast.ClassDef) and any(
                    isinstance(f, ast.FunctionDef) and f.name == "set_state" for f in n.body))
@@ -504,7 +506,7 @@ CAPABILITIES = {
 
 
 def _constructed_in_factory() -> set[str]:
-    tree = ast.parse((ROOT / "openfactory/factory.py").read_text())
+    tree = parsed(ROOT / "openfactory/factory.py")
     return {node.func.id for node in ast.walk(tree)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
 

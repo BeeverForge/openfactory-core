@@ -34,6 +34,8 @@ import pathlib
 
 import pytest
 
+from tests.the_tree_read_once import parsed
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 KERNEL = [ROOT / "openfactory" / "contracts", ROOT / "openfactory" / "policy"]
 
@@ -49,7 +51,7 @@ VENDORS = ("slack", "github", "gitlab", "jira", "telegram", "teams", "temporal",
 
 def _identifiers(path: pathlib.Path):
     """Every name the code DEFINES or READS, ignoring string content entirely."""
-    tree = ast.parse(path.read_text())
+    tree = parsed(path)
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):
             yield node.lineno, node.id
@@ -101,7 +103,7 @@ def test_no_reader_anywhere_still_asks_for_a_renamed_field():
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
         if "__pycache__" in str(path):
             continue
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             # getattr(x, "slack_channel", ...) — the silent form
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
@@ -263,7 +265,7 @@ def test_the_kernel_reads_no_environment():
     NAME guard would never catch it, so it gets its own rule."""
     offenders = []
     for path in _kernel_files():
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         for node in ast.walk(tree):
             if (isinstance(node, ast.Attribute) and node.attr in ("environ", "getenv")):
                 offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")

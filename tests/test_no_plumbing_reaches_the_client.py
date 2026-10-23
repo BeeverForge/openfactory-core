@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from openfactory.product.voice import client_safe_detail
+from tests.the_tree_read_once import parsed
 
 #: Real failure details this codebase produces, from the actual raise sites.
 _MACHINERY = [
@@ -87,7 +88,7 @@ _COMPOSING_FILES = ("openfactory/product/engine.py", "openfactory/product/confir
 def _composing_tree() -> ast.Module:
     merged = ast.Module(body=[], type_ignores=[])
     for path in _COMPOSING_FILES:
-        body = ast.parse(Path(path).read_text()).body
+        body = parsed(Path(path)).body
         assert any(isinstance(n, ast.FunctionDef) for n in body), (
             f"{path} contributed no functions — the leak scan is reading half the code")
         merged.body.extend(body)

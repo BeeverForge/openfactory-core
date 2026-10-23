@@ -28,6 +28,8 @@ import inspect
 import textwrap
 from pathlib import Path
 
+from tests.the_tree_read_once import parsed
+
 _WORKFLOW_FILES = (
     Path("openfactory/runtime/temporal/workflow.py"),
     Path("openfactory/runtime/temporal/poller.py"),
@@ -42,7 +44,7 @@ def _defined_workflows() -> set[str]:
     words about its own."""
     out: set[str] = set()
     for path in _WORKFLOW_FILES:
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        for node in ast.walk(parsed(path)):
             if isinstance(node, ast.ClassDef) and any(
                     "workflow.defn" in ast.unparse(d) for d in node.decorator_list):
                 out.add(node.name)
@@ -52,7 +54,7 @@ def _defined_workflows() -> set[str]:
 def _registered_workflows() -> set[str]:
     """The names in the worker's `workflows=[...]`."""
     out: set[str] = set()
-    for node in ast.walk(ast.parse(_WORKER.read_text(encoding="utf-8"))):
+    for node in ast.walk(parsed(_WORKER)):
         if isinstance(node, ast.keyword) and node.arg == "workflows" and isinstance(
                 node.value, ast.List):
             out |= {e.id for e in node.value.elts if isinstance(e, ast.Name)}
@@ -62,7 +64,7 @@ def _registered_workflows() -> set[str]:
 def _scheduled_workflow_names() -> set[str]:
     """Every workflow a Schedule starts, read off the string literal it is started by."""
     out: set[str] = set()
-    for node in ast.walk(ast.parse(_SCHEDULE.read_text(encoding="utf-8"))):
+    for node in ast.walk(parsed(_SCHEDULE)):
         if (isinstance(node, ast.Call)
                 and getattr(node.func, "id", "") == "ScheduleActionStartWorkflow"
                 and node.args and isinstance(node.args[0], ast.Constant)

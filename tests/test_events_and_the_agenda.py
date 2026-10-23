@@ -62,6 +62,7 @@ from openfactory.runtime.temporal import activities as acts
 from openfactory.runtime.temporal.activities import conversation_report
 from openfactory.runtime.temporal.conversation import ConversationWorkflow
 from openfactory.runtime.temporal.io import HoldSyncInput, OverheardInput, TurnInput
+from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parent.parent
 LANG, AGENT = "pt-BR", "Nina"
@@ -1175,7 +1176,7 @@ def test_ONLY_the_factorys_own_producers_tell_the_door_an_event():
     callers: dict[str, set[str]] = {}
     for path in sorted((ROOT / "openfactory").rglob("*.py")):
         rel = str(path.relative_to(ROOT))
-        tree = ast.parse(path.read_text())
+        tree = parsed(path)
         imported = {alias.asname or alias.name
                     for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
                     and (node.module or "").endswith(("product.door", "product.events"))

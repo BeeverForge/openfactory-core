@@ -36,6 +36,7 @@ from openfactory.contracts.project import BoxConfig, Project, ProviderRef
 from openfactory.contracts.review import ReviewResult
 from openfactory.contracts.run import AgentRunResult
 from openfactory.onboarding import firstrun as fr
+from tests.the_tree_read_once import parsed
 
 # ── fakes: docker, a harness, a dollar. Nothing else. ───────────────────────────────────────────
 
@@ -203,7 +204,7 @@ EXPECTED = {"build_executor", "build_reviewer", "build_sandbox", "_run_validatio
 
 def _names_used(module) -> set[str]:
     """Every attribute and bare name this module's source mentions."""
-    tree = ast.parse(Path(inspect.getfile(module)).read_text())
+    tree = parsed(Path(inspect.getfile(module)))
     out: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):

@@ -21,6 +21,7 @@ from openfactory.contracts.project import Project, ProviderRef
 from openfactory.product import engine
 from tests.the_chat_turn import chat_turn
 from tests.the_sink_door import SINK_DOOR
+from tests.the_tree_read_once import parsed
 
 
 def _is_receipt(text: str) -> bool:
@@ -172,7 +173,7 @@ def test_the_bot_passes_a_notifier_at_all():
     this repository's signature defect, and it has shipped thirteen times."""
     import ast
 
-    tree = ast.parse(add_ons.source("openfactory/runtime/slack/bot.py").read_text())
+    tree = parsed(add_ons.source("openfactory/runtime/slack/bot.py"))
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "handle"
              and any(k.arg == "notify" for k in n.keywords)]

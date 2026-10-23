@@ -23,6 +23,7 @@ from typer.testing import CliRunner
 
 from openfactory.cli import app
 from openfactory.onboarding.deployment import Answers, Probes, UnknownAnswer, render
+from tests.the_tree_read_once import parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -353,7 +354,7 @@ def test_the_terminal_only_exception_is_still_EARNED(name):
 
 def test_init_is_a_real_top_level_command():
     """The positive twin: the guard above passes just as happily if the command never existed."""
-    tree = ast.parse((ROOT / "openfactory/cli.py").read_text())
+    tree = parsed(ROOT / "openfactory/cli.py")
     commands = {
         arg.value
         for node in ast.walk(tree)
