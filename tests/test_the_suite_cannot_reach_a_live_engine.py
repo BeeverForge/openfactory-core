@@ -35,7 +35,7 @@ import textwrap
 
 import pytest
 
-from tests.the_tree_read_once import parsed
+from tests.the_tree_read_once import could_say, parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -111,18 +111,26 @@ async def test_and_an_UNDECLARED_engine_refuses_before_it_reaches_anything(monke
 
 # ── the marker is not a back door ───────────────────────────────────────────────────────────────
 
-def _marked_files() -> list[pathlib.Path]:
-    """Every test module that declares `pytestmark = pytest.mark.owns_its_engine`."""
-    out = []
-    for path in sorted(ROOT.joinpath("tests").glob("test_*.py")):
-        tree = parsed(path)
-        for node in tree.body:
-            if not isinstance(node, ast.Assign):
-                continue
-            if any(getattr(t, "id", "") == "pytestmark" for t in node.targets) and \
-                    "owns_its_engine" in ast.unparse(node.value):
-                out.append(path)
-    return out
+def _marks_itself(tree: ast.Module) -> bool:
+    """Whether a module declares `pytestmark = <something carrying owns_its_engine>`."""
+    return any(isinstance(node, ast.Assign)
+               and any(getattr(t, "id", "") == "pytestmark" for t in node.targets)
+               and "owns_its_engine" in ast.unparse(node.value)
+               for node in tree.body)
+
+
+def _could_mark(text: str) -> bool:
+    """NECESSARY for `_marks_itself`: a `pytestmark` target is an identifier the source spells
+    (raw or NFKC). Never `owns_its_engine` — `getattr(pytest.mark, "owns_" "its_engine")` unparses
+    to it without spelling it."""
+    return could_say(text, "pytestmark")
+
+
+def _marked_files(root: pathlib.Path = ROOT) -> list[pathlib.Path]:
+    """Every test module that declares `pytestmark = pytest.mark.owns_its_engine` — parsing only
+    the modules whose text can say so (#1069: this runs at import, in every worker)."""
+    return [path for path in sorted(root.joinpath("tests").glob("test_*.py"))
+            if _could_mark(path.read_text(encoding="utf-8")) and _marks_itself(parsed(path))]
 
 
 def test_the_marker_scan_finds_the_one_file_that_uses_it():

@@ -28,12 +28,13 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 
 import pytest
 import stranger_addon
 
 from openfactory import plugins
-from tests.the_tree_read_once import parsed
+from tests.the_tree_read_once import could_say, parsed
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -107,10 +108,16 @@ def _string_constants(tree: ast.Module) -> dict[str, str]:
             for t in n.targets if isinstance(t, ast.Name)}
 
 
-def _refuses_a_kind(tree: ast.Module) -> bool:
+def _refuses_a_kind(tree: ast.Module, text: str) -> bool:
     """The house refusal: `raise ValueError(f"unknown <axis> {kind!r} — known: …")` or the board's
     `no board provider … (known: …)`. A message that names what IS known is what makes a module a
-    registry rather than a validator: it dispatches on a kind and lists its rows."""
+    registry rather than a validator: it dispatches on a kind and lists its rows.
+
+    THE SOURCE SPELLS `known:` (#1069). The house refusal is written out, so a message assembled
+    as `"kno" "wn:"` or escaped is not one — and that is what lets `_could_be_a_registry` ask the
+    text for `known:` and stay a NECESSARY condition of this test."""
+    if "known:" not in text:
+        return False
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)
                 and getattr(node.exc.func, "id", "") == "ValueError" and node.exc.args):
@@ -166,22 +173,43 @@ def _axes_asked(tree: ast.Module) -> set[str]:
     return asked
 
 
+#: NECESSARY for `_builds_a_kind`: the `def` keyword, whitespace or a backslash continuation, and
+#: a name starting `build_` (searched raw and in NFKC by `could_say`).
+_BUILD_DOOR = re.compile(r"\bdef[\s\\]+build_")
+
+
+def _could_be_a_registry(text: str) -> bool:
+    """NECESSARY for `_is_a_registry`, read off the text before anything is parsed (#1069): a
+    refusal needs the source to spell `known:`, a build door `def … build_`, and asking the loader
+    both the names `plugins` and `builder`."""
+    return (could_say(text, "known:") or could_say(text, _BUILD_DOOR)
+            or (could_say(text, "plugins") and could_say(text, "builder")))
+
+
+def _is_a_registry(tree: ast.Module, text: str) -> bool:
+    """A kind table AND either an unknown-kind refusal, a `build_*` function or a loader call."""
+    # A MODULE THAT ASKS THE LOADER IS A REGISTRY WHATEVER ITS DOOR IS CALLED. The credential
+    # and board-setup registries (2026-08-26) answer `None` for an unknown kind instead of
+    # refusing it, and their doors are `credential_row` / `board_creator`, not `build_*` — so
+    # the two shapes above could not see them, and the published list carried two axes that
+    # "nobody asked for". The refusal/build shapes stay: they are what makes a CLOSED registry
+    # visible, which asking the loader by definition cannot be.
+    return _has_a_kind_table(tree) and (
+        _refuses_a_kind(tree, text) or _builds_a_kind(tree) or bool(_axes_asked(tree)))
+
+
 def registries(root: pathlib.Path = ROOT) -> dict[str, set[str]]:
     """`relative path → axes asked` for every registry under the package, DERIVED: a module with a
     kind table AND either an unknown-kind refusal or a `build_*` function. A registry that consults
     nothing is in the map with an empty set — which is what makes a closed one visible rather
-    than absent."""
+    than absent. Only a module whose text can be one is parsed (#1069: this runs at import)."""
     found: dict[str, set[str]] = {}
     for path in sorted(root.joinpath("openfactory").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if not _could_be_a_registry(text):
+            continue
         tree = parsed(path)
-        # A MODULE THAT ASKS THE LOADER IS A REGISTRY WHATEVER ITS DOOR IS CALLED. The credential
-        # and board-setup registries (2026-08-26) answer `None` for an unknown kind instead of
-        # refusing it, and their doors are `credential_row` / `board_creator`, not `build_*` — so
-        # the two shapes above could not see them, and the published list carried two axes that
-        # "nobody asked for". The refusal/build shapes stay: they are what makes a CLOSED registry
-        # visible, which asking the loader by definition cannot be.
-        if _has_a_kind_table(tree) and (
-                _refuses_a_kind(tree) or _builds_a_kind(tree) or _axes_asked(tree)):
+        if _is_a_registry(tree, text):
             found[path.relative_to(root).as_posix()] = _axes_asked(tree)
     return found
 

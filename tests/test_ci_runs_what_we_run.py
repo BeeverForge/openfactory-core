@@ -33,6 +33,28 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 
+#: THIS PROCESS'S ENVIRONMENT, CAPTURED ONCE AT IMPORT (#1069). The conftest's `pytest_configure`
+#: has already re-homed `HOME` and stripped `OPENFACTORY_*` by now; what it sets per test
+#: (`OPENFACTORY_REGISTRY`, `OPENFACTORY_LOG_DIR`, `PYTEST_CURRENT_TEST`) differs for every test, so
+#: a key on the live environment would never repeat. Every collection below is handed this.
+_ENV = dict(os.environ)
+
+#: (argv, environment) → the collection that invocation produced, run once per process.
+_RUNS: dict[tuple[tuple[str, ...], tuple[tuple[str, str], ...]],
+            subprocess.CompletedProcess[str]] = {}
+
+
+def _collected(argv: tuple[str, ...], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """`argv` run from the repository root under `env`, ONCE per distinct pair in this process.
+
+    The questions below asked the same whole-suite collection up to three times, each ~7 s of
+    CPU. The answer is shared: callers read it and never change it."""
+    key = (argv, tuple(sorted(env.items())))
+    if key not in _RUNS:
+        _RUNS[key] = subprocess.run(list(argv), cwd=ROOT, capture_output=True, text=True,
+                                    timeout=300, env=env)
+    return _RUNS[key]
+
 
 def _console_script() -> str:
     """THIS environment's `pytest` console script, not whatever `PATH` happens to find.
@@ -48,10 +70,7 @@ def test_the_bare_pytest_console_script_can_COLLECT_the_suite():
     """THE regression, run for real. Collection is enough: an import-time failure (a plugin, a
     conftest, a missing package) is the whole class this guard exists for, and collecting the
     full suite costs ~2s while running it twice would cost minutes."""
-    proc = subprocess.run(
-        [_console_script(), "-q", "--collect-only"],
-        cwd=ROOT, capture_output=True, text=True, timeout=300,
-    )
+    proc = _collected((_console_script(), "-q", "--collect-only"), _ENV)
 
     assert proc.returncode == 0, (
         "the suite does not COLLECT under the bare `pytest` console script — which is exactly "
@@ -63,19 +82,13 @@ def test_the_bare_pytest_console_script_can_COLLECT_the_suite():
 def test_that_invocation_sees_the_same_tests_this_one_does():
     """A collection that succeeds while seeing FEWER tests is the same failure wearing a green
     tick — `testpaths`, an import mode or a rootdir difference silently hiding a directory."""
-    proc = subprocess.run(
-        [_console_script(), "-q", "--collect-only"],
-        cwd=ROOT, capture_output=True, text=True, timeout=300,
-    )
+    proc = _collected((_console_script(), "-q", "--collect-only"), _ENV)
     match = re.search(r"(\d+) tests? collected", proc.stdout)
     assert match, f"could not read the collected count from:\n{proc.stdout[-800:]}"
 
     collected = int(match.group(1))
     # this process was itself started by pytest, so its own count is the reference
-    mine = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--collect-only"],
-        cwd=ROOT, capture_output=True, text=True, timeout=300,
-    )
+    mine = _collected((sys.executable, "-m", "pytest", "-q", "--collect-only"), _ENV)
     mine_match = re.search(r"(\d+) tests? collected", mine.stdout)
     assert mine_match, "could not read the reference count"
 
@@ -118,11 +131,8 @@ def test_collection_survives_a_machine_without_THE_OPTIONAL_TOY_PROJECTS():
     collect the same suite this machine does — the tests that need those directories skip at RUN
     time, which is a decision each test makes, not one that deletes everybody else's.
     """
-    stripped = {**os.environ, "OPENFACTORY_FIXTURES": str(ROOT / "no-such-toy-projects")}
-    proc = subprocess.run(
-        [_console_script(), "-q", "--collect-only"],
-        cwd=ROOT, capture_output=True, text=True, timeout=300, env=stripped,
-    )
+    stripped = {**_ENV, "OPENFACTORY_FIXTURES": str(ROOT / "no-such-toy-projects")}
+    proc = _collected((_console_script(), "-q", "--collect-only"), stripped)
 
     assert proc.returncode == 0, (
         "collection needs optional working state that no other machine has — CI collects nothing "

@@ -19,13 +19,14 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 from pathlib import Path
 
 import pytest
 from temporalio import workflow as temporal_workflow
 from temporalio.client import Client, WorkflowHandle
 
-from tests.the_tree_read_once import parsed
+from tests.the_tree_read_once import could_say, parsed
 
 #: attribute name → the real callable whose signature it must fit. `execute_activity` and
 #: `create_schedule` joined after a reviewer pointed out they sat outside the guard — the same
@@ -41,22 +42,36 @@ _CHECKED = {
 }
 
 
-def _call_sites():
-    """(file, line, method, positional count, keyword names) for every checked call in sdlc/."""
-    for path in sorted(Path("openfactory").rglob("*.py")):
-        tree = parsed(path)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = getattr(node.func, "attr", None)
-            if name not in _CHECKED:
-                continue
-            if any(isinstance(a, ast.Starred) for a in node.args):
-                continue  # *args — nothing static to check
-            kwargs = [k.arg for k in node.keywords if k.arg]
-            if any(k.arg is None for k in node.keywords):
-                continue  # **kwargs — same
-            yield str(path), node.lineno, name, len(node.args), kwargs
+def _could_call(text: str) -> bool:
+    """NECESSARY for a checked call (#1069): a dot, then whitespace, backslash continuations or
+    comments (inside brackets), then one of `_CHECKED`'s names — raw or in NFKC. Built from
+    `_CHECKED` on every call, so a name added there is filtered for."""
+    names = "|".join(re.escape(name) for name in _CHECKED)
+    return could_say(text, rf"\.(?:[\s\\]|#[^\n]*)*(?:{names})\b")
+
+
+def _sites_in(tree: ast.Module, path: Path):
+    """(file, line, method, positional count, keyword names) for every checked call in `tree`."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", None)
+        if name not in _CHECKED:
+            continue
+        if any(isinstance(a, ast.Starred) for a in node.args):
+            continue  # *args — nothing static to check
+        kwargs = [k.arg for k in node.keywords if k.arg]
+        if any(k.arg is None for k in node.keywords):
+            continue  # **kwargs — same
+        yield str(path), node.lineno, name, len(node.args), kwargs
+
+
+def _call_sites(root: Path = Path("openfactory")):
+    """Every checked call under `root`, parsing only the modules whose text can make one (#1069:
+    this runs at import, in every worker)."""
+    for path in sorted(root.rglob("*.py")):
+        if _could_call(path.read_text(encoding="utf-8")):
+            yield from _sites_in(parsed(path), path)
 
 
 def test_there_are_call_sites_to_check():
