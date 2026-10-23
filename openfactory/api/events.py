@@ -47,7 +47,8 @@ from typing import Annotated, Any, Literal, get_args
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 
-from openfactory.api.read_models import EngineJob, MessagesRead, Number
+from openfactory.api.read_models import EngineJob, MessagesRead, Number, ProjectRow
+from openfactory.observability.events import EventKind
 
 #: Where the description is committed, from the repository's root — beside `openapi.json`.
 COMMITTED = Path("docs") / "reference" / "events.schema.json"
@@ -119,9 +120,10 @@ class ByeData(EventData):
 
 class UpdateData(EventData):
     """What changed for the project the floor's socket follows — only the sections that changed.
-    A section the store could not read is `null`, never empty."""
+    A section the store could not read is `null`, never empty. `projects` is what `/api/projects`
+    answers, and `chat` what `/api/messages/{project}` answers."""
 
-    projects: list[dict[str, Any]] | None = None
+    projects: list[ProjectRow] | None = None
     chat: MessagesRead | None = None
 
 
@@ -147,7 +149,7 @@ class LogData(EventData):
     ts: str
     job_id: str
     ticket_id: str
-    kind: str
+    kind: EventKind
     message: str
     data: dict[str, Any] = Field(default_factory=dict)
 

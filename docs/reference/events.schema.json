@@ -1053,6 +1053,16 @@
           "type": "string"
         },
         "kind": {
+          "enum": [
+            "state",
+            "agent_action",
+            "validation",
+            "review",
+            "pr",
+            "note",
+            "warning",
+            "error"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -1380,6 +1390,114 @@
         "data"
       ],
       "title": "PresenceEvent",
+      "type": "object"
+    },
+    "ProjectRow": {
+      "additionalProperties": true,
+      "description": "One project this deployment runs: the kind of each axis, its board, whether pickup is on,\nand its box's verdict (`box_prove.health`). `board` is the tracker's board option as the\nregistry holds it, a number or a name.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "repo_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repo Path"
+        },
+        "tracker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tracker"
+        },
+        "forge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forge"
+        },
+        "ci": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci"
+        },
+        "board": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Board"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "box": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Box"
+        }
+      },
+      "title": "ProjectRow",
       "type": "object"
     },
     "RefusedData": {
@@ -2075,14 +2193,13 @@
     },
     "UpdateData": {
       "additionalProperties": true,
-      "description": "What changed for the project the floor's socket follows — only the sections that changed.\nA section the store could not read is `null`, never empty.",
+      "description": "What changed for the project the floor's socket follows — only the sections that changed.\nA section the store could not read is `null`, never empty. `projects` is what `/api/projects`\nanswers, and `chat` what `/api/messages/{project}` answers.",
       "properties": {
         "projects": {
           "anyOf": [
             {
               "items": {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/$defs/ProjectRow"
               },
               "type": "array"
             },

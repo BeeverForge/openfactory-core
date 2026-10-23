@@ -580,6 +580,50 @@ def test_the_temporal_frame_writes_only_what_jobs_data_names():
                for always, sometimes in frames)
 
 
+def test_the_temporal_read_names_every_key_it_answers():
+    """`/api/temporal/jobs` answers the payload the temporal stream pushes, `ui_base` and `ui_hint`
+    included, which the default front end reads: its read model names every key it writes."""
+    from openfactory.api.read_models import EngineJobsRead
+
+    keys = _made_by(_tree(APP), "temporal_jobs", set())
+    named = set(EngineJobsRead.model_fields)
+    assert {"connected", "jobs", "ui_base", "ui_hint"} <= keys, "the temporal read has moved"
+    assert keys <= named, sorted(keys - named)
+
+
+def test_the_floor_update_carries_the_bodies_of_the_reads_it_repeats():
+    """`_stream_snapshot` fills each section of `update` by calling a read's handler — the
+    projects `/api/projects` answers, the messages `/api/messages/{project}` answers — so each
+    section is typed as the model that read declares, row for row."""
+    from typing import get_args
+
+    from fastapi.routing import APIRoute
+    from pydantic import RootModel
+
+    import openfactory.api.app as app_module
+    from openfactory.api.events import UpdateData
+
+    sections: dict[str, str] = {}
+    for node in _own(_function(_tree(APP), "_stream_snapshot")):
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)):
+            for target in node.targets:
+                if isinstance(target, ast.Subscript) and isinstance(target.slice, ast.Constant):
+                    sections[target.slice.value] = node.value.func.id
+    assert set(sections) == set(UpdateData.model_fields), sections
+    for section, handler in sections.items():
+        endpoint = getattr(app_module, handler)
+        declared = {r.response_model for r in app_module.app.routes
+                    if isinstance(r, APIRoute) and r.endpoint is endpoint}
+        assert len(declared) == 1, (handler, declared)
+        (model,) = declared
+        answered = (model.model_fields["root"].annotation if issubclass(model, RootModel)
+                    else model)
+        typed = [a for a in get_args(UpdateData.model_fields[section].annotation)
+                 if a is not type(None)]
+        assert typed == [answered], (section, typed, answered)
+
+
 def test_ended_writes_why_status_and_a_refusal_body_ended_data_names():
     """`ended`, and `bye.ended`, are the gate's answer: `why`, `status`, and the body of whichever
     refusal it was — every `_Refusal` the gate builds."""
@@ -621,3 +665,8 @@ def test_a_log_frame_is_a_journal_line_field_for_field():
     assert set(LogData.model_fields) == set(JobEvent.model_fields)
     assert ({n for n, f in LogData.model_fields.items() if f.is_required()}
             == {n for n, f in JobEvent.model_fields.items() if f.is_required()})
+    # and each field is the journal's type — `kind` the journal's closed `EventKind`, not any
+    # string; `data` is the journal's bare `dict`, spelled out here as `dict[str, Any]`
+    for name, field in JobEvent.model_fields.items():
+        if name != "data":
+            assert LogData.model_fields[name].annotation == field.annotation, name

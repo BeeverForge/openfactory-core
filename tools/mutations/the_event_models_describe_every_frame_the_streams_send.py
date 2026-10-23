@@ -20,6 +20,10 @@ byte-for-byte schema test, which writing the schema again satisfies. So each is 
 test that reads the emitters and must see it without that help: a key every frame of a kind
 writes is required, and a row's model requires exactly what its builder always writes.
 
+THE TYPED SHAPES (review point 7): the floor's `projects` rows are `/api/projects`' rows, a log
+line's `kind` is the journal's closed set, and the temporal read's model names the engine UI's
+two keys the stream's model already named.
+
 THE LAST ROWS hold the rules the tests state that the first review named and no row covered:
 how `from_frame` reads a frame (C10, C11), what the command answers when it cannot write (C12),
 and which kinds carry a product (C5, C6, C14) — the latter aimed, like the model rows above, at
@@ -35,6 +39,7 @@ APP = "openfactory/api/app.py"
 CHAT = "openfactory/api/product_chat.py"
 EVENTS = "openfactory/api/events.py"
 STAGING = "openfactory/product/staging.py"
+READS = "openfactory/api/read_models.py"
 
 MUTATIONS = [
     # ── the emitters move, the models do not ───────────────────────────────────────────────────
@@ -137,4 +142,18 @@ MUTATIONS = [
     ("C14: a product kind accepts an empty `product`", EVENTS,
      "    product: str = Field(min_length=1)\n", "    product: str\n",
      ONE + "test_product_is_required_for_a_kind_that_belongs_to_a_product"),
+
+    # ── the shapes that were left open ─────────────────────────────────────────────────────────
+    ("`UpdateData.projects` is free-form rows again, not the rows `/api/projects` declares", EVENTS,
+     "    projects: list[ProjectRow] | None = None\n",
+     "    projects: list[dict[str, Any]] | None = None\n",
+     ONE + "test_the_floor_update_carries_the_bodies_of_the_reads_it_repeats"),
+
+    ("`LogData.kind` is any string, not the journal's `EventKind`", EVENTS,
+     "    kind: EventKind\n", "    kind: str\n",
+     ONE + "test_a_log_frame_is_a_journal_line_field_for_field"),
+
+    ("`EngineJobsRead` stops naming `ui_base` and `ui_hint`, which `/api/temporal/jobs` answers",
+     READS, "    ui_base: str | None = None\n    ui_hint: str | None = None\n", "",
+     ONE + "test_the_temporal_read_names_every_key_it_answers"),
 ]
