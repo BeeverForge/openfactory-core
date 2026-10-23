@@ -446,8 +446,6 @@ def test_an_operators_stop_timeout_reaches_the_down(s1, monkeypatch):
 
     down = daemon.argvs("down")[-1]
     assert down[down.index("-t") + 1] == "15"
-    assert build_runtime("compose", stop_seconds=15, panel_container="openfactory-panel",
-                         reach="network").stop_seconds == 15
 
 
 def test_a_stop_timeout_of_zero_reaches_the_down_as_kill_now(s1, monkeypatch):

@@ -175,13 +175,9 @@ def test_the_built_in_rows_pass_the_check_the_add_ons_are_held_to():
 
 
 def test_an_unknown_knob_to_the_compose_row_is_a_TypeError_naming_itself():
-    with pytest.raises(TypeError, match="takes no \\['cpus'\\]"):
+    with pytest.raises(TypeError, match="takes no \\['cpus'\\]") as refused:
         build_runtime("compose", cpus="4")
-
-
-def test_the_compose_row_takes_a_stop_timeout_by_name():
-    with pytest.raises(TypeError, match="'stop_seconds'"):
-        build_runtime("compose", cpus="4")
+    assert "'stop_seconds'" in str(refused.value).split("it takes", 1)[1]
     assert build_runtime("compose", stop_seconds=1, panel_container="openfactory-panel",
                          reach="network").stop_seconds == 1
 

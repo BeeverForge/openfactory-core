@@ -899,10 +899,11 @@ class ComposeRuntime:
     `stop_seconds` is the grace `down` grants each container before SIGKILL (`-t`). It is short
     because a preview is disposable: the same `down -v --rmi local` deletes the volumes and the
     built images a graceful stop would protect, so waiting docker's default 10 s on a process that
-    ignores SIGTERM (PID 1 with no handler) buys nothing. An operator who wants the grace sets it
-    on the runtime row (#1070). It is a whole number of seconds, 0 or more, checked here rather
-    than at `down`: compose's `-t` takes an integer, so a fraction would be truncated (0.5 → an
-    immediate SIGKILL), and docker reads a negative one as waiting forever."""
+    ignores SIGTERM (PID 1 with no handler) buys nothing. 2 s is the default; the row takes a
+    `stop_seconds` option, but no deployment setting reaches it yet (#1070). It is a whole number
+    of seconds, 0 or more, checked here rather than at `down`: compose's `-t` takes an integer,
+    so a fraction would be truncated (0.5 → an immediate SIGKILL), and docker reads a negative
+    one as waiting forever."""
 
     def __init__(self, *, reach: str | None = None, panel_container: str | None = None,
                  start_timeout: float = 30 * 60, settle_seconds: float = 60,
