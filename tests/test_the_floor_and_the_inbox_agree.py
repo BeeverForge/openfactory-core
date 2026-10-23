@@ -17,6 +17,12 @@ import pytest
 
 from openfactory.floor import ladder
 
+#: THE MOMENT EVERY PARK HERE IS WRITTEN AGAINST, AND THE ONE THE FLOOR IS ASKED AT
+#: (`FloorInputs.now`, injected so a test states a moment). Read once when the module was
+#: imported, it was the parks' clock but not the floor's, which read the wall when the test ran:
+#: in a full unit run on a loaded machine (1 h 25 min, 2026-10-21) the test ran more than half an
+#: hour after collection, the park 30 minutes ahead was past its wake-up by then, and the floor
+#: rightly called it a person's (rung 5).
 NOW = datetime.now(UTC)
 
 
@@ -27,7 +33,7 @@ def _park(minutes: int, **extra) -> dict:
 
 
 def _rung(job: dict) -> int:
-    return ladder.state(ladder.FloorInputs(jobs=[job], inbox=None)).rung
+    return ladder.state(ladder.FloorInputs(jobs=[job], inbox=None, now=NOW)).rung
 
 
 # ── 1. a machine-owned wait is not a person's problem ───────────────────────────────────────────
@@ -48,7 +54,7 @@ def test_and_one_PAST_its_wake_up_is_a_person_again():
     generic — "it should have resumed by now" instead of the park naming its own retry time. Two
     paths to one number is exactly how a broken filter passes for working.
     """
-    got = ladder.state(ladder.FloorInputs(jobs=[_park(-30)], inbox=None))
+    got = ladder.state(ladder.FloorInputs(jobs=[_park(-30)], inbox=None, now=NOW))
 
     assert got.rung == 5
     assert got.clause == "m #7 — " + ladder.NEED_PHRASE["rate_limit"], (
