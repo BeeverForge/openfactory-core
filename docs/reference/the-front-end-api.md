@@ -326,9 +326,10 @@ and `ended`. A frame of today is that envelope's `data`, less the socket's own `
 the floor `update`'s `project`, which the envelope carries); `id` and `at` are not on today's
 frames. `product` is required for the kinds a product conversation emits (`subscribed`,
 `history`, `earlier`, `said`, `reply`, `staged`, `presence`, `resync`) and absent for every other.
-It is generated, never edited by hand: `tests/test_one_typed_event_stream.py` fails when it is not
-what the models generate, and when a stream's code writes a kind or a field the models do not
-name; `python -m openfactory.api.events` writes it again. One stream that sends the envelope
+It is generated, never edited by hand:
+`tests/test_the_event_models_describe_every_frame_the_streams_send.py` fails when it is not what
+the models generate, and when a stream's code writes a kind or a field the models do not name;
+`python -m openfactory.api.events` writes it again. One stream that sends the envelope
 itself is the next slice of #679.
 
 ## 5. What is not here yet

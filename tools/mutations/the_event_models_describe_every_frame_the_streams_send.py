@@ -10,10 +10,10 @@ were dict literals written beside it. The rest put back the fields that review f
 the temporal frame's `ui_base`/`ui_hint`, which the default front end reads, and the refusal's
 `detail` and `login` on `ended` and `bye.ended`.
 
-The guard under test is `tests/test_one_typed_event_stream.py`.
+The guard under test is `tests/test_the_event_models_describe_every_frame_the_streams_send.py`.
 """
 
-TEST = "tests/test_one_typed_event_stream.py"
+TEST = "tests/test_the_event_models_describe_every_frame_the_streams_send.py"
 
 APP = "openfactory/api/app.py"
 CHAT = "openfactory/api/product_chat.py"
