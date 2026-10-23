@@ -20,6 +20,11 @@ byte-for-byte schema test, which writing the schema again satisfies. So each is 
 test that reads the emitters and must see it without that help: a key every frame of a kind
 writes is required, and a row's model requires exactly what its builder always writes.
 
+THE LAST ROWS hold the rules the tests state that the first review named and no row covered:
+how `from_frame` reads a frame (C10, C11), what the command answers when it cannot write (C12),
+and which kinds carry a product (C5, C6, C14) — the latter aimed, like the model rows above, at
+the test that states the rule rather than at the schema drift test.
+
 The guard under test is `tests/test_the_event_models_describe_every_frame_the_streams_send.py`.
 """
 
@@ -108,4 +113,28 @@ MUTATIONS = [
 
     ("G6: `reply` stops writing `options`, which it always wrote", CHAT,
      '"options": reply.get("options") or None,', ""),
+
+    # ── how a frame is read onto the envelope, and the command ─────────────────────────────────
+    ("C10: `from_frame` keeps the floor `update`'s `project` in `data` as well", EVENTS,
+     'project = data.pop("project")', 'project = data.get("project")'),
+
+    ("C11: an event stream's `ended` is read as the stream's own kind", EVENTS,
+     "kind = ENDED if event == ENDED else kinds[0]", "kind = kinds[0]"),
+
+    ("C12: the command exits 0 when it could not write the schema", EVENTS,
+     '        return 1\n    print(f"wrote {target}")',
+     '        return 0\n    print(f"wrote {target}")'),
+
+    # ── which kinds carry a product ────────────────────────────────────────────────────────────
+    ("C5: `hello` is made a kind a product owns", EVENTS,
+     "class HelloEvent(_Unowned):", "class HelloEvent(_Owned):",
+     ONE + "test_product_is_absent_or_null_for_a_kind_that_does_not"),
+
+    ("C6: `resync` is no longer a kind a product owns", EVENTS,
+     "class ResyncEvent(_Owned):", "class ResyncEvent(_Unowned):",
+     ONE + "test_product_is_required_for_a_kind_that_belongs_to_a_product"),
+
+    ("C14: a product kind accepts an empty `product`", EVENTS,
+     "    product: str = Field(min_length=1)\n", "    product: str\n",
+     ONE + "test_product_is_required_for_a_kind_that_belongs_to_a_product"),
 ]
