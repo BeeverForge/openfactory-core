@@ -30,6 +30,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import dataclasses
+import functools
 import json
 import re
 from pathlib import Path
@@ -82,6 +83,7 @@ def _writers(path: str, owner: str, through: str) -> frozenset[str]:
             for n in ast.walk(fn)))
 
 
+@functools.cache
 def _poller_holds() -> frozenset[str]:
     """The schedule module's functions that pause or unpause a schedule."""
     tree = parsed(ROOT / "openfactory/runtime/temporal/schedule.py")
@@ -126,25 +128,69 @@ def _writes_directly(fn: ast.AST) -> set[str]:
     return found
 
 
-def _catalog_writes() -> dict[str, set[str]]:
-    """`row → what it writes`, following the catalogue's own helpers it names — by a call, or by
-    handing one on: a row whose steps leave the loop hands its body to `asyncio.to_thread`, and
-    that body is the row's code all the same (slice 3)."""
-    tree = parsed(CATALOG_PY)
-    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+def _module_file(dotted: str) -> Path | None:
+    """The file of a module of the package, or `None` for a name that is not one."""
+    for candidate in (ROOT / (dotted.replace(".", "/") + ".py"),
+                      ROOT / dotted.replace(".", "/") / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
 
-    def reached(name: str, seen: set[str]) -> set[str]:
-        if name in seen or name not in functions:
+
+def _from_the_package(node: ast.AST) -> dict[str, str]:
+    """What `node` imports from the package: local name → dotted path, a module's
+    (`from openfactory.product import before_code`) or a function's (`from
+    openfactory.product.onboard import create_context_repository`)."""
+    return {alias.asname or alias.name: f"{n.module}.{alias.name}"
+            for n in ast.walk(node)
+            if isinstance(n, ast.ImportFrom) and not n.level
+            and (n.module or "").startswith("openfactory")
+            for alias in n.names}
+
+
+@functools.cache
+def _catalog_writes() -> dict[str, set[str]]:
+    """`row → what it writes`, following what its runner names: the catalogue's own helpers, by a
+    call or handed on — a row whose steps leave the loop hands its body to `asyncio.to_thread` —
+    and the package's functions it imports, by name or as a module's attribute.
+
+    THE CATALOGUE'S EDGE WAS WHERE THIS READING STOPPED, and two rows wrote past it: main's
+    `product_start` and `product_first_source` (#992) register a project and give it its code
+    through `product/before_code.py`, and they read as rows that write nothing, so neither was
+    declared the installation's and a board credential ran both (slice 3)."""
+    modules: dict[Path, tuple[dict[str, ast.AST], dict[str, str]]] = {}
+
+    def module(path: Path) -> tuple[dict[str, ast.AST], dict[str, str]]:
+        if path not in modules:
+            tree = parsed(path)
+            modules[path] = ({n.name: n for n in tree.body
+                              if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)},
+                             _from_the_package(tree))
+        return modules[path]
+
+    def reached(path: Path, name: str, seen: set[tuple[Path, str]]) -> set[str]:
+        functions, imported = module(path)
+        if (path, name) in seen or name not in functions:
             return set()
-        seen.add(name)
+        seen.add((path, name))
         fn = functions[name]
+        names = {**imported, **_from_the_package(fn)}
         out = _writes_directly(fn)
         for n in ast.walk(fn):
-            if isinstance(n, ast.Name):
-                out |= reached(n.id, seen)
+            if isinstance(n, ast.Name) and n.id in functions:
+                out |= reached(path, n.id, seen)
+            elif isinstance(n, ast.Name) and n.id in names:
+                home, _, called = names[n.id].rpartition(".")
+                if (found := _module_file(home)) is not None:
+                    out |= reached(found, called, seen)
+            elif (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                  and n.value.id in names
+                  and (found := _module_file(names[n.value.id])) is not None):
+                out |= reached(found, n.attr, seen)
         return out
 
-    return {name: reached(spec.run.__name__, set()) for name, spec in catalog.CATALOG.items()}
+    return {name: reached(CATALOG_PY, spec.run.__name__, set())
+            for name, spec in catalog.CATALOG.items()}
 
 
 def test_what_writes_the_installation_is_read_off_the_modules_that_write_it():
@@ -155,6 +201,10 @@ def test_what_writes_the_installation_is_read_off_the_modules_that_write_it():
     assert {"invite", "withdraw"} <= WRITERS["PeopleStore"], WRITERS["PeopleStore"]
     assert "hold_poller" in _poller_holds()
     assert {"get", "list"}.isdisjoint(WRITERS["ProjectRegistry"]), "a read counted as a write"
+    # PAST THE CATALOGUE'S EDGE: a row whose write is a function of another module of the package
+    # — handed to a thread as a module's attribute — is read as writing it
+    assert "ProjectRegistry.add" in _catalog_writes()["product_start"], (
+        "the reading stops at the catalogue's edge again")
 
 
 # ── 1. a row that writes the installation says so, and only such a row ─────────────────────────
@@ -615,14 +665,19 @@ def test_a_revocation_is_refused_when_the_sink_keeps_nothing(monkeypatch):
 #: Something plausible for each parameter a project row requires besides the project itself.
 _PLAUSIBLE = {"model": "a-model", "language": "en", "docs_repo": "acme/docs", "person": "x"}
 
-#: The rows that take an address to register a project at. They take a project that is NOT
-#: registered yet, so the rule below is not theirs; theirs is that what is registered already is
-#: never written over (slice 3, below).
-REGISTERS_AT = sorted(name for name in INSTALLATION if "repo_path" in catalog.CATALOG[name].required)
+#: The rows that register a project, read off what they write.
+REGISTERS = sorted(name for name, what in _catalog_writes().items()
+                   if "ProjectRegistry.add" in what)
+
+#: Of those, the ones that need more than its name — where the new project lives. They take a
+#: project that is NOT registered yet, so the rule below is not theirs; theirs is that what is
+#: registered already is never written over (slice 3, below).
+REGISTERS_A_NEW_ONE = sorted(name for name in REGISTERS
+                             if set(catalog.CATALOG[name].required) - {"project"})
 
 TAKES_A_PROJECT = sorted(name for name in INSTALLATION
                          if "project" in catalog.CATALOG[name].required
-                         and name not in REGISTERS_AT)
+                         and name not in REGISTERS_A_NEW_ONE)
 
 
 @pytest.fixture
@@ -1138,11 +1193,6 @@ def test_each_verb_of_several_steps_runs_its_row_and_writes_nothing_itself(argv,
 
 # ── 8, again: what is registered is never written over (slice 3) ────────────────────────────
 
-#: The rows that register a project, read off what they write.
-REGISTERS = sorted(name for name, what in _catalog_writes().items()
-                   if "ProjectRegistry.add" in what)
-
-
 def _add_elsewhere(repo):
     return {"project": "myapp", "repo_path": str(repo.parent / "elsewhere")}
 
@@ -1151,8 +1201,13 @@ def _init_elsewhere(repo):
     return {"project": "myapp", "repo_path": str(repo.parent / "elsewhere"), "language": "pt-BR"}
 
 
+def _start_before_its_code(repo):
+    return {"project": "myapp", "docs_repo": "myapp-context"}
+
+
 #: For each row that registers: a request naming a project already registered, differently.
-OVER_IT = {"project_add": _add_elsewhere, "project_init": _init_elsewhere}
+OVER_IT = {"project_add": _add_elsewhere, "project_init": _init_elsewhere,
+           "product_start": _start_before_its_code}
 
 
 def test_every_row_that_registers_is_asked_to_write_over_a_project():
@@ -1162,8 +1217,8 @@ def test_every_row_that_registers_is_asked_to_write_over_a_project():
 @pytest.mark.parametrize("name", REGISTERS)
 def test_a_row_that_registers_never_writes_over_what_is_registered(name, a_machine):
     """Whatever the request says, a project that is registered keeps its address, its axes and its
-    language: `project_add` refuses and names what differs, and `project_init` initialises the
-    project as it is registered."""
+    language: `project_add` refuses and names what differs, `project_init` initialises the project
+    as it is registered, and `product_start` will not start one that already has its code."""
     from openfactory.registry import ProjectRegistry
 
     assert asyncio.run(actions.perform("project_add", by=ADMIN, project="myapp",

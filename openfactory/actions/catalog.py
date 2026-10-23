@@ -8331,6 +8331,10 @@ CATALOG: dict[str, ActionSpec] = {
             required=("project", "docs_repo"),
             optional=("provider", "token_env", "language"),
             needs_code=False,
+            # IT REGISTERS A PROJECT, which is the installation's (#741): through
+            # `product/before_code.py`, where a reading that stopped at the catalogue's edge did not
+            # see it, so a board credential could start a product until this said so
+            installation=True,
             params={
                 "project": "the name of the project to register, e.g. `acme`",
                 "docs_repo": "its context repository, as its forge names it or by its clone "
@@ -8353,6 +8357,9 @@ CATALOG: dict[str, ActionSpec] = {
             required=("project", "repo_path"),
             optional=("token_env", "board_owner", "board_number"),
             needs_code=False,
+            # IT GIVES A PROJECT ITS CODE REPOSITORY in the registry — the installation's (#741),
+            # written through `product/before_code.py` like the start above
+            installation=True,
             params={
                 "repo_path": "the code repository: its clone URL, or a path on this machine",
                 "token_env": "the name of the environment variable holding this project's "
