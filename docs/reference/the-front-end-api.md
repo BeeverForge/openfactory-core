@@ -244,7 +244,8 @@ What changes the deployment itself — the people it names, whether it picks wor
 product role is called and where its requirements live — is a catalogued action like any other,
 run with `POST /api/act/{name}` and listed by `GET /api/v1/actions`, where each carries
 `installation: true`, and by `openfactory actions`. The command line maps its own verbs onto the
-same rows, so a screen of one's own can do what the shell does. These rows are **the
+same rows and changes the installation no other way — a test fails any command that writes it
+outside a row — so a screen of one's own can do what the shell does. These rows are **the
 administrator's**: a credential scoped to an area (a board token, a product token, an invitation
 to one area) is refused them with a 403, whichever area the path is read as, and only an unscoped
 credential runs them. The two that record who acted on a person, `people_invite` and
