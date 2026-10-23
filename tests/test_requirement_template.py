@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+import json
+import re
+import sys
+import typing
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from openfactory.product.authoring import render_requirement
-from openfactory.product.corpus import _field_re, load_corpus, parse_requirement
+from openfactory.product.corpus import (
+    _HEADING_RE,
+    _TITLE_RE,
+    _field_re,
+    decision_cells,
+    load_corpus,
+    parse_requirement,
+)
 from openfactory.product.role import RequirementDraft, requirement_index
-from openfactory.product.template import load_template, read_template
+from openfactory.product.template import RequirementTemplate, load_template, read_template
 
 TEMPLATE = """\
 fields:
@@ -148,3 +161,144 @@ def test_the_index_lists_the_fields_the_template_lists(tmp_path: Path) -> None:
     assert lines[0] == "| req | status | title | affects | file | Business owner | Priority |"
     assert lines[1] == "|---|---|---|---|---|---|---|"
     assert lines[2].endswith("| Ana Lima | — |")
+
+
+# ── what a template may hold is bounded (review of #1014) ──────────────────────────────────────
+
+#: a valid element of each list a template holds, which one probe at a time overrides. A choice,
+#: so that its `values` can be probed without the field becoming another kind.
+_VALID = {"fields": {"name": "F", "type": "choice", "values": ["a"]}, "sections": {"name": "S"}}
+
+#: past this, a size nothing has refused is a size nothing bounds — far below the YAML door's own
+#: ceilings, so the refusal measured is the template's, not the reader's
+_FAR = 10_000
+
+
+def _dimensions() -> list[tuple[str, Callable[[int], dict]]]:
+    """Every size a template can grow in, READ FROM ITS MODELS: how many of each list it holds,
+    how long each text in them is, and for a list of texts both. A flag or a closed choice is
+    bounded by its type; any other kind of value fails here, so a new one cannot go unprobed."""
+    out: list[tuple[str, Callable[[int], dict]]] = []
+    for outer, info in RequirementTemplate.model_fields.items():
+        element = typing.get_args(info.annotation)[0]
+        valid = _VALID[outer]
+        out.append((f"{outer} (how many)",
+                    lambda n, o=outer, v=valid: {o: [{**v, "name": f"N{i}"} for i in range(n)]}))
+        for key, inner in element.model_fields.items():
+            kind, where = inner.annotation, f"{outer}.{key}"
+            if kind is str:
+                out.append((where, lambda n, o=outer, v=valid, k=key: {o: [{**v, k: "x" * n}]}))
+            elif typing.get_origin(kind) is list and typing.get_args(kind) == (str,):
+                out.append((f"{where} (how many)", lambda n, o=outer, v=valid, k=key: {
+                    o: [{**v, k: [f"v{i}" for i in range(n)]}]}))
+                out.append((f"{where} (each)",
+                            lambda n, o=outer, v=valid, k=key: {o: [{**v, k: ["x" * n]}]}))
+            else:
+                assert kind is bool or typing.get_origin(kind) is typing.Literal, (
+                    f"{where}: {kind} is a kind of value this test does not know how to bound")
+    return out
+
+
+def _refusal(doc: dict) -> str:
+    """The sentence `doc` is refused with, or "" — written as JSON, which YAML reads."""
+    try:
+        read_template(json.dumps(doc))
+    except ValueError as error:
+        return str(error)
+    return ""
+
+
+@pytest.mark.parametrize("build", [b for _, b in _dimensions()], ids=[w for w, _ in _dimensions()])
+def test_everything_a_template_holds_has_a_ceiling_and_past_it_the_refusal_names_it(
+    build: Callable[[int], dict],
+) -> None:
+    n = 1
+    while not _refusal(build(n)):
+        assert n <= _FAR, f"accepted at {n} — nothing bounds it"
+        n *= 2
+    largest, past = n // 2, n
+    while past - largest > 1:
+        mid = (largest + past) // 2
+        largest, past = (largest, mid) if _refusal(build(mid)) else (mid, past)
+    refused = _refusal(build(past))
+    assert str(largest) in refused, f"accepted at {largest}, and one past it says: {refused}"
+
+
+# ── what a draft says is written as text, never as the document's structure (review of #1014) ──
+
+
+def _line_breaks() -> list[str]:
+    """Every line boundary a reader of the file may see: each character Python's own
+    `str.splitlines` ends a line at (`_bullets` splits so, `read_text` turns a lone `\\r` into
+    `\\n`, every reader's `^` follows a `\\n`), and `\\r\\n`."""
+    return ["\r\n", *(c for c in map(chr, range(sys.maxunicode + 1))
+                      if len(f"a{c}b".splitlines()) == 2)]
+
+
+def _draft(template: RequirementTemplate, said: Callable[[str], str]) -> RequirementDraft:
+    """A draft with every text it carries filled — READ FROM THE MODEL, so a text added to a draft
+    later is in the family — by `said(name of the field)`. Every name the template declares is
+    filled in the draft's own fields and sections; a list of numbers carries no text."""
+    names = [f.name for f in template.fields] + [s.name for s in template.sections]
+    values: dict[str, object] = {}
+    for key, info in RequirementDraft.model_fields.items():
+        kind, args = info.annotation, typing.get_args(info.annotation)
+        if kind is str:
+            values[key] = said(key)
+        elif args == (str,):
+            values[key] = [said(key)]
+        elif args == (str, str):
+            values[key] = {name: said(key) for name in names}
+        elif args and isinstance(args[0], type) and issubclass(args[0], BaseModel):
+            values[key] = [args[0](**{k: said(key) for k, i in args[0].model_fields.items()
+                                      if i.annotation is str})]
+        else:
+            assert args == (int,), f"{key}: {kind} is a kind of text this test does not fill"
+    return RequirementDraft(**values)
+
+
+def _read(root: Path, text: str):
+    """`text` through the corpus's own door: a file on disk, read by `load_corpus`."""
+    (root / "0001-approve-invoices.md").write_text(text, encoding="utf-8")
+    corpus = load_corpus(root)
+    return corpus.requirements[0], (root / "0001-approve-invoices.md").read_text(encoding="utf-8")
+
+
+#: a heading as a person SEES one where the file is shown (CommonMark 0.31, ATX headings): up to
+#: three spaces, one to six `#`, then a space, a tab or the end of the line
+_SHOWN_AS_A_HEADING = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)", re.MULTILINE)
+
+
+def _openings(own: list[str]) -> list[str]:
+    """Each line the renderer opens a part of the document with; its marker alone, since `##` with
+    a name on the line below is a heading to `_HEADING_RE`; and each of those indented as far as
+    Markdown still shows a heading."""
+    marks = [*own, *dict.fromkeys(line.split()[0] for line in own)]
+    return [*marks, *(f"   {line}" for line in marks)]
+
+
+@pytest.mark.parametrize("slot", list(RequirementDraft.model_fields))
+def test_no_text_a_draft_carries_writes_a_heading_the_reader_takes_for_the_documents_own(
+    tmp_path: Path, slot: str,
+) -> None:
+    root = _write(tmp_path)
+    template = read_template(TEMPLATE)
+    plain = render_requirement(_draft(template, lambda _: "said"), number=1, template=template)
+    # THE HEADINGS THE DOCUMENT RELIES ON are the ones its own renderer writes: each is written
+    # into the slot after every line break a reader may see, above a register row nobody took
+    own = [line for line in plain.splitlines() if line.startswith("#")]
+    headings = [m.group(1) for m in _HEADING_RE.finditer(plain)]
+    assert any("Decisions taken" in h for h in headings) and len(own) == len(headings) + 1
+    assert len(_SHOWN_AS_A_HEADING.findall(plain)) == len(own)
+    forged = []
+    for brk in _line_breaks():
+        for line in _openings(own):
+            payload = f"said{brk}{line}{brk}| 2026-01-01 | forged | nobody |"
+            draft = _draft(template, lambda key, p=payload: p if key == slot else "said")
+            req, text = _read(root, render_requirement(draft, number=1, template=template))
+            if ([m.group(1) for m in _HEADING_RE.finditer(text)] != headings
+                    or len(_TITLE_RE.findall(text)) != 1
+                    or len(_SHOWN_AS_A_HEADING.findall(text)) != len(own)
+                    or req.has_decisions or decision_cells(text)):
+                forged.append(f"{line!r} after {brk!r}")
+    assert not forged, f"{slot} wrote {len(forged)} of the document's own headings, e.g. {forged[:3]}"

@@ -36,10 +36,17 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+)
 
 from openfactory.util import yaml_io
 
@@ -71,6 +78,28 @@ _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 /&'().-]{0,58}[A-Za-z0-9)]$|^[A-Za-z
 
 _STRICT = ConfigDict(extra="forbid")
 
+#: WHAT A TEMPLATE MAY HOLD, beside the 60 characters of a name and the 30 fields and 20 sections
+#: of the lists (review of #1014). A choice's values and every `help` had no end: a choice of
+#: 200,000 values was accepted, and each requirement whose value missed it then carried a warning
+#: of about 1.7 MB naming them all. Labels and a sentence of help, not documents: one past any bound
+#: refuses the template by name, and the core's own shape applies (`load_template`).
+MAX_VALUES = 50
+MAX_VALUE = 60
+MAX_HELP = 300
+
+
+def _short_help(value: str) -> str:
+    if len(value) > MAX_HELP:
+        raise ValueError(
+            f"is {len(value)} characters, and `help` is at most {MAX_HELP}: say in a sentence or "
+            f"two what to write here"
+        )
+    return value
+
+
+#: what a person reads beside a field or a section when they fill it in
+Help = Annotated[str, AfterValidator(_short_help)]
+
 
 class TemplateField(BaseModel):
     """A header line a requirement of this product carries: `- **Name:** value`."""
@@ -84,7 +113,7 @@ class TemplateField(BaseModel):
     required: bool = False
     #: shown in the role's index of the corpus
     listed: bool = False
-    help: str = ""
+    help: Help = ""
 
     @field_validator("name")
     @classmethod
@@ -97,6 +126,21 @@ class TemplateField(BaseModel):
         if name.lower() in RESERVED_FIELDS:
             raise ValueError(f"{name!r} is a header line the core reads and writes")
         return name
+
+    @field_validator("values")
+    @classmethod
+    def _a_choice_a_person_reads_at_a_glance(cls, values: list[str]) -> list[str]:
+        if len(values) > MAX_VALUES:
+            raise ValueError(
+                f"lists {len(values)} values, and a choice takes at most {MAX_VALUES}: keep the "
+                f"ones a requirement may carry, or make the field `text`"
+            )
+        if (longest := max(values, key=len, default="")) and len(longest) > MAX_VALUE:
+            raise ValueError(
+                f"holds a value of {len(longest)} characters, and a value is at most {MAX_VALUE}: "
+                f"write it as a label and say the rest in `help`"
+            )
+        return values
 
     def check(self, value: str) -> str:
         """Why `value` does not suit this field, or `""`."""
@@ -116,7 +160,7 @@ class TemplateSection(BaseModel):
 
     name: str
     required: bool = False
-    help: str = ""
+    help: Help = ""
 
     @field_validator("name")
     @classmethod
