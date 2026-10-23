@@ -3,10 +3,10 @@
 THE CLAIMS:
 
   1. **`parsed(path)` serves one tree per content.** The same bytes at two paths are one object;
-     different bytes at one path are a new tree, even at the same length; a file that does not
-     parse is raised and leaves nothing behind. The cached trees sit outside the collector: a
-     full collection walking both trees took 1.1 s on an idle box (2026-10-22), over the engine
-     probe's 1.0 s.
+     different bytes at one path are a new tree, even at the same length or past a long shared
+     head; a file that does not parse is raised and leaves nothing behind. The cached trees sit
+     outside the collector: a full collection walking both trees took 1.1 s on an idle box
+     (2026-10-22), over the engine probe's 1.0 s.
   2. **Nobody edits the shared tree.** The one guard that strips docstrings from a function
      (`_code_without_prose`) deep-copies it first; without the copy, every later reader of
      `openfactory/actions/catalog.py` would see a tree with no docstrings, in some orders only.
@@ -40,6 +40,9 @@ MUTATIONS = [
 
     ("the cache is keyed on the length of the text, so a same-length edit is served stale",
      HELPER, KEY, '    key = len(text).to_bytes(8, "big")\n'),
+
+    ("the cache is keyed on the first 64 bytes, so an edit past them is served stale",
+     HELPER, KEY, "    key = hashlib.blake2b(text.encode(encoding)[:64], digest_size=16).digest()\n"),
 
     ("nothing is cached: every call parses again",
      HELPER, "    tree = _trees.get(key)\n", "    tree = None\n"),

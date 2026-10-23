@@ -71,6 +71,21 @@ def test_different_bytes_OF_THE_SAME_LENGTH_at_the_same_path_are_a_different_tre
     assert isinstance(value, ast.Constant) and value.value == 2, "a stale tree was served"
 
 
+def test_different_bytes_AFTER_A_LONG_SHARED_HEAD_are_a_different_tree(tmp_path: Path) -> None:
+    """Every text above is shorter than 64 bytes, so a key over the first 64 bytes passed them all
+    (the review's cut, 2026-10-22: 11 passed). Two versions of a real module share their first
+    kilobytes (docstring, imports); only a key over every byte tells them apart."""
+    f = tmp_path / "m.py"
+    head = '"""' + "x" * 8192 + '"""\n'
+    f.write_text(head + "x = 1\n")
+    first = parsed(f)
+    f.write_text(head + "x = 2\n")
+    second = parsed(f)
+    assert second is not first, "a key over part of the text served a stale tree"
+    value = second.body[-1].value
+    assert isinstance(value, ast.Constant) and value.value == 2, "a stale tree was served"
+
+
 def test_a_file_that_does_not_parse_is_raised_and_not_cached(tmp_path: Path) -> None:
     f = tmp_path / "broken.py"
     f.write_text("def (:\n")
