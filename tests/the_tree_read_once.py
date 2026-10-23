@@ -28,7 +28,12 @@ READ AS UTF-8, WHATEVER THE LOCALE. `parsed` passes `encoding="utf-8"` where mos
 called a bare `read_text()`, which uses the locale's encoding. On a UTF-8 locale (pt_BR.UTF-8 where it
 was measured, and CI) the text is the same; on a non-UTF-8 locale the old read could mis-decode a
 source file Python itself reads as UTF-8 (PEP 3120), so this is the stricter and the right read.
-No inline site on 923d7d0f read with another encoding.
+No inline site on 923d7d0f read with another encoding. The encoding is fixed, not a parameter: the
+key is a digest of the encoded text, so two codecs could give two texts one key, and no caller
+asked for another (0 of 250 calls passed one, 2026-10-22). NO TEST HOLDS "WHATEVER THE LOCALE":
+under `LC_ALL=C` Python 3.12 turns on its UTF-8 mode (PEP 538/540; `sys.flags.utf8_mode` is 1), so
+a bare `read_text()` reads UTF-8 there too, and a cut that drops `encoding="utf-8"` passed this
+helper's three test files under pt_BR.UTF-8 and under `LC_ALL=C` alike (13 passed, 2026-10-22).
 
 WHAT IT COSTS: the package's trees are ~260 MB of Python objects in the worker that first asked;
 the suite's own trees another ~450 MB in a worker that runs one of the two guards that read
@@ -55,15 +60,15 @@ from pathlib import Path
 _trees: dict[bytes, ast.Module] = {}
 
 
-def parsed(path: str | os.PathLike[str], encoding: str = "utf-8") -> ast.Module:
+def parsed(path: str | os.PathLike[str]) -> ast.Module:
     """`ast.parse(path.read_text())`, served from the cache when these bytes were parsed before.
 
     Raises what `read_text` raises — a file listed by a walk and gone by the read is the caller's
     case to tolerate, exactly as it was with the inline parse. A `SyntaxError` is raised, not
     cached: the next read of a file somebody is mid-way through editing parses again.
     """
-    text = Path(path).read_text(encoding=encoding)
-    key = hashlib.blake2b(text.encode(encoding), digest_size=16).digest()
+    text = Path(path).read_text(encoding="utf-8")
+    key = hashlib.blake2b(text.encode("utf-8"), digest_size=16).digest()
     tree = _trees.get(key)
     if tree is None:
         tree = ast.parse(text, filename=os.fspath(path))

@@ -31,7 +31,7 @@ LEDGER = "tests/test_the_core_addon_ledger.py"
 ADOPTION = "tests/test_no_guard_parses_a_source_file_on_its_own.py"
 WALKS = "tests/test_a_guard_that_asks_every_file_walks_each_tree_once.py"
 
-KEY = "    key = hashlib.blake2b(text.encode(encoding), digest_size=16).digest()\n"
+KEY = '    key = hashlib.blake2b(text.encode("utf-8"), digest_size=16).digest()\n'
 
 MUTATIONS = [
     # ── 1. one tree per content ────────────────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ MUTATIONS = [
      HELPER, KEY, '    key = len(text).to_bytes(8, "big")\n'),
 
     ("the cache is keyed on the first 64 bytes, so an edit past them is served stale",
-     HELPER, KEY, "    key = hashlib.blake2b(text.encode(encoding)[:64], digest_size=16).digest()\n"),
+     HELPER, KEY, '    key = hashlib.blake2b(text.encode("utf-8")[:64], digest_size=16).digest()\n'),
 
     ("nothing is cached: every call parses again",
      HELPER, "    tree = _trees.get(key)\n", "    tree = None\n"),
