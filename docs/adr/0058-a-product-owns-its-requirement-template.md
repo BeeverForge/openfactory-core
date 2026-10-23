@@ -35,6 +35,15 @@ section the name of one it writes. Statuses, provenance and the decisions regist
 a template that could move them would make a requirement mean two things. Unknown keys, repeated
 names and a `choice` with no values are refused, by name.
 
+*Amended 2026-10-23 (review of #1014): a choice's values and every `help` had no bound, and a choice
+of 200,000 values was accepted. A template holds at most 30 fields and 20 sections, a name of 60
+characters, 50 values of 60 characters to a choice, and 300 characters of `help`; one past any of
+them is refused naming the bound. And no text of a draft can write the document's structure: the
+title, a header field and every bullet are written on one line, and a line of a section's text
+(*Why*, a template's own) that would open a heading opens with `\#`. A section holding
+`## Decisions taken during execution` had written a register above the real one, and
+`find_decisions_table` read that one.*
+
 **D3. A template that cannot be used is a finding, and the core's shape applies.** `template-refused`
 (warn) names why. A requirement that does not meet its template is a `warn` — `field-missing`,
 `field-value`, `section-missing` — never an error: a requirement written before the template is

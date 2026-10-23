@@ -196,6 +196,41 @@ def slugify(title: str, *, limit: int = 48) -> str:
     return (slug[:limit].rstrip("-") or "requirement")
 
 
+#: WHAT A DRAFT SAYS IS WRITTEN AS TEXT, NEVER AS THE DOCUMENT'S STRUCTURE (review of #1014). The
+#: reader finds a requirement's parts by their lines: a section ends at the next line that begins
+#: `## `, and the decision register is the first `## Decisions taken during execution`. A draft is
+#: a model's words over a person's, and a line break in any of its texts wrote such a line: a
+#: template section holding that heading wrote a register above the real one, `find_decisions_table`
+#: picked it, `has_decisions` read True with nothing decided, and write-back went to the wrong
+#: table. Measured on d863fdfe: the title, *Why*, every list, a conflict and a template section did
+#: it alike. A slot the reader reads by the line is written on one line, as a template field's value
+#: already was; a section's text keeps its paragraphs, and a line in it that would open a heading
+#: is escaped. ESCAPED, NOT REFUSED, for the reason a register cell's `|` is (`_CELL_UNSAFE`):
+#: refusing a requirement because its text holds a `#` would be the platform's own format leaking
+#: into what a client may say.
+#:
+#: A heading line: `#`s after any indentation, then whitespace or nothing. The core's readers match
+#: `^##\s` at the margin; Markdown also takes an indented one, and a heading a person sees in the
+#: file is one they believe. Inside a code fence too: the readers do not know fences, so a shell
+#: comment `## setup` in a fenced block ends a section as surely as a heading does.
+_OPENS_A_HEADING = re.compile(r"^([ \t]*)(?=#+(?:\s|$))")
+
+
+def _one_line(text: str) -> str:
+    """`text` on one line — for a slot the reader reads by the line: the title, a header field, a
+    bullet. Every line break a reader could see is whitespace to `str.split`."""
+    return " ".join((text or "").split())
+
+
+def _as_text(text: str) -> str:
+    """`text` as paragraphs that open no heading — for a section the draft writes. Every line break
+    a reader could see becomes `\\n` (`read_text` turns a lone `\\r` into one, `_bullets` splits at
+    `\\u2028`), and a line that would open a heading opens with `\\#`, which Markdown shows as the
+    `#` the text said."""
+    return "\n".join(_OPENS_A_HEADING.sub(r"\1\\", line)
+                     for line in (text or "").strip().splitlines())
+
+
 def render_requirement(
     draft: RequirementDraft, *, number: int, asked_by: str = "", date: str = "",
     source: str = "", template: RequirementTemplate | None = None,
@@ -206,34 +241,36 @@ def render_requirement(
     With the product's own `template` (ADR-0058) its fields are written as header lines after the
     core's own, and its sections after the core's, before the decision register. A field the draft
     has no value for is written as `—` and a section as `(not stated)`, so the file says what is
-    missing and the reader reports it; nothing is invented."""
+    missing and the reader reports it; nothing is invented. No text of the draft, nor `asked_by`,
+    `date` or `source` beside it, can open a line the reader takes for the document's own
+    (`_one_line`, `_as_text`)."""
     status = "proposed"
     lines = [
-        f"# REQ-{number:04d} — {draft.title}",
+        f"# REQ-{number:04d} — {_one_line(draft.title)}",
         "",
         f"- **Status:** {status}",
-        f"- **Asked by:** {asked_by or UNRECORDED}",
-        f"- **Date:** {date or UNRECORDED}",
+        f"- **Asked by:** {_one_line(asked_by) or UNRECORDED}",
+        f"- **Date:** {_one_line(date) or UNRECORDED}",
         f"- **Supersedes:** {', '.join(f'REQ-{n:04d}' for n in draft.supersedes) or '—'}",
     ]
-    if source:
+    if source := _one_line(source):
         lines.append(f"- **Source:** {source}")
     if template is not None:
         for f in template.fields:
-            value = " ".join(draft.fields.get(f.name, "").split()) or EMPTY
+            value = _one_line(draft.fields.get(f.name, "")) or EMPTY
             lines.append(f"- **{f.name}:** {value}")
-    lines += ["", "## Why", "", draft.why.strip() or "(not stated)", ""]
+    lines += ["", "## Why", "", _as_text(draft.why) or "(not stated)", ""]
 
     lines += ["## What must be true", ""]
-    lines += [f"- [ ] {c}" for c in draft.must_be_true] or ["- [ ] (nothing stated)"]
+    lines += [f"- [ ] {_one_line(c)}" for c in draft.must_be_true] or ["- [ ] (nothing stated)"]
     lines += [""]
 
     lines += ["## Out of scope", ""]
-    lines += [f"- {c}" for c in draft.out_of_scope] or ["- (nothing stated)"]
+    lines += [f"- {_one_line(c)}" for c in draft.out_of_scope] or ["- (nothing stated)"]
     lines += [""]
 
     lines += ["## Affects", ""]
-    lines += [f"- `{c}`" for c in draft.affects] or ["- (not stated)"]
+    lines += [f"- `{_one_line(c)}`" for c in draft.affects] or ["- (not stated)"]
     lines += [""]
 
     if draft.conflicts:
@@ -243,17 +280,17 @@ def render_requirement(
         lines += ["## Conflicts raised while drafting", ""]
         for c in draft.conflicts:
             ref = f"REQ-{c.requirement:04d}" if c.requirement else "an existing requirement"
-            lines.append(f"- **{c.kind}** {ref} — {c.explanation}")
+            lines.append(f"- **{_one_line(c.kind)}** {ref} — {_one_line(c.explanation)}")
         lines += [""]
 
     if draft.questions:
         lines += ["## Open questions", ""]
-        lines += [f"- {q}" for q in draft.questions]
+        lines += [f"- {_one_line(q)}" for q in draft.questions]
         lines += [""]
 
     if template is not None:
         for sec in template.sections:
-            text = draft.sections.get(sec.name, "").strip() or "(not stated)"
+            text = _as_text(draft.sections.get(sec.name, "")) or "(not stated)"
             lines += [f"## {sec.name}", "", text, ""]
 
     lines += [
