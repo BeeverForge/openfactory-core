@@ -241,9 +241,12 @@ MUTATIONS = [
 
     # THE SHAPE MOVED (slice 4a): the kind is no longer decided in the door, it is read from
     # the address by `kind_for` — so the claim is made where it now lives.
-    ("--provider is read and the row is written as GitHub anyway", CLI,
-     '        kind = doors.kind_for(repo_path, repo=repo or "", provider=provider or "")\n',
-     '        kind = "github"\n'),
+    # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, so this
+    # code is the row's now, in `actions/catalog.py`; the claim is unchanged.
+    ("--provider is read and the row is written as GitHub anyway",
+     "openfactory/actions/catalog.py",
+     '    kind = doors.kind_for(repo_path, repo=repo, provider=provider)\n',
+     '    kind = "github"\n'),
 
     ("the refusal stops naming the installed add-on", CLI,
      "            + (f\"  · an installed add-on's host: re-run with --provider \"\n"

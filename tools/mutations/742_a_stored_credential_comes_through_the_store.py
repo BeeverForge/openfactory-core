@@ -417,9 +417,13 @@ MUTATIONS = [
     ("the doctor's deployment forge credential mints over a refused pair", "openfactory/doctor.py",
      '    return forge_token() or (None if pair_refusal("forge") else github_app_token_from_env())',
      "    return forge_token() or github_app_token_from_env()", FAMILY),
-    ("board creation takes the deployment's pair before the project's own", "openfactory/cli.py",
-     "                token=tracker_token_for(project) or deployment_tracker_token(project))",
-     "                token=tracker_token() or deployment_tracker_token(project))", FAMILY),
+    # RE-PINNED 2026-10-23 (#741): board creation is the `project_init` row's board step now, which
+    # `project init` maps onto; the cut imports the deployment's pair beside the project's own.
+    ("board creation takes the deployment's pair before the project's own",
+     "openfactory/actions/catalog.py",
+     "        from openfactory.credentials import deployment_tracker_token, tracker_token_for\n",
+     "        from openfactory.credentials import deployment_tracker_token, tracker_token\n"
+     "        tracker_token_for = lambda _project: tracker_token()  # noqa: E731\n", FAMILY),
     ("the guarded minter mints whatever the refusal", "openfactory/factory.py",
      "    if axis_refusal(project, axis):\n        return None\n    return _bot_token_provider()",
      "    return _bot_token_provider()", FAMILY),

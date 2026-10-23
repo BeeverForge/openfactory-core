@@ -2,6 +2,7 @@
 
 TEST = "tests/test_a_project_is_not_registered_as_the_wrong_vendor.py"
 CLI = "openfactory/cli.py"
+CATALOG = "openfactory/actions/catalog.py"
 #: RE-PINNED 2026-09-10 (ADR-0049 slice 4a). The door helpers moved to `openfactory/doors.py` so
 #: the API could reach the same answers the command line had — `POST /api/projects` is a door too,
 #: and while it could not reach them it asked no host at all. Every claim below is unchanged; six
@@ -12,9 +13,13 @@ DOORS = "openfactory/doors.py"
 MUTATIONS = [
     # six rows re-pinned 2026-09-07: `foreign_host` takes the operator's `--provider`, answers
     # through `shipped_hosts`/`host_owner`, and the known kinds come from the plugin loader
-    ("every non-Azure URL is labelled GitHub again", CLI,
-     "        if foreign:\n            typer.echo(_foreign_refusal(foreign, provider))",
-     "        if False:\n            typer.echo(_foreign_refusal(foreign, provider))"),
+    # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, so this
+    # code is the row's now, in `actions/catalog.py`; the claim is unchanged.
+    ("every non-Azure URL is labelled GitHub again", CATALOG,
+     "    if foreign:\n        return None, refused(INVALID, doors.foreign_refusal(foreign), "
+     "project=name,",
+     "    if False:\n        return None, refused(INVALID, doors.foreign_refusal(foreign), "
+     "project=name,"),
 
     ("…and the reverse: a GitHub URL is refused too, so nothing registers", DOORS,
      '    return next((kind for kind, owned in shipped_hosts().items()\n'
@@ -53,11 +58,14 @@ MUTATIONS = [
      '            + f"  · a GitHub ENTERPRISE host: set GH_HOST={foreign} and re-run — this "\n'
      '            f"platform honours it everywhere it builds a URL\\n"\n', ""),
 
-    ("the row is written BEFORE the refusal", CLI,
-     '        try:\n            foreign = doors.foreign_host(repo_path, provider=provider or "")\n',
-     "        reg.add(Project(name=name, repo_path=repo_path,\n"
-     '                        tracker=ProviderRef(kind="github", repo="o/r", options={})))\n'
-     '        try:\n            foreign = doors.foreign_host(repo_path, provider=provider or "")\n'),
+    # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, so this
+    # code is the row's now, in `actions/catalog.py`; the claim is unchanged.
+    ("the row is written BEFORE the refusal", CATALOG,
+     "    try:\n        foreign = doors.foreign_host(repo_path, provider=provider)\n",
+     "    from openfactory.registry import ProjectRegistry\n"
+     "    ProjectRegistry().add(Project(name=name, repo_path=repo_path,\n"
+     '                                  tracker=ProviderRef(kind="github", repo="o/r", options={})))\n'
+     "    try:\n        foreign = doors.foreign_host(repo_path, provider=provider)\n"),
 
     ("the Azure refusal is replaced by the generic one", CLI,
      '            typer.echo(f"✗ that is an Azure DevOps URL — register with `openfactory project '

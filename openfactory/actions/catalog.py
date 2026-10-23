@@ -40,6 +40,10 @@ from openfactory.actions.base import (
     INVALID,
     NOT_FOUND,
     PRODUCT,
+    STEP_ALREADY,
+    STEP_DONE,
+    STEP_FAILED,
+    STEP_SKIPPED,
     UNAVAILABLE,
     ActionSpec,
     Actor,
@@ -48,6 +52,7 @@ from openfactory.actions.base import (
     failure_reference,
     refused,
 )
+from openfactory.actions.base import step as _step
 
 log = logging.getLogger("openfactory.actions")
 
@@ -7683,6 +7688,18 @@ def _given(value: object) -> str:
     return str(value or "").strip()
 
 
+def _the_steps_came_to(project: str, steps: list[dict], **data: object) -> Outcome:
+    """What a several-step row answers: done when no step failed; FAILED otherwise, saying what was
+    done before the step that failed and that running it again does only what is missing. The
+    steps ride in `data["steps"]` either way, so a screen can show each one."""
+    said = "; ".join(str(s["said"]) for s in steps)
+    if not any(s["state"] == STEP_FAILED for s in steps):
+        return done(f"{project}: {said}", project=project, steps=steps, **data)
+    return refused(FAILED, f"{project}: {said}. Not finished — what was done stays done, and "
+                           f"running it again does only what is missing", project=project,
+                   steps=steps, **data)
+
+
 def _differs(held, asked) -> list[str]:
     """The fields `asked` was given that `held` does not hold the same — `[]` when the registry
     already says what was asked. An axis agrees when its kind and its repository are the same and
@@ -7788,6 +7805,263 @@ async def _project_add(*, project: str, repo_path: str, by: Actor, provider: obj
         return refused(CONFLICT, f"{name} was not registered — {exc}", project=name)
     return done(f"registered project {name!r}", project=name, changed=True,
                 registered=asked.model_dump(mode="json", exclude_none=True))
+
+
+# ── making a registered project ready: a row of several steps (#741) ────────────────────────────
+#
+# `project_init` registers a project, creates its board with the platform's columns, seeds the
+# product role's context repository where this installation owns it, and scaffolds the manifest.
+# The network is between those steps, so each says what it came to (`base.step`): a board refused
+# halfway leaves a person knowing the project is registered and its manifest written, and running
+# the row again creates the board — never a second project, never a second set of columns.
+
+def _project_to_initialise(name: str, *, repo_path: str, repo: str, language: str,
+                           provider: str) -> tuple[object, Outcome | None]:
+    """The project `project_init` registers when the name is not registered yet — `(project, None)`
+    or `(None, refusal)`. Nothing is written here. Moved from `openfactory project init`."""
+    from pydantic import ValidationError
+
+    from openfactory import doors
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project, ProviderRef
+
+    if not repo_path:
+        return None, _no_such_project(name, so="give its repo_path to register it here")
+    if doors.ado_coordinates(repo_path)[0]:
+        # REGISTERING HERE WOULD MINT THE WRONG ROW over coordinates only `project_add` reads, so
+        # the address goes there; this row then finds it registered and does the rest.
+        return None, refused(INVALID, f"{name} was not registered: {repo_path!r} carries "
+                                      f"coordinates only project_add reads — register it with "
+                                      f"project_add, then initialise it", project=name,
+                             register_with="project_add")
+    # WHOSE HOST IS IT — asked, and refused when the answer is nobody this build implements
+    # (#162): a host that fell through to `kind="github"` was registered as GitHub and then
+    # offered a `github.com` credential by `factory._authenticated`.
+    try:
+        foreign = doors.foreign_host(repo_path, provider=provider)
+    except ValueError as exc:
+        return None, refused(INVALID, str(exc), project=name)
+    if foreign:
+        return None, refused(INVALID, doors.foreign_refusal(foreign), project=name,
+                             foreign=foreign)
+    # THE KIND THIS ADDRESS IS (ADR-0049 D2). A bare filesystem path is `local` — the person's own
+    # repository is the forge, and there is no account anywhere to infer an owner from — so the
+    # refusal below fires only where an owner really is missing: a URL nothing could be read from.
+    kind = doors.kind_for(repo_path, repo=repo, provider=provider)
+    inferred = repo or doors.infer_repo(repo_path) or (name if kind == "local" else "")
+    if not inferred:
+        return None, refused(INVALID, f"{name} was not registered: its owner/name cannot be "
+                                      f"read from {repo_path!r} — give it as repo", project=name,
+                             missing=["repo"])
+    # EVERY AXIS, SPELLED, for every kind but the GitHub default (D2): an axis left unwritten
+    # inherits `ProviderRef`'s `github`. An add-on's kind goes on both axes because its board, if
+    # it has one, is keyed by the tracker kind (`board/factory.py`).
+    fields: dict = {"tracker": ProviderRef(kind=kind, repo=inferred, options={})}
+    if kind != "github":
+        fields["forge"] = ProviderRef(kind=kind, repo=inferred, options={})
+    if kind == "local":
+        # `ci: none` is a row any forge may declare and the only honest answer for a repository
+        # with no service watching it. AND THE PRODUCT ROLE IS ON (ADR-0049 D9): its context
+        # repository is one this installation creates under the operator's own directory, so the
+        # decision costs nobody anything — on a hosted row it is an operator's, and stays off.
+        fields["ci"] = ProviderRef(kind="none", repo=inferred, options={})
+        fields["product"] = ProductConfig(docs_repo=f"{name}-context")
+    if language:
+        fields["language"] = language
+    try:
+        return Project(name=name, repo_path=repo_path, **fields), None
+    except ValidationError as exc:
+        return None, refused(INVALID, f"{name} was not registered — "
+                                      f"{' '.join(str(exc).split())[:300]}", project=name)
+
+
+def _the_board_step(project, *, board_owner: str) -> dict:
+    """The project's board with the platform's columns: created, already there, or its tracker's
+    own. WHETHER THERE IS ONE TO CREATE IS THE TRACKER'S DECLARATION, asked of the board-setup
+    registry (ADR-0049 D1): on some trackers the project's own workflow is the board, and setting
+    it up is a recipe the board's row says, not a call this platform makes."""
+    from openfactory import plugins
+    from openfactory.adapters.board_setup.base import BoardSetupError
+    from openfactory.adapters.board_setup.registry import board_creator
+    from openfactory.registry import ProjectRegistry
+    from openfactory.util.causes import first_message
+
+    kind = ((project.tracker.kind or "") if project.tracker else "github").strip().lower()
+    creator = board_creator(kind or "github")
+    if creator is None:
+        from openfactory.adapters.board.factory import board_row
+
+        setup = plugins.sentence(board_row(project), "setup", "", project)
+        return _step("board", STEP_SKIPPED, f"board: the {kind} tracker brings its own — nothing "
+                                            f"to create" + (f" ({setup})" if setup else ""))
+    try:
+        attached = creator.attached(project)
+        if attached:
+            return _step("board", STEP_ALREADY, f"board already attached ({attached})")
+        from openfactory.credentials import deployment_tracker_token, tracker_token_for
+
+        # AN EMPTY OWNER IS THE ROW'S TO REFUSE: a board this platform holds itself lives under
+        # nobody, and refusing here would refuse to create a board that needs no owner. THE
+        # PROJECT'S OWN RESOLUTION (#822), which ends with the deployment's pair — so the static
+        # token still comes first, as a personal account's board needs, then what this deployment
+        # can mint for this tracker's vendor, which an organisation-only App creates boards with.
+        owner = board_owner or (project.tracker.repo or "").split("/")[0]
+        number, url = creator.create(
+            project=project, owner=owner, title=project.name,
+            token=tracker_token_for(project) or deployment_tracker_token(project))
+    except BoardSetupError as exc:
+        # THE PROJECT STAYS REGISTERED — tickets-only is legitimate — and the steps after this one
+        # still run, so a project whose board was refused can still finish being initialised
+        # (pre-pilot review: exiting here left the manifest unreachable for ever).
+        return _step("board", STEP_FAILED, f"board: {exc}")
+    except Exception as exc:  # noqa: BLE001 — a step that raised is a failed step, said
+        log.warning("the board step of %s raised", project.name, exc_info=True)
+        return _step("board", STEP_FAILED, f"board: {first_message(exc, limit=300)}")
+    # ONLY WHERE THERE IS A COORDINATE TO WRITE: a board with no second object to point at
+    # answers `""`, and an empty coordinate is one every later read would special-case.
+    if number:
+        ProjectRegistry().attach_board(project.name, board_owner=owner, board_number=number)
+    return _step("board", STEP_DONE, f"board created with the platform's columns — {url}",
+                 url=url)
+
+
+def _the_context_step(name: str) -> dict | None:
+    """The product role's context repository, created and given its first commit, where this
+    installation owns the forge it lives on — `None` where it does not.
+
+    ENABLED AND UNUSABLE IS THE STATE THIS AVOIDS, measured on a fresh install: the registry
+    gained a `product:` section, the repository behind it did not exist, and `openfactory doctor`
+    said the product module was "enabled but unusable" on a machine where nothing was wrong except
+    that nobody had made the repository yet. The seed is `product.onboard`'s (#992), shared with a
+    product started before its code; this project has code, so its own repository is the one
+    source. IT ASKS WHETHER THE BASE HAS A COMMIT, not whether this run made the directory, so a
+    seed that failed once is finished by the next run (review of #106). A failure is said and
+    never raised: the registration before it is worth keeping. Moved from `openfactory project
+    init` with the command (#741)."""
+    from openfactory.adapters.forge.base import RepositoryCreatingForge
+    from openfactory.adapters.forge.registry import build_forge
+    from openfactory.product.onboard import seed_context_repository
+    from openfactory.registry import ProjectRegistry
+
+    docs = f"{name}-context"
+    try:
+        project = ProjectRegistry().get(name)
+        forge = build_forge(project)
+        if not isinstance(forge, RepositoryCreatingForge):
+            return None
+        created, where = seed_context_repository(project, docs, sources=[name])
+    except Exception as exc:  # noqa: BLE001 — the project is registered; the step is said
+        log.warning("could not seed the context repository for %s (%s)", name, str(exc)[:200])
+        return _step("context", STEP_FAILED, f"the product role's context repository could not "
+                                             f"be created ({exc}) — the doctor will say the "
+                                             f"product module is unusable until it is")
+    if not where:
+        return _step("context", STEP_ALREADY, f"the product role's context repository is there "
+                                              f"— {forge.clone_url(docs)}")
+    # WHICH OF THE TWO IT DID: "created" over a repository that was already there, because a push
+    # failed last time and this run finished the job, is a small untruth that makes a person doubt
+    # the rest of the output.
+    return _step("context", STEP_DONE, f"context repository {'created' if created else 'seeded'} "
+                                       f"for the product role — {where}")
+
+
+def _the_manifest_step(project, *, local: bool) -> tuple[dict, str]:
+    """The manifest scaffolded into the project's checkout — `(step, base_branch)`. Skipped for a
+    project registered by its clone URL, which has no checkout here to write into."""
+    import subprocess
+
+    from openfactory.onboarding.starter import MANIFEST_TEMPLATE
+
+    name, where = project.name, project.repo_path
+    if "://" in where or where.startswith("git@"):
+        return _step("manifest", STEP_SKIPPED, f"{name} is registered by its clone URL — the "
+                                               f"factory fetches the code itself, so there is no "
+                                               f"checkout here to write a manifest into"), "main"
+    # WHICH BRANCH THIS CHECKOUT IS ON: the manifest names it, and `git init` still yields `master`
+    # on plenty of machines — a manifest naming a branch that does not exist made the pickup gate
+    # hold every card with nothing saying why. `symbolic-ref --short HEAD` answers on an unborn
+    # branch too, where `rev-parse --abbrev-ref HEAD` exits 128.
+    head = subprocess.run(["git", "-C", str(Path(where).expanduser()), "symbolic-ref", "--short",
+                           "HEAD"], capture_output=True, text=True, check=False)
+    named = (head.stdout or "").strip()
+    base_branch = named if head.returncode == 0 and named else "main"
+    try:
+        # THE ONE READER DECIDES WHETHER THIS CHECKOUT HAS A MANIFEST: a checkout still on the
+        # directory's retired name is refused with what to rename, and nothing is written beside
+        # the manifest it has (review, 2026-08-25).
+        dest = namespace.resolve(Path(where).expanduser(), project.manifest_path, project=name)
+    except namespace.RetiredNamespace as exc:
+        return _step("manifest", STEP_FAILED, str(exc)), base_branch
+    if dest.exists():
+        return _step("manifest", STEP_ALREADY, f"manifest already exists: {dest}",
+                     path=str(dest)), base_branch
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    scaffold = MANIFEST_TEMPLATE.replace("base_branch: main", f"base_branch: {base_branch}")
+    if local:
+        # THE SOURCE SAYS WHOSE CONTEXT IT IS: the product module reads the pair from both ends,
+        # and on this runtime both are ours to write.
+        scaffold += "\n# The product role's context repository (created for you).\n"
+        scaffold += f"docs_repo: {name}-context\n"
+    dest.write_text(scaffold)
+    return _step("manifest", STEP_DONE, f"wrote {dest}" + (
+        f" (base_branch: {base_branch})" if base_branch != "main" else ""),
+        path=str(dest)), base_branch
+
+
+def _project_init_steps(name: str, *, repo_path: str, repo: str, board_owner: str,
+                        language: str, provider: str) -> Outcome:
+    """`project_init`'s steps, in order, off the loop that called it."""
+    from openfactory.registry import ProjectRegistry
+
+    registry = ProjectRegistry()
+    try:
+        found = registry.get(name)
+    except KeyError:
+        found = None
+    if found is not None:
+        # NEVER OVER WHAT IS THERE: a registered project is initialised as it is registered, and an
+        # address given beside it changes nothing — `project_add` says when one differs.
+        steps = [_step("register", STEP_ALREADY, f"{name} is already registered")]
+    else:
+        asked, bad = _project_to_initialise(name, repo_path=repo_path, repo=repo,
+                                            language=language, provider=provider)
+        if bad is not None:
+            return bad
+        try:
+            registry.add(asked)
+        except ValueError as exc:
+            return refused(CONFLICT, f"{name} was not registered — {exc}", project=name)
+        steps = [_step("register", STEP_DONE, f"registered {name} ({asked.tracker.repo})")]
+        found = registry.get(name)
+    steps.append(_the_board_step(found, board_owner=board_owner))
+    # READ OFF THE ROW, never off what this run decided: the row converges, and the second run
+    # registers nothing to decide from.
+    local = (getattr(getattr(found, "forge", None), "kind", "")
+             or getattr(getattr(found, "tracker", None), "kind", "")) == "local"
+    if local and (context := _the_context_step(name)) is not None:
+        steps.append(context)
+    manifest, base_branch = _the_manifest_step(found, local=local)
+    steps.append(manifest)
+    return _the_steps_came_to(name, steps, local=local, base_branch=base_branch)
+
+
+async def _project_init(*, project: str, by: Actor, repo_path: object = "", repo: object = "",
+                        board_owner: object = "", language: object = "",
+                        provider: object = "") -> Outcome:
+    """From nothing to a project that can move a ticket — everything an API can do, done.
+
+    CONVERGES rather than performs a fixed script: each step runs only if its result is missing,
+    so a failed board creation is retried by running this again, never by hand-assembling the
+    remaining half. A project that is not registered is registered first, from `repo_path`.
+
+    THE STEPS LEAVE THE LOOP. A board's creation, a clone and a push take seconds each, and through
+    the panel this runs on the loop every other request is served from — the reason the doctor's
+    probes do (#741, measured on 2026-10-19)."""
+    import asyncio
+
+    return await asyncio.to_thread(
+        _project_init_steps, _given(project), repo_path=_given(repo_path), repo=_given(repo),
+        board_owner=_given(board_owner), language=_given(language), provider=_given(provider))
 
 
 CATALOG: dict[str, ActionSpec] = {
@@ -8856,6 +9130,30 @@ CATALOG: dict[str, ActionSpec] = {
                          "empty leaves the harness's default",
                 "language": "a language tag the project speaks first in, e.g. `en` or "
                             "`pt-BR`; empty is English",
+            },
+        ),
+        ActionSpec(
+            name="project_init",
+            summary="make a project ready to move a ticket: register it if it is not, create its "
+                    "board, seed its context repository where this installation owns it, and "
+                    "scaffold its manifest — each step only if it is missing, and each said",
+            run=_project_init,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, FAILED),
+            required=("project",),
+            optional=("repo_path", "repo", "board_owner", "language", "provider"),
+            installation=True,
+            params={
+                "project": "the project's name in this deployment's registry — or the name to "
+                           "register it under, with `repo_path`",
+                "repo_path": "where the code is, a path on the machine the factory runs on or a "
+                             "clone URL — needed only when the project is not registered yet",
+                "repo": "the repository as its forge names it, e.g. `owner/name`; empty reads "
+                        "it from a clone URL",
+                "board_owner": "where the board is created; empty is the repository's owner",
+                "language": "a language tag the project speaks first in, e.g. `en` or "
+                            "`pt-BR` — used only when this registers the project",
+                "provider": "the kind on every axis, when the address cannot say it — a kind "
+                            "this deployment has, e.g. an installed add-on's",
             },
         ),
         ActionSpec(

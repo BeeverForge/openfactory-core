@@ -20,6 +20,7 @@ TEST = "tests/test_the_roles_run_on_the_local_rows.py"
 FORGE = "openfactory/adapters/forge/local.py"
 OPS = "openfactory/ops/impediment.py"
 CLI = "openfactory/cli.py"
+CATALOG = "openfactory/actions/catalog.py"
 
 MUTATIONS = [
     # ── 1. the context repository ──────────────────────────────────────────────────────────────
@@ -58,29 +59,33 @@ MUTATIONS = [
      '        return declared', TEST),
 
     # ── 3. the product section ─────────────────────────────────────────────────────────────────
-    ("the product role stays off on the runtime that can host it", CLI,
-     '            kwargs["product"] = ProductConfig(docs_repo=f"{name}-context")\n', "", TEST),
+    # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, so this
+    # code is the row's now, in `actions/catalog.py`; the claim is unchanged.
+    ("the product role stays off on the runtime that can host it", CATALOG,
+     '        fields["product"] = ProductConfig(docs_repo=f"{name}-context")\n', "", TEST),
 
-    ("every hosted registration is switched on too, naming a repository nobody decided on", CLI,
-     '        if kind == "local":\n'
-     '            # `ci: none` is a row any forge may declare (slice 3b) and the only honest '
-     'answer for', '        if True:\n'
-     '            # `ci: none` is a row any forge may declare (slice 3b) and the only honest '
-     'answer for', TEST),
+    ("every hosted registration is switched on too, naming a repository nobody decided on",
+     CATALOG,
+     '    if kind == "local":\n'
+     '        # `ci: none` is a row any forge may declare and the only honest answer for a '
+     'repository', '    if True:\n'
+     '        # `ci: none` is a row any forge may declare and the only honest answer for a '
+     'repository', TEST),
 
     # ── 4. the branch, and the last sentence ───────────────────────────────────────────────────
     # RE-PINNED 2026-09-11: the scaffold gained the `docs_repo:` line for a local project, so the
     # branch substitution is now a statement of its own rather than an argument to `write_text`.
-    ("the manifest names a branch this repository does not have", CLI,
-     '                scaffold = _MANIFEST_TEMPLATE.replace("base_branch: main",\n'
-     '                                                      f"base_branch: {base_branch}")',
-     '                scaffold = _MANIFEST_TEMPLATE', TEST),
+    # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, so this
+    # code is the row's now, in `actions/catalog.py`; the claim is unchanged.
+    ("the manifest names a branch this repository does not have", CATALOG,
+     '    scaffold = MANIFEST_TEMPLATE.replace("base_branch: main", f"base_branch: {base_branch}")',
+     '    scaffold = MANIFEST_TEMPLATE', TEST),
 
+    # RE-PINNED 2026-10-23 (#741): the command reads whether the project is local off the row's
+    # answer.
     ("the last sentence sends somebody to configure access to a repository they own", CLI,
-     '    if registered_local:\n'
-     '        typer.echo(f"two things no command can do for you — commit '
-     '`.openfactory/project.yaml` on "',
+     '    if outcome.data.get("local"):\n'
+     '        base_branch = outcome.data.get("base_branch") or "main"\n',
      '    if False:\n'
-     '        typer.echo(f"two things no command can do for you — commit '
-     '`.openfactory/project.yaml` on "', TEST),
+     '        base_branch = outcome.data.get("base_branch") or "main"\n', TEST),
 ]

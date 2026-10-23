@@ -190,9 +190,13 @@ MUTATIONS = [
      "    project = _get_project(name)",
      T + "::test_a_verb_that_reads_the_code_refuses_it_and_writes_nothing_where_it_stands"
          "[verb0]"),
-    ("project init scaffolds a manifest into the directory it stands in", CLI,
-     '        project = _with_its_code(reg.get(name), "setting up its board and manifest")',
-     "        project = reg.get(name)",
+    # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, which waits
+    # for the code by its declaration — `perform` refuses it before its code, as the command's own
+    # check did — so the cut is the row saying it does not need the code.
+    ("project init scaffolds a manifest into the directory it stands in", CAT,
+     '            optional=("repo_path", "repo", "board_owner", "language", "provider"),\n',
+     '            optional=("repo_path", "repo", "board_owner", "language", "provider"),\n'
+     '            needs_code=False,\n',
      T + "::test_a_verb_that_reads_the_code_refuses_it_and_writes_nothing_where_it_stands"
          "[verb3]"),
     ("the doctor says one red line per reader of the code", DOC,

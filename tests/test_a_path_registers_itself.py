@@ -123,6 +123,22 @@ def test_the_api_door_writes_every_axis_for_a_path(registry, a_repo, monkeypatch
     assert (p.tracker.kind, p.forge.kind, p.ci.kind) == ("local", "local", "none")
 
 
+def test_project_init_writes_every_axis_for_a_path(tmp_path, monkeypatch):
+    """The third door, which registers before it does the rest (the `project_init` row, #741): a
+    path is `local` on every axis there too, `ci` included — no test of a door read that axis of
+    this one, so leaving it unwritten went unseen."""
+    from tests.one_machine import a_deployment, a_repository
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    a_deployment(tmp_path, monkeypatch=monkeypatch)
+
+    result = runner.invoke(app, ["project", "init", "myapp", str(a_repository(tmp_path))])
+
+    assert result.exit_code == 0, result.output
+    p = ProjectRegistry().get("myapp")
+    assert (p.tracker.kind, p.forge.kind, p.ci.kind) == ("local", "local", "none")
+
+
 def test_the_api_door_REFUSES_a_foreign_host(registry, monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -174,9 +190,9 @@ def test_every_registering_door_asks_the_SAME_two_questions():
     """The reachability half. A door that stops asking passes every test above — it just quietly
     writes the wrong row, which is exactly how the three came to disagree.
 
-    ASKED ONCE SINCE #741: `project add` and `POST /api/projects` are mappings onto the
-    `project_add` row, so the row asks and both doors perform it. `project init` still registers
-    in its own code, so it asks for itself."""
+    ASKED BY THE ROWS SINCE #741: `project add` and `POST /api/projects` are mappings onto the
+    `project_add` row and `project init` onto `project_init`, so each row asks and its doors
+    perform it."""
     # THE KIND IS DECIDED THROUGH `doors.axes_for` since #992 — the axes a product's first source
     # writes too — and that helper asks `kind_for` itself
     from openfactory import cli, doors
@@ -185,12 +201,14 @@ def test_every_registering_door_asks_the_SAME_two_questions():
 
     assert "kind_for" in _called_in(doors.axes_for), "axes_for decides the kind alone"
     for where, fn in (("the project_add row", catalog._project_add),
-                      ("project init", cli.project_init)):
+                      ("the project_init row", catalog._project_to_initialise)):
         called = _called_in(fn)
         assert called & {"kind_for", "axes_for"}, f"{where} decides the kind on its own"
         assert "foreign_host" in called, f"{where} does not ask whose host it is"
-    for where, fn in (("project add", cli.project_add), ("POST /api/projects", api_module.add_project)):
-        assert _performed_in(fn) == {"project_add"}, (
+    for where, fn, row in (("project add", cli.project_add, "project_add"),
+                           ("POST /api/projects", api_module.add_project, "project_add"),
+                           ("project init", cli.project_init, "project_init")):
+        assert _performed_in(fn) == {row}, (
             f"{where} does not map onto the row that asks — a door that writes the row itself is "
             f"the fourth copy of the rule")
 

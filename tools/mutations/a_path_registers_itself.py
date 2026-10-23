@@ -89,9 +89,12 @@ MUTATIONS = [
      '        "project_add", by=_actor(request), project=body.name, repo_path=body.repo_path,',
      SLICE),
 
-    ("`project init` leaves the ci axis unwritten for a local project", CLI,
-     '            kwargs["ci"] = ProviderRef(kind="none", repo=inferred, options={})', "",
-     DOORS_TEST),
+    # RE-PINNED 2026-10-23 (#741): the row's code now, and aimed at the slice's own test of
+    # `project init` on a path — the doors suite it was aimed at never read the `ci` axis, so this
+    # row had been surviving there.
+    ("`project init` leaves the ci axis unwritten for a local project", CATALOG,
+     '        fields["ci"] = ProviderRef(kind="none", repo=inferred, options={})\n', "",
+     SLICE),
 
     # ── 3. the doors stop asking ───────────────────────────────────────────────────────────────
     ("the API model carries a vendor default again, so the panel registers every project as "
@@ -125,9 +128,11 @@ MUTATIONS = [
      '        "project_add", by=_actor(request), project=body.name, repo_path=body.repo_path,',
      SLICE),
 
+    # RE-PINNED 2026-10-23 (#741): `project init` renders the `project_init` row's refusal, and
+    # its ways out are still this file's.
     ("the refusal goes back to being written twice, and the copies drift", CLI,
-     "            typer.echo(_foreign_refusal(foreign, provider))\n"
-     "            raise typer.Exit(2) from None",
-     '            typer.echo(f"✗ {foreign} is not supported")\n'
-     "            raise typer.Exit(2) from None", DOORS_TEST),
+     "            typer.echo(_foreign_refusal(str(outcome.data[\"foreign\"]), provider))\n"
+     "            raise typer.Exit(2)\n",
+     '            typer.echo(f"✗ {outcome.data[\'foreign\']} is not supported")\n'
+     "            raise typer.Exit(2)\n", DOORS_TEST),
 ]

@@ -399,7 +399,7 @@ def test_the_STARTER_the_platform_writes_passes_both_new_checks():
     """First contact. `sdlc project init` prints "then: `sdlc doctor <name>`", so the template we
     write must survive the command we tell them to run next — the same failure that was fixed for
     `sdlc conformance` and would otherwise have been reintroduced here."""
-    from openfactory.cli import _MANIFEST_TEMPLATE
+    from openfactory.onboarding.starter import MANIFEST_TEMPLATE as _MANIFEST_TEMPLATE
 
     manifest = load_manifest(_project_with(_MANIFEST_TEMPLATE))
     report = _findings(diagnose(_probes(manifest=lambda: manifest)))

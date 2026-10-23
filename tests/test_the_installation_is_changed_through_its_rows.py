@@ -17,7 +17,12 @@ THE RULES HELD HERE, each over cases read from the code rather than named:
   4. the contract a front end is written against lists exactly the installation's rows;
   5. the doctor's document is one document, whichever door asked for it;
   6. a person revoked is gone — account, sessions and links — and the last one registered is not
-     revoked while nothing else closes the panel's door.
+     revoked while nothing else closes the panel's door;
+  7. a project's own settings are set by its rows, and the command line writes none of them;
+  8. a project is registered by one row, whichever door asked, and a registered one is never
+     written over;
+  9. a row of several steps says what each step came to, and running it again does only what is
+     missing.
 """
 
 from __future__ import annotations
@@ -122,7 +127,9 @@ def _writes_directly(fn: ast.AST) -> set[str]:
 
 
 def _catalog_writes() -> dict[str, set[str]]:
-    """`row → what it writes`, following the catalogue's own helpers it calls by name."""
+    """`row → what it writes`, following the catalogue's own helpers it names — by a call, or by
+    handing one on: a row whose steps leave the loop hands its body to `asyncio.to_thread`, and
+    that body is the row's code all the same (slice 3)."""
     tree = parsed(CATALOG_PY)
     functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
 
@@ -133,8 +140,8 @@ def _catalog_writes() -> dict[str, set[str]]:
         fn = functions[name]
         out = _writes_directly(fn)
         for n in ast.walk(fn):
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
-                out |= reached(n.func.id, seen)
+            if isinstance(n, ast.Name):
+                out |= reached(n.id, seen)
         return out
 
     return {name: reached(spec.run.__name__, set()) for name, spec in catalog.CATALOG.items()}
@@ -983,3 +990,187 @@ def test_adding_what_is_registered_changes_nothing_and_adding_it_differently_is_
     assert elsewhere.code == actions.CONFLICT and "repo_path" in elsewhere.data["differs"], (
         elsewhere)
     assert registry.read_bytes() == before, "registering again wrote over what was registered"
+
+
+# ── 9. a row of several steps says what each came to, and is safe to run again (slice 3) ──────
+
+def _rows_reaching(helper: str) -> set[str]:
+    """The rows whose runner reaches `helper` in the catalogue, by a call or by handing a function
+    on — the same walk as rule 1's."""
+    tree = parsed(CATALOG_PY)
+    functions = {n.name: n for n in tree.body
+                 if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+
+    def reaches(name: str, seen: set[str]) -> bool:
+        if name in seen or name not in functions:
+            return False
+        seen.add(name)
+        return name == helper or any(isinstance(n, ast.Name) and reaches(n.id, seen)
+                                     for n in ast.walk(functions[name]))
+
+    return {name for name, spec in catalog.CATALOG.items() if reaches(spec.run.__name__, set())}
+
+
+#: The rows of several steps: those that answer through `_the_steps_came_to`.
+STEPPED = sorted(_rows_reaching("_the_steps_came_to"))
+
+
+@pytest.fixture
+def a_machine(tmp_path, monkeypatch):
+    """A one-machine deployment with a repository of the person's own — nothing of this machine
+    reached, nothing remote."""
+    from tests.one_machine import a_deployment, a_repository
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    a_deployment(tmp_path, monkeypatch=monkeypatch)
+    return a_repository(tmp_path)
+
+
+def _a_push_that_fails_once(monkeypatch) -> None:
+    """The first `git push` of the run fails, as a full disk or a dropped connection makes it."""
+    import subprocess
+
+    real, state = subprocess.run, {"failed": False}
+
+    def once(args, *a, **kw):
+        if isinstance(args, list) and "push" in args and not state["failed"]:
+            state["failed"] = True
+            raise subprocess.CalledProcessError(1, args, stderr="no room on the disk")
+        return real(args, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", once)
+
+
+def _init_a_path(repo, monkeypatch):
+    """`project_init` on a path, with the context repository's push failing the first time."""
+    _a_push_that_fails_once(monkeypatch)
+    return {"project": "myapp", "repo_path": str(repo)}, "context"
+
+
+#: How each row of several steps is driven to fail halfway: `(params, the step that fails)`, the
+#: cause failing once and then passing.
+HALFWAY = {"project_init": _init_a_path}
+
+
+def test_every_row_of_several_steps_is_driven_halfway():
+    assert STEPPED, "no row answers through `_the_steps_came_to` — the reading sees nothing"
+    assert sorted(HALFWAY) == STEPPED, (
+        f"rows of several steps {STEPPED}, driven halfway {sorted(HALFWAY)}: a row that takes "
+        f"several steps must show what it says when one fails, and that running it again finishes")
+
+
+@pytest.mark.parametrize("name", STEPPED)
+def test_a_row_of_several_steps_says_what_was_done_when_a_step_fails_and_finishes_when_run_again(
+        name, a_machine, monkeypatch):
+    """A failure halfway is a list of what is done and what is not, not one sentence about the last
+    thing that broke; running the row again does what is missing and nothing twice; and a third
+    run finds everything there."""
+    from openfactory.registry import ProjectRegistry
+
+    params, failing = HALFWAY[name](a_machine, monkeypatch)
+
+    first = asyncio.run(actions.perform(name, by=ADMIN, **params))
+    states = {s["step"]: s["state"] for s in first.data["steps"]}
+    assert first.code == actions.FAILED and states[failing] == actions.STEP_FAILED, first
+    before_it = [s["step"] for s in first.data["steps"]][:list(states).index(failing)]
+    assert before_it and all(states[s] == actions.STEP_DONE for s in before_it), (
+        f"the steps before {failing!r} are not said to be done: {first.data['steps']}")
+    for s in first.data["steps"]:
+        assert s["said"] in first.message, f"{s['step']} is not said in the sentence: {first}"
+
+    second = asyncio.run(actions.perform(name, by=ADMIN, **params))
+    again = {s["step"]: s["state"] for s in second.data["steps"]}
+    assert second.ok and again[failing] == actions.STEP_DONE, second
+    assert all(again[s] in (actions.STEP_ALREADY, actions.STEP_SKIPPED) for s in before_it), (
+        f"running it again did again what was done: {second.data['steps']}")
+    registered = Path(ProjectRegistry().path).read_bytes()
+
+    third = asyncio.run(actions.perform(name, by=ADMIN, **params))
+    assert third.ok and all(s["state"] in (actions.STEP_ALREADY, actions.STEP_SKIPPED)
+                            for s in third.data["steps"]), third
+    assert Path(ProjectRegistry().path).read_bytes() == registered
+
+
+def test_a_front_end_is_told_which_steps_were_done_when_a_later_one_failed(a_machine,
+                                                                          monkeypatch):
+    """Through `POST /api/act/{name}` a failed step is the outcome's code, and the steps ride with
+    it — so a screen of one's own can show that the project is registered and its board made,
+    and offer the same button again."""
+    from openfactory.api.app import app as panel
+
+    _a_push_that_fails_once(monkeypatch)
+
+    r = TestClient(panel).post("/api/act/project_init", json={"params": {
+        "project": "myapp", "repo_path": str(a_machine)}})
+
+    assert r.status_code == 500, r.text
+    said = {s["step"]: s["state"] for s in r.json()["data"]["steps"]}
+    assert said["register"] == "done" and said["context"] == "failed", said
+    assert "running it again does only what is missing" in r.json()["message"]
+
+
+@pytest.mark.parametrize("argv,row", [
+    (["project", "init", "acme"], "project_init"),
+])
+def test_each_verb_of_several_steps_runs_its_row_and_writes_nothing_itself(argv, row, one_project,
+                                                                          monkeypatch):
+    """The command is a mapping: with the row's own code replaced by a recorder, the verb answers,
+    the recorder ran once, and the registry is byte for byte as it was."""
+    from openfactory import cli
+
+    before, seen = one_project.read_bytes(), []
+
+    async def recorder(by=None, **params):
+        seen.append(params)
+        return actions.done("recorded", steps=[], local=True, base_branch="main")
+
+    monkeypatch.setattr(catalog, "CATALOG", {**catalog.CATALOG, row: dataclasses.replace(
+        catalog.CATALOG[row], run=recorder)})
+
+    out = CliRunner().invoke(cli.app, argv)
+
+    assert out.exit_code == 0, out.output
+    assert len(seen) == 1, f"{argv} did not run {row}"
+    assert one_project.read_bytes() == before, f"{argv} wrote the registry itself"
+
+
+# ── 8, again: what is registered is never written over (slice 3) ────────────────────────────
+
+#: The rows that register a project, read off what they write.
+REGISTERS = sorted(name for name, what in _catalog_writes().items()
+                   if "ProjectRegistry.add" in what)
+
+
+def _add_elsewhere(repo):
+    return {"project": "myapp", "repo_path": str(repo.parent / "elsewhere")}
+
+
+def _init_elsewhere(repo):
+    return {"project": "myapp", "repo_path": str(repo.parent / "elsewhere"), "language": "pt-BR"}
+
+
+#: For each row that registers: a request naming a project already registered, differently.
+OVER_IT = {"project_add": _add_elsewhere, "project_init": _init_elsewhere}
+
+
+def test_every_row_that_registers_is_asked_to_write_over_a_project():
+    assert sorted(OVER_IT) == REGISTERS, (REGISTERS, sorted(OVER_IT))
+
+
+@pytest.mark.parametrize("name", REGISTERS)
+def test_a_row_that_registers_never_writes_over_what_is_registered(name, a_machine):
+    """Whatever the request says, a project that is registered keeps its address, its axes and its
+    language: `project_add` refuses and names what differs, and `project_init` initialises the
+    project as it is registered."""
+    from openfactory.registry import ProjectRegistry
+
+    assert asyncio.run(actions.perform("project_add", by=ADMIN, project="myapp",
+                                       repo_path=str(a_machine))).ok
+    before = Path(ProjectRegistry().path).read_bytes()
+
+    out = asyncio.run(actions.perform(name, by=ADMIN, **OVER_IT[name](a_machine)))
+
+    assert out.ok or out.code == actions.CONFLICT, out
+    assert Path(ProjectRegistry().path).read_bytes() == before, f"{name} wrote over myapp"

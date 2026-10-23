@@ -311,6 +311,9 @@ OWNED = {
     # needs (ADR-0049 D2, `doors.axes_for` since #992): a front end that wrote them itself would
     # be the fourth copy of the rule the three registering doors used to each carry
     "axes_for": "project_add",
+    # pointing the registry at a board this platform created — the one write `project init` made
+    # beside registering, and a second door that made it would be a board nobody's row decided on
+    "attach_board": "project_init",
     # the doctor's report AS A DOCUMENT: a front end that composed one would be a second opinion
     # about the same machine — the screen and `--json` both render the row's
     "as_document": "doctor",
