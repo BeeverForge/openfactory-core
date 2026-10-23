@@ -4,7 +4,9 @@ THE CLAIMS:
 
   1. **`parsed(path)` serves one tree per content.** The same bytes at two paths are one object;
      different bytes at one path are a new tree, even at the same length; a file that does not
-     parse is raised and leaves nothing behind.
+     parse is raised and leaves nothing behind. The cached trees sit outside the collector: a
+     full collection walking both trees took 1.1 s on an idle box (2026-10-22), over the engine
+     probe's 1.0 s.
   2. **Nobody edits the shared tree.** The one guard that strips docstrings from a function
      (`_code_without_prose`) deep-copies it first; without the copy, every later reader of
      `openfactory/actions/catalog.py` would see a tree with no docstrings, in some orders only.
@@ -46,6 +48,9 @@ MUTATIONS = [
      HELPER,
      "        tree = ast.parse(text, filename=os.fspath(path))\n",
      "        _trees[key] = None\n        tree = ast.parse(text, filename=os.fspath(path))\n"),
+
+    ("the cache stays in the collector, so every full collection walks ~3.9 M nodes",
+     HELPER, "        gc.freeze()\n", ""),
 
     # ── 2. nobody edits the shared tree ────────────────────────────────────────────────────────
     ("the docstring stripper edits the shared tree in place",

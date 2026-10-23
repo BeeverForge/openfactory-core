@@ -33,11 +33,21 @@ No inline site on 923d7d0f read with another encoding.
 WHAT IT COSTS: the package's trees are ~260 MB of Python objects in the worker that first asked;
 the suite's own trees another ~450 MB in a worker that runs one of the two guards that read
 `tests/` too. Measured 2026-10-22 against the sizes above; a worker already holds 300–500 MB.
+
+AND THE COLLECTOR NEVER WALKS THEM. Every AST node is tracked by the cyclic GC, so a worker holding
+both trees (~3.9 M objects) paid 1.1 s for every full collection, measured 2026-10-22 on an idle
+box (1.115 s for 3,919,209 objects); the touched files' run on 5a3cccd8 paused over 1.0 s 67 times
+against main's 1, and one pause outlasted the engine probe's 1.0 s and read as
+`EngineNotListening`. With the freeze, 0 pauses over 0.5 s in two runs (main: 11 and 14). `parsed` calls `gc.freeze()` after each
+insert, which moves every object alive at that moment into the permanent generation. The price:
+cyclic garbage alive at the instant of a freeze is never collected (+24 MB peak RSS in one
+process over the 142 touched files: 1,533,600 KB without the freeze, 1,558,312 KB with it).
 """
 
 from __future__ import annotations
 
 import ast
+import gc
 import hashlib
 import os
 from pathlib import Path
@@ -58,6 +68,9 @@ def parsed(path: str | os.PathLike[str], encoding: str = "utf-8") -> ast.Module:
     if tree is None:
         tree = ast.parse(text, filename=os.fspath(path))
         _trees[key] = tree
+        # Out of the collector: a full collection walking the ~3.9 M nodes of both trees took 1.1 s
+        # on an idle box, over the engine probe's 1.0 s (2026-10-22); freezing took 2 µs.
+        gc.freeze()
     return tree
 
 

@@ -16,6 +16,7 @@ grepping them.
 from __future__ import annotations
 
 import ast
+import gc
 import uuid
 from pathlib import Path
 
@@ -100,3 +101,17 @@ def test_the_one_guard_that_edits_a_tree_edits_a_copy() -> None:
     # module, which ran for over two minutes on 2026-10-22 with the deep copy cut out.
     unchanged = ast.dump(parsed(path)) == before
     assert unchanged, "the shared tree was edited in place"
+
+
+def test_a_cached_tree_is_left_out_of_every_full_collection(tmp_path: Path) -> None:
+    """A worker holding both trees holds ~3.9 M AST objects, every one tracked by the collector. A
+    full collection walking them took 1.1 s on an idle box (2026-10-22), longer than the 1.0 s the
+    engine probe gives a listening socket (`openfactory/runtime/temporal/connection.py`), and the
+    touched files' run on 5a3cccd8 paused over 1.0 s 67 times against main's 1: one such pause
+    turned `test_a_cancelled_attempt_is_nobodys_failure_and_those_behind_it_try[json]` red as
+    `EngineNotListening`. A cached tree must sit in no generation the collector walks."""
+    f = tmp_path / "m.py"
+    f.write_text(f"x = {uuid.uuid4().int}\n")
+    tree = parsed(f)
+    assert not any(o is tree for g in range(3) for o in gc.get_objects(generation=g)), (
+        "the cached tree is still in a GC generation: every full collection walks the whole cache")
