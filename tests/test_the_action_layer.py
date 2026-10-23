@@ -314,6 +314,9 @@ OWNED = {
     # pointing the registry at a board this platform created — the one write `project init` made
     # beside registering, and a second door that made it would be a board nobody's row decided on
     "attach_board": "project_init",
+    # creating a context repository in the client's organisation and recording it — the most
+    # consequential thing this platform asks of a forge credential, decided by the row alone
+    "create_context_repository": "product_init",
     # the doctor's report AS A DOCUMENT: a front end that composed one would be a second opinion
     # about the same machine — the screen and `--json` both render the row's
     "as_document": "doctor",

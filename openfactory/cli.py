@@ -4393,50 +4393,6 @@ def product_release_cmd(
         raise typer.Exit(1)
 
 
-def _create_context_repo(project, name: str) -> tuple[str, bool]:
-    """The CLI's rendering of `product.onboard.create_context_repository` — same act, exit
-    codes here, the mechanism there (extracted 2026-08-13 so `onboard` can drive it)."""
-    from openfactory.product.onboard import create_context_repository
-
-    try:
-        return create_context_repository(project, name)
-    except ValueError as exc:
-        typer.echo(f"✗ {exc}")
-        raise typer.Exit(1) from None
-    except RuntimeError as exc:
-        typer.echo(f"✗ could not create the context repository: {exc}")
-        raise typer.Exit(1) from exc
-
-
-def _context_forge(project):
-    """DELEGATES to `product.onboard.context_forge` — one credential resolution for the
-    context axis, not two drifting ones: this local copy lacked both the App-token fallback
-    and the personal-account PAT borrow its sibling earned (pilot, 2026-08-13)."""
-    from openfactory.product.onboard import context_forge
-
-    return context_forge(project)
-
-
-def _context_clone_url(project, docs_repo: str) -> str:
-    """The context repository's clone URL — the right host AND the right credential.
-
-    This was a `github.com` literal in two places. On an Azure DevOps deployment it produced a
-    URL for a host the client does not use — a 404, or worse somebody else's repository of that
-    name — which is the exact defect `clone_url` was added to the port to end.
-
-    THE CREDENTIAL WAS THE OTHER HALF, and fixing only the host would have shipped the worse
-    bug: the callers resolved `forge_token() or github_app_token_from_env()`, which is ALWAYS a
-    GitHub credential, so an all-Azure deployment with a perfectly good PAT would have sent its
-    GitHub App token to dev.azure.com. `clone_url_for` is the one place where the adapter's own
-    credential wins over the caller's (`registry.py` records this exact defect being
-    reintroduced by a convenience wrapper); `forge_token_for` is the per-project resolution the
-    API call two lines up already used. Found by the pre-commit adversarial review, 2026-08-12.
-    """
-    from openfactory.product.onboard import context_clone_url
-
-    return context_clone_url(project, docs_repo)
-
-
 @product_app.command("start")
 def product_start_cmd(
     name: str = typer.Argument(..., help="The project to register"),
@@ -4589,168 +4545,63 @@ def product_init(
     SHOWS BEFORE IT WRITES. The default prints the file it would add and what each source repo
     still needs; `--write` opens a PR. It is the client's repository — the first thing this
     platform does to it should be reviewable."""
-    import subprocess
-    import tempfile
-    from pathlib import Path as _Path
+    # A MAPPING ONTO THE `product_init` ROW (#741). The row creates the context repository when
+    # asked, reads it, plans the declaration with the product link's own functions and proposes
+    # it, each step only if it is missing, and says what each came to; what stays here is how a
+    # terminal shows the plan, the refusals in this command's words and flags, and the exit codes
+    # — 2 for an argument that is not a repository, 1 for anything that did not happen.
+    from openfactory.actions import STEP_ALREADY, STEP_DONE, STEP_FAILED, STEP_SKIPPED
 
-    from openfactory.credentials import bot_identity
-    from openfactory.product.config import _source_repo, normalize_repo
-    from openfactory.product.onboard import PRODUCT_YAML, plan
-
-    project = _get_project(name)
-    docs_repo = (getattr(getattr(project, "product", None), "docs_repo", "") or "").strip()
-    # THE REGISTRY NAMES ONE REPOSITORY; A PRODUCT MAY SPAN SEVERAL. C-18 lets a card carry its
-    # own repo, so the platform learns them one ticket at a time — but the product role needs the
-    # COMPLETE set up front, and a member missing from `sources:` is invisible to it. Inferring
-    # from the registry alone would quietly declare a multi-repo product as a single-repo one.
-    #
-    # THE FILE IS BUILT WITH THE CHECK'S OWN FUNCTIONS, because it exists to pass that check.
-    # This kept a candidate only if it contained a `/` — the `owner/name` shape of one forge —
-    # while `resolve_product_link` asks for `_source_repo(project)` read by `normalize_repo`, one
-    # to three segments. On a forge whose registry row names its repository bare (Azure Repos)
-    # the project's own repository and every bare `--source` were dropped, the command wrote
-    # `sources: []`, and the link it had just proposed refused its own project "(it lists
-    # nothing)" — reported from a real deployment, #169. The slash was standing in for "not the
-    # tracker's": it dropped the local board's bare project name for its spelling, and let a
-    # GitHub tracker's separate issues repository in for the same reason. `_source_repo` answers
-    # WHOSE it is — the forge's, the tracker's only when there is no forge — which is also the
-    # precedence `openfactory onboard` settled on (review, 2026-08-13).
-    given = [s.strip() for s in (source or []) if s and s.strip()]
-    unreadable = [s for s in given if not normalize_repo(s)]
-    if unreadable:
-        # REFUSED BEFORE ANYTHING IS CLONED. Written, it would come back from the link as a member
-        # it cannot vouch for; dropped — what the slash rule did to a bare name — nobody is told.
-        typer.echo(f"✗ --source {', '.join(repr(s) for s in unreadable)}: not a repository "
-                   f"reference — `owner/name` on GitHub, the bare repository name or "
-                   f"`Project/repo` on Azure Repos, or a clone URL of one")
-        raise typer.Exit(2)
-    # ONE ENTRY PER REPOSITORY, in the first spelling given — the registry's before any argument's.
-    # `their-app` and `--source Their-App` are one coordinate to the check.
-    spelled: dict[str, str] = {}
-    for candidate in [_source_repo(project), *given]:
-        if (key := normalize_repo(candidate)) and key not in spelled:
-            spelled[key] = candidate
-    sources = sorted(spelled.values())
-
-    with tempfile.TemporaryDirectory() as tmp:
-        root = _Path(tmp) / "docs"
-        if docs_repo:
-            url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--no-local", "--depth", "1", "--", url,
-                                 str(root)],
-                                capture_output=True, text=True, timeout=180)
-            if rc.returncode != 0:
-                typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
-                raise typer.Exit(1)
-        else:
-            # NO CONTEXT REPOSITORY. Until now this planned against an empty temporary directory
-            # with no git remote, so `--write` reached a `git push origin` that could not resolve
-            # one — a confusing failure about a remote, for a project whose real problem is that
-            # it has nowhere to keep requirements at all (#99 slice 2b).
-            #
-            # The product owner, 2026-08-07: *"sempre na org do cliente. Se o cliente não tiver um
-            # repositório de contexto temos que criar um."*
-            if not create_context:
-                typer.echo(
-                    f"✗ {name} has no context repository, and this is where its requirements "
-                    f"would live.\n"
-                    f"  Run again with --create-context to create one in the client's "
-                    f"organisation, or declare the one they already have: "
-                    f"`openfactory product declare {name} <owner/repo>`.")
-                raise typer.Exit(1)
-            docs_repo, made = _create_context_repo(project, name)
-            typer.echo(f"{'✓ created' if made else '· found'} {docs_repo}")
-            url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--no-local", "--", url, str(root)],
-                                capture_output=True, text=True, timeout=180)
-            if rc.returncode != 0:
-                typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
-                raise typer.Exit(1)
-            # A REPOSITORY BORN EMPTY HAS NO BRANCH. `gh repo create` makes no commit, so the
-            # clone lands on an unborn HEAD and the first `git checkout -b` would work while the
-            # push had no upstream to be forced over. One empty commit gives it a base branch,
-            # which is what every later step assumes exists.
-            for args in (["-C", str(root), "checkout", "-B", "main"],):
-                subprocess.run(["git", *args], capture_output=True, text=True, timeout=60)
-            # RE-READ WHAT WAS JUST RECORDED. `set_docs_repo` wrote the registry; the `project`
-            # in hand predates it, so `plan()` refused "no product: section" ON THE RUN THAT
-            # CREATED THE REPOSITORY — created, recorded, exit 1, no todos, no PR. Reproduced by
-            # the onboarding-v2 verification pass (2026-08-10); the suite never caught it because
-            # every test's clone failed before plan() was reached.
-            project = _get_project(name)
-
-        result = plan(project, root, sources=sources)
-        if result.refusal:
-            typer.echo(f"✗ {result.refusal}")
+    _get_project(name)  # the first hour's "not registered" sentence, before the row is asked
+    outcome = _perform("product_init", project=name, source=list(source or []), write=write,
+                       create_context=create_context)
+    data, steps = outcome.data, list(outcome.data.get("steps") or [])
+    if not outcome.ok and not steps:
+        if data.get("unreadable"):
+            typer.echo(f"✗ --source {', '.join(repr(s) for s in data['unreadable'])}: not a "
+                       f"repository reference — `owner/name` on GitHub, the bare repository name "
+                       f"or `Project/repo` on Azure Repos, or a clone URL of one")
+            raise typer.Exit(2)
+        if data.get("before_its_code"):
+            typer.echo(f"✗ {outcome.message}")
+            raise typer.Exit(2)
+        if data.get("needs") == "create_context":
+            typer.echo(
+                f"✗ {name} has no context repository, and this is where its requirements "
+                f"would live.\n"
+                f"  Run again with --create-context to create one in the client's "
+                f"organisation, or declare the one they already have: "
+                f"`openfactory product declare {name} <owner/repo>`.")
             raise typer.Exit(1)
-        if result.already_correct:
-            typer.echo(f"· {result.docs_repo} already declares this product — nothing to write")
-        else:
-            typer.echo(f"— {PRODUCT_YAML} in {result.docs_repo} "
-                       f"(requirements go in `{result.requirements_dir}/`):\n")
-            typer.echo(result.product_yaml)
-        for line in result.todo:
-            typer.echo(f"· {line}")
-
-        if not write or result.already_correct:
-            if not write:
-                typer.echo("\nRun again with --write to open a PR on the context repository.")
-            return
-
-        # THE BASE, READ FROM THE CLONE WHILE WE ARE STILL ON IT. `gh pr create` inferred the
-        # repository's default branch; the port asks for it, and asking git here is more honest
-        # than assuming `main` — a client whose context repository is on `master` or `develop`
-        # would otherwise get a pull request against a branch that does not exist.
-        head = subprocess.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
-                              capture_output=True, text=True, timeout=60, check=False)
-        # THE RETURN CODE DECIDES, NOT THE OUTPUT. On a repository this command just created
-        # there is no commit yet, so HEAD is unborn: git exits 128 and prints the literal string
-        # `HEAD` on stdout. Read blindly that becomes the pull request's base — a branch that
-        # cannot exist — and the review request is refused after the branch is already pushed.
-        # (Found by the pre-commit adversarial review, 2026-08-12; `checkout -B main` above is
-        # what makes `main` the right answer in exactly that case.)
-        named = (head.stdout or "").strip()
-        base_branch = named if (head.returncode == 0 and named and named != "HEAD") else "main"
-
-        target = root / PRODUCT_YAML
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(result.product_yaml, encoding="utf-8")
-        from openfactory.product.onboard import proposal_branch
-        branch = proposal_branch(project.name)
-        bot = bot_identity()
-        ident = ["-c", f"user.name={bot.name}", "-c", f"user.email={bot.email}"]
-        for args in (["checkout", "-b", branch], ["add", "--", PRODUCT_YAML],
-                     ["commit", "-m",
-                      f"{project.name}: declare this product for OpenFactory"],
-                     # --force: this is the bot's OWN dedicated onboarding branch, and a retry
-                     # after a partial failure (pushed, then `gh pr create` had no token) must
-                     # overwrite rather than dead-lock on a non-fast-forward. Same rule, and the
-                     # same reason, as `publish_branch`.
-                     ["push", "--force", "-u", "--", "origin", branch]):
-            done = subprocess.run(["git", "-C", str(root), *ident, *args],
-                                  capture_output=True, text=True, timeout=180)
-            if done.returncode != 0:
-                typer.echo(f"✗ git {args[0]} failed: {(done.stderr or '')[-200:]}")
-                raise typer.Exit(1)
-        # THROUGH THE PORT, NOT THROUGH `gh` (#95's lesson, one command later). This shelled
-        # out to `gh pr create`, so on Azure DevOps — where the whole point is that no GitHub
-        # exists anywhere — the branch pushed and the review request was simply refused, with
-        # the operator holding a pushed branch nobody would look at. `open_pr` is on the forge
-        # contract and both vendors implement it; the product module made exactly this move for
-        # requirement proposals and this command never followed.
-        from openfactory.onboarding.propose_manifest import open_review_request
-
-        url = open_review_request(
-            _context_forge(project), repo=result.docs_repo, head=branch, base=base_branch,
-            title=f"{project.name}: declare this product for OpenFactory",
-            body=f"Adds `{PRODUCT_YAML}` so the platform can find this product's requirements. "
-                 f"Nothing else in this repository is touched.")
-        if url:
-            typer.echo(f"✓ review request open — {url}")
-        else:
-            typer.echo(f"✗ the branch `{branch}` is pushed and the review request did not open — "
-                       f"open it by hand against `{base_branch}` on {result.docs_repo}")
-            raise typer.Exit(1)
+        typer.echo(f"✗ {outcome.message}")
+        raise typer.Exit(1)
+    mark = {STEP_DONE: "✓", STEP_ALREADY: "·", STEP_SKIPPED: "·", STEP_FAILED: "✗"}
+    declaration = next((one for one in steps if one["step"] == "declaration"), None)
+    for one in steps:
+        if one["step"] == "context":
+            typer.echo(f"{mark[one['state']]} {one['said']}")
+    if declaration is None or (declaration["state"] == STEP_FAILED
+                               and not data.get("product_yaml")):
+        # nothing was planned: the context step failed, or the clone or the plan refused
+        if declaration is not None:
+            typer.echo(f"✗ {declaration['said']}")
+        raise typer.Exit(1)
+    if data.get("already_correct"):
+        typer.echo(f"· {declaration['said']}")
+    else:
+        typer.echo(f"— {data['file']} in {data['docs_repo']} "
+                   f"(requirements go in `{data['requirements_dir']}/`):\n")
+        typer.echo(data["product_yaml"])
+    for line in data.get("todo") or []:
+        typer.echo(f"· {line}")
+    if not write:
+        typer.echo("\nRun again with --write to open a PR on the context repository.")
+        return
+    if data.get("already_correct"):
+        return
+    typer.echo(f"{mark[declaration['state']]} {declaration['said']}")
+    if declaration["state"] == STEP_FAILED:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

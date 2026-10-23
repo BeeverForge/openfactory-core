@@ -126,7 +126,9 @@ walked in [ONBOARDING §3](../ONBOARDING.md).
 **The context repository** — `product declare <name> <repo>` names one the client ALREADY has
 (GitHub `owner/repo`; Azure `repo`, or `Project/repo` across projects) and reads it back with
 both credentials that will open it. `product init <name> --create-context --write` creates one
-where the credential may. A credential that may NOT create says so and names `declare` — the
+where the credential may. `product init` is the `product_init` action: its `data.steps` say what
+the context and the declaration came to, and running it again creates nothing twice and finds a
+review it already opened. A credential that may NOT create says so and names `declare` — the
 enterprise shape where repository creation is somebody else's process.
 
 **A product before its code** — `product start <name> <context-repository>` registers a project

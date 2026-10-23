@@ -1104,9 +1104,63 @@ def _init_a_path(repo, monkeypatch):
     return {"project": "myapp", "repo_path": str(repo)}, "context"
 
 
+class _ContextForge:
+    """A forge that creates the context repository by naming one that exists, clones it from a
+    bare repository on this machine, and remembers the review it opened — so a second run can be
+    told one is open."""
+
+    def __init__(self, bare: str):
+        self.bare, self.opened = bare, []
+
+    def create_repository(self, *, name, private=True, description=""):
+        return f"acme-corp/{name}", True
+
+    def clone_url(self, repo, *, token=None):
+        return self.bare
+
+    def open_pr(self, *, head, base, title, body, repo=""):
+        self.opened.append(head)
+        return "https://forge.invalid/acme-corp/acme-context/pull/1"
+
+    def pr_for_head(self, branch, *, repo=""):
+        return "https://forge.invalid/acme-corp/acme-context/pull/1" if branch in self.opened else ""
+
+    def pr_status(self, *, pr, repo=""):
+        return "open"
+
+
+def _init_a_product(repo, monkeypatch):
+    """`product_init` creating a hosted project's context repository and proposing its
+    declaration, with the declaration's push failing the first time. The forge is a double over
+    a bare repository on this machine; the registry and everything between them is real."""
+    import subprocess
+
+    from openfactory.adapters.forge import registry as forges
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.product import onboard
+    from openfactory.registry import ProjectRegistry
+
+    ident = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    bare, seed = repo.parent / "acme-context.git", repo.parent / "acme-context-seed"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
+    (seed / "README.md").write_text("the client's context repository\n", encoding="utf-8")
+    for args in (["add", "README.md"], ["commit", "-q", "-m", "seed"],
+                 ["push", "-q", str(bare), "main"]):
+        subprocess.run(["git", *ident, "-C", str(seed), *args], check=True)
+    forge = _ContextForge(str(bare))
+    monkeypatch.setattr(forges, "build_forge", lambda *a, **kw: forge)
+    monkeypatch.setattr(onboard, "_context_token", lambda p: None)
+    ProjectRegistry().add(Project(name="acme", repo_path=str(repo),
+                                  tracker=ProviderRef(kind="github", repo="acme-corp/acme"),
+                                  forge=ProviderRef(kind="github", repo="acme-corp/acme")))
+    _a_push_that_fails_once(monkeypatch)
+    return {"project": "acme", "create_context": "true", "write": "true"}, "declaration"
+
+
 #: How each row of several steps is driven to fail halfway: `(params, the step that fails)`, the
 #: cause failing once and then passing.
-HALFWAY = {"project_init": _init_a_path}
+HALFWAY = {"project_init": _init_a_path, "product_init": _init_a_product}
 
 
 def test_every_row_of_several_steps_is_driven_halfway():
@@ -1168,6 +1222,7 @@ def test_a_front_end_is_told_which_steps_were_done_when_a_later_one_failed(a_mac
 
 @pytest.mark.parametrize("argv,row", [
     (["project", "init", "acme"], "project_init"),
+    (["product", "init", "acme", "--write"], "product_init"),
 ])
 def test_each_verb_of_several_steps_runs_its_row_and_writes_nothing_itself(argv, row, one_project,
                                                                           monkeypatch):
@@ -1179,7 +1234,9 @@ def test_each_verb_of_several_steps_runs_its_row_and_writes_nothing_itself(argv,
 
     async def recorder(by=None, **params):
         seen.append(params)
-        return actions.done("recorded", steps=[], local=True, base_branch="main")
+        return actions.done("recorded", steps=[{"step": "declaration", "state": "already",
+                                                 "said": "already declared"}],
+                            local=True, base_branch="main", already_correct=True)
 
     monkeypatch.setattr(catalog, "CATALOG", {**catalog.CATALOG, row: dataclasses.replace(
         catalog.CATALOG[row], run=recorder)})
@@ -1229,3 +1286,98 @@ def test_a_row_that_registers_never_writes_over_what_is_registered(name, a_machi
 
     assert out.ok or out.code == actions.CONFLICT, out
     assert Path(ProjectRegistry().path).read_bytes() == before, f"{name} wrote over myapp"
+
+
+# ── 9, before the code: a product's declaration names no source it cannot vouch for (slice 3) ──
+
+#: The two shapes a product before its code is registered in (`before_code.context_axes`): on a
+#: hosted forge its axes name no repository, and on this machine they carry the project's own
+#: name — which is no repository yet, and must not be listed as one.
+BEFORE_ITS_CODE = {"hosted": ("github", None), "this machine": ("local", "acme")}
+
+
+@pytest.fixture(params=sorted(BEFORE_ITS_CODE))
+def a_product_before_its_code(request, a_machine, monkeypatch):
+    """`acme`, registered with its context repository and no code repository (#992), its context
+    doubled over a bare repository that does not declare the product yet."""
+    import subprocess
+
+    from openfactory.adapters.forge import registry as forges
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project, ProviderRef, before_its_code
+    from openfactory.product import onboard
+    from openfactory.registry import ProjectRegistry
+
+    ident = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    bare, seed = a_machine.parent / "acme-context.git", a_machine.parent / "acme-context-seed"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
+    (seed / "README.md").write_text("the client's context repository\n", encoding="utf-8")
+    for args in (["add", "README.md"], ["commit", "-q", "-m", "seed"],
+                 ["push", "-q", str(bare), "main"]):
+        subprocess.run(["git", *ident, "-C", str(seed), *args], check=True)
+    forge = _ContextForge(str(bare))
+    monkeypatch.setattr(forges, "build_forge", lambda *a, **kw: forge)
+    monkeypatch.setattr(onboard, "_context_token", lambda p: None)
+    kind, own = BEFORE_ITS_CODE[request.param]
+    axes = {"tracker": ProviderRef(kind=kind, repo=own)}
+    if kind == "local":
+        axes |= {"forge": ProviderRef(kind=kind, repo=own),
+                 "ci": ProviderRef(kind="none", repo=own)}
+    ProjectRegistry().add(Project(name="acme", repo_path="", **axes,
+                                  product=ProductConfig(docs_repo="acme-corp/acme-context")))
+    assert before_its_code(ProjectRegistry().get("acme"))
+    return bare, forge
+
+
+def _declared_on(bare: Path, tmp: Path):
+    """What the proposal branch of the context declares, read back with the loader's own reader."""
+    import subprocess
+
+    from openfactory.product.loader import _read_docs_manifest
+    from openfactory.product.onboard import proposal_branch
+
+    branch = proposal_branch("acme")
+    if subprocess.run(["git", "-C", str(bare), "rev-parse", "--verify", "-q",
+                       f"refs/heads/{branch}"], capture_output=True).returncode != 0:
+        return None
+    checkout = tmp / "read-back"
+    subprocess.run(["git", "clone", "-q", "-b", branch, str(bare), str(checkout)], check=True,
+                   capture_output=True)
+    docs, error = _read_docs_manifest(checkout)
+    assert docs is not None, error
+    return docs
+
+
+def test_a_product_before_its_code_is_declared_with_no_source_and_its_link_admits_it(
+        a_product_before_its_code, tmp_path):
+    """`product start` sends a product whose context does not declare it here, so the row runs
+    before the code (`needs_code=False`) — and writes `sources: []`, the one list a project with
+    no code may be declared with: the axes of a product before its code name no repository of
+    its own to list."""
+    from openfactory.product.config import resolve_product_link
+    from openfactory.registry import ProjectRegistry
+
+    bare, forge = a_product_before_its_code
+
+    out = asyncio.run(actions.perform("product_init", by=ADMIN, project="acme", write="true"))
+
+    assert out.ok, out
+    docs = _declared_on(bare, tmp_path)
+    assert docs is not None and docs.product == "acme" and list(docs.sources) == [], docs
+    link = resolve_product_link(project=ProjectRegistry().get("acme"), manifest_docs_repo="",
+                                docs=docs)
+    assert link.active, f"the declaration the row proposed is refused by the link: {link}"
+
+
+def test_a_source_for_a_product_before_its_code_is_refused_and_nothing_is_pushed(
+        a_product_before_its_code, tmp_path):
+    """Listing a repository is the first source's act, which records it too: here it would make a
+    member of a product that can vouch for nobody (#992's one declaration per act)."""
+    bare, forge = a_product_before_its_code
+
+    out = asyncio.run(actions.perform("product_init", by=ADMIN, project="acme",
+                                      source="acme-corp/acme", write="true"))
+
+    assert out.code == actions.INVALID and "product_first_source" in out.message, out
+    assert _declared_on(bare, tmp_path) is None and forge.opened == [], "something was proposed"

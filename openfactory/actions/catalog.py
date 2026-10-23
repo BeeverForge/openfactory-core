@@ -8064,6 +8064,224 @@ async def _project_init(*, project: str, by: Actor, repo_path: object = "", repo
         board_owner=_given(board_owner), language=_given(language), provider=_given(provider))
 
 
+# ── onboarding a product's context repository: a row of several steps (#741) ────────────────────
+
+def _product_sources(project, given: list[str]) -> tuple[list[str], list[str]]:
+    """`(sources, unreadable)` — the repositories implementing this product, one entry each in
+    the first spelling given, the registry's before any caller's; and what was given that is not
+    a repository reference at all.
+
+    THE REGISTRY NAMES ONE REPOSITORY; A PRODUCT MAY SPAN SEVERAL, and a member missing from
+    `sources:` is invisible to the product role — so the caller names the others. BUILT WITH THE
+    CHECK'S OWN FUNCTIONS, because the file exists to pass that check: a rule of its own (a `/`
+    in the name) once wrote `sources: []` on a forge that names repositories bare, and the link
+    refused the project that had just proposed it (#169). `_source_repo` answers WHOSE a
+    repository is — the forge's, the tracker's only where there is no forge. A product that
+    started before its code has none to answer with (#992): its axes name no code repository on a
+    hosted forge, and on this machine they carry the project's own name, which is no repository
+    yet."""
+    from openfactory.contracts.project import before_its_code
+    from openfactory.product.config import _source_repo, normalize_repo
+
+    unreadable = [s for s in given if not normalize_repo(s)]
+    own = [] if before_its_code(project) else [_source_repo(project)]
+    spelled: dict[str, str] = {}
+    for candidate in [*own, *given]:
+        if (key := normalize_repo(candidate)) and key not in spelled:
+            spelled[key] = candidate
+    return sorted(spelled.values()), unreadable
+
+
+def _the_declaration_step(project, docs_repo: str, root: Path, *, sources: list[str],
+                          write: bool, made_now: bool, shown: dict) -> dict:
+    """The product's declaration in its context repository, as one step: already there, shown,
+    proposed for review on the platform's own branch, or why not. Fills `shown` with what a
+    terminal or a screen shows of the plan — the file, its folder, what each source still needs."""
+    import subprocess
+
+    from openfactory.credentials import bot_identity
+    from openfactory.onboarding.propose_manifest import already_proposed, open_review_request
+    from openfactory.product.onboard import (
+        PRODUCT_YAML,
+        context_clone_url,
+        context_forge,
+        plan,
+        proposal_branch,
+    )
+
+    name = project.name
+    url = context_clone_url(project, docs_repo)
+    clone = ["git", "clone", "--no-local", *([] if made_now else ["--depth", "1"]), "--", url,
+             str(root)]
+    cloned = subprocess.run(clone, capture_output=True, text=True, timeout=180)
+    if cloned.returncode != 0:
+        return _step("declaration", STEP_FAILED,
+                     f"could not clone {docs_repo}: {cloned.stderr[-200:]}")
+    if made_now:
+        # A REPOSITORY BORN EMPTY HAS NO BRANCH: the clone lands on an unborn HEAD, and one named
+        # base is what every later step assumes.
+        subprocess.run(["git", "-C", str(root), "checkout", "-B", "main"],
+                       capture_output=True, text=True, timeout=60)
+    result = plan(project, root, sources=sources)
+    if result.refusal:
+        return _step("declaration", STEP_FAILED, result.refusal)
+    shown.update(docs_repo=result.docs_repo, requirements_dir=result.requirements_dir,
+                 product_yaml="" if result.already_correct else result.product_yaml,
+                 todo=list(result.todo), already_correct=result.already_correct)
+    if result.already_correct:
+        return _step("declaration", STEP_ALREADY,
+                     f"{result.docs_repo} already declares this product — nothing to write")
+    if not write:
+        # SHOWS BEFORE IT WRITES: it is the client's repository, and the first thing this platform
+        # does to it should be reviewable.
+        return _step("declaration", STEP_SKIPPED,
+                     f"{PRODUCT_YAML} for {result.docs_repo} is shown, not proposed — write "
+                     f"proposes it")
+    # THE BASE, READ FROM THE CLONE, and by its return code: on a repository just created HEAD is
+    # unborn, git exits 128 and prints the literal `HEAD`, which would be the review's base.
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+                          capture_output=True, text=True, timeout=60, check=False)
+    named = (head.stdout or "").strip()
+    base_branch = named if (head.returncode == 0 and named and named != "HEAD") else "main"
+    target = root / PRODUCT_YAML
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(result.product_yaml, encoding="utf-8")
+    branch = proposal_branch(name)
+    bot = bot_identity()
+    ident = ["-c", f"user.name={bot.name}", "-c", f"user.email={bot.email}"]
+    for args in (["checkout", "-b", branch], ["add", "--", PRODUCT_YAML],
+                 ["commit", "-m", f"{name}: declare this product for OpenFactory"],
+                 # --force: the bot's OWN onboarding branch, so a run after a partial failure
+                 # (pushed, then the review request did not open) overwrites rather than
+                 # dead-locking on a non-fast-forward — and an open review shows the latest
+                 ["push", "--force", "-u", "--", "origin", branch]):
+        ran = subprocess.run(["git", "-C", str(root), *ident, *args],
+                             capture_output=True, text=True, timeout=180)
+        if ran.returncode != 0:
+            return _step("declaration", STEP_FAILED,
+                         f"git {args[0]} failed: {(ran.stderr or '')[-200:]}")
+    # THROUGH THE PORT, NOT THROUGH ONE VENDOR'S CLI (#95), and ASKED FIRST: a review already open
+    # on this branch is the one the push just updated, and opening a second is what a retry used
+    # to attempt. Unread is not "none" — then it opens, as it always did.
+    forge = context_forge(project)
+    if found := (already_proposed(forge, result.docs_repo, branch) or ""):
+        return _step("declaration", STEP_ALREADY,
+                     f"review request already open, now showing this — {found}", url=found,
+                     branch=branch)
+    opened = open_review_request(
+        forge, repo=result.docs_repo, head=branch, base=base_branch,
+        title=f"{name}: declare this product for OpenFactory",
+        body=f"Adds `{PRODUCT_YAML}` so the platform can find this product's requirements. "
+             f"Nothing else in this repository is touched.")
+    if opened:
+        return _step("declaration", STEP_DONE, f"review request open — {opened}", url=opened,
+                     branch=branch)
+    return _step("declaration", STEP_FAILED,
+                 f"the branch `{branch}` is pushed and the review request did not open — open it "
+                 f"by hand against `{base_branch}` on {result.docs_repo}", branch=branch)
+
+
+def _product_init_steps(project, *, sources: list[str], write: bool,
+                        create_context: bool) -> Outcome:
+    """`product_init`'s steps, in order, off the loop that called it: the context repository —
+    declared, or created when there is none and it was asked for — and the declaration in it."""
+    import subprocess
+    import tempfile
+
+    from openfactory.product.onboard import PRODUCT_YAML, create_context_repository
+    from openfactory.registry import ProjectRegistry
+
+    name = project.name
+    docs_repo = (getattr(getattr(project, "product", None), "docs_repo", "") or "").strip()
+    if not docs_repo and not create_context:
+        # NOWHERE TO KEEP REQUIREMENTS, and creating a repository in the client's organisation is
+        # consequential, so it is asked for (the product owner, 2026-08-07: always in the client's
+        # organisation, and created when they have none). Nothing was done.
+        return refused(INVALID, f"{name} has no context repository, which is where its "
+                                f"requirements would live — create_context creates one in the "
+                                f"client's organisation, and product_declare names the one they "
+                                f"already have. Nothing was done", project=name,
+                       needs="create_context")
+    shown: dict[str, object] = {"file": PRODUCT_YAML}
+    made_now = not docs_repo
+    if made_now:
+        try:
+            docs_repo, made = create_context_repository(project, name)
+        except ValueError as exc:
+            # A FORGE THAT MAY NOT CREATE ONE says so, naming `product_declare`: the enterprise
+            # shape, where creating a repository is somebody else's process.
+            return _the_steps_came_to(name, [_step("context", STEP_FAILED, str(exc))],
+                                      docs_repo="", **shown)
+        except RuntimeError as exc:
+            return _the_steps_came_to(name, [_step(
+                "context", STEP_FAILED, f"could not create the context repository: {exc}")],
+                docs_repo="", **shown)
+        context = _step("context", STEP_DONE if made else STEP_ALREADY,
+                        f"{'created' if made else 'found'} {docs_repo}", docs_repo=docs_repo)
+        # RE-READ WHAT WAS JUST RECORDED: the project in hand predates the record, and `plan`
+        # refused "no product: section" on the very run that created the repository
+        # (onboarding-v2 verification pass, 2026-08-10).
+        project = ProjectRegistry().get(name)
+    else:
+        context = _step("context", STEP_ALREADY, f"{name}'s context repository is {docs_repo}",
+                        docs_repo=docs_repo)
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            declaration = _the_declaration_step(project, docs_repo, Path(tmp) / "docs",
+                                                sources=sources, write=write, made_now=made_now,
+                                                shown=shown)
+        except (OSError, subprocess.SubprocessError) as exc:
+            # A git that could not run, or ran out of time, is a step that failed — said with the
+            # context step before it, which stands
+            declaration = _step("declaration", STEP_FAILED,
+                                f"the declaration could not be read or proposed: {exc}")
+    shown.setdefault("docs_repo", docs_repo)
+    return _the_steps_came_to(name, [context, declaration], **shown)
+
+
+async def _product_init(*, project: str, by: Actor, source: object = None,
+                        write: object = False, create_context: object = False) -> Outcome:
+    """Onboard a product's context repository — the one the client has, or a new one.
+
+    The factory requires one of every project, and a client may arrive with one written before
+    they met us. What was missing was any step that gets it to the module's gate: four files
+    across three repositories, by hand. This shows the declaration the repository needs and what
+    each source repository still needs; with `write` it proposes the declaration as a review on
+    the platform's own branch; with `create_context` it creates the repository first, in the
+    client's organisation, where the forge may.
+
+    SAFE TO RUN AGAIN: a repository already declared is used and never created twice, a
+    declaration already there is said and not written, and a review already open is the one the
+    run updates. The clone, the push and the review leave the loop."""
+    import asyncio
+
+    from openfactory.contracts.project import before_its_code
+
+    found, bad = _project(project)
+    if bad:
+        return bad
+    given = _listed(source)
+    if given and before_its_code(found):
+        # ONE DECLARATION PER ACT (#992): a product that started before its code can vouch for no
+        # repository, and listing one here would make it a member by the same act that should
+        # register it — its first source is listed and recorded together, by its own row.
+        return refused(INVALID, f"{project} has no code repository yet, so it can vouch for no "
+                                f"source — its first source is listed and recorded together by "
+                                f"product_first_source. Nothing was done", project=project,
+                       before_its_code=True)
+    sources, unreadable = _product_sources(found, given)
+    if unreadable:
+        # REFUSED BEFORE ANYTHING IS CLONED: written, it comes back from the link as a member it
+        # cannot vouch for; dropped, nobody is told.
+        return refused(INVALID, f"{', '.join(repr(s) for s in unreadable)}: not a repository "
+                                f"reference — name a repository as this project's forge names "
+                                f"one, or by its clone URL. Nothing was done", project=project,
+                       unreadable=unreadable)
+    return await asyncio.to_thread(_product_init_steps, found, sources=sources,
+                                   write=_said_yes(write),
+                                   create_context=_said_yes(create_context))
+
+
 CATALOG: dict[str, ActionSpec] = {
     spec.name: spec for spec in (
         ActionSpec(
@@ -9161,6 +9379,32 @@ CATALOG: dict[str, ActionSpec] = {
                             "`pt-BR` — used only when this registers the project",
                 "provider": "the kind on every axis, when the address cannot say it — a kind "
                             "this deployment has, e.g. an installed add-on's",
+            },
+        ),
+        ActionSpec(
+            name="product_init",
+            summary="onboard a product's context repository: show the declaration it needs, "
+                    "propose it for review with `write`, and create the repository first with "
+                    "`create_context` — each step only if it is missing, and each said",
+            run=_product_init,
+            refuses=(INVALID, NOT_FOUND, FAILED),
+            required=("project",),
+            optional=("source", "write", "create_context"),
+            # IT WORKS BEFORE THE CODE (#992): `product start` sends a product whose context does
+            # not declare it yet here, to propose `product:` with `sources: []` — what the link
+            # admits for a product with no code. What would need code, a source, is refused by
+            # the row itself and named as the first source's.
+            needs_code=False,
+            installation=True,
+            params={
+                "source": "the other repositories implementing this product, comma-separated, "
+                          "each named as this project's forge names one — the registry names "
+                          "one, and a product that spans several says so",
+                "write": "`true` to propose the declaration as a review on the context "
+                         "repository; without it the row shows what it would propose",
+                "create_context": "`true` to create the context repository in the client's "
+                                  "organisation when the project has none — consequential, so "
+                                  "it is asked for",
             },
         ),
         ActionSpec(
