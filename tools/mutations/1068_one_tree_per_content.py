@@ -71,6 +71,18 @@ MUTATIONS = [
      '    return ast.parse(\n        p.read_text(encoding="utf-8"))\n',
      ADOPTION),
 
+    ("the adoption guard ignores the source= keyword",
+     ADOPTION,
+     '        given = node.args[:1] or [kw.value for kw in node.keywords if kw.arg == "source"]\n',
+     "        given = node.args[:1]\n",
+     ADOPTION),
+
+    ("the adoption guard ignores read_bytes",
+     ADOPTION,
+     '                and given[0].func.attr in ("read_text", "read_bytes")):\n',
+     '                and given[0].func.attr in ("read_text",)):\n',
+     ADOPTION),
+
     ("a guard imports the helper bare and reaches a second, empty cache",
      LEDGER, "",
      "\nfrom the_tree_read_once import parsed as _second  # noqa: E402,F401\n",

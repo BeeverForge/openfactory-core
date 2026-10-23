@@ -97,6 +97,10 @@ def test_the_guard_finds_every_shape_the_rewrite_replaced():
         'ast.parse(\n    path.read_text(encoding="utf-8"))',
         'ast.parse(add_ons.source("x.py").read_text())',
         "ast.parse(p.read_text(), filename=str(p))",
+        # No site on 923d7d0f had either shape below (232 read_text, 0 read_bytes, 0 keyword), so
+        # without them a detector that dropped either branch passed (the review's cuts, 2026-10-22).
+        "ast.parse(source=path.read_text())",
+        "ast.parse(path.read_bytes())",
     ]
     for shape in replaced:
         assert inline_parses(f"tree = {shape}\n") == [1], f"the guard does not see: {shape!r}"
