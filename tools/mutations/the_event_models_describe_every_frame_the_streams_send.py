@@ -6,9 +6,14 @@ reading the default front end. A description no test compares with the emitters 
 time somebody renames a frame, so the guard reads the emitters' source as well as their outputs.
 
 THE FIRST FIVE CUTS ARE THE REVIEW'S (on 2e105d7): each was green against a test whose frames
-were dict literals written beside it. The rest put back the fields that review found unnamed —
+were dict literals written beside it. The next four put back the fields that review found unnamed —
 the temporal frame's `ui_base`/`ui_hint`, which the default front end reads, and the refusal's
 `detail` and `login` on `ended` and `bye.ended`.
+
+G1 TO G5 ARE THE RE-REVIEW'S (on f22e034): each renames a key that reaches a frame other than
+as a constant key of the frame's own literal — through a function a frame spreads by a name bound
+from it (`first`), a conditional dict it spreads, or a row it nests (a turn, what waits) — and each
+stayed green while the guard read only the literal's own keys.
 
 The guard under test is `tests/test_the_event_models_describe_every_frame_the_streams_send.py`.
 """
@@ -18,6 +23,7 @@ TEST = "tests/test_the_event_models_describe_every_frame_the_streams_send.py"
 APP = "openfactory/api/app.py"
 CHAT = "openfactory/api/product_chat.py"
 EVENTS = "openfactory/api/events.py"
+STAGING = "openfactory/product/staging.py"
 
 MUTATIONS = [
     # ── the emitters move, the models do not ───────────────────────────────────────────────────
@@ -56,4 +62,22 @@ MUTATIONS = [
     ("`LogData` loses a field the journal's `JobEvent` writes", EVENTS,
      "    ts: str\n    job_id: str\n    ticket_id: str\n",
      "    ts: str\n    ticket_id: str\n"),
+
+    # ── a key that reaches a frame other than as the literal's own ─────────────────────────────
+    ("G1: the floor's `update` writes `project_list` for `projects`, through `_stream_snapshot` "
+     "and the `first` it is bound to", APP,
+     'out["projects"] = list_projects()', 'out["project_list"] = list_projects()'),
+
+    ("G2: a turn of `history` and `earlier` writes `who` for `actor` (`_history`)", CHAT,
+     '"actor": agent if t.role == "agent" else (t.actor or ""),',
+     '"who": agent if t.role == "agent" else (t.actor or ""),'),
+
+    ("G3: `presence` writes `doing` for `stage`, in the conditional dict it spreads", CHAT,
+     '**({"stage": stage} if stage else {})}', '**({"doing": stage} if stage else {})}'),
+
+    ("G4: what waits writes `ticket` for `token` (`staging.waiting_in`)", STAGING,
+     'return {"token": wait.token,', 'return {"ticket": wait.token,'),
+
+    ("G5: `said` writes `files` for `attachments`, in the conditional dict it spreads", CHAT,
+     '**({"attachments": list(entry["attachments"])}', '**({"files": list(entry["attachments"])}'),
 ]

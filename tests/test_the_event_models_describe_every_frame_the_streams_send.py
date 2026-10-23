@@ -14,9 +14,11 @@ WHAT IS PROVEN HERE:
     validates against its kind's model — built by the producers themselves where they are plain
     functions (`frames_of`, `presence_for`, `JobEvent`);
   · `product` is required for the kinds that belong to a product, and absent or null for the rest;
-  · the kinds and fields are the ones the EMITTERS write — read from their source, so a kind
-    renamed in `app.py` or `product_chat.py`, a field renamed or added, or a kind `STREAMS`
-    claims a stream emits that it does not, fails here rather than drifting from the schema.
+  · the kinds and keys are the ones the EMITTERS write — read from their source, so a kind
+    renamed in `app.py` or `product_chat.py`, a kind `STREAMS` claims a stream emits that it does
+    not, or a key renamed or added in a socket's or the temporal stream's frame, in a dict that
+    frame spreads, or in a turn or what waits, fails here rather than drifting from the schema.
+    What the reading follows, and the one spread it does not, is said where it reads.
 """
 
 from __future__ import annotations
@@ -267,9 +269,33 @@ def test_product_is_absent_or_null_for_a_kind_that_does_not(stream, kind, frame)
 
 
 # ── the emitters, read: the kinds and fields above are the ones the code writes ─────────────────
+#
+# WHAT IS READ. A frame is a dict literal in its emitter's source, and its keys are read as the
+# code writes them: a constant key; the keys of a conditional dict it spreads, `**({…} if … else
+# {})`, which it writes only sometimes; and the keys a function it spreads returns or assigns
+# (`out["projects"] = …`), whether the spread is the call, `**_engine_ui(tv)`, or a name bound
+# from it, `first = await asyncio.to_thread(_stream_snapshot, …)` — read as written only
+# sometimes. A spread this cannot read fails here unless `UNREAD_SPREADS` names it and says where
+# its keys are read instead. The rows a frame nests are read where they are built: a turn in
+# `product_chat._history`, what waits in `staging.waiting_in`.
 
 APP = ROOT / "openfactory" / "api" / "app.py"
 PRODUCT_CHAT = ROOT / "openfactory" / "api" / "product_chat.py"
+STAGING = ROOT / "openfactory" / "product" / "staging.py"
+
+#: (the function a frame is written in, the name it spreads) → where that name's keys are read.
+UNREAD_SPREADS = {
+    ("stream", "changed"): "the floor's later `update` spreads the keys of the snapshot that "
+                           "changed, a subset of what its first `update` spreads (`first`)",
+}
+
+#: The keys a frame of a kind carries that go onto the envelope rather than into its `data`.
+LIFTED = {"update": {"project"}}
+
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+#: What a frame writes: (the keys it always writes, the keys it writes only sometimes).
+Written = tuple[set[str], set[str]]
 
 
 def _tree(path: Path) -> ast.Module:
@@ -277,8 +303,7 @@ def _tree(path: Path) -> ast.Module:
 
 
 def _function(tree: ast.AST, name: str) -> ast.AST:
-    found = [n for n in ast.walk(tree)
-             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name]
+    found = [n for n in ast.walk(tree) if isinstance(n, _FUNCTIONS) and n.name == name]
     assert len(found) == 1, f"expected one function {name!r}, found {len(found)}"
     return found[0]
 
@@ -302,17 +327,146 @@ def _returned_keys(tree: ast.AST, name: str) -> list[set[str]]:
     return out
 
 
-def _with_spreads(tree: ast.AST, frame: ast.Dict) -> set[str]:
-    """`frame`'s keys, and those of every `**helper(...)` it spreads (whichever dict it returns)."""
-    keys = _keys(frame)
-    for key, value in zip(frame.keys, frame.values, strict=True):
-        if key is None and isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
-            keys |= set().union(*_returned_keys(tree, value.func.id))
+def _scopes(tree: ast.AST) -> dict[ast.AST, list[ast.AST]]:
+    """Every node of `tree` → the functions it is written in, the innermost first."""
+    out: dict[ast.AST, list[ast.AST]] = {}
+    todo: list[tuple[ast.AST, list[ast.AST]]] = [(tree, [])]
+    while todo:
+        node, inside = todo.pop()
+        for child in ast.iter_child_nodes(node):
+            out[child] = inside
+            todo.append((child, [child, *inside] if isinstance(child, _FUNCTIONS) else inside))
+    return out
+
+
+def _own(fn: ast.AST) -> list[ast.AST]:
+    """The nodes of `fn`'s own body, not those of a function written inside it."""
+    out, todo = [], list(ast.iter_child_nodes(fn))
+    while todo:
+        node = todo.pop()
+        out.append(node)
+        if not isinstance(node, (*_FUNCTIONS, ast.Lambda, ast.ClassDef)):
+            todo += list(ast.iter_child_nodes(node))
+    return out
+
+
+def _either(one: Written, other: Written) -> Written:
+    """What one of two dicts writes: what both always write, always; the rest, sometimes."""
+    always = one[0] & other[0]
+    return always, (one[0] | one[1] | other[0] | other[1]) - always
+
+
+def _called(value: ast.AST) -> str | None:
+    """The function `value` calls — `f(…)`, `await f(…)` or `await asyncio.to_thread(f, …)`."""
+    if isinstance(value, ast.Await):
+        value = value.value
+    if not isinstance(value, ast.Call):
+        return None
+    if isinstance(value.func, ast.Name):
+        return value.func.id
+    if (isinstance(value.func, ast.Attribute) and value.func.attr == "to_thread"
+            and value.args and isinstance(value.args[0], ast.Name)):
+        return value.args[0].id
+    return None
+
+
+def _bindings(fn: ast.AST, name: str) -> list[ast.AST]:
+    """Every value `fn` binds `name` to — `x = …`, `x: T = …`, and `x, y = a, b` element-wise."""
+    out = []
+    for node in _own(fn):
+        if isinstance(node, ast.AnnAssign) and node.value is not None:
+            pairs = [(node.target, node.value)]
+        elif isinstance(node, ast.Assign):
+            pairs = [(target, node.value) for target in node.targets]
+        else:
+            continue
+        for target, value in pairs:
+            if isinstance(target, ast.Tuple) and isinstance(value, ast.Tuple):
+                pairs += list(zip(target.elts, value.elts, strict=False))
+            elif isinstance(target, ast.Name) and target.id == name:
+                out.append(value)
+    return out
+
+
+def _made_by(tree: ast.AST, name: str, used: set) -> set[str]:
+    """Every key the dict function `name` returns can carry: the keys of a dict literal it
+    returns, and of the dict it returns by name — written in it, or assigned (`out["k"] = …`)."""
+    fn = _function(tree, name)
+    scopes = _scopes(tree)
+    keys: set[str] = set()
+    names: set[str] = set()
+    for node in _own(fn):
+        if isinstance(node, ast.Return) and node.value is not None:
+            values = [node.value]
+            while values:
+                value = values.pop()
+                if isinstance(value, ast.IfExp):
+                    values += [value.body, value.orelse]
+                elif isinstance(value, ast.Dict):
+                    keys |= set().union(*_written(tree, scopes[value], value, used))
+                elif isinstance(value, ast.Name):
+                    names.add(value.id)
+    for node in _own(fn):
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) else [])
+        for target in targets:
+            if (isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name)
+                    and target.value.id in names and isinstance(target.slice, ast.Constant)
+                    and isinstance(target.slice.value, str)):
+                keys.add(target.slice.value)
+    for named in names:
+        for value in _bindings(fn, named):
+            if isinstance(value, ast.Dict):
+                keys |= set().union(*_written(tree, scopes[value], value, used))
+    assert keys, f"{name} returns no dict this test can read — has it moved?"
     return keys
 
 
-def _socket_frames(scope: ast.AST) -> list[tuple[str, set[str]]]:
-    """(kind, keys) of every frame literal in `scope`: a dict whose `kind` is a constant string."""
+def _spread(tree: ast.AST, inside: list[ast.AST], value: ast.AST, used: set) -> Written:
+    """What a `**value` in a frame written inside `inside` writes into it."""
+    if isinstance(value, ast.Dict):
+        return _written(tree, inside, value, used)
+    if isinstance(value, ast.IfExp):
+        return _either(_spread(tree, inside, value.body, used),
+                       _spread(tree, inside, value.orelse, used))
+    if (called := _called(value)) is not None:
+        return set(), _made_by(tree, called, used)
+    if isinstance(value, ast.Name):
+        for depth, fn in enumerate(inside):
+            if (fn.name, value.id) in UNREAD_SPREADS:
+                used.add((fn.name, value.id))
+                return set(), set()
+            bound = _bindings(fn, value.id)
+            if bound:
+                written = [_spread(tree, inside[depth:], b, used) for b in bound]
+                out = written[0]
+                for more in written[1:]:
+                    out = _either(out, more)
+                return out
+    raise AssertionError(f"a spread this test cannot read: **{ast.unparse(value)} — read it, or "
+                         f"name it in UNREAD_SPREADS with where its keys are read")
+
+
+def _written(tree: ast.AST, inside: list[ast.AST], frame: ast.Dict, used: set) -> Written:
+    """The keys `frame`, written inside the functions `inside`, writes: (always, sometimes)."""
+    always: set[str] = set()
+    sometimes: set[str] = set()
+    for key, value in zip(frame.keys, frame.values, strict=True):
+        if key is None:
+            more_always, more_sometimes = _spread(tree, inside, value, used)
+            always |= more_always
+            sometimes |= more_sometimes
+        elif isinstance(key, ast.Constant) and isinstance(key.value, str):
+            always.add(key.value)
+        else:
+            raise AssertionError(f"a key this test cannot read: {ast.unparse(key)}")
+    return always, sometimes - always
+
+
+def _socket_frames(tree: ast.AST, scope: ast.AST, used: set) -> list[tuple[str, set, set]]:
+    """(kind, always, sometimes) of every frame literal in `scope`: a dict whose `kind` is a
+    constant string."""
+    scopes = _scopes(tree)
     out = []
     for node in ast.walk(scope):
         if not isinstance(node, ast.Dict):
@@ -320,7 +474,8 @@ def _socket_frames(scope: ast.AST) -> list[tuple[str, set[str]]]:
         for key, value in zip(node.keys, node.values, strict=True):
             if (isinstance(key, ast.Constant) and key.value == "kind"
                     and isinstance(value, ast.Constant) and isinstance(value.value, str)):
-                out.append((value.value, _keys(node) - {"kind"}))
+                always, sometimes = _written(tree, scopes[node], node, used)
+                out.append((value.value, always - {"kind"}, sometimes))
     return out
 
 
@@ -328,14 +483,20 @@ def _fields(kind: str) -> tuple[set[str], set[str]]:
     """(named, required) fields of `kind`'s data model."""
     from openfactory.api.events import DATA_MODELS
 
-    fields = DATA_MODELS[kind].model_fields
+    return _named_and_required(DATA_MODELS[kind])
+
+
+def _named_and_required(model) -> tuple[set[str], set[str]]:
+    fields = model.model_fields
     return set(fields), {name for name, f in fields.items() if f.is_required()}
 
 
-def _emitted():
+def _emitted(used: set | None = None) -> dict[str, list[tuple[str, set, set]]]:
+    used = set() if used is None else used
     app = _tree(APP)
-    return {FLOOR: _socket_frames(_function(app, "stream")),
-            CHAT: _socket_frames(_tree(PRODUCT_CHAT))}
+    chat = _tree(PRODUCT_CHAT)
+    return {FLOOR: _socket_frames(app, _function(app, "stream"), used),
+            CHAT: _socket_frames(chat, chat, used)}
 
 
 @pytest.mark.parametrize("stream", [FLOOR, CHAT])
@@ -344,33 +505,62 @@ def test_a_socket_emits_exactly_the_kinds_streams_says(stream):
 
     frames = _emitted()[stream]
     assert frames, f"no frame literal found for {stream} — has its emitter moved?"
-    assert {kind for kind, _keys in frames} == set(STREAMS[stream])
+    assert {kind for kind, _always, _sometimes in frames} == set(STREAMS[stream])
 
 
 @pytest.mark.parametrize("stream", [FLOOR, CHAT])
 def test_every_field_a_socket_frame_writes_is_named_by_its_kind(stream):
-    for kind, keys in _emitted()[stream]:
+    for kind, always, sometimes in _emitted()[stream]:
         named, required = _fields(kind)
-        lifted = {"project"} if kind == "update" else set()   # onto the envelope
-        assert keys - lifted <= named, (kind, sorted(keys - lifted - named))
-        assert required <= keys, (kind, sorted(required - keys))
+        lifted = LIFTED.get(kind, set())   # onto the envelope
+        keys = (always | sometimes) - lifted
+        assert keys <= named, (kind, sorted(keys - named))
+        assert required <= always, (kind, sorted(required - always))
+
+
+def test_every_spread_this_cannot_read_is_one_it_says_where_it_reads():
+    """An entry of `UNREAD_SPREADS` no frame spreads any more would excuse the next one silently."""
+    used: set = set()
+    _emitted(used)
+    assert used == set(UNREAD_SPREADS), sorted(set(UNREAD_SPREADS) - used)
+
+
+def test_a_turn_and_what_waits_are_the_rows_their_builders_write():
+    """`history` and `earlier` carry turns, and `history` and `staged` what waits: a turn is the
+    row `_history` builds, what waits the dict `staging.waiting_in` returns. Their models name
+    every key either writes, and require what it always writes."""
+    from openfactory.api.events import Staged, Turn
+
+    chat = _tree(PRODUCT_CHAT)
+    turns = [n.elt for n in ast.walk(_function(chat, "_history"))
+             if isinstance(n, ast.ListComp) and isinstance(n.elt, ast.Dict)]
+    assert len(turns) == 1, "the turn `_history` builds has moved"
+    staging = _tree(STAGING)
+    waits = [n.value for n in ast.walk(_function(staging, "waiting_in"))
+             if isinstance(n, ast.Return) and isinstance(n.value, ast.Dict)]
+    assert len(waits) == 1, "what `waiting_in` returns has moved"
+    for model, tree, row in ((Turn, chat, turns[0]), (Staged, staging, waits[0])):
+        always, sometimes = _written(tree, _scopes(tree)[row], row, set())
+        named, required = _named_and_required(model)
+        assert always | sometimes <= named, (model.__name__, sorted((always | sometimes) - named))
+        assert required <= always, (model.__name__, sorted(required - always))
 
 
 def test_the_temporal_frame_writes_only_what_jobs_data_names():
     app = _tree(APP)
+    scopes = _scopes(app)
     gen = _function(app, "temporal_stream")
     named, required = _fields("jobs")
-    frames = [n for n in ast.walk(gen) if isinstance(n, ast.Dict) and "connected" in _keys(n)]
-    assert len(frames) >= 2, "the connected and disconnected frames have moved"
-    for frame in frames:
-        keys = _with_spreads(app, frame)
-        assert keys <= named, sorted(keys - named)
-        assert required <= keys, sorted(required - keys)
-    # the connected frame says where the engine's UI is, through `_engine_ui`
-    assert any({"ui_base", "ui_hint"} <= _with_spreads(app, frame) for frame in frames)
-    # and what it spreads from its cached pair is named too
-    slow = [_keys(n) for n in ast.walk(gen) if isinstance(n, ast.Dict) and "intake" in _keys(n)]
-    assert slow and all(k <= named for k in slow)
+    frames = [_written(app, scopes[n], n, set()) for n in ast.walk(gen)
+              if isinstance(n, ast.Dict) and "connected" in _keys(n)]
+    assert len(frames) >= 3, "the frames before connecting, connected and after a blip have moved"
+    for always, sometimes in frames:
+        assert always | sometimes <= named, sorted((always | sometimes) - named)
+        assert required <= always, sorted(required - always)
+    # the connected frame says where the engine's UI is, through `_engine_ui`, and carries the
+    # cached intake and build it spreads
+    assert any({"ui_base", "ui_hint", "intake", "build"} <= always | sometimes
+               for always, sometimes in frames)
 
 
 def test_ended_writes_why_status_and_a_refusal_body_ended_data_names():

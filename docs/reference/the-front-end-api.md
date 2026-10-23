@@ -328,8 +328,9 @@ frames. `product` is required for the kinds a product conversation emits (`subsc
 `history`, `earlier`, `said`, `reply`, `staged`, `presence`, `resync`) and absent for every other.
 It is generated, never edited by hand:
 `tests/test_the_event_models_describe_every_frame_the_streams_send.py` fails when it is not what
-the models generate, and when a stream's code writes a kind or a field the models do not name;
-`python -m openfactory.api.events` writes it again. One stream that sends the envelope
+the models generate, and when a stream's code writes a kind, or a key in a socket's or the
+temporal stream's frame, in a dict that frame spreads, or in a turn or what waits, that the models
+do not name; `python -m openfactory.api.events` writes it again. One stream that sends the envelope
 itself is the next slice of #679.
 
 ## 5. What is not here yet

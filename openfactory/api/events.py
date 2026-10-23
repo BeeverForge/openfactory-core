@@ -17,7 +17,9 @@ writes `docs/reference/events.schema.json` again, and a test fails when it is ap
 
 A DESCRIPTION, NOT YET A STREAM. Nothing sends this envelope today: the four streams send their
 frames as they always did, and this module is what a stream that sends the envelope will be built
-on. Their tests read the emitters' code, so a kind or field they write that is not named here fails.
+on. Its test reads the emitters' code: a kind, or a key written in a socket's or the temporal
+stream's frame, in a dict that frame spreads, or in a turn or what waits, that is not named here
+fails it.
 
 THE KINDS ARE ONE NAMESPACE. A frame's `kind` names what it says, not which stream said it: the two
 sockets' `hello` and `bye` are one kind each, and the two event streams' `ended` is one kind. The
