@@ -169,11 +169,25 @@ def test_a_fragment_may_carry_sub_items_paragraphs_and_a_command(tree):
                  "(GHSA-abcd-efgh-ijkm)", id="ghsa-with-period"),
     pytest.param("GHSA-abcd-efgh-ijkm.security.md", "A line (GHSA-abcd-efgh-ijkm)",
                  "(GHSA-abcd-efgh-ijkm)", id="ghsa-bare"),
+    # #813: the endings #659's check let through, each printed with its reference twice
+    pytest.param("654.fix.md", "Fixed (#654)!", "(#654)", id="issue-exclamation-mark"),
+    pytest.param("654.fix.md", "Fixed (#654)?", "(#654)", id="issue-question-mark"),
+    pytest.param("654.fix.md", "Fixed (#654);", "(#654)", id="issue-semicolon"),
+    pytest.param("654.fix.md", "Fixed (#654) .", "(#654)", id="issue-space-before-the-stop"),
+    pytest.param("GHSA-abcd-efgh-ijkm.security.md", "Fixed (GHSA-ABCD-EFGH-IJKM).",
+                 "(GHSA-abcd-efgh-ijkm)", id="ghsa-upper-case"),
+    # without its parentheses it reads twice too: 0.7.0's two advisories were written this way
+    pytest.param("GHSA-abcd-efgh-ijkm.security.md", "Details in GHSA-abcd-efgh-ijkm.",
+                 "(GHSA-abcd-efgh-ijkm)", id="ghsa-without-parentheses"),
+    pytest.param("654.fix.md", "Fixed in #654", "(#654)", id="issue-without-parentheses"),
+    pytest.param("GHSA-abcd-efgh-ijkm.security.md", "Details in `GHSA-abcd-efgh-ijkm`.",
+                 "(GHSA-abcd-efgh-ijkm)", id="ghsa-as-code"),
 ])
 def test_a_fragment_that_ends_with_its_own_reference_is_refused_and_told_to_drop_it(
         tree, name, text, reference):
     """The assembly adds the reference from the file name: one the text carries reads twice, as
-    0.6.0's notes read "(#654) (#654)" (#659)."""
+    0.6.0's notes read "(#654) (#654)" (#659), with or without its parentheses, whatever mark
+    or space closes it, and in whatever case the advisory's id is written (#813)."""
     _fragment(tree, name, text)
 
     done = _check(tree, [("A", f"changes/{name}")])
@@ -187,6 +201,7 @@ def test_a_fragment_that_ends_with_its_own_reference_is_refused_and_told_to_drop
     pytest.param("Covers (#654):\n- Jira", id="colon-before-sub-items"),
     pytest.param("**Lead (#654).**\n- one detail", id="bold-lead-line"),
     pytest.param("Lead (#654).  \n- one detail", id="trailing-spaces-after-the-lead-line"),
+    pytest.param("**Lead, fixed in #654!**\n- one detail", id="bold-lead-line-without-parentheses"),
 ])
 def test_a_lead_line_that_ends_with_its_own_reference_is_refused_even_with_sub_items_below(
         tree, text):
@@ -205,6 +220,13 @@ def test_a_lead_line_that_ends_with_its_own_reference_is_refused_even_with_sub_i
                  id="own-number-mid-text"),
     pytest.param("GHSA-abcd-efgh-ijkm.security.md", "A line that cites (#654).",
                  "(GHSA-abcd-efgh-ijkm)", id="ghsa-citing-an-issue"),
+    pytest.param("654.fix.md", "Follows the fix of #1654.", "(#654)",
+                 id="another-number-that-ends-in-its-own"),
+    pytest.param("GHSA-abcd-efgh-ijkm.security.md", "Follows GHSA-wxyz-wxyz-wxyz.",
+                 "(GHSA-abcd-efgh-ijkm)", id="another-advisory"),
+    pytest.param("GHSA-abcd-efgh-ijkm.security.md",
+                 "GHSA-abcd-efgh-ijkm found it, and the advisory has the rest.",
+                 "(GHSA-abcd-efgh-ijkm)", id="own-advisory-mid-text"),
 ])
 def test_a_fragment_that_cites_another_number_or_its_own_before_its_end_still_passes(
         tree, name, text, reference):
