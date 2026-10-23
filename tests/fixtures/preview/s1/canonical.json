@@ -36,6 +36,8 @@
       ],
       "healthcheck": {
         "interval": "5s",
+        "start_interval": "1s",
+        "start_period": "30s",
         "test": [
           "CMD",
           "curl",
@@ -74,6 +76,8 @@
       },
       "healthcheck": {
         "interval": "2s",
+        "retries": 10,
+        "start_period": "30s",
         "test": [
           "CMD-SHELL",
           "pg_isready -U app"

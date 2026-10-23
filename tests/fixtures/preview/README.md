@@ -73,4 +73,5 @@ daemon wherever one answers, so its stand-ins are just enough to run: `web` answ
 (`npm run dev` → `node src/index.js`), `api/manage.py` answers `/health` on `runserver` and
 finishes at once on `migrate` and `loaddata`, and `api/curl` is copied into the image because the
 compose file's healthcheck calls `curl` and `python:*-slim` ships none. None of that touches the
-compose file, so `canonical.json` is unchanged.
+compose file, so `canonical.json` is unchanged by them. The healthchecks' `start_period`,
+`retries` and `start_interval` (#1070) are in the compose file and so in the recording.

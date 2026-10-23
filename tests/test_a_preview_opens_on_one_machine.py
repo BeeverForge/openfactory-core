@@ -229,6 +229,7 @@ def test_s1_opens_at_its_preview_host_through_a_host_process_panel(tmp_path, mon
     def unit(inp):
         project, _ = real_unit(inp)
         return project, ComposeRuntime(reach="loopback", panel_container="", settle_seconds=5,
+                                       poll_seconds=0.5,
                                        start_timeout=inp.start_timeout_minutes * 60)
 
     monkeypatch.setattr(activities, "_preview_unit", unit)

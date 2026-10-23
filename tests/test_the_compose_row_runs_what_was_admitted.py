@@ -29,6 +29,7 @@ import pytest
 from openfactory import preview
 from openfactory.adapters.preview import compose
 from openfactory.adapters.preview.compose import ComposeRuntime, Ran
+from openfactory.adapters.preview.registry import build_runtime
 from openfactory.preview.assemble import assemble
 from openfactory.preview.plan import PreviewPlan, Unit
 from tests.test_the_shape_is_read_and_admitted import (
@@ -419,6 +420,33 @@ def test_down_disconnects_the_panel_and_removes_only_this_units_edge(s1, monkeyp
     assert down[-4:] == ["-v", "--rmi", "local", "--remove-orphans"]
     assert "Network openfactory-pv-acme-12-edge" in removed
     assert f"the work directory {s1.workdir}" in removed and not Path(s1.workdir).exists()
+
+
+def test_down_grants_a_short_stop_timeout_because_it_discards_the_volumes(s1, monkeypatch):
+    """`down -v --rmi local` deletes what a graceful stop would protect, so a container that
+    ignores SIGTERM (PID 1 with no handler) is not granted docker's default 10 s (#1070)."""
+    daemon = _daemon(monkeypatch)
+    _runtime().up(s1)
+
+    _runtime().down(s1.compose_project, s1.workdir)
+
+    down = daemon.argvs("down")[-1]
+    assert ComposeRuntime().stop_seconds == 2
+    at = down.index("-t")
+    assert down[at + 1] == "2" and down.index("down") < at
+    assert down[-4:] == ["-v", "--rmi", "local", "--remove-orphans"]
+
+
+def test_an_operators_stop_timeout_reaches_the_down(s1, monkeypatch):
+    daemon = _daemon(monkeypatch)
+    _runtime().up(s1)
+
+    _runtime(stop_seconds=15).down(s1.compose_project, s1.workdir)
+
+    down = daemon.argvs("down")[-1]
+    assert down[down.index("-t") + 1] == "15"
+    assert build_runtime("compose", stop_seconds=15, panel_container="openfactory-panel",
+                         reach="network").stop_seconds == 15
 
 
 def test_down_removes_only_the_images_this_units_document_built(s1, monkeypatch):

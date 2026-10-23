@@ -114,7 +114,8 @@ def test_the_s1_product_comes_up_through_prove_with_nothing_of_the_factory_in_it
         return real(argv, **kw)
 
     monkeypatch.setattr(compose, "_host", before_the_down)
-    runtime = compose.ComposeRuntime(reach="network", panel_container="", settle_seconds=5)
+    runtime = compose.ComposeRuntime(reach="network", panel_container="", settle_seconds=5,
+                                     poll_seconds=0.5)
 
     result = compose.prove_project(project, runtime)
 

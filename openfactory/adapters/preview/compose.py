@@ -884,11 +884,18 @@ def _registry_of(image: str) -> str:
 
 class ComposeRuntime:
     """The `compose` row. `clock`/`sleep`/`poll_seconds`/`settle_seconds` exist so readiness is
-    testable with a faked daemon and no wall-clock waiting."""
+    testable with a faked daemon and no wall-clock waiting.
+
+    `stop_seconds` is the grace `down` grants each container before SIGKILL (`-t`). It is short
+    because a preview is disposable: the same `down -v --rmi local` deletes the volumes and the
+    built images a graceful stop would protect, so waiting docker's default 10 s on a process that
+    ignores SIGTERM (PID 1 with no handler) buys nothing. An operator who wants the grace sets it
+    on the runtime row (#1070)."""
 
     def __init__(self, *, reach: str | None = None, panel_container: str | None = None,
                  start_timeout: float = 30 * 60, settle_seconds: float = 60,
-                 poll_seconds: float = 2, log_root: str | None = None,
+                 poll_seconds: float = 2, stop_seconds: float = 2,
+                 log_root: str | None = None,
                  clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self.reach = reach or reach_kind()
@@ -896,6 +903,7 @@ class ComposeRuntime:
         self.start_timeout = float(start_timeout)
         self.settle_seconds = float(settle_seconds)
         self.poll_seconds = float(poll_seconds)
+        self.stop_seconds = float(stop_seconds)
         self.log_root = log_root
         self.clock, self.sleep = clock, sleep
 
@@ -1332,6 +1340,7 @@ class ComposeRuntime:
                                     if isinstance(name, str) and isinstance(spec, dict)
                                     and "build" in spec and "image" not in spec]
         ran = _host(["docker", "compose", "-p", compose_project, "--env-file", os.devnull, "down",
+                     "-t", str(int(self.stop_seconds)),
                      "-v", "--rmi", "local", "--remove-orphans"], env=env, timeout=600)
         for line in f"{ran.out}\n{ran.err}".splitlines():
             line = line.strip()

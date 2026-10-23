@@ -179,6 +179,13 @@ def test_an_unknown_knob_to_the_compose_row_is_a_TypeError_naming_itself():
         build_runtime("compose", cpus="4")
 
 
+def test_the_compose_row_takes_a_stop_timeout_by_name():
+    with pytest.raises(TypeError, match="'stop_seconds'"):
+        build_runtime("compose", cpus="4")
+    assert build_runtime("compose", stop_seconds=1, panel_container="openfactory-panel",
+                         reach="network").stop_seconds == 1
+
+
 # ── the conformance check ────────────────────────────────────────────────────────────────────────
 
 
