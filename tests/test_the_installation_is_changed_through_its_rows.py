@@ -1259,6 +1259,41 @@ def test_each_verb_of_several_steps_runs_its_row_and_writes_nothing_itself(argv,
     assert one_project.read_bytes() == before, f"{argv} wrote the registry itself"
 
 
+def test_onboard_creates_a_context_repository_through_its_row_and_writes_nothing_itself(
+        one_project, monkeypatch):
+    """`onboard` on a project with no context repository asks `product_init` to create one, once,
+    and records nothing itself: with the row's own code replaced by a recorder, the verb answers
+    and the registry is byte for byte as it was (slice 4). Before, the onboarding module created
+    the repository and wrote it into the registry from the command line's own code."""
+    from types import SimpleNamespace
+
+    from openfactory import cli
+    from openfactory.onboarding import onboard
+
+    before, seen = one_project.read_bytes(), []
+
+    async def recorder(by=None, **params):
+        seen.append(params)
+        return actions.done("recorded", steps=[{"step": "context", "state": "done",
+                                                 "said": "created acme-corp/acme-context"}])
+
+    monkeypatch.setattr(catalog, "CATALOG", {**catalog.CATALOG, "product_init": dataclasses.replace(
+        catalog.CATALOG["product_init"], run=recorder)})
+    proven = SimpleNamespace(ok=True, detail="nothing to propose", pr="", proof="proven",
+                             questions=[], manifest_already_there=True, repo="acme")
+    monkeypatch.setattr(onboard, "onboard_source_repo", lambda *a, **kw: proven)
+    monkeypatch.setattr(onboard, "onboard_product_context", lambda project, **kw: (
+        onboard.ContextOutcome(ok=True, docs_repo="acme-corp/acme-context", detail="proposed")))
+
+    out = CliRunner().invoke(cli.app, ["onboard", "acme", "--yes"])
+
+    assert out.exit_code == 0, out.output
+    assert [p.get("create_context") for p in seen] == [True], (
+        f"onboard did not ask product_init to create the context repository: {seen}")
+    assert one_project.read_bytes() == before, "onboard wrote the registry itself"
+    assert "(created)" in out.output, out.output
+
+
 # ── 8, again: what is registered is never written over (slice 3) ────────────────────────────
 
 def _add_elsewhere(repo):
