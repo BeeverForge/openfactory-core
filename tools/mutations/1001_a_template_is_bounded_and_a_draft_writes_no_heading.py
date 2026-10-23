@@ -14,13 +14,15 @@ THE CLAIMS, each a rule a family test in the guard states over cases read from t
      one: with three of them raised at runtime (500 values, 600 characters, 3,000 of `help`) it
      stayed green. Every row of 1b is aimed at this test alone; the last moves the ADR's number and
      not the code's.
-  2. **No text a draft carries writes a heading the reader takes for the document's own.** The
-     guard reads every text slot from `RequirementDraft`, and writes into each the renderer's own
-     heading lines — whole, as a bare marker, and indented as far as Markdown still shows one —
-     after every line break a reader of the file may see. The file is read back through
-     `load_corpus`: its headings, its title and its empty decision register must be the ones the
-     renderer wrote. A template section holding `## Decisions taken during execution` used to write
-     a register above the real one, which `find_decisions_table` then picked.
+  2. **No text the renderer is handed writes a heading the reader takes for the document's own.**
+     The guard reads every text slot from `RequirementDraft`, and every text `render_requirement`
+     takes beside the draft from its signature (`asked_by`, `date`, `source`: header lines the
+     platform fills, review of PR #1086), and writes into each the renderer's own heading lines —
+     whole, as a bare marker, and indented as far as Markdown still shows one — after every line
+     break a reader of the file may see. The file is read back through `load_corpus`: its
+     headings, its title and its empty decision register must be the ones the renderer wrote. A
+     template section holding `## Decisions taken during execution` used to write a register above
+     the real one, which `find_decisions_table` then picked.
 
 The guard under test is `tests/test_requirement_template.py`, whose template is read through the
 YAML door and whose requirements are read from disk by the corpus.
@@ -126,6 +128,18 @@ MUTATIONS = [
     ("a conflict's kind is written as it came", AUTHORING,
      '- **{_one_line(c.kind)}** {ref}',
      '- **{c.kind}** {ref}'),
+
+    ("who asked is written as it came, and a line break in a name ends the header", AUTHORING,
+     '        f"- **Asked by:** {_one_line(asked_by) or UNRECORDED}",\n',
+     '        f"- **Asked by:** {asked_by or UNRECORDED}",\n'),
+
+    ("the date is written as it came", AUTHORING,
+     '        f"- **Date:** {_one_line(date) or UNRECORDED}",\n',
+     '        f"- **Date:** {date or UNRECORDED}",\n'),
+
+    ("the source is written as it came", AUTHORING,
+     "    if source := _one_line(source):\n",
+     "    if source:\n"),
 
     ("one line keeps its line breaks", AUTHORING,
      '    return " ".join((text or "").split())\n',

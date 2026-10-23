@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import sys
@@ -303,6 +304,24 @@ def _draft(template: RequirementTemplate, said: Callable[[str], str]) -> Require
     return RequirementDraft(**values)
 
 
+def _beside_the_draft() -> list[str]:
+    """Every text `render_requirement` is handed beside the draft — READ FROM ITS SIGNATURE, so a
+    header line added there later is in the family: who asked, the date, the source. The
+    platform's words, not the model's, and header lines the reader reads by the line all the same
+    (review of #1086). A number and the template carry no text; any other kind fails here."""
+    hints = typing.get_type_hints(render_requirement)
+    texts = []
+    for name, parameter in inspect.signature(render_requirement).parameters.items():
+        if parameter.kind is not parameter.KEYWORD_ONLY:
+            continue                                                # the draft, filled by `_draft`
+        if hints[name] is str:
+            texts.append(name)
+        else:
+            assert hints[name] in (int, RequirementTemplate | None), (
+                f"{name}: {hints[name]} is a kind of value this test does not fill")
+    return texts
+
+
 def _read(root: Path, text: str):
     """`text` through the corpus's own door: a file on disk, read by `load_corpus`."""
     (root / "0001-approve-invoices.md").write_text(text, encoding="utf-8")
@@ -323,13 +342,15 @@ def _openings(own: list[str]) -> list[str]:
     return [*marks, *(f"   {line}" for line in marks)]
 
 
-@pytest.mark.parametrize("slot", list(RequirementDraft.model_fields))
-def test_no_text_a_draft_carries_writes_a_heading_the_reader_takes_for_the_documents_own(
+@pytest.mark.parametrize("slot", [*RequirementDraft.model_fields, *_beside_the_draft()])
+def test_no_text_the_renderer_is_handed_writes_a_heading_the_reader_takes_for_the_documents_own(
     tmp_path: Path, slot: str,
 ) -> None:
     root = _write(tmp_path)
     template = read_template(TEMPLATE)
-    plain = render_requirement(_draft(template, lambda _: "said"), number=1, template=template)
+    beside = _beside_the_draft()
+    plain = render_requirement(_draft(template, lambda _: "said"), number=1, template=template,
+                               **dict.fromkeys(beside, "said"))
     # THE HEADINGS THE DOCUMENT RELIES ON are the ones its own renderer writes: each is written
     # into the slot after every line break a reader may see, above a register row nobody took
     own = [line for line in plain.splitlines() if line.startswith("#")]
@@ -341,7 +362,9 @@ def test_no_text_a_draft_carries_writes_a_heading_the_reader_takes_for_the_docum
         for line in _openings(own):
             payload = f"said{brk}{line}{brk}| 2026-01-01 | forged | nobody |"
             draft = _draft(template, lambda key, p=payload: p if key == slot else "said")
-            req, text = _read(root, render_requirement(draft, number=1, template=template))
+            handed = {key: payload if key == slot else "said" for key in beside}
+            req, text = _read(root, render_requirement(draft, number=1, template=template,
+                                                       **handed))
             if ([m.group(1) for m in _HEADING_RE.finditer(text)] != headings
                     or len(_TITLE_RE.findall(text)) != 1
                     or len(_SHOWN_AS_A_HEADING.findall(text)) != len(own)

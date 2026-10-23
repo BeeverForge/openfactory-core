@@ -241,18 +241,19 @@ def render_requirement(
     With the product's own `template` (ADR-0058) its fields are written as header lines after the
     core's own, and its sections after the core's, before the decision register. A field the draft
     has no value for is written as `—` and a section as `(not stated)`, so the file says what is
-    missing and the reader reports it; nothing is invented. No text of the draft can open a line
-    the reader takes for the document's own (`_one_line`, `_as_text`)."""
+    missing and the reader reports it; nothing is invented. No text of the draft, nor `asked_by`,
+    `date` or `source` beside it, can open a line the reader takes for the document's own
+    (`_one_line`, `_as_text`)."""
     status = "proposed"
     lines = [
         f"# REQ-{number:04d} — {_one_line(draft.title)}",
         "",
         f"- **Status:** {status}",
-        f"- **Asked by:** {asked_by or UNRECORDED}",
-        f"- **Date:** {date or UNRECORDED}",
+        f"- **Asked by:** {_one_line(asked_by) or UNRECORDED}",
+        f"- **Date:** {_one_line(date) or UNRECORDED}",
         f"- **Supersedes:** {', '.join(f'REQ-{n:04d}' for n in draft.supersedes) or '—'}",
     ]
-    if source:
+    if source := _one_line(source):
         lines.append(f"- **Source:** {source}")
     if template is not None:
         for f in template.fields:
