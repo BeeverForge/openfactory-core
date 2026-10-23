@@ -62,7 +62,6 @@ def is_private(key: str) -> bool:
     return str(key or "").strip().lower().startswith(PRIVATE_PREFIXES)
 
 
-
 def is_room(key: str) -> bool:
     """A RESOLVED conversation key that every participant of the project shares — the project's
     room, or any other thread a caller named — and not one person's alone.
@@ -74,6 +73,7 @@ def is_room(key: str) -> bool:
     declaration of that need calls (#691). Read with `is_private`'s case rule: a key is a room
     exactly when it is not private."""
     return not is_private(key)
+
 
 def key_for(*, named: str, own: str) -> str | None:
     """The conversation a turn lands in, or None when the caller named somebody else's.

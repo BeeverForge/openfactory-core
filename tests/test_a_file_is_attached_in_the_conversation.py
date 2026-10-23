@@ -692,7 +692,6 @@ async def test_a_file_in_the_room_is_discarded_by_an_admin_alone(filing):
     assert files.find(KEY, conversation="lark", ident=kept.id) is None
 
 
-
 @pytest.mark.asyncio
 async def test_a_caller_with_no_conversation_of_its_own_discards_from_the_room_as_an_admin_alone(
         filing):
@@ -714,6 +713,7 @@ async def test_a_caller_with_no_conversation_of_its_own_discards_from_the_room_a
                                 attachment=kept.id, room="0")
     assert out.ok, out.message
     assert files.find(KEY, conversation="lark", ident=kept.id) is None
+
 
 def test_a_line_names_a_discarded_file_as_gone(monkeypatch, tmp_path):
     from openfactory.api import product_chat

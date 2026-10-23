@@ -132,13 +132,13 @@ def test_a_case_variant_of_a_person_s_key_is_nobody_s_and_never_a_room(key):
         assert key_for(named=key, own=own) is None, own
 
 
-
 @pytest.mark.parametrize("key,room", [("lark", True), ("some-thread", True),
                                       ("person:ana", False), ("person:ana~k3f9a2", False),
                                       ("visitor:x", False), ("Person:ana", False)])
 def test_a_resolved_key_is_a_room_unless_it_is_private(key, room):
     # the one rule the discard row decides on, and the one #691's declaration calls
     assert is_room(key) is room
+
 
 @pytest.mark.parametrize("key", ["Person:bruno", "PERSON:bruno~k3f9a2", "Visitor:abcdefgh12"])
 def test_the_read_model_withholds_a_private_key_whatever_its_case(key):
