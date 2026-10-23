@@ -172,7 +172,10 @@ def _promoted(project, ref: str) -> None:
 
 
 def _at_the_merge_gate(project, ref: str) -> None:
-    """The box opened the pull request and a person decides the merge (`needs_person`)."""
+    """The box opened the pull request and a person decides the merge (`needs_person`).
+
+    On the board `project init` makes, that is the "Needs Review" column since #753, apart from
+    the parks in Needs Action; the record reads both as waiting on a person."""
     from openfactory.contracts import JobState
 
     _tracker(project).set_state(ref, JobState.PR_OPEN, needs_person=True)
@@ -198,7 +201,7 @@ def test_a_discarded_pull_request_sends_the_card_back_and_every_consumer_says_so
     ref = _filed(deployment)
     _promoted(deployment, ref)
     _at_the_merge_gate(deployment, ref)
-    assert _column(deployment, ref) == "needs_action"
+    assert _column(deployment, ref) == "needs_review"
 
     moved = transition(deployment, ref, CardEvent.DISCARDED, by="Rob", why="not this quarter")
 
@@ -1229,7 +1232,7 @@ def test_the_pull_request_the_box_hands_back_is_the_one_the_watch_and_the_round_
 
     acts._the_worker_applies("acme", bare, "handed-back-run-1-act-1", opened())
 
-    assert _column(deployment, ref) == "needs_action"
+    assert _column(deployment, ref) == "needs_review"
     [told] = _told(heard, about=bare)
     assert "is ready for you to check" in told and "review rejected it" in told, told
 
@@ -1245,7 +1248,7 @@ def test_the_pull_request_the_box_hands_back_is_the_one_the_watch_and_the_round_
     _tracker(deployment).set_state(ref, JobState.REVIEWING)
     assert _column(deployment, ref) == "in_review"
     acts._the_worker_applies("acme", bare, "handed-back-run-1-act-2", opened())
-    assert _column(deployment, ref) == "needs_action"
+    assert _column(deployment, ref) == "needs_review"
     assert [r.event for r in _history(deployment, ref)] == ["pr_opened", "pr_opened"]
     assert len(_told(heard, about=bare)) == 1
 
@@ -1270,7 +1273,7 @@ def test_an_armed_merge_tells_nobody_and_a_person_handed_it_later_is_told_by_the
 
     assert _column(deployment, ref) == "in_review" and _told(heard, about=bare) == []
     assert acts._pull_requests_waiting(deployment, [(bare, _PR)]) == [bare]
-    assert _column(deployment, ref) == "needs_action"
+    assert _column(deployment, ref) == "needs_review"
     assert [r.event for r in _history(deployment, ref)] == ["pr_opened", "pr_opened"]
 
 

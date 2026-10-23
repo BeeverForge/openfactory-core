@@ -5037,10 +5037,11 @@ def _born_in_the_queue(proj, tracker, board) -> Outcome | None:
 
 def _operators_column(proj, board, wanted: str) -> tuple[str, Outcome | None]:
     """`(key, None)` when `wanted` is one of the operator's two columns — the backlog or the queue —
-    else `("", the refusal)`. THE OTHER FOUR ARE THE FACTORY'S (#414): a card is in progress, in
-    review, waiting on a person or done because a job put it there, and a drag that says so of a
-    card no job holds — or that takes one a job holds out from under it — is the board telling a
-    story nobody lived. A column this platform does not map cannot be judged, as in `_stage`."""
+    else `("", the refusal)`. THE OTHER FIVE ARE THE FACTORY'S (#414): a card is in progress, in
+    review, waiting on a person's review, waiting on a person or done because a job put it there,
+    and a drag that says so of a card no job holds — or that takes one a job holds out from under
+    it — is the board telling a story nobody lived. A column this platform does not map cannot be
+    judged, as in `_stage`."""
     from openfactory.adapters.board.base import stage_key, stage_option
 
     key = stage_key(board, wanted)
@@ -5078,6 +5079,7 @@ async def _card_move(*, project: str, issue: str, column: str, by: Actor) -> Out
     `stop`, `skip` and `discard` are the verbs that tell it."""
     import asyncio
 
+    from openfactory.adapters.board.columns import WAITING_ON_A_PERSON_KEYS
     from openfactory.lifecycle import CardEvent
 
     proj, tracker, board, bad = _board_pair(project)
@@ -5110,7 +5112,7 @@ async def _card_move(*, project: str, issue: str, column: str, by: Actor) -> Out
                                      f"{how}; queueing the card would not reach that job.")
         return None
 
-    parked = event is CardEvent.PROMOTED and stage.key == "needs_action"
+    parked = event is CardEvent.PROMOTED and stage.key in WAITING_ON_A_PERSON_KEYS
     moved = await _through_the_door(proj, issue, event, by=by, act=no_job_waits if parked else None,
                                     tracker=tracker, board=board, stage=stage)
     bad = _refusal_of(moved)
@@ -5293,7 +5295,7 @@ async def _job_on_the_card(project: str, issue: str) -> _JobOnTheCard:
     """Whether a job is still on `issue`, asked of the engine rather than inferred from a column.
 
     THE COLUMN IS NOT THE JOB, AND #162 FIXED ONLY THE CASE IT WAS FILED FOR (review of #191,
-    measured 2026-09-20 by reading the workflow). `may_be_running` answers for three columns, and
+    measured 2026-09-20 by reading the workflow). `may_be_running` answers for four columns, and
     a job is genuinely alive in only some of them:
 
       - `in_progress`: the job is inside `run_job` and nothing is waiting on a person, so `stop`
@@ -5303,6 +5305,10 @@ async def _job_on_the_card(project: str, issue: str) -> _JobOnTheCard:
         `awaiting_merge`, and
         `_stop` REFUSES a job at a gate: *"it is not stuck … answer it with `merge`, `adjust` or
         `discard`"*. The remedy the close named was one this platform declines to perform.
+      - `needs_review` (#753): a pull request a person must review. The job is in
+        `_watch_to_merge` as for `in_review`, alive and answering at its merge gate, which
+        `_stop` refuses as it does there; a card left there by a job that has since ended is the
+        case the engine, not the column, has to answer.
       - `needs_action`: the card is there in three ways and the job is gone in two of them. A park
         holds on `wait_condition` (`_wait_operator`) and answers `awaiting_action`, which `_stop`
         also refuses; the gather's question parks the card and RETURNS `SKIPPED`, completing the

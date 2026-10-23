@@ -107,7 +107,8 @@ MUTATIONS = [
      '        if t.column in ("In progress",) and t.state == "open":\n'),
 
     ("triage reads a card waiting on a person by the platform's `Needs Action` again", TRIAGE,
-     '        if stage == waiting_key and t.state == "open":\n',
+     # re-pinned 2026-10-21: #753 made waiting on a person two keys (`waiting_keys`)
+     '        if stage in waiting_keys and t.state == "open":\n',
      '        if t.column == "Needs Action" and t.state == "open":\n'),
 
     ("triage reads done-but-open by the platform's `Done` again", TRIAGE,

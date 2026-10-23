@@ -77,6 +77,26 @@ def test_something_waiting_on_a_person_for_a_month_is_reported():
     assert "waiting-too-long" in _kinds(report)
 
 
+def test_a_pull_request_nobody_has_reviewed_for_a_month_is_waiting_too_long():
+    """A pull request waiting on a person's review is a person's wait, like a park (#753).
+
+    Before: with "Needs Review" its own column, triage read only `needs_action` as waiting, so a
+    pull request left unreviewed for 40 days in that column produced no finding at all."""
+    report = triage([_t(1, column="Needs Review", updated_days_ago=40)])
+    assert [(o.ticket, o.kind) for o in report.observations] == [("1", "waiting-too-long")]
+
+
+def test_a_review_column_the_board_renamed_is_waiting_too_long_too():
+    """Read by key, as every rule here (#502): the board's own name for `needs_review`."""
+    report = triage([_t(1, column="Em revisão", updated_days_ago=40)],
+                    stages={"Em revisão": "needs_review"})
+    assert [(o.ticket, o.kind) for o in report.observations] == [("1", "waiting-too-long")]
+
+
+def test_a_pull_request_reviewed_last_week_is_not_nagged():
+    assert triage([_t(1, column="Needs Review", updated_days_ago=3)]).observations == []
+
+
 def test_a_ticket_with_nothing_testable_is_reported_before_it_parks():
     """It would fail the sizing gate hours later, with nobody able to say whether it is done."""
     report = triage([_t(1, body="please make the reports better")])

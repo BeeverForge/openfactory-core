@@ -56,8 +56,9 @@ def test_the_board_is_one_read_through_the_two_ports(deployment, tracker):
     build_board(deployment).set_column(issue=ref, issue_url="", name="TO-DO")
 
     got = board_view("acme")
-    assert got["columns"] == ["Backlog", "TO-DO", "In progress", "In review", "Needs Action",
-                              "Done"]
+    # the board `project init` makes, seven columns since #753
+    assert got["columns"] == ["Backlog", "TO-DO", "In progress", "In review", "Needs Review",
+                              "Needs Action", "Done"]
     assert got["cards"] == [{"ref": "1", "column": "TO-DO", "title": "Render the board",
                              "labels": [], "updated_at": got["cards"][0]["updated_at"]}]
 

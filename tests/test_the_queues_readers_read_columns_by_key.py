@@ -265,7 +265,7 @@ def test_the_local_board_counts_what_the_role_filed_and_queued(local, renamed, b
 def test_a_board_that_cannot_be_built_is_read_by_the_platforms_own_names(tmp_path,
                                                                         monkeypatch):
     """A reader degrades, it does not raise: a board nobody can build is asked nothing, and the
-    columns are read by the platform's six — the role's read and the tech-lead's alike."""
+    columns are read by the platform's seven — the role's read and the tech-lead's alike."""
     from openfactory.adapters import board as boards
     from openfactory.contracts.project import Project
     from openfactory.product.board import stages_for
@@ -337,6 +337,73 @@ def test_what_is_parked_on_a_renamed_jira_board_is_found(site, jira):
     items, error = parked_with_diagnosis(project, token="t", tracker=tracker)
 
     assert error == "" and [i.number for i in items] == ["DAR-1"]
+
+
+#: The site's name for the review column a deployment maps (#753).
+REVIEWING = "Em revisão"
+
+
+def test_a_pull_request_left_unreviewed_on_a_renamed_jira_board_is_waiting_too_long(site, jira):
+    """A person's review is a person's wait (#753): on a board that maps `needs_review`, a card
+    left there is flagged like one left in the parks. Before, triage read only `needs_action` as
+    waiting, and DAR-2 produced no finding."""
+    site.put("DAR-1", WAITING, body=CRITERIA, updated=LONG_AGO)
+    site.put("DAR-2", REVIEWING, body=CRITERIA, updated=LONG_AGO)
+    _project, module, _tracker, _board = jira({**RENAMED, "needs_review": REVIEWING})
+
+    report, error = module.triage_board()
+
+    assert error == ""
+    assert {o.ticket: o.kind for o in report.observations} == {
+        "DAR-1": "waiting-too-long", "DAR-2": "waiting-too-long"}
+
+
+def test_a_pull_request_waiting_for_review_is_not_in_the_parked_review(site, jira):
+    """The parked review stays Needs Action alone (ADR-0019 §6: Needs Action holds what needs a
+    decision). A pull request waiting for its review has no diagnosis to read and nothing for the
+    product role to decide, so it is not listed there, on a board that maps `needs_review`."""
+    from openfactory.product.board import parked_with_diagnosis
+
+    site.put("DAR-1", WAITING)
+    site.put("DAR-2", REVIEWING)
+    project, _module_, tracker, _board = jira({**RENAMED, "needs_review": REVIEWING})
+
+    items, error = parked_with_diagnosis(project, token="t", tracker=tracker)
+
+    assert error == "" and [i.number for i in items] == ["DAR-1"]
+
+
+def test_a_park_whose_status_is_called_needs_review_is_still_in_the_parked_review(site, jira):
+    """A site that named its park "Needs Review" before 0.7 (`status_map.needs_action`) keeps it
+    in the parked review (#753's review, point 1). Until 0.7 a pull request waiting on a reviewer
+    went to `needs_action`, so a team that wanted those in a "Needs Review" status mapped the park
+    there. On this branch before the fix the new key's DEFAULT name claimed that status:
+    `key_for("Needs Review", renamed={"needs_action": "Needs Review"})` answered `needs_review`,
+    and the parked review read `[]` where `main` (1be1835a) read `["DAR-1"]`."""
+    from openfactory.product.board import parked_with_diagnosis
+
+    site.put("DAR-1", "Needs Review")
+    project, _module_, tracker, _board = jira({**RENAMED, "needs_action": "Needs Review"})
+
+    items, error = parked_with_diagnosis(project, token="t", tracker=tracker)
+
+    assert error == "" and [i.number for i in items] == ["DAR-1"]
+
+
+def test_and_triage_and_the_stage_read_it_as_a_park(site, jira):
+    """The same board, through the one door generic code asks (`stage_key`): the status the
+    deployment gave `needs_action` reads as `needs_action`, not as `needs_review`, whose default
+    name yields to it. Before the fix it read `needs_review`, so what reads a column through
+    `stage_key` (the card's lifecycle in `lifecycle/ports.py`, `card_move`, the doctor's
+    `board_stages`) took the park for the review wait. The panel is not one of them: it matches
+    its column notes by name (`_BCOL` in `api/panel.html`), because the board view carries no
+    column keys, so this fix does not change how the panel draws that column."""
+    from openfactory.adapters.board.base import stage_key
+
+    site.put("DAR-1", "Needs Review")
+    _p, _m, _t, board = jira({**RENAMED, "needs_action": "Needs Review"})
+
+    assert stage_key(board, "Needs Review") == "needs_action"
 
 
 # ── 3. the sentences name the board's own columns ───────────────────────────────────────────────

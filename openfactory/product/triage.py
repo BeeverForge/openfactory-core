@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator
 
-from openfactory.adapters.board.columns import key_for
+from openfactory.adapters.board.columns import WAITING_ON_A_PERSON_KEYS, key_for
 
 #: A ticket whose body or labels say a human owns it. The pipeline is not supposed to touch these,
 #: so their sitting in an active column is intended, not rot.
@@ -232,7 +232,7 @@ def stage_of(column: str, stages: dict[str, str] | None) -> str:
     column the map does not name is `""` — a column nobody maps, which is what `stage_key` answers
     for one and what every rule here already skips.
 
-    `None` IS A CALLER WITH NO BOARD TO ASK, read by the platform's own six names — the degrade
+    `None` IS A CALLER WITH NO BOARD TO ASK, read by the platform's own seven names — the degrade
     `stage_key` takes for a row that says nothing, and exactly what every caller read before."""
     if stages is None:
         return key_for(column)
@@ -241,7 +241,7 @@ def stage_of(column: str, stages: dict[str, str] | None) -> str:
 
 def triage(tickets: list[Ticket], *,
            active_keys: tuple[str, ...] = ("in_progress",),
-           waiting_key: str = "needs_action",
+           waiting_keys: tuple[str, ...] = WAITING_ON_A_PERSON_KEYS,
            done_key: str = "done",
            stale_days: int = STALE_DAYS,
            stages: dict[str, str] | None = None) -> TriageReport:
@@ -252,7 +252,11 @@ def triage(tickets: list[Ticket], *,
 
     THE COLUMNS ARE KEYS (#502), and `stages` is how the board said which key each of its columns
     is — see `stage_of`. The three arguments were the platform's names, so on a renamed board a
-    card in flight, one waiting on a person and one in Done were each read as none of them."""
+    card in flight, one waiting on a person and one in Done were each read as none of them.
+
+    WAITING ON A PERSON IS TWO KEYS (#753): a park (`needs_action`) and a pull request waiting for
+    its review (`needs_review`). With only the park read, a pull request left unreviewed for 40
+    days in its own column produced no finding at all."""
     observations: list[Observation] = []
     skipped: dict[str, str] = {}
     by_number = {t.number: t for t in tickets}
@@ -275,7 +279,7 @@ def triage(tickets: list[Ticket], *,
                                "move it back"))
 
         # ---- waiting on a person, for too long ------------------------------------------------
-        if stage == waiting_key and t.state == "open":
+        if stage in waiting_keys and t.state == "open":
             if t.updated_days_ago is not None and t.updated_days_ago > stale_days:
                 observations.append(Observation(
                     ticket=t.number, kind="waiting-too-long",

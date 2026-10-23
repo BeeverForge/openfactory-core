@@ -2,8 +2,8 @@
 
 THREE CLAIMS, AND EACH ONE HAS A RED TWIN HERE:
 
-  1. **The columns are the platform's and live in one place.** Six names, six neutral keys, one
-     board order. Cutting the home, the order or any of the four neutral callers must be seen.
+  1. **The columns are the platform's and live in one place.** Seven names, seven neutral keys
+     (six in slice 0; `needs_review` since #753), one board order. Cutting the home, the order or any of the four neutral callers must be seen.
   2. **The row answers who a person is and how to address them.** The lifecycle used to compare
      the provider's name; the port now carries the question. Cutting the degradation, the
      precedence between a declared map and a row, or the row's own answer must be seen.
@@ -57,17 +57,18 @@ MUTATIONS = [
      "a board is CREATED with and what the poller then looks for", HOME,
      '    "todo": "TO-DO",', '    "todo": "To Do",', COLUMNS),
 
-    ("the board order silently drops a column, so a created board has five and the sixth is a "
+    # re-pinned 2026-10-21: the order holds `needs_review` between the review and the parks (#753)
+    ("the board order silently drops a column, so a created board lacks one and it is a "
      "column `set_column` can never find", HOME,
-     '    "backlog", "todo", "in_progress", "in_review", "needs_action", "done",',
-     '    "todo", "in_progress", "in_review", "needs_action", "done",', COLUMNS),
+     '    "backlog", "todo", "in_progress", "in_review", "needs_review", "needs_action", "done",',
+     '    "todo", "in_progress", "in_review", "needs_review", "needs_action", "done",', COLUMNS),
 
     ("the order and the map disagree — the exact rot the two tables had before the move, a key "
      "in the order that the map cannot name", HOME,
      'BOARD_ORDER: tuple[str, ...] = (\n    "backlog", "todo", "in_progress", "in_review", '
-     '"needs_action", "done",\n)',
+     '"needs_review", "needs_action", "done",\n)',
      'BOARD_ORDER: tuple[str, ...] = (\n    "backlog", "todo", "in_progress", "in_review", '
-     '"needs_action", "done", "sprint",\n)', COLUMNS),
+     '"needs_review", "needs_action", "done", "sprint",\n)', COLUMNS),
 
     ("`name_for` raises on a key the platform does not know, instead of answering `\"\"` — a "
      "board without the column becomes a crashed job", HOME,

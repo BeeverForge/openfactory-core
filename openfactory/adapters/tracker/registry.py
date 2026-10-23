@@ -146,6 +146,8 @@ def _azure_devops(project, **kw):
     # `state_map` travels as a JSON string for the same reason Jira's `status_map` does — options
     # is dict[str,str] by contract:
     #   state_map: '{"in_progress": "Doing", "needs_action": "Needs Action", "done": "Done"}'
+    # `needs_review` is answered by this map alone (no category means it); unnamed, a pull request
+    # waiting for a person's review takes `needs_action`'s state (#753).
     # Unlike Jira this is optional: Azure DevOps publishes each state's CATEGORY, so an
     # unconfigured deployment still moves cards correctly for every bucket the vendor classifies.
     state_map = _json_map(options.get("state_map", ""), project, "state_map")

@@ -31,7 +31,7 @@ MUTATIONS = [
      "            key = key_for(column, renamed=(getattr(getattr(self.project, \"tracker\", None),"
      " \"options\", None) or {}).get(\"columns\"))"),
 
-    ("the seam stops asking the row at all and reads every board by the platform's own six names",
+    ("the seam stops asking the row at all and reads every board by the platform's own seven names",
      BASE,
      "    if board is not None and callable(getattr(board, \"stage_key\", None)):",
      "    if False:"),

@@ -1,4 +1,4 @@
-"""The platform's own column vocabulary — six names, six neutral keys, one board order.
+"""The platform's own column vocabulary — seven names, seven neutral keys, one board order.
 
 WHY THIS FILE EXISTS, AND WHY IT IS NOT IN A VENDOR'S MODULE. The six names were written down
 three times and compared in four more, and every copy lived at a GitHub address:
@@ -34,6 +34,11 @@ CANONICAL_COLUMNS: dict[str, str] = {
     "todo": "TO-DO",
     "in_progress": "In progress",
     "in_review": "In review",
+    # A pull request waiting on a PERSON'S REVIEW: a column of its own, apart from the parks (#753).
+    # It shared `needs_action` with a failing gate and a card with no criteria, so the triager
+    # could not tell a reviewer's wait from a stuck card. A deployment that maps nothing for it
+    # falls back to `needs_action`'s column (`tracker/base.py::FALLS_BACK_TO`).
+    "needs_review": "Needs Review",
     # Parked waiting on a HUMAN → a column of its own, never Backlog: a ticket that needs you must
     # not hide among the ones nobody has started.
     "needs_action": "Needs Action",
@@ -45,13 +50,16 @@ CANONICAL_COLUMNS: dict[str, str] = {
 #: Kept as its own tuple, and asserted to cover the map exactly, because the two answers rotted
 #: apart once already: the creating act listed six names in order and the runtime map five plus a
 #: sixth appended after it, so a reader comparing them saw two different vocabularies.
+#: `needs_review` sits between the factory's review and the parks (#753): a pull request a person
+#: must review is past the factory's own review, which may have rejected it; the wait is that
+#: person's.
 BOARD_ORDER: tuple[str, ...] = (
-    "backlog", "todo", "in_progress", "in_review", "needs_action", "done",
+    "backlog", "todo", "in_progress", "in_review", "needs_review", "needs_action", "done",
 )
 
 
 def column_names() -> tuple[str, ...]:
-    """The six names in board order — what a creating act writes onto a new board.
+    """The seven names in board order — what a creating act writes onto a new board.
 
     A FUNCTION RATHER THAN A SECOND CONSTANT, so there is exactly one place the order and the
     names meet and no copy of the answer can drift from the map above."""
@@ -67,8 +75,9 @@ def column_names() -> tuple[str, ...]:
 #: instead (`product/queue.py`, `product/triage.py`), which is how the queue came to call ready
 #: what the spec gate refuses.
 #:
-#: `todo` AND `backlog` ARE THE OPERATOR'S; the other four are the factory's own writing. A card in
-#: `in_progress`, `in_review`, `needs_action` or `done` is there because `set_state` put it there.
+#: `todo` AND `backlog` ARE THE OPERATOR'S; the other five are the factory's own writing. A card in
+#: `in_progress`, `in_review`, `needs_review`, `needs_action` or `done` is there because `set_state`
+#: put it there.
 BEFORE_THE_FACTORY: tuple[str, ...] = ("backlog", "todo")
 
 #: The keys a card sits in once the factory has FINISHED with it (#162).
@@ -94,7 +103,26 @@ BEFORE_THE_FACTORY: tuple[str, ...] = ("backlog", "todo")
 #: RETURNS `SKIPPED` (`_lifecycle`), and an elapsed impediment deadline returns the park untouched
 #: and completes. So the close asks the ENGINE whether a job is really on the card
 #: (`actions/catalog.py::_job_on_the_card`), and this table keeps answering only what it can know.
+#:
+#: `needs_review` IS NOT HERE EITHER (#753), and `may_be_running` must answer True for it: the
+#: pull request is open and `runtime/temporal/workflow.py::_watch_to_merge` holds the floor until
+#: it merges or `merge_deadline_days` runs out, so a close from that column takes the card from
+#: under a live job. Nothing shipped yet, so a close there is never DELIVERED.
 AFTER_THE_FACTORY: tuple[str, ...] = ("done",)
+
+#: The keys a card sits in while the factory waits on a PERSON: a park (`needs_action`) and a pull
+#: request waiting for its review (`needs_review`, #753). `card_move` asks the engine whether a job
+#: still waits before it queues a card from either (`actions/catalog.py::_card_move`); with only
+#: `needs_action` named there, a card in "Needs Review" went back to TO-DO under a live merge
+#: watch. A NAMED SET, so no caller compares a key to a literal, the rule `AFTER_THE_FACTORY`
+#: states.
+WAITING_ON_A_PERSON_KEYS: tuple[str, ...] = ("needs_review", "needs_action")
+
+#: The keys whose DEFAULT name yields to any other key that carries it (#753): `needs_review` is
+#: optional, and its default "Needs Review" may already be a deployment's park. Only these: a
+#: rule that let every renamed key beat a default read a wait pointed at the review column's
+#: default spelling as the wait, not the factory's review (#753's re-review, 2026-10-21).
+YIELDS_ITS_DEFAULT_NAME: tuple[str, ...] = ("needs_review",)
 
 
 def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
@@ -109,14 +137,74 @@ def key_for(name: str, *, renamed: dict[str, str] | None = None) -> str:
     `""` RATHER THAN A GUESS, for the same reason `name_for` answers `""`: a column this platform
     does not know is a legitimate thing for a client's board to have, and a caller deciding what
     may be done to a card must be able to tell *I know this column* from *I do not*.
+
+    THE FIRST KEY IN `CANONICAL_COLUMNS` ORDER THAT SPELLS THE NAME ANSWERS, except that a key in
+    `YIELDS_ITS_DEFAULT_NAME` gives up its DEFAULT name to any other key carrying it. So a status
+    a deployment gives both `in_review` and `needs_review` reads as `in_review`, in any spelling,
+    and a park a deployment already called "Needs Review" (`needs_action`) stays a park. Every
+    other collision answers as it did before `needs_review` existed.
     """
     wanted = (name or "").strip().casefold()
     if not wanted:
         return ""
-    for key, spelled in {**CANONICAL_COLUMNS, **(renamed or {})}.items():
-        if str(spelled).strip().casefold() == wanted:
-            return str(key)
-    return ""
+    merged = {**CANONICAL_COLUMNS, **(renamed or {})}
+    hits = [str(key) for key, spelled in merged.items()
+            if str(spelled).strip().casefold() == wanted]
+    # A board whose park was already called "Needs Review" before 0.7 (`needs_action` mapped to
+    # it) read its parked cards as `needs_review` once that key's default name was the same word,
+    # and the product role's parked review went empty (#753's review, measured 2026-10-21: `main`
+    # 1be1835a answered `needs_action`, the branch at 79087790 `needs_review`). Letting EVERY
+    # renamed key beat a default (22f1cc53) read `{"needs_review": "In review"}` as `needs_review`
+    # on GitHub, whose map merges the defaults, so the factory's own review read as a person's
+    # wait (#753's re-review, measured 2026-10-21). Only the optional key's default name yields.
+    return next((key for key in hits if not yields_its_name(key, name, renamed=renamed)),
+                hits[0] if hits else "")
+
+
+def yields_its_name(key: str, name: str, *, renamed: dict[str, str] | None = None) -> bool:
+    """Whether `key` gives up the column `name` to another key that carries it — the ONE rule
+    `key_for` reads by and a board's write takes, so a card is never moved by `needs_review`'s
+    default name to a column it then reads back as another key's. A name the deployment WROTE never
+    yields: `columns: {needs_review: "In review"}` sends the card to "In review", which reads back
+    as `in_review` (two keys, one status), as on Jira.
+
+    True only for a key in `YIELDS_ITS_DEFAULT_NAME` whose `name` is its DEFAULT spelling while
+    another key of the deployment's map (merged over the defaults, as `key_for` merges it) spells
+    it too. A GitHub board with `columns: {in_review: "Needs Review"}` carries "Needs Review" as its
+    review column; `needs_review`'s default claimed that option on the write, and the card a person
+    must review landed in the factory's review (PR #1040's review, 2026-10-21; `main` sent it to
+    Needs Action)."""
+    wanted = (name or "").strip().casefold()
+    if not wanted or key not in YIELDS_ITS_DEFAULT_NAME:
+        return False
+    if CANONICAL_COLUMNS.get(key, "").casefold() != wanted:
+        return False
+    merged = {**CANONICAL_COLUMNS, **(renamed or {})}
+    return any(other != key and str(spelled).strip().casefold() == wanted
+               for other, spelled in merged.items())
+
+
+def carried_by(key: str, declared: str | None, had: dict[str, str],
+               named: dict[str, str]) -> str:
+    """The other key whose column already carries the name `key` would be written under, when
+    `key` yields that name to it (`yields_its_name`); `""` when it does not.
+
+    ONE RULE FOR THE WRITER AND THE WARNING. The local setup reads it to write no second column of
+    one name (`LocalBoardSetup.create`, and `left_out`'s sentence to `init`), and the local board
+    reads it to say which remedy works when it falls back from a column it lacks: on a board that
+    already has a column called "Needs Review", a re-run of `init` adds nothing (PR #1040's round
+    5). `had` is the board's rows, `{key: name}`; `named` the deployment's `columns:` map.
+
+    The rows already on the board win over the deployment's map, as `INSERT OR IGNORE` keeps them;
+    the map counts too, so a FIRST `init` with `columns: {in_review: "Needs Review"}` does not
+    write two rows of one name either (measured on 374ef5cd by PR #1040's review, 2026-10-21)."""
+    carriers = {**named, **had}
+    candidate = declared or CANONICAL_COLUMNS[key]
+    if not yields_its_name(key, candidate, renamed=carriers):
+        return ""
+    wanted = candidate.strip().casefold()
+    return next((other for other, spelled in carriers.items()
+                 if other != key and str(spelled).strip().casefold() == wanted), "")
 
 
 def has_started(key: str) -> bool:
@@ -165,7 +253,7 @@ def name_for(key: str, *, renamed: dict[str, str] | None = None) -> str:
     takes it: a client whose board says `A Fazer` declared `{"todo": "A Fazer"}`, and the product
     role then asked its board for `TO-DO` by name — on Jira the site's workflow offers no such
     transition, so every queueing and every filing was refused. The deployment's word wins and the
-    platform's six still answer under it, exactly as `key_for` merges them, so a row that declared
+    platform's seven still answer under it, exactly as `key_for` merges them, so a row that declared
     only half its workflow is read the same way in both directions."""
     said = str((renamed or {}).get((key or "").strip().lower()) or "").strip()
     if said:

@@ -143,6 +143,30 @@ STATE_KEYS: dict[JobState, str] = {
     JobState.DONE: "done",
 }
 
+#: A key a deployment may leave unmapped → the key whose column it takes instead (#753). ONE table,
+#: in the contract, for the reason `STATE_KEYS` is one: seven callers resolve a key to a column
+#: (both local rows, GitHub Projects, both Jira rows and both Azure rows), and seven private
+#: spellings of the fallback would drift exactly as the two spellings of the lifecycle did.
+#: `needs_review` is the only entry: it is new, so every board that existed before it maps nothing
+#: for it, and such a board must keep putting a person-gated pull request where it always did —
+#: Needs Action.
+#: "Not mapped" is the only reason to fall back; a board that could not be READ is not a board
+#: without the column, and no caller may read it as one.
+FALLS_BACK_TO: dict[str, str] = {"needs_review": "needs_action"}
+
+
+def column_keys(state: JobState, *, needs_person: bool | None = None) -> tuple[str, ...]:
+    """The keys a row tries for `state`, in order: `column_key`'s answer, then its fallback.
+
+    Empty when the state has no key (an unmapped state is a no-op with a warning, as before). A
+    row takes the first key its deployment mapped; the order is the contract's, never a row's."""
+    key = column_key(state, needs_person=needs_person)
+    if key is None:
+        return ()
+    fallback = FALLS_BACK_TO.get(key)
+    return (key, fallback) if fallback else (key,)
+
+
 def column_key(state: JobState, *, needs_person: bool | None = None) -> str | None:
     """Which column a state belongs in — the ONE resolution, for every tracker and every board.
 
@@ -152,6 +176,15 @@ def column_key(state: JobState, *, needs_person: bool | None = None) -> str | No
     `JobState.PR_OPEN` for both, and only `view._domain_state` could tell them apart — by reading
     a fact the tracker port never received. So the pilot's panel said *Needs you* while his own
     board said *In review* with `Needs Action` reading zero, about the same card.
+
+    A PERSON'S REVIEW IS NOT A STUCK CARD (#753). #166 sent the human merge gate to
+    `needs_action`, the key every park uses, so a pull request waiting only for a reviewer sat in
+    the same column as a failing gate or a card with no criteria, and whoever triaged the board
+    could not tell a reviewer's wait from a stuck card (reported 2026-10-14 from a deployment of
+    ~19 Jira projects). It now answers `needs_review`, a key of its own; `FALLS_BACK_TO` sends it to
+    `needs_action`'s column on a board that does not map it, so that board does not move. Only
+    `pr_open` moves: the rest of the review bucket with a person still answers `needs_action`
+    (no caller passes `True` with those states), and the parks stay parks.
 
     `None` MEANS "THE STATE DECIDES", which is what every existing caller means and what this
     answered before the parameter existed. A caller that knows better says so; nobody has to be
@@ -164,6 +197,8 @@ def column_key(state: JobState, *, needs_person: bool | None = None) -> str | No
     # ONLY THE AMBIGUOUS BUCKET IS RE-READ, and the asymmetry is deliberate: a state that is a
     # person's by nature stays theirs however a caller answers. `needs_person=False` on `on_hold`
     # is a caller contradicting the platform's own record, and the record wins.
+    if needs_person and state is JobState.PR_OPEN:
+        return "needs_review"
     if needs_person and state in _REVIEW:
         return "needs_action"
     return STATE_KEYS.get(state)

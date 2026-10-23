@@ -185,8 +185,16 @@ a revoked token too, because nothing tells the two apart; a revoked token was no
 that is really missing still reads as missing.
 
 `status_map` says which status each lifecycle key (`todo`, `in_progress`, `in_review`,
-`needs_action`, `done`, `backlog`) means; an unmapped key leaves the card where it is, with a
-warning. It is also what the platform READS the board back with — a Jira project's statuses ARE
+`needs_review`, `needs_action`, `done`, `backlog`) means; an unmapped key leaves the card where it
+is, with a warning — except `needs_review`, which is optional: it is where a pull request waiting
+on a person (their review, or the click that merges it) goes, and while the map does not name it that pull request goes to
+`needs_action`'s status, as it did before the key existed. A site status already called
+`Needs Review` is read back as that key, but the factory moves a card there only when
+`status_map` names it — and the name `Needs Review` is that key's only while `status_map` gives
+it to no other key: a park already called `Needs Review` (`"needs_action": "Needs Review"`) is
+still read as a park. Two keys mapped to one status (`"in_review"` and `"needs_review"` both
+`"In Review"`, or both `"In review"`) are read back as `in_review`, the factory's own review: a shared status cannot tell
+the two apart, so give the wait a status of its own to have it read as a wait. It is also what the platform READS the board back with — a Jira project's statuses ARE
 its columns, so `status_map` is how it knows a card in `Concluído` is delivered work and one in
 `A Fazer` has not been picked up yet. A status it names nowhere is reported as such, by name, when
 somebody tries to edit or close that card. **`columns` is not read on a Jira row**: it is the

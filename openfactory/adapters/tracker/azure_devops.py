@@ -76,7 +76,10 @@ pass on a delivered card every time somebody renames a column.
 The forward direction — which state a JobState moves the card to — comes from the same table:
 `state_map` in the project's tracker options wins, otherwise the category answers (done → the
 Completed state, todo → Proposed, in_progress → InProgress, in_review → Resolved). `needs_action`
-is the one bucket Azure DevOps has no category for; see `_state_for_key`.
+is the one bucket Azure DevOps has no category for; see `_state_for_key`. `needs_review` (#753) is
+`state_map` only, and otherwise takes the whole of `needs_action`'s resolution (`FALLS_BACK_TO`):
+it is never derived from the Resolved category, which is `in_review`'s, so a process that has a
+Resolved state does not send a person-gated pull request to the column the machine's reviews use.
 """
 
 from __future__ import annotations
@@ -94,7 +97,7 @@ from openfactory.adapters.tracker.base import (
     TicketSummary,
     list_state,
 )
-from openfactory.adapters.tracker.base import column_key as _column_key
+from openfactory.adapters.tracker.base import column_keys as _column_keys
 from openfactory.contracts import JobState, Ticket
 from openfactory.contracts.refs import ref_number, split_repo_ref
 
@@ -121,7 +124,11 @@ CLOSED_CATEGORIES = frozenset({"completed", "removed"})
 
 #: lifecycle key → the state category that means it. `needs_action` is absent on purpose: Azure
 #: DevOps classifies work as Proposed/InProgress/Resolved/Completed/Removed and has no category for
-#: "a human must look at this", so no category can answer for it.
+#: "a human must look at this", so no category can answer for it. `needs_review` is absent for a
+#: second reason (#753): the category that would look right, Resolved, is `in_review`'s, and
+#: deriving both from it would put a pull request a person must review back among the machine's
+#: reviews — the very distinction the key exists to draw. Unmapped, it falls back to
+#: `needs_action` through the contract's `FALLS_BACK_TO`.
 _CATEGORY_FOR_KEY: dict[str, str] = {
     "todo": "proposed",
     "in_progress": "inprogress",
@@ -290,7 +297,9 @@ class AzureBoardsTracker:
         """The board state this deployment means by a lifecycle key, or None when nothing answers.
 
         Three sources, narrowest first: what the deployment configured, what the vendor's own
-        category says, and — for `needs_action` alone — the names a parking column goes by."""
+        category says, and — for `needs_action` alone — the names a parking column goes by.
+        `needs_review` has no category and no alias, so only `state_map` answers it; `set_state`
+        then tries `needs_action` (#753)."""
         configured = self.state_map.get(key)
         if configured:
             return configured
@@ -357,12 +366,15 @@ class AzureBoardsTracker:
         the same on every row; posted here it existed on two rows of four and was doubled where the
         caller also commented. The explanation of a move that could not be made is not lost by
         this: it is the door's `Comment`, applied whether or not the move landed."""
-        key = _column_key(state, needs_person=needs_person)
-        target = self._state_for_key(key or "")
+        # THE FIRST KEY THAT RESOLVES (#753): `needs_review` by `state_map` alone, then the whole
+        # of `needs_action`'s resolution, so a deployment that configured nothing for it keeps
+        # sending a person-gated pull request where it always did.
+        keys = _column_keys(state, needs_person=needs_person)
+        target = next((t for t in map(self._state_for_key, keys) if t), None)
         if not target:
             log.warning("no azure devops state for %s (lifecycle key %r) — work item %s stays "
                         "where it is; add it to the project's tracker option `state_map`",
-                        state, key, ref)
+                        state, keys[-1] if keys else None, ref)
         else:
             self._patch(ref, [{"op": "add", "path": "/fields/System.State", "value": target}])
         return bool(target)

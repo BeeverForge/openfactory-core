@@ -145,13 +145,15 @@ def test_no_core_module_names_a_concrete_tracker():
 def test_the_lifecycle_table_is_the_contract_s_not_a_copy():
     """Two adapters, one bucketing. Jira imported the contract's table by identity; it now calls
     the contract's RESOLVER, which is the same property one step further along — the bucketing and
-    the person/machine reading of it both live in one place."""
+    the person/machine reading of it both live in one place. Since #753 the row calls
+    `column_keys`, the resolver's answer followed by the contract's fallback, so the order in
+    which a deployment's map is tried is not Jira's either."""
     import inspect
 
     from openfactory.adapters.tracker import jira
-    from openfactory.adapters.tracker.base import column_key
+    from openfactory.adapters.tracker.base import column_keys
 
-    assert jira._column_key is column_key
+    assert jira._column_keys is column_keys
     # PROSE STRIPPED FIRST: the paragraph explaining this rule names the very symbol
     # it forbids, which is how a guard comes to fail on its own explanation.
     from conftest import code_only

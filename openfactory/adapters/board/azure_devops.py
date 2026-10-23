@@ -85,6 +85,12 @@ _UNKNOWN_FIELD = "TF51005"
 #: so a card the product role filed was picked up with nobody queueing it. The deployment declares
 #: where filed cards wait (`intake_column`, `docs/setup/azure-devops.md` §3); the product role
 #: files nothing until it has.
+#:
+#: NOR IS THERE A `needs_review` KEY (#753), and for the same reason: the platform's own process
+#: has no such column, and a default naming one would aim every person-gated pull request at a
+#: column the client's board does not have. Unmapped, `set_status` takes `needs_action`'s column
+#: (the contract's `FALLS_BACK_TO`), which is where these went before; a deployment that wants
+#: them apart names its column under `columns:`.
 DEFAULT_COLUMNS: dict[str, str] = {
     "todo": "To Do",
     "in_progress": "Doing",
@@ -808,16 +814,18 @@ class AzureBoardsBoard:
                    needs_person: bool | None = None) -> bool:
         """Move the card to whichever column THIS deployment mapped `state` to.
 
-        Through `STATE_KEYS` and then through the client's own column names (C-14): the lifecycle
+        Through `column_keys` and then through the client's own column names (C-14): the lifecycle
         is the platform's and the vocabulary is the client's, so an unmapped state is False with a
-        reason rather than a guessed English literal."""
-        from openfactory.adapters.tracker.base import column_key
+        reason rather than a guessed English literal. The first key this deployment names a column
+        for wins: `needs_review`, then `needs_action` on a board that named none for it (#753)."""
+        from openfactory.adapters.tracker.base import column_keys
 
-        key = column_key(state, needs_person=needs_person)
-        target = self._names.get(key or "", "")
+        keys = column_keys(state, needs_person=needs_person)
+        target = next((self._names[k] for k in keys if self._names.get(k)), "")
         if not target:
             log.warning("no Azure Boards column mapped for %s (lifecycle key %r) on %s/%s — the "
                         "card stays where it is; add the mapping under the project's tracker "
-                        "options (`columns`)", state, key, self.organization, self.project)
+                        "options (`columns`)", state, keys[-1] if keys else None,
+                        self.organization, self.project)
             return False
         return self.set_column(issue=issue, issue_url=issue_url, name=target)

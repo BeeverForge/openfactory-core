@@ -33,7 +33,7 @@ _TIMEOUT = 60
 #: creation and maps them with `columns:` in the registry (C-14); init creates the platform's
 #: vocabulary so the mapping starts as the identity.
 #:
-#: READ FROM THE NEUTRAL HOME, not written here. These six names are the PLATFORM'S, not GitHub's:
+#: READ FROM THE NEUTRAL HOME, not written here. These seven names are the PLATFORM'S, not GitHub's:
 #: keeping the master copy at a vendor address is what made every neutral caller that needed one
 #: spell a literal instead of asking (`adapters/board/columns.py`). Re-exported under the name this
 #: module's callers have always imported it by.

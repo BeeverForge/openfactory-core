@@ -45,7 +45,8 @@ def project(db):
 
 @pytest.fixture
 def board(db, project):
-    """A project in the state `project init` leaves it: six columns, no cards."""
+    """A project in the state `project init` leaves it: seven columns since #753 (the six it had,
+    and "Needs Review"), no cards."""
     LocalBoardSetup().create(project=project, owner="", title="acme", token=None)
     tracker = LocalTracker("acme", db_path=db)
     return tracker, LocalBoard(tracker)
@@ -341,7 +342,7 @@ def test_the_filter_is_applied_before_the_limit(board):
 
 # ── the board row ───────────────────────────────────────────────────────────────────────────────
 
-def test_the_board_has_the_platforms_six_columns_in_board_order(board):
+def test_the_board_has_every_column_of_the_platform_in_board_order(board):
     from openfactory.adapters.board.columns import column_names
 
     _, brd = board
@@ -372,15 +373,17 @@ def test_a_move_to_a_column_the_board_does_not_have_is_False_with_a_reason(board
 
 
 def test_set_status_goes_through_the_platforms_one_resolution(board):
-    """`column_key`, so a `pr_open` a person is blocking on lands in Needs Action here exactly as
-    it does on a vendor's board (#166)."""
+    """`column_key`, so a `pr_open` a person is blocking on lands where a person looks, here
+    exactly as on a vendor's board (#166): "Needs Review" on the board `project init` makes since
+    #753. A board without that row keeps Needs Action, which
+    `test_a_board_that_maps_no_review_column_keeps_todays_board.py` holds on a six-row file."""
     tracker, brd = board
     ref = tracker.create_ticket(title="one", body="")
     assert brd.set_status(issue=ref, issue_url="", state=JobState.PR_OPEN) is True
     assert brd.columns() == {"1": "In review"}
     assert brd.set_status(issue=ref, issue_url="", state=JobState.PR_OPEN,
                           needs_person=True) is True
-    assert brd.columns() == {"1": "Needs Action"}
+    assert brd.columns() == {"1": "Needs Review"}
 
 
 def test_the_pickup_column_is_the_boards_own_name_for_it(board, db):
@@ -417,7 +420,8 @@ def test_creating_the_board_is_idempotent_and_renames_nothing(project, db):
     coordinate, url = setup.create(project=project, owner="", title="acme", token=None)
     assert coordinate == "", "this board has no second object to point at"
     assert url.endswith("/p/acme/board")
-    assert "6 columns" in setup.attached(project)
+    # seven since #753: a board created from now on has "Needs Review" (the plan's Q1 default)
+    assert "7 columns" in setup.attached(project)
 
     with connect(db, write=True) as conn:
         conn.execute("UPDATE columns SET name = 'A Fazer' WHERE project = ? AND key = 'todo'",

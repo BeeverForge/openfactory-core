@@ -22,16 +22,21 @@ from __future__ import annotations
 
 import logging
 
+from openfactory.adapters.board.columns import carried_by
 from openfactory.adapters.board_db import connect, now_iso
-from openfactory.adapters.tracker.base import column_key
+from openfactory.adapters.tracker.base import column_keys
 from openfactory.contracts import JobState
 from openfactory.contracts.refs import canonical_ref
 
 log = logging.getLogger("openfactory.board.local")
 
+#: The boards whose missing column `set_status` has already warned about in this process, by
+#: (board file, project, key): said once, then at debug level.
+_FELL_BACK_SAID: set[tuple[str, str, str]] = set()
+
 
 class LocalBoard:
-    """The six columns and where each card sits, for one project."""
+    """The seven columns and where each card sits, for one project."""
 
     def __init__(self, tracker, *, queue: str = "") -> None:
         #: The tracker this board is the face of. Held rather than re-derived, for the reason the
@@ -113,7 +118,7 @@ class LocalBoard:
         OFF THE BOARD'S OWN ROWS, not off the registry, and that is this row's whole advantage:
         the key and the name sit in the same table, so a column renamed after `project init` is
         mapped without anybody writing a second copy of the map into the registry. `key_for` does
-        the matching, once, for the same reason the hosted rows call it — the platform's own six
+        the matching, once, for the same reason the hosted rows call it — the platform's own seven
         names answer under whatever this board renamed.
 
         ONLY THE PLATFORM'S OWN KEYS ARE ANSWERED WITH. This table can hold a column a deployment
@@ -301,20 +306,55 @@ class LocalBoard:
                    needs_person: bool | None = None) -> bool:
         """Move a card to whichever column this board maps `state` to.
 
-        THROUGH `column_key`, the platform's ONE resolution for every tracker and every board, so
-        the `pr_open` that a person is blocking on lands in Needs Action here exactly as it does on
-        a vendor's board (#166)."""
-        key = column_key(state, needs_person=needs_person)
-        if not key:
+        THROUGH `column_keys`, the platform's ONE resolution for every tracker and every board, so
+        the `pr_open` that a person is blocking on lands in Needs Review here exactly as it does on
+        a vendor's board (#166, #753) — and in Needs Action on a board that has no Needs Review
+        row, the contract's `FALLS_BACK_TO`, which is every `board.db` 0.6's setup wrote."""
+        keys = column_keys(state, needs_person=needs_person)
+        if not keys:
             return False
         with connect(self._db(), write=True) as conn:
-            col = conn.execute("SELECT name FROM columns WHERE project = ? AND key = ?",
-                               (self.project, key)).fetchone()
-            if col is None:
+            key = next((k for k in keys if conn.execute(
+                "SELECT 1 FROM columns WHERE project = ? AND key = ?",
+                (self.project, k)).fetchone() is not None), None)
+            if key is None:
                 log.warning("%s's board declares no %r column — %s is not moved",
-                            self.project, key, canonical_ref(issue))
+                            self.project, keys[-1], canonical_ref(issue))
                 return False
+            if key != keys[0]:
+                # ONCE PER BOARD IN A PROCESS: every board 0.6 wrote lacks the row until `project
+                # init` is re-run (or, where another column carries its name, until `columns:`
+                # gives it one of its own — `_remedy`), and a warning on every move of every
+                # person-gated pull request is noise that buries the one that matters (PR #1040's
+                # review, 2026-10-21).
+                said = (str(self._db()), self.project, keys[0])
+                (log.debug if said in _FELL_BACK_SAID else log.warning)(
+                    "%s's board declares no %r column — %s goes to %r instead; %s",
+                    self.project, keys[0], canonical_ref(issue), key,
+                    _remedy(conn, self.project, keys[0]))
+                _FELL_BACK_SAID.add(said)
             moved = conn.execute(
                 "UPDATE cards SET column_key = ?, updated_at = ? WHERE project = ? AND ref = ?",
                 (key, now_iso(), self.project, int(canonical_ref(issue) or 0))).rowcount
         return bool(moved)
+
+
+def _remedy(conn, project: str, key: str) -> str:
+    """What adds the column `key` this board lacks, as the end of the fallback warning.
+
+    A RE-RUN OF `init` ADDS NOTHING WHERE ANOTHER ROW ALREADY CARRIES THE NAME: `LocalBoardSetup`
+    writes no second column of one name (`columns.carried_by`, the rule read here too), so on a
+    board whose `in_review` or `needs_action` a person called "Needs Review" the warning that sent
+    them to the re-run named a remedy that did nothing (PR #1040's round 5, measured on f7f20376).
+    The deployment's `columns:` map is not read here: on a board that has rows the rows win in
+    `carried_by`, and the only name the map adds is `key`'s own, which the re-run named here
+    writes either way."""
+    had = {r["key"]: r["name"] for r in conn.execute(
+        "SELECT key, name FROM columns WHERE project = ?", (project,)).fetchall()}
+    carrier = carried_by(key, None, had, {})
+    if not carrier:
+        return f"re-run `openfactory project init {project}` to add it"
+    return (f"its '{carrier}' column is already called \"{had[carrier]}\", so map {key} to "
+            f"another name under the tracker's `columns` option "
+            f"(e.g. '{{\"{key}\": \"Awaiting Review\"}}') and re-run "
+            f"`openfactory project init {project}`")

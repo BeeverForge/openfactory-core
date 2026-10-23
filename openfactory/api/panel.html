@@ -546,7 +546,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--amber);box-shadow:0 0
   margin:0 auto var(--s2)}
 #boardview .dark h3{margin:0 0 10px;font-size:var(--t-xl);font-weight:650;color:var(--muted)}
 #boardview .dark p{margin:0;color:var(--dim);font-size:var(--t-sm);line-height:1.6}
-/* THE CARD NEVER GROWS TO HOLD THE DETAIL. A card is scanned across six columns; the detail is
+/* THE CARD NEVER GROWS TO HOLD THE DETAIL. A card is scanned across seven columns; the detail is
    read one at a time, so it is a surface of its own and the card stays the size of a glance. */
 #boardview .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;
   transition:opacity .18s ease;z-index:8}
@@ -5149,14 +5149,25 @@ async function submitPromote(project,issue){
 let _bd = {project:null, data:null, card:null, pr:null, drawer:null, timer:null, draft:"",
            sig:null, dragging:false, form:null};
 
-// The platform's own six keys, in board order, with what each one MEANS. Matched to the board's
+// The platform's own seven keys, in board order, with what each one MEANS. Matched to the board's
 // answer BY NAME, never assumed: a client who renamed their columns keeps their names and simply
 // loses the note, which is better than a screen that insists on the platform's word for it.
+// "Needs Review" is NOT the alarm: before #753 a pull request waiting on a person's review sat in
+// Needs Action, so the alarm column read non-zero for every merge gate that was working as meant.
+// Its tone is "queued" — in line, waiting its turn — and Needs Action keeps "err".
+// THE LIMIT OF MATCHING BY NAME: a column is drawn with the note of whichever row here carries its
+// name, whatever key the deployment mapped to it. A park mapped `needs_action: "Needs Review"`, or
+// an `in_review` called "Needs Review", is drawn "queued" with the review note, although the
+// factory itself reads that column by its key (`stage_key`) as the park or the machine's stage.
+// Matching by key needs the board view to carry each column's key, and it does not:
+// `/api/board/{project}` answers `columns` as names only (`BoardRead.columns: list[str]`,
+// measured 2026-10-22), part of the published contract in `docs/reference/openapi.json`.
 const _BCOL = [
   {name:"Backlog",      tone:"idle",   note:"a ticket a person took off the floor — nobody is waiting on it"},
   {name:"TO-DO",        tone:"queued", pickup:true, note:"the pickup queue — the poller reads this column every tick"},
   {name:"In progress",  tone:"run",    note:"the factory is spending money here"},
   {name:"In review",    tone:"idle",   note:"machine-owned: review, CI, merge, staging"},
+  {name:"Needs Review", tone:"queued", note:"a pull request waiting on a person — the factory's review may have rejected it"},
   {name:"Needs Action", tone:"err",    note:"a person is the blocker — this column reading non-zero is the alarm"},
   {name:"Done",         tone:"ok",     note:"delivered, and the report that has to stay trustworthy"},
 ];

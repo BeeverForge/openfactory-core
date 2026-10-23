@@ -101,8 +101,9 @@ _PAGE = 100
 _MAX_PAGES = 20
 
 # THE lifecycle table lives in the CONTRACT now (C-14): both adapters answer the same four
-# questions, and two copies of the bucketing is how they drift. `_column_key` stays as this
-# module's name for it — the vendor-neutrality test reads it here on purpose.
+# questions, and two copies of the bucketing is how they drift. `_column_keys` is this module's
+# name for it — the vendor-neutrality test reads it here on purpose. It is the resolver's answer
+# and then the contract's fallback (#753), so this row tries them in the contract's order.
 from openfactory.adapters.tracker.base import (  # noqa: E402
     NOT_REPORTED,
     BudgetAnswer,
@@ -110,7 +111,7 @@ from openfactory.adapters.tracker.base import (  # noqa: E402
     TicketSummary,
     list_state,
 )
-from openfactory.adapters.tracker.base import column_key as _column_key  # noqa: E402
+from openfactory.adapters.tracker.base import column_keys as _column_keys  # noqa: E402
 
 
 def _not_one_account(email: str, method: str, path: str, *, has_token: bool,
@@ -553,12 +554,17 @@ class JiraTracker:
         withdrawn close and `set_state` cannot disagree about a name's case either."""
         target = str(status or "").strip()
         if not target:
-            key = _column_key(state, needs_person=needs_person)
+            # THE FIRST KEY `status_map` NAMES (#753). A map written before 0.7 names no
+            # `needs_review`, and a person-gated pull request on it goes to Needs Action, as it
+            # did. A mapped `needs_review` whose transition the workflow lacks does NOT fall back
+            # below: the deployment named that status, and the warning there says it is missing.
+            keys = _column_keys(state, needs_person=needs_person)
+            key = next((k for k in keys if self.status_map.get(k)), None)
             target = self.status_map.get(key or "", "")
             if not target:
                 log.warning("no jira status mapped for %s (status_map key %r) — the issue stays "
                             "where it is; add the mapping in the project's tracker options",
-                            state, key)
+                            state, keys[-1] if keys else None)
                 return None
         transitions = (self._call("GET", f"issue/{ref}/transitions").get("transitions") or [])
         match = next((t for t in transitions

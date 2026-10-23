@@ -118,7 +118,8 @@ worker — including variables you invent.
 
 ## 3 · The board states, once per organisation
 
-The platform moves cards through six states; a stock process is missing three of them:
+The platform moves cards through six states, and a seventh it uses only when you name it; a
+stock process is missing three of the six:
 
 | lifecycle | state it looks for | stock process has it? |
 |---|---|---|
@@ -127,6 +128,7 @@ The platform moves cards through six states; a stock process is missing three of
 | in progress | **Doing** | yes (Basic) |
 | in review | **In review** | **no — create it** |
 | needs action | **Needs Action** | **no — create it** |
+| needs review — a pull request waiting on a person's review or merge click | the state `state_map` names, the column `columns` names | optional — unnamed, those pull requests go to **Needs Action** |
 | done | **Done** | yes |
 
 **The backlog is required, and it is not the queue.** Azure gives a new work item its type's
@@ -152,7 +154,7 @@ System processes cannot be edited, so this is done once with an **inherited proc
      `Blocked`, `On hold`, `Waiting`, `Impediment` and their pt-BR forms).
 3. Project settings → Overview → **Process** → switch the project to the inherited process.
 4. The team's board → Board settings → **Columns**: a `Ready` column right after `To Do`, mapped
-   to the `Ready` state. Every column must map to one of the six states above — a card in a
+   to the `Ready` state. Every column must map to one of the states above — a card in a
    column the platform does not map cannot be queued, edited or closed through it.
 5. In the project's registry entry (§5), under the tracker's `options` — quoted, each a string of
    JSON:
@@ -177,6 +179,22 @@ tracker:
     state_map: '{"backlog": "A Fazer", "todo": "Pronto", "in_review": "Em revisão", "needs_action": "Bloqueado"}'
     columns:   '{"backlog": "A Fazer", "todo": "Pronto", "done": "Concluído"}'   # board column labels
 ```
+
+**A column for pull requests waiting on a reviewer is optional.** Without it, a pull request
+that waits only on a person (their review or merge click) goes to Needs Action beside the cards that are stuck, as it
+always did. To give it its own, add a state — `Needs Review`, in the **In Progress** category
+as Needs Action is — and a column mapped to it, and name both for the `needs_review` key:
+
+```yaml
+tracker:
+  options:
+    state_map: '{"backlog": "To Do", "todo": "Ready", "needs_review": "Needs Review"}'
+    columns:   '{"backlog": "To Do", "todo": "Ready", "needs_review": "Needs Review"}'
+```
+
+The platform finds this state **only through these maps**: no category and no name answers for
+it. A board column already called `Needs Review` that `columns` names for no key is read as the
+review wait (one it names for another key, `needs_action` say, is read as that key) when a person puts a card there, but the factory moves no card into it.
 
 A backlog state of its own works too — `Backlog` in the Proposed category, a column for it, and
 `state_map: '{"backlog": "Backlog"}'` with `columns: '{"backlog": "Backlog"}'`: the product role

@@ -144,12 +144,12 @@ MUTATIONS = [
 
     ("a state the board has no column for RAISES instead of answering False — the gather's park "
      "path then dies where it should have said the park did not land", TRACKER,
-     '            if conn.execute("SELECT 1 FROM columns WHERE project = ? AND key = ?",\n'
-     "                            (self.project, key)).fetchone() is None:\n"
-     "                return False",
-     '            if conn.execute("SELECT 1 FROM columns WHERE project = ? AND key = ?",\n'
-     "                            (self.project, key)).fetchone() is None:\n"
-     '                raise KeyError(key)', SLICE),
+     # re-pinned 2026-10-21: the row tries each of `column_keys` in turn and answers False after
+     # the last (#753)
+     "                    return move_card(conn, self.project, _number(ref), key, "
+     "closes_at_done=True)\n            return False",
+     "                    return move_card(conn, self.project, _number(ref), key, "
+     "closes_at_done=True)\n            raise KeyError(keys[-1])", SLICE),
 
     ("a person's answer is written as the platform, so the sweep never counts it and chases them "
      "for something they had already said", TRACKER,
@@ -177,9 +177,10 @@ MUTATIONS = [
      "                return True", SLICE),
 
     ("the board stops going through the platform's one state resolution and pins its own map — "
-     "the `pr_open` a person is blocking on stops landing in Needs Action (#166)", BOARD,
-     "        key = column_key(state, needs_person=needs_person)",
-     '        key = {JobState.DONE: "done"}.get(state, "in_review")', SLICE),
+     "the `pr_open` a person is blocking on stops landing where a person looks (#166, #753)", BOARD,
+     # re-pinned 2026-10-21: `column_keys`, the resolver's key then its fallback (#753)
+     "        keys = column_keys(state, needs_person=needs_person)",
+     '        keys = ({JobState.DONE: "done"}.get(state, "in_review"),)', SLICE),
 
     ("creating the board RENAMES the columns on every run, undoing the edit `columns:` promises "
      "a client they may make (C-14)", SETUP,

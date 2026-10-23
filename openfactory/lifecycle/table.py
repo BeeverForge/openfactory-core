@@ -83,11 +83,18 @@ class State(StrEnum):
 #: `merged` and `staged` are not read from a column: `in_review` holds a card both before and
 #: after its merge, and `needs_action` a production gate like any park. The record says them, and
 #: the door reads it for the events whose legality turns on them (`READ_FROM_THE_RECORD`).
+#:
+#: `needs_review` is a pull request waiting on a person's review (#753), so it reads as
+#: `waiting_on_a_person`, the state `transition()` already gives `PR_OPENED` with `needs_person`.
+#: No state is added (D2's set is closed). Without this row the door refused every card in "Needs
+#: Review" as "not a column this platform maps", as #258's review measured for `card_edit` and
+#: `card_close`.
 BY_COLUMN: dict[str, State] = {
     "backlog": State.BACKLOG,
     "todo": State.TODO,
     "in_progress": State.RUNNING,
     "in_review": State.RUNNING,
+    "needs_review": State.WAITING_ON_A_PERSON,
     "needs_action": State.WAITING_ON_A_PERSON,
     "done": State.DELIVERED,
 }

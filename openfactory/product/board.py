@@ -542,6 +542,10 @@ def parked_with_diagnosis(project, *, token: str | None = None, limit: int = 10,
     # BY KEY, NAMED BY THE BOARD (#502): this compared each card with the platform's `Needs
     # Action`, so a board that calls it anything else had nothing parked, ever
     stages = stages_for(project, tickets, token=token)
+    # `needs_action` ALONE, NOT `WAITING_ON_A_PERSON_KEYS` (#753): Needs Action holds what needs a
+    # decision (ADR-0019 §6). A pull request in Needs Review waits for its review: it carries no
+    # diagnosis to read and nothing for the product role to decide. Triage still flags it when it
+    # waits too long (`triage.triage`).
     waiting = [t for t in tickets if stages.get(t.column) == key and t.state == "open"]
     waiting.sort(key=lambda t: t.updated_days_ago if t.updated_days_ago is not None else 9999)
 

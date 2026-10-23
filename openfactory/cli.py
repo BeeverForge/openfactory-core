@@ -721,7 +721,7 @@ def project_init(
         setup = plugins.sentence(board_row(project), "setup", "", project)
         typer.echo(f"· board: the {tracker_kind} tracker brings its own — nothing to create"
                    + (f" ({setup})" if setup else ""))
-    elif attached:
+    elif attached and not getattr(create_board, "completes_an_attached_board", False):
         typer.echo(f"· board already attached ({attached})")
     else:
         from openfactory.credentials import deployment_tracker_token, tracker_token_for
@@ -731,6 +731,10 @@ def project_init(
         # and a command that exited on an empty owner would refuse to create a board that needs
         # none.
         owner = board_owner or (project.tracker.repo or "").split("/")[0]
+        # WHICH KEYS THE BOARD HAS BEFORE `create`, for a row that can say (`keys`, optional): the
+        # "added" sentence below is decided by them.
+        keys_of = getattr(create_board, "keys", None)
+        keys_before = keys_of(project) if callable(keys_of) and attached else None
         try:
             # the static token first (a PERSONAL account's board needs it — the App token
             # cannot drive user-owned Projects v2), then what this deployment can mint for THIS
@@ -757,7 +761,30 @@ def project_init(
             # every later read has to special-case.
             if number:
                 reg.attach_board(name, board_owner=owner, board_number=number)
-            typer.echo(f"✓ board created with the platform's columns — {url}")
+            if not attached:
+                typer.echo(f"✓ board created with the platform's columns — {url}")
+            else:
+                # A RE-RUN ON A BOARD THAT WAS THERE ALREADY, on a row whose `create` completes it
+                # rather than minting a second one. Main's re-run skipped `create` here and so never
+                # gave a six-row board its seventh column (measured 2026-10-21); what it added is
+                # said, because a re-run that changed the board in silence is one nobody can check.
+                # ADDED IS A KEY THE BOARD LACKED BEFORE, not a sentence that changed: `attached()`
+                # lists names by position, so a re-order read as an addition and `init` printed
+                # "added the columns it lacked" on a hand-ordered board it added nothing to (PR
+                # #1040's review, @robertocsp, 2026-10-22). A row with no `keys` is compared by
+                # its sentence, the only answer it gives.
+                now = create_board.attached(project)
+                added = (keys_of(project) - keys_before if keys_before is not None
+                         else now != attached)
+                typer.echo(f"✓ board: added the columns it lacked — {now}" if added
+                           else f"· board already attached ({attached})")
+            # A COLUMN THE ROW DECLINED TO ADD IS SAID, with the way in: a local board whose
+            # `in_review` or `needs_action` was already called "Needs Review" keeps one column of
+            # that name, and a re-run that declined the release note's opt-in in silence would
+            # read as a defect (PR #1040's review, 2026-10-22). Optional, read with `getattr`.
+            left_out = getattr(create_board, "left_out", None)
+            if callable(left_out) and (why := left_out(project)):
+                typer.echo(f"· board: {why}")
 
     # WHICH BRANCH THIS CHECKOUT IS ON, read once: the manifest is scaffolded with it and the
     # closing lines name it. `symbolic-ref --short HEAD` answers on an unborn branch, where
