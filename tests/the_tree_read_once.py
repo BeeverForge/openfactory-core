@@ -47,6 +47,14 @@ against main's 1, and one pause outlasted the engine probe's 1.0 s and read as
 insert, which moves every object alive at that moment into the permanent generation. The price:
 cyclic garbage alive at the instant of a freeze is never collected (+24 MB peak RSS in one
 process over the 142 touched files: 1,533,600 KB without the freeze, 1,558,312 KB with it).
+
+READ THE TEXT BEFORE ASKING FOR THE TREE (#1069). A guard that scans a tree at import runs in every
+xdist worker's collection, so it asks `could_say(text, pattern)` first and parses only a file whose
+text can satisfy its tree test. The pattern must be NECESSARY for that test — the words the tree
+itself requires — never merely likely. Python NFKC-normalises identifiers (`pytestmark` spelled
+with a fullwidth `p` names `pytestmark`), so text that is not ASCII is searched again in NFKC. The text is read by `source_text`, which
+decodes as Python does (a PEP 263 declaration or BOM, else UTF-8), so a file the filter skips
+never raises for its coding.
 """
 
 from __future__ import annotations
@@ -55,6 +63,9 @@ import ast
 import gc
 import hashlib
 import os
+import re
+import tokenize
+import unicodedata
 from pathlib import Path
 
 _trees: dict[bytes, ast.Module] = {}
@@ -82,3 +93,22 @@ def parsed(path: str | os.PathLike[str]) -> ast.Module:
 def cached() -> int:
     """How many distinct contents the cache holds — for the guard, and for a reader measuring."""
     return len(_trees)
+
+
+def could_say(text: str, pattern: str | re.Pattern[str]) -> bool:
+    """Whether `text` can spell what `pattern` matches, as written or as Python reads identifiers.
+
+    The raw search first; text that is not ASCII is searched again after NFKC, the normalisation
+    the tokenizer applies to every identifier (PEP 3131). ASCII text is never normalised."""
+    if re.search(pattern, text):
+        return True
+    return not text.isascii() and re.search(
+        pattern, unicodedata.normalize("NFKC", text)) is not None
+
+
+def source_text(path: str | os.PathLike[str]) -> str:
+    """A source file's text decoded as Python decodes it: its PEP 263 coding declaration or BOM,
+    else UTF-8 — for a scanner's text filter, which reads every file under a root, so a module
+    that declares another coding is filtered rather than raising at import (#1069)."""
+    with tokenize.open(path) as stream:
+        return stream.read()

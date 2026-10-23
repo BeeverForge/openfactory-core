@@ -28,6 +28,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import dataclasses
+import functools
 import inspect
 import subprocess
 import sys
@@ -353,25 +354,31 @@ def _context_only_rows() -> list[str]:
     methods = {n: f for n, f in vars(ProductModule).items() if inspect.isfunction(f)}
     trees = {n: _source(f) for n, f in methods.items()}
 
-    def words(name: str) -> set[str]:
+    # Memoised per method (#1069): `reaches` asks every method's whole reach, and without the
+    # memo a method's tree was walked again for every method that reached it.
+    @functools.cache
+    def words(name: str) -> frozenset[str]:
         tree = trees[name]
         said = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 said |= {node.module or ""} | {a.name for a in node.names}
-        return said
+        return frozenset(said)
 
-    def on_itself(name: str) -> set[str]:
-        return {n.attr for n in ast.walk(trees[name]) if isinstance(n, ast.Attribute)
-                and isinstance(n.value, ast.Name) and n.value.id == "self" and n.attr in methods}
+    @functools.cache
+    def on_itself(name: str) -> frozenset[str]:
+        return frozenset(
+            n.attr for n in ast.walk(trees[name]) if isinstance(n, ast.Attribute)
+            and isinstance(n.value, ast.Name) and n.value.id == "self" and n.attr in methods)
 
-    def reached(name: str) -> set[str]:
+    @functools.cache
+    def reached(name: str) -> frozenset[str]:
         seen, todo = set(), [name]
         while todo:
             if (one := todo.pop()) not in seen:
                 seen.add(one)
                 todo += on_itself(one)
-        return seen
+        return frozenset(seen)
 
     code = {"build_tracker", "build_board", "_saved_on_the_board", "resolve_repo_path"}
     reaches = {m for m in methods if any(w in code or w.startswith("openfactory.knowledge")
