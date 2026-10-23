@@ -23,7 +23,9 @@ THE RULES HELD HERE, each over cases read from the code rather than named:
      written over;
   9. a row of several steps says what each step came to — a step that raises is a failed step,
      said, never a traceback, and never with the credential a git call was handed — and running
-     it again does only what is missing.
+     it again does only what is missing;
+ 10. no command of the CLI writes the installation but through a row, and every installation row
+     is the mapping of a command.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import ast
 import asyncio
 import dataclasses
 import functools
+import inspect
 import json
 import re
 from pathlib import Path
@@ -58,6 +61,7 @@ from tests.the_tree_read_once import parsed
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PY = ROOT / "openfactory" / "actions" / "catalog.py"
+SCHEDULE_PY = ROOT / "openfactory" / "runtime" / "temporal" / "schedule.py"
 CONTRACT = ROOT / "docs" / "reference" / "the-front-end-api.md"
 
 #: The rows that write the installation's registry and are NOT the administrator's, each with why.
@@ -87,7 +91,7 @@ def _writers(path: str, owner: str, through: str) -> frozenset[str]:
 @functools.cache
 def _poller_holds() -> frozenset[str]:
     """The schedule module's functions that pause or unpause a schedule."""
-    tree = parsed(ROOT / "openfactory/runtime/temporal/schedule.py")
+    tree = parsed(SCHEDULE_PY)
     return frozenset(
         fn.name for fn in tree.body if isinstance(fn, ast.AsyncFunctionDef | ast.FunctionDef)
         and any(isinstance(n, ast.Call) and getattr(n.func, "attr", "") in ("pause", "unpause")
@@ -150,47 +154,63 @@ def _from_the_package(node: ast.AST) -> dict[str, str]:
 
 
 @functools.cache
-def _catalog_writes() -> dict[str, set[str]]:
-    """`row → what it writes`, following what its runner names: the catalogue's own helpers, by a
-    call or handed on — a row whose steps leave the loop hands its body to `asyncio.to_thread` —
-    and the package's functions it imports, by name or as a module's attribute.
+def _module(path: Path) -> tuple[dict[str, ast.AST], dict[str, str]]:
+    """A module of the package: its own functions by name, and what it imports from the package."""
+    tree = parsed(path)
+    return ({n.name: n for n in tree.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)},
+            _from_the_package(tree))
+
+
+def _resolve(path: Path, names: dict[str, str], node: ast.AST) -> tuple[Path, str] | None:
+    """The function of the package `node` names, as `(its module's file, its name)`: one of this
+    module's own, one imported by name, or a module's attribute — `None` for anything else."""
+    functions, _ = _module(path)
+    if isinstance(node, ast.Name) and node.id in functions:
+        return path, node.id
+    if isinstance(node, ast.Name) and node.id in names:
+        home, _, called = names[node.id].rpartition(".")
+        return (found, called) if (found := _module_file(home)) is not None else None
+    if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+            and node.value.id in names and (found := _module_file(names[node.value.id]))):
+        return found, node.attr
+    return None
+
+
+def _reaches(path: Path, name: str, *, door: tuple[Path, str] | None = None,
+             seen: set[tuple[Path, str]] | None = None) -> dict[str, tuple[str, ...]]:
+    """What the function `name` of the module at `path` writes of the installation, followed into
+    the package: every function of the package it names — by a call or handed on, as a row whose
+    steps leave the loop hands its body to `asyncio.to_thread` — whether its module's own, one it
+    imports by name or a module's attribute. `writer → the functions it was reached through`, so a
+    failure can say how. The walk does not enter `door`; `seen` is left holding every function it
+    entered.
 
     THE CATALOGUE'S EDGE WAS WHERE THIS READING STOPPED, and two rows wrote past it: main's
     `product_start` and `product_first_source` (#992) register a project and give it its code
     through `product/before_code.py`, and they read as rows that write nothing, so neither was
-    declared the installation's and a board credential ran both (slice 3)."""
-    modules: dict[Path, tuple[dict[str, ast.AST], dict[str, str]]] = {}
+    declared the installation's and a board credential ran both (slice 3). AND A HOLD WAS SEEN ONLY
+    BY ITS NAME: the schedule's pause, reached as the module's attribute, was a function that
+    calls `.pause` on a handle and nothing else — so entering one is reaching it (slice 4)."""
+    seen = set() if seen is None else seen
+    functions, imported = _module(path)
+    if (path, name) in seen or (path, name) == door or name not in functions:
+        return {}
+    seen.add((path, name))
+    fn, here = functions[name], f"{path.relative_to(ROOT)}::{name}"
+    names = {**imported, **_from_the_package(fn)}
+    held = {f"schedule.{name}"} if path == SCHEDULE_PY and name in _poller_holds() else set()
+    out = {writer: (here,) for writer in _writes_directly(fn) | held}
+    for node in ast.walk(fn):
+        if (callee := _resolve(path, names, node)) is not None:
+            for writer, trail in _reaches(*callee, door=door, seen=seen).items():
+                out.setdefault(writer, (here, *trail))
+    return out
 
-    def module(path: Path) -> tuple[dict[str, ast.AST], dict[str, str]]:
-        if path not in modules:
-            tree = parsed(path)
-            modules[path] = ({n.name: n for n in tree.body
-                              if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)},
-                             _from_the_package(tree))
-        return modules[path]
 
-    def reached(path: Path, name: str, seen: set[tuple[Path, str]]) -> set[str]:
-        functions, imported = module(path)
-        if (path, name) in seen or name not in functions:
-            return set()
-        seen.add((path, name))
-        fn = functions[name]
-        names = {**imported, **_from_the_package(fn)}
-        out = _writes_directly(fn)
-        for n in ast.walk(fn):
-            if isinstance(n, ast.Name) and n.id in functions:
-                out |= reached(path, n.id, seen)
-            elif isinstance(n, ast.Name) and n.id in names:
-                home, _, called = names[n.id].rpartition(".")
-                if (found := _module_file(home)) is not None:
-                    out |= reached(found, called, seen)
-            elif (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
-                  and n.value.id in names
-                  and (found := _module_file(names[n.value.id])) is not None):
-                out |= reached(found, n.attr, seen)
-        return out
-
-    return {name: reached(CATALOG_PY, spec.run.__name__, set())
+@functools.cache
+def _catalog_writes() -> dict[str, set[str]]:
+    """`row → what it writes`, following what its runner names into the package (`_reaches`)."""
+    return {name: set(_reaches(CATALOG_PY, spec.run.__name__))
             for name, spec in catalog.CATALOG.items()}
 
 
@@ -1786,3 +1806,154 @@ def test_a_git_call_that_carries_the_credential_and_runs_out_of_time_is_said_as_
         assert ("acme-corp/acme-context" in declaration["said"]
                 and f"timed out after {catalog._A_CONTEXT_GIT_S} s" in declaration["said"]
                 and "Command '" not in declaration["said"]), declaration
+
+
+# ── 10. the command line changes the installation through its rows, and only so (slice 4) ──────
+#
+# THE GUARD #741 ASKED FOR, AND THE DIRECTION NOTHING CHECKED. `test_the_action_layer.py` proves
+# every row is reached from the shell (`openfactory act`); nothing proved that a verb which changes
+# the installation goes through a row. Three slices moved the verbs one by one, and the last one
+# still writing past them, `onboard`'s context repository, was found by this walk, not by a list.
+
+def _home(fn) -> tuple[Path, str]:
+    """Where a function of the package is read from: its module's file in this tree, and its name.
+    By the module's name rather than the file the interpreter loaded, so an editable install of
+    another checkout cannot send the walk to read a different tree."""
+    return _module_file(fn.__module__), fn.__name__
+
+
+def _the_door() -> tuple[Path, str]:
+    """`perform`: where every front end hands a row its parameters. The walk does not enter it —
+    what a row writes is the row's, held to the row's declaration by rule 1 — and nothing else is
+    a door."""
+    return _home(actions.perform)
+
+
+@functools.cache
+def _commands() -> dict[str, object]:
+    """Every command a person can type, read off the Typer app itself: the tree click builds from
+    it, which is what runs, as `words → the function that runs`."""
+    import typer.main
+
+    from openfactory.cli import app
+
+    def walk(command, words: tuple[str, ...]):
+        subs = getattr(command, "commands", None)
+        if subs:
+            for name, sub in sorted(subs.items()):
+                yield from walk(sub, (*words, name))
+        else:
+            yield " ".join(words), inspect.unwrap(command.callback)
+
+    return dict(walk(typer.main.get_command(app), ()))
+
+
+def _registered() -> dict[str, object]:
+    """The same commands, read off what the app registered: the second reading the walk is held
+    to, so a walk that loses a group is seen."""
+    from openfactory.cli import app
+
+    def names(typer_app, words: tuple[str, ...]):
+        for c in typer_app.registered_commands:
+            said = c.name or c.callback.__name__.lower().replace("_", "-")
+            yield " ".join((*words, said)), inspect.unwrap(c.callback)
+        for group in typer_app.registered_groups:
+            yield from names(group.typer_instance, (*words, group.name))
+
+    return dict(names(app, ()))
+
+
+def _read_as_written(fn) -> bool:
+    """Whether the walk reads `fn`'s own body: a module-level function of the package, the one of
+    its name that starts on the line the interpreter says it does."""
+    path, name = _home(fn)
+    node = _module(path)[0].get(name) if path is not None else None
+    if node is None:
+        return False
+    first = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+    return first == fn.__code__.co_firstlineno
+
+
+_HANDS_ON: dict[tuple[Path, str], bool] = {}
+
+
+def _hands_on(home: tuple[Path, str]) -> bool:
+    """Whether calling this function hands a row's name to the door: it is `perform`, or it passes
+    its own first parameter on to a function that does — the shell's `_perform`."""
+    if home == _the_door():
+        return True
+    if home not in _HANDS_ON:
+        _HANDS_ON[home] = False  # a cycle hands nothing on
+        path, name = home
+        fn = _module(path)[0].get(name)
+        first = fn.args.args[0].arg if fn is not None and fn.args.args else None
+        names = {**_module(path)[1], **_from_the_package(fn)} if first else {}
+        _HANDS_ON[home] = bool(first) and any(
+            isinstance(c, ast.Call) and c.args and isinstance(c.args[0], ast.Name)
+            and c.args[0].id == first and (callee := _resolve(path, names, c.func)) is not None
+            and _hands_on(callee) for c in ast.walk(fn))
+    return _HANDS_ON[home]
+
+
+@functools.cache
+def _walked(words: str) -> tuple[dict[str, tuple[str, ...]], frozenset[str]]:
+    """What the command `words` writes of the installation without going through the door, and
+    the rows it hands to the door by name — the first argument of a call, in a function the walk
+    entered, to a function that hands it on."""
+    seen: set[tuple[Path, str]] = set()
+    writes = _reaches(*_home(_commands()[words]), door=_the_door(), seen=seen)
+    rows = set()
+    for path, name in seen:
+        fn = _module(path)[0][name]
+        names = {**_module(path)[1], **_from_the_package(fn)}
+        rows |= {c.args[0].value for c in ast.walk(fn)
+                 if isinstance(c, ast.Call) and c.args and isinstance(c.args[0], ast.Constant)
+                 and c.args[0].value in catalog.CATALOG
+                 and (callee := _resolve(path, names, c.func)) is not None and _hands_on(callee)}
+    return writes, frozenset(rows)
+
+
+def test_the_walk_reaches_every_command_the_app_registers_and_reads_each_body():
+    """The guard below is only as good as its list of commands, so the list is read twice off the
+    app — the tree that runs and what was registered — and the two must be the same commands
+    running the same functions; and the walk must read each one's own body."""
+    walked, registered = _commands(), _registered()
+
+    assert walked == registered, (
+        f"the walk and the app's registrations disagree: "
+        f"{sorted(set(walked) ^ set(registered)) or 'the same words run different functions'}")
+    assert any(" " in words for words in walked), "the walk never left the root"
+    unread = sorted(words for words, fn in walked.items() if not _read_as_written(fn))
+    assert not unread, f"commands whose body the walk cannot read: {unread}"
+
+
+def test_no_command_writes_the_installation_but_through_a_row():
+    """A command that changes the installation is a mapping onto a row: what it writes, it writes
+    through `perform`, which asks who is acting and logs it. Every command is walked into the
+    package as rule 1 walks a row, and none may reach a writer of the registry, the people store
+    or the poller's schedule on its own — directly, through a helper, or by calling a row's runner
+    without the door. Each failure names the command, the writer and the rows that write it."""
+    said = []
+    for words in sorted(_commands()):
+        for writer, trail in sorted(_walked(words)[0].items()):
+            rows = sorted(r for r, what in _catalog_writes().items() if writer in what)
+            onto = (f"map it onto {' or '.join(rows)} through `perform`" if rows else
+                    "no row writes it yet: add one, declared `installation=True`, and map the "
+                    "command onto it")
+            said.append(f"`openfactory {words}` writes {writer} outside a row "
+                        f"({' → '.join(trail)}) — {onto}")
+
+    assert not said, "\n".join(said)
+
+
+def test_every_installation_row_is_the_mapping_of_a_command():
+    """THE POSITIVE TWIN, and #741's other half: the shell's verbs are mappings over the
+    installation's rows. Each installation row is handed to `perform`, by name, from a command the
+    walk reaches — so the walk reads the commands down to the door, and a walk that lost a group,
+    or a door the shell's verbs stopped going through, loses the rows they map."""
+    mapped = {row for words in _commands() for row in _walked(words)[1]}
+
+    missing = sorted(set(INSTALLATION) - mapped)
+    assert not missing, (
+        f"installation rows no command maps onto: {missing} — `openfactory act` reaches every "
+        f"row, and the verb that changes this part of the installation is a mapping onto it")
