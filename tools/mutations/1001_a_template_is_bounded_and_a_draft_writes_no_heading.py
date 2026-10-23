@@ -8,6 +8,12 @@ THE CLAIMS, each a rule a family test in the guard states over cases read from t
      requires the refusal to name the largest size accepted. A choice's values and every `help`
      had none: 200,000 values were accepted, and each requirement that missed them then carried
      a warning of about 1.7 MB.
+  1b. **…and each ceiling is the number ADR-0058 promises** (review of PR #1086). The guard reads
+     the numbers from the ADR's amendment and holds every size of claim 1 at its own: accepted at
+     it, and one past it refused naming it. Claim 1's test finds a ceiling and its name, not which
+     one: with three of them raised at runtime (500 values, 600 characters, 3,000 of `help`) it
+     stayed green. Every row of 1b is aimed at this test alone; the last moves the ADR's number and
+     not the code's.
   2. **No text a draft carries writes a heading the reader takes for the document's own.** The
      guard reads every text slot from `RequirementDraft`, and writes into each the renderer's own
      heading lines — whole, as a bare marker, and indented as far as Markdown still shows one —
@@ -21,9 +27,11 @@ YAML door and whose requirements are read from disk by the corpus.
 """
 
 TEST = "tests/test_requirement_template.py"
+PROMISES = f"{TEST}::test_a_template_holds_what_adr_0058_promises_and_one_more_is_refused_naming_it"
 
 TEMPLATE = "openfactory/product/template.py"
 AUTHORING = "openfactory/product/authoring.py"
+ADR = "docs/adr/0058-a-product-owns-its-requirement-template.md"
 
 MUTATIONS = [
     # ── 1. what a template holds is bounded ────────────────────────────────────────────────────
@@ -47,6 +55,34 @@ MUTATIONS = [
     ("a section's `help` is a plain string again, past the bound", TEMPLATE,
      '    required: bool = False\n    help: Help = ""\n',
      '    required: bool = False\n    help: str = ""\n'),
+
+    # ── 1b. …at the numbers ADR-0058 promises ──────────────────────────────────────────────────
+    ("a choice takes 500 values, where ADR-0058 promises 50", TEMPLATE,
+     "MAX_VALUES = 50\n", "MAX_VALUES = 500\n", PROMISES),
+
+    ("a choice's value runs to 600 characters, where ADR-0058 promises 60", TEMPLATE,
+     "MAX_VALUE = 60\n", "MAX_VALUE = 600\n", PROMISES),
+
+    ("`help` runs to 3,000 characters, where ADR-0058 promises 300", TEMPLATE,
+     "MAX_HELP = 300\n", "MAX_HELP = 3000\n", PROMISES),
+
+    ("a template holds 300 fields, where ADR-0058 promises 30", TEMPLATE,
+     "Field(default_factory=list, max_length=30)", "Field(default_factory=list, max_length=300)",
+     PROMISES),
+
+    ("a template holds 200 sections, where ADR-0058 promises 20", TEMPLATE,
+     "Field(default_factory=list, max_length=20)", "Field(default_factory=list, max_length=200)",
+     PROMISES),
+
+    ("a name runs to 100 characters, where ADR-0058 promises 60", TEMPLATE,
+     "[A-Za-z0-9 /&'().-]{0,58}", "[A-Za-z0-9 /&'().-]{0,98}", PROMISES),
+
+    ("a choice takes 49 values, one fewer than ADR-0058 promises", TEMPLATE,
+     "MAX_VALUES = 50\n", "MAX_VALUES = 49\n", PROMISES),
+
+    ("ADR-0058 promises 40 values to a choice, and the code keeps 50", ADR,
+     "50 values of 60 characters to a choice", "40 values of 60 characters to a choice",
+     PROMISES),
 
     # ── 2. a draft's text is written as text ───────────────────────────────────────────────────
     ("the title is written as it came, and a line break in it opens a heading under the title",

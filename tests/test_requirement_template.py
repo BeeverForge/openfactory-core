@@ -224,6 +224,52 @@ def test_everything_a_template_holds_has_a_ceiling_and_past_it_the_refusal_names
     assert str(largest) in refused, f"accepted at {largest}, and one past it says: {refused}"
 
 
+#: WHERE EACH CEILING IS PROMISED (review of #1086). The test above proves that a ceiling exists and
+#: that the refusal names it, not which one: with the bounds raised at runtime to 500 values, 600
+#: characters and 3,000 of `help` it stayed green. ADR-0058's amendment states the number a company
+#: is told for each, and the release note repeats it; read from the ADR, so a constant that moves
+#: without its record is refused here.
+_ADR_0058 = (Path(__file__).resolve().parents[1]
+             / "docs" / "adr" / "0058-a-product-owns-its-requirement-template.md")
+_PROMISE = re.compile(
+    r"at most (?P<fields>\d+) fields and (?P<sections>\d+) sections, a name of (?P<name>\d+) "
+    r"characters, (?P<values>\d+) values of (?P<value>\d+) characters to a choice, and "
+    r"(?P<help>\d+) characters of `help`"
+)
+
+#: which of the numbers the ADR states holds each size the test above finds
+_PROMISED_AS = {
+    "fields (how many)": "fields", "sections (how many)": "sections",
+    "fields.name": "name", "sections.name": "name",
+    "fields.values (how many)": "values", "fields.values (each)": "value",
+    "fields.help": "help", "sections.help": "help",
+}
+
+
+def _promised() -> dict[str, int]:
+    """The numbers ADR-0058 says a template holds — where it last states them, so an amendment
+    that moves one is the one read."""
+    said = list(_PROMISE.finditer(" ".join(_ADR_0058.read_text(encoding="utf-8").split())))
+    assert said, f"{_ADR_0058.name} no longer states what a template holds"
+    return {name: int(number) for name, number in said[-1].groupdict().items()}
+
+
+@pytest.mark.parametrize("where", [w for w, _ in _dimensions()])
+def test_a_template_holds_what_adr_0058_promises_and_one_more_is_refused_naming_it(
+    where: str,
+) -> None:
+    assert where in _PROMISED_AS, f"{where}: a size ADR-0058 promises no number for"
+    bound = _promised()[_PROMISED_AS[where]]
+    build = dict(_dimensions())[where]
+    said = _refusal(build(bound))
+    assert not said, f"{where}: {bound} is promised, and refused: {said}"
+    refused = _refusal(build(bound + 1))
+    assert re.search(rf"\b{bound}\b", refused), (
+        f"{where}: {bound} is promised, and {bound + 1} is "
+        + (f"refused without naming it: {refused}" if refused else "accepted")
+    )
+
+
 # ── what a draft says is written as text, never as the document's structure (review of #1014) ──
 
 
