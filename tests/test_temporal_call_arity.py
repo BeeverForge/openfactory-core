@@ -26,7 +26,7 @@ import pytest
 from temporalio import workflow as temporal_workflow
 from temporalio.client import Client, WorkflowHandle
 
-from tests.the_tree_read_once import could_say, parsed
+from tests.the_tree_read_once import could_say, parsed, source_text
 
 #: attribute name → the real callable whose signature it must fit. `execute_activity` and
 #: `create_schedule` joined after a reviewer pointed out they sat outside the guard — the same
@@ -45,9 +45,15 @@ _CHECKED = {
 def _could_call(text: str) -> bool:
     """NECESSARY for a checked call (#1069): a dot, then whitespace, backslash continuations or
     comments (inside brackets), then one of `_CHECKED`'s names — raw or in NFKC. Built from
-    `_CHECKED` on every call, so a name added there is filtered for."""
+    `_CHECKED` on every call, so a name added there is filtered for.
+
+    POSSESSIVE, SO LINEAR (PR #1074 review). With `#[^\n]*` and `*` a comment could end before any
+    later `#` on its line and the next round start another there, so a dot followed by comment
+    lines carrying several `#` each backtracked exponentially (>190 s at 22 such lines). `*+`
+    never gives a comment or a run back; the one text it no longer matches is a name INSIDE a
+    comment after the dot, which no call can be, so the filter stays necessary."""
     names = "|".join(re.escape(name) for name in _CHECKED)
-    return could_say(text, rf"\.(?:[\s\\]|#[^\n]*)*(?:{names})\b")
+    return could_say(text, rf"\.(?:[\s\\]|#[^\n]*+)*+(?:{names})\b")
 
 
 def _sites_in(tree: ast.Module, path: Path):
@@ -70,7 +76,7 @@ def _call_sites(root: Path = Path("openfactory")):
     """Every checked call under `root`, parsing only the modules whose text can make one (#1069:
     this runs at import, in every worker)."""
     for path in sorted(root.rglob("*.py")):
-        if _could_call(path.read_text(encoding="utf-8")):
+        if _could_call(source_text(path)):
             yield from _sites_in(parsed(path), path)
 
 

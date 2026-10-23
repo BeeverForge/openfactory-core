@@ -40,6 +40,7 @@ CI = ROOT / ".github" / "workflows" / "ci.yml"
 _ENV = dict(os.environ)
 
 #: (argv, environment) → the collection that invocation produced, run once per process.
+#: Never invalidated, by design: the tree does not change under a running suite, and it dies with it.
 _RUNS: dict[tuple[tuple[str, ...], tuple[tuple[str, str], ...]],
             subprocess.CompletedProcess[str]] = {}
 

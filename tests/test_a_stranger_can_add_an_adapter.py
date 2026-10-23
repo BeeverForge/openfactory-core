@@ -34,7 +34,7 @@ import pytest
 import stranger_addon
 
 from openfactory import plugins
-from tests.the_tree_read_once import could_say, parsed
+from tests.the_tree_read_once import could_say, parsed, source_text
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -124,11 +124,11 @@ def _refuses_a_kind(tree: ast.Module, text: str) -> bool:
             continue
         message = node.exc.args[0]
         parts = (message.values if isinstance(message, ast.JoinedStr) else [message])
-        text = "".join(p.value for p in parts if isinstance(p, ast.Constant)
+        said = "".join(p.value for p in parts if isinstance(p, ast.Constant)
                        and isinstance(p.value, str))
         # `known:` with the colon — "unknown" contains "known", and the action layer's "unknown
         # outcome code … one of …" is a validator, not a registry
-        if "known:" in text and (text.startswith("unknown ") or text.startswith("no ")):
+        if "known:" in said and (said.startswith("unknown ") or said.startswith("no ")):
             return True
     return False
 
@@ -205,7 +205,7 @@ def registries(root: pathlib.Path = ROOT) -> dict[str, set[str]]:
     than absent. Only a module whose text can be one is parsed (#1069: this runs at import)."""
     found: dict[str, set[str]] = {}
     for path in sorted(root.joinpath("openfactory").rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
+        text = source_text(path)
         if not _could_be_a_registry(text):
             continue
         tree = parsed(path)

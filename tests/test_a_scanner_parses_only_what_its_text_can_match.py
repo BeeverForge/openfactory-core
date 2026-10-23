@@ -26,6 +26,8 @@ import ast
 import inspect
 import re
 import subprocess
+import sys
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -36,7 +38,7 @@ import test_temporal_call_arity as arity
 import test_the_suite_cannot_reach_a_live_engine as engine
 
 from tests import the_tree_read_once
-from tests.the_tree_read_once import could_say, parsed
+from tests.the_tree_read_once import could_say, parsed, source_text
 
 
 def _recording(monkeypatch: pytest.MonkeyPatch, owner: object) -> list[Path]:
@@ -78,6 +80,36 @@ def test_could_say_falls_back_to_nfkc_and_only_for_text_that_needs_it(
     monkeypatch.setattr(the_tree_read_once.unicodedata, "normalize", recorded)
     assert not could_say("nothing to see", "pytestmark")
     assert not normalised, "ASCII text was normalised"
+
+
+#: A module Python reads as Latin-1 because it says so (PEP 263), whose bytes are not UTF-8.
+_LATIN1 = "# -*- coding: latin-1 -*-\nname = 'caf\u00e9'\n".encode("latin-1")
+
+
+def test_source_text_decodes_as_python_does(tmp_path: Path) -> None:
+    path = tmp_path / "declared.py"
+    path.write_bytes(_LATIN1)
+    with tokenize.open(path) as stream:
+        expected = stream.read()
+
+    assert source_text(path) == expected
+    assert "café" in source_text(path)
+
+
+def test_a_scanner_reads_a_declared_coding_without_raising(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file none of the filters can match is skipped, whatever coding it declares; reading it as
+    UTF-8 would have raised at import, in every worker."""
+    for rel in ("tests/test_declared.py", "openfactory/declared.py"):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(_LATIN1)
+    seen = [_recording(monkeypatch, owner) for owner in (engine, adapter, arity)]
+
+    assert engine._marked_files(tmp_path) == []
+    assert adapter.registries(tmp_path) == {}
+    assert list(arity._call_sites(tmp_path / "openfactory")) == []
+    assert not any(seen), seen
 
 
 # ── the live-engine marker ──────────────────────────────────────────────────────────────────────
@@ -183,7 +215,10 @@ _CALLS = {
     "commented.py": 'x = (h.  # c\n     signal)("a")\n',
     "fullwidth.py": 'h.ｓignal("a")\n',
 }
-_UNCALLED = {"other.py": 'h.other("a")\nsignal = 1\n'}
+_UNCALLED = {
+    "other.py": 'h.other("a")\nsignal = 1\n',
+    "named_in_a_comment.py": 'x = 1  # done.\n# then the signal\n',
+}
 
 
 def test_the_call_site_filter_is_necessary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,6 +245,62 @@ def test_the_call_site_filter_follows_the_checked_names(
     monkeypatch.setitem(arity._CHECKED, "planted_call", lambda self, a: None)
 
     assert [s[2] for s in arity._call_sites(root)] == ["planted_call"]
+
+
+#: The pattern f145cf96 shipped. `#[^\n]*` may stop before any later `#` on the line and let the
+#: next round start a comment there, so a line with k hashes splits 2**(k-1) ways and the lines
+#: multiply: the maintainer measured 5 s at 26 hashes and >190 s at 22 such lines (2026-10-23).
+_BACKTRACKING = (r"\.(?:[\s\\]|#[^\n]*)*"
+                 r"(?:signal|query|start_workflow|execute_workflow|execute_activity|create_schedule)\b")
+
+#: A dot closing a comment, then comment lines that each carry several `#` (`# step # note`,
+#: `#NNNN` references) and no checked name. Ten lines: the old pattern measured ~10x per line
+#: here (0.15 s at six lines, 2026-10-23), so ~25 min at ten; the possessive one, microseconds.
+_BANNER = "x = 1  # see.\n" + "# step # note #1234\n" * 10 + "y = 2\n"
+
+_SEARCH = """
+import re, sys
+text = sys.stdin.read()
+print("ready", flush=True)
+re.search(sys.argv[1], text)
+print("done", flush=True)
+"""
+
+
+def _searches_within(pattern: str, text: str, seconds: float) -> bool:
+    """Whether `re.search(pattern, text)` returns within `seconds`, timed from after the child has
+    started and read its input, in a child that is killed otherwise (a hung search cannot be
+    interrupted in-process)."""
+    child = subprocess.Popen([sys.executable, "-I", "-c", _SEARCH, pattern], text=True,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        child.stdin.write(text)
+        child.stdin.close()
+        assert child.stdout.readline() == "ready\n"
+        try:
+            child.wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            return False
+        return child.returncode == 0
+    finally:
+        child.kill()
+        child.wait()
+        child.stdout.close()
+
+
+def test_the_call_site_filter_is_linear_on_a_banner_of_hashes(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    patterns: list[str] = []
+    monkeypatch.setattr(arity, "could_say", lambda text, pattern: patterns.append(pattern))
+    arity._could_call("")
+    (pattern,) = patterns
+    monkeypatch.undo()
+
+    assert not _searches_within(_BACKTRACKING, _BANNER, 1.0), (
+        "the banner no longer blows the old pattern up, so it proves nothing about the new one")
+    assert _searches_within(pattern, _BANNER, 1.0), (
+        "the call-site filter backtracks on comment lines carrying several `#`")
+    assert not arity._could_call(_BANNER)
 
 
 # ── the product rows ────────────────────────────────────────────────────────────────────────────

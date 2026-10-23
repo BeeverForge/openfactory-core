@@ -35,7 +35,7 @@ import textwrap
 
 import pytest
 
-from tests.the_tree_read_once import could_say, parsed
+from tests.the_tree_read_once import could_say, parsed, source_text
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -130,7 +130,7 @@ def _marked_files(root: pathlib.Path = ROOT) -> list[pathlib.Path]:
     """Every test module that declares `pytestmark = pytest.mark.owns_its_engine` — parsing only
     the modules whose text can say so (#1069: this runs at import, in every worker)."""
     return [path for path in sorted(root.joinpath("tests").glob("test_*.py"))
-            if _could_mark(path.read_text(encoding="utf-8")) and _marks_itself(parsed(path))]
+            if _could_mark(source_text(path)) and _marks_itself(parsed(path))]
 
 
 def test_the_marker_scan_finds_the_one_file_that_uses_it():
