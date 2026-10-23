@@ -792,7 +792,7 @@ def test_an_azure_project_is_cloned_from_dev_azure_com(monkeypatch):
     tmp, cloned = conversation.clone_repo(_azure_project())
 
     assert cloned is True
-    url = calls[0][calls[0].index("--depth") + 2]
+    url = calls[0][calls[0].index("--") + 1]  # the URL follows the end-of-options marker (#741)
     assert url == "https://openfactory:azure-pat@dev.azure.com/acme-ai/factory/_git/fx-ado"
     assert "github.com" not in url
     tmp.rmdir()
@@ -827,7 +827,7 @@ def test_a_github_project_still_clones_exactly_as_it_did(monkeypatch):
     tmp, cloned = conversation.clone_repo(_github_project())
 
     assert cloned is True
-    assert calls[0][calls[0].index("--depth") + 2] == \
+    assert calls[0][calls[0].index("--") + 1] == \
         "https://x-access-token:ghs_tok@github.com/o/r.git"
     assert calls[1][-1] == "https://github.com/o/r.git"
     tmp.rmdir()
@@ -856,7 +856,7 @@ def test_the_diagnosis_checkout_uses_the_same_seam(monkeypatch):
     tmp, cloned = diagnosis._checkout(_azure_project(), "#412")
 
     assert cloned is True
-    assert "dev.azure.com" in calls[0][calls[0].index("--depth") + 2]
+    assert "dev.azure.com" in calls[0][calls[0].index("--") + 1]
     assert calls[1][-1] == "https://dev.azure.com/acme-ai/factory/_git/fx-ado"
     tmp.rmdir()
 

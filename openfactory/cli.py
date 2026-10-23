@@ -1714,27 +1714,21 @@ def poller_pause(
                                         "read back by the panel and `poller status`."),
 ) -> None:
     """Hold the queue: no card in TO-DO is picked up anywhere until `poller resume`."""
-    import getpass
-
-    _refuse_without_the_client("could not pause the poller", code=2)
-    reason = note or f"paused by {getpass.getuser()} via `openfactory poller pause`"
-    try:
-        # Imported INSIDE the `try` (#178): it sat above it, so a failure to import the engine's
-        # schedule module was the one failure this `except` could not turn into a sentence.
-        from openfactory.runtime.temporal.schedule import hold_poller
-
-        result = asyncio.run(hold_poller(on=False, note=reason))
-    except Exception as exc:  # noqa: BLE001 — one sentence, the cause, never a traceback
-        typer.echo(f"✗ could not pause the poller ({str(exc)[:200]}) — the engine may be "
-                   f"unreachable. `openfactory poller status` says whether it can be read.")
-        raise typer.Exit(2) from None
-    if not result["changed"]:
-        typer.echo(f'poller: already PAUSED — note: "{result["note"]}". Nothing was changed.')
+    # A MAPPING ONTO THE `poller_pause` ROW (#741), so the panel and a front end of one's own pull
+    # the same lever: the row holds the schedule, reads what is still in flight, and refuses an
+    # install without the engine's client in the sentence every surface gives (#178). What stays
+    # here is the note this shell signs a pause with, and how the answer prints.
+    reason = note or f"paused by {_shell_user()} via `openfactory poller pause`"
+    outcome = _perform("poller_pause", note=reason)
+    if not outcome.ok:
+        typer.echo(f"✗ {outcome.message}", err=True)
+        raise typer.Exit(2)
+    if not outcome.data["changed"]:
+        typer.echo(f'poller: already PAUSED — note: "{outcome.data["note"]}". Nothing was changed.')
     else:
         typer.echo("poller: PAUSED — no card in TO-DO will be picked up anywhere")
         typer.echo(f'  note: "{reason}"')
-    _, jobs = _poller_reading()
-    _say_flight(jobs, after_pause=True)
+    _say_flight(outcome.data["in_flight"], after_pause=True)
 
 
 @poller_app.command("resume")
@@ -1742,23 +1736,15 @@ def poller_resume(
     note: str = typer.Option(None, help="Optional. Replaces the note the pause left behind."),
 ) -> None:
     """Take work again."""
-    import getpass
-
-    _refuse_without_the_client("could not resume the poller", code=2)
-    reason = note or f"resumed by {getpass.getuser()} via `openfactory poller resume`"
-    try:
-        from openfactory.runtime.temporal.schedule import hold_poller  # inside, as in `pause`
-
-        result = asyncio.run(hold_poller(on=True, note=reason))
-    except Exception as exc:  # noqa: BLE001
-        typer.echo(f"✗ could not resume the poller ({str(exc)[:200]}) — the engine may be "
-                   f"unreachable. `openfactory poller status` says whether it can be read.")
-        raise typer.Exit(2) from None
-    if not result["changed"]:
+    reason = note or f"resumed by {_shell_user()} via `openfactory poller resume`"
+    outcome = _perform("poller_resume", note=reason)  # the `poller_resume` row, as `pause` maps
+    if not outcome.ok:
+        typer.echo(f"✗ {outcome.message}", err=True)
+        raise typer.Exit(2)
+    if not outcome.data["changed"]:
         typer.echo("poller: already ON. Nothing was changed.")
         return
-    intake, _ = _poller_reading()
-    _describe_intake(intake)
+    _describe_intake(outcome.data["intake"])
 
 
 knowledge_app = typer.Typer(help="Build and inspect the Knowledge Layer bundle (module map).")
@@ -2436,7 +2422,9 @@ def doctor_cmd(
 
     from openfactory import doctor as doc
 
-    project = _get_project(name)
+    # THE FIRST HOUR'S SENTENCE, asked before the row: `doctor` before `project add` is the order
+    # a reader takes from the docs, and this names the command that fixes it (`_get_project`).
+    _get_project(name)
     # EVERY PROBE FAILURE IS REPORTED BELOW, AS A LINE WITH A REMEDY — so the adapters' own
     # warnings, printed to stderr by the root logger, arrive as a second copy in OUR internal
     # vocabulary, above the table, before the reader knows there is a table. The pilot saw
@@ -2446,21 +2434,31 @@ def doctor_cmd(
     was = quieted.level
     quieted.setLevel(logging.ERROR)
     try:
-        report = doc.diagnose(doc.probes_for(project))
+        # THE `doctor` ROW (#741), so a front end of one's own reads the same document this
+        # prints: the row diagnoses and composes `openfactory.doctor/1`, and what stays here is
+        # how a terminal shows it.
+        outcome = _perform("doctor", project=name)
     finally:
         quieted.setLevel(was)
+    if not outcome.ok:
+        from openfactory.actions.base import NOT_FOUND
+
+        typer.echo(f"✗ {outcome.message}")
+        raise typer.Exit(2 if outcome.code == NOT_FOUND else 1)
+    document = dict(outcome.data)
 
     # WHICH CODE ANSWERED. First line, before any finding, because it is the first thing to
     # doubt when a fix that was pulled does not appear: the worker runs a BAKED package, so a
     # restart without `--build` re-runs the previous one and every line below is that build's
     # opinion (measured on the pilot, three identical outputs across two fixes, 2026-08-14).
-    code, built = namespace.build_stamp()
+    stamp = document.get("build") or {}
+    code, built = stamp.get("code", ""), stamp.get("built", "")
     if as_json:
         # THE DOCUMENT AND NOTHING ELSE ON STDOUT (#356): a reader parses the whole stream, and one
         # line of prose above it — the build banner, the notifier line — is a document that does
         # not parse. The build stamp travels INSIDE it instead. Same exit code as the report.
-        typer.echo(doc.as_json(doc.as_document(report, project=name, build=(code, built))))
-        if not report.ok:
+        typer.echo(doc.as_json(document))
+        if not document["ok"]:
             raise typer.Exit(1)
         return
     if code:
@@ -2485,34 +2483,34 @@ def doctor_cmd(
     # different gate keys drop every answer while each looks healthy on its own.
     typer.echo(f"· {doc.gate_key_line()}")
     typer.echo("")
-    for f in report.findings:
-        # NOT `f.mark`: this renders the DOCTOR's report, whose `Finding` is a different class in
-        # `openfactory/doctor.py` and has two states, not three. The two loops look identical and
-        # are about different objects — changing this one raised `AttributeError` inside the CLI
-        # runner and turned fourteen doctor guards into a blank page (2026-08-30).
-        typer.echo(f"{'  ok  ' if f.ok else ' FAIL '} {f.check:<14} {f.message}")
-        if not f.ok and f.remedy:
-            typer.echo(f"        {'':<14} → {f.remedy}")
-    if report.ok:
+    for line in document["checks"]:
+        # A CHECK OF THE DOCUMENT, under the document's names (`doctor.as_document`): `id`,
+        # `result`, `detail`, `remedy`, `note`. Rendered from the document rather than from the
+        # report it was made of, so this screen and `--json` are one reading and cannot disagree.
+        passed = line["result"] == "ok"
+        typer.echo(f"{'  ok  ' if passed else ' FAIL '} {line['id']:<14} {line['detail']}")
+        if not passed and line["remedy"]:
+            typer.echo(f"        {'':<14} → {line['remedy']}")
+    if document["ok"]:
         typer.echo(f"\nOK — {name!r} can run a ticket")
         # A PASS IS NOT ALWAYS THE END OF THE SENTENCE. "OK — can run a ticket" is true about the
         # CODE and silent about everything a healthy-but-off half means; the operator caught it
         # on exactly the screen that says so (2026-08-14): a project with no context repository
         # runs tickets and has no client-facing half at all, and the verdict said neither.
-        for f in report.findings:
-            if f.ok and f.note:
-                typer.echo(f"  · {f.note}")
+        for line in document["checks"]:
+            if line["result"] == "ok" and line["note"]:
+                typer.echo(f"  · {line['note']}")
         return
     # "NOT READY" AND "SOMETHING IS BROKEN" ARE DIFFERENT SENTENCES — and which one this is lives
     # in `doctor.verdict` (#356), the one rule the closing line and `--json` both read, with the
-    # history of why it is derived from the findings rather than from a list of names.
-    said = doc.verdict(report, name)
-    if said.kind == "expected":
+    # history of why it is derived from the findings rather than from a list of names. It reaches
+    # this screen as the document's `verdict` and `next_step`, which is that rule's answer.
+    if document["verdict"] == "expected":
         typer.echo("\nNOT ready — and at this point in the sequence that is EXPECTED: "
                    "everything the previous steps can settle is green, and the rest is what the "
                    "steps ahead answer.\n"
-                   f"Next: {said.next_step}. Then run this again; it is the same command that "
-                   "says when you are ready.")
+                   f"Next: {document['next_step']}. Then run this again; it is the same command "
+                   "that says when you are ready.")
     else:
         typer.echo("\nNOT ready — fix the FAIL lines above")
     raise typer.Exit(1)
@@ -3272,6 +3270,23 @@ def people_invite(
     typer.echo(f"  {panel_url()}{outcome.data['link']}")
 
 
+@people_app.command("revoke")
+def people_revoke(
+    person: str = typer.Argument(..., help="their id, as `openfactory people list` shows it"),
+) -> None:
+    """Take a person off this deployment: their registration, every session they hold, and any
+    invitation still open for them. A later invitation brings them back like anybody new.
+
+    A MAPPING ONTO THE `people_revoke` ROW, like `invite` (ADR-0039): the shell's login is who
+    did it, recorded on the row, and the last person registered is not revoked while nothing else
+    closes the panel's door."""
+    outcome = _perform("people_revoke", person=person)
+    if not outcome.ok:
+        typer.echo(f"people revoke: {outcome.message}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(outcome.message)
+
+
 @people_app.command("list")
 def people_list() -> None:
     """Who is registered, and which invitations are still open."""
@@ -3952,21 +3967,33 @@ _NAME_COL = 26
 _WIDTH = 96
 
 
+def _shell_user() -> str:
+    """The login this shell runs as — the label every row this CLI performs is recorded under.
+
+    `getpass.getuser` fails in a container with no passwd entry and no LOGNAME/USER, which is its
+    documented failure; the identity here is a label for the audit line, not the authority, so it
+    must not stop the command. Named exceptions, so this stays a defined branch rather than a
+    swallow (`tests/test_no_silent_failures.py`)."""
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except (KeyError, OSError):
+        return "unknown"
+
+
 def _perform(name: str, **params: object):
-    """Run one catalogued action as the shell's own user. The CLI's whole job in this sub-app.
+    """Run one catalogued action as the shell's own user. The CLI's whole job in this sub-app,
+    and in every verb that changes the installation (#741).
 
     The actor is an admin for the same reason `openfactory act` says so: somebody with a shell
     where the factory runs already outranks every gate in this layer, and pretending otherwise is
-    theatre."""
+    theatre. It is UNSCOPED for the same reason, which is what lets it change the installation."""
     import asyncio
-    import getpass
 
     from openfactory import actions as act_layer
 
-    try:
-        who = getpass.getuser()
-    except (KeyError, OSError):
-        who = "unknown"
+    who = _shell_user()
     return asyncio.run(act_layer.perform(
         name, by=act_layer.Actor(id=who, display=who, via="cli", admin=True), **params))
 
@@ -4777,24 +4804,16 @@ def product_name(name: str,
 
     Every line the role writes is signed with it and people address it by it, so it is the
     client's to choose; until this verb the only way was editing the live registry by hand."""
-    from openfactory.product.sessions import clean_title
-    from openfactory.registry import ProjectRegistry
-
-    project = _get_project(name)
-    product = getattr(project, "product", None)
-    if agent_name is None:
-        current = getattr(product, "agent_name", "") if product else ""
-        typer.echo(f"{name}'s product role is called {current!r}" if current
-                   else f"{name}'s product role has no name — it introduces itself by function")
-        return
-    chosen = clean_title(agent_name)[:40]
-    try:
-        ProjectRegistry().set_agent_name(name, chosen)
-    except ValueError as exc:
-        typer.echo(f"✗ {exc}")
-        raise typer.Exit(2) from None
-    typer.echo(f"✓ {name}'s product role is now called {chosen!r}" if chosen
-               else f"✓ {name}'s product role has no name now — it introduces itself by function")
+    # A MAPPING ONTO THE `product_name` ROW (#741): omitted, the row reads the name; given — `""`
+    # included — it sets it. The first hour's "not registered" sentence is asked first, as every
+    # verb here that takes a project asks it.
+    _get_project(name)
+    outcome = (_perform("product_name", project=name) if agent_name is None
+               else _perform("product_name", project=name, agent_name=agent_name))
+    if not outcome.ok:
+        typer.echo(f"✗ {outcome.message}")
+        raise typer.Exit(2)
+    typer.echo(f"✓ {outcome.message}" if outcome.data["changed"] else outcome.message)
 
 
 @product_app.command("declare")
@@ -4815,40 +4834,33 @@ def product_declare(name: str, docs_repo: str) -> None:
     project, or a repository outside a GitHub App installation's selection all record perfectly
     and then surface hours later as the product role answering "I cannot see the requirements".
     So both credentials that will ever read it are tried here, while somebody is watching."""
-    from openfactory.product.onboard import context_reachability
-    from openfactory.registry import ProjectRegistry
-
+    # A MAPPING ONTO THE `product_declare` ROW (#741): the row records the repository, reads it
+    # back with both credentials and asks the forge's row for the likely cause; this prints it.
     _get_project(name)  # a clear "not registered" beats a registry write to a ghost
-    repo = (docs_repo or "").strip().strip("/")
-    if not repo:
+    if not (docs_repo or "").strip().strip("/"):
+        # THE COMMAND'S OWN REMEDY for an empty name: `perform` refuses `""` as a missing
+        # parameter before the row is reached, and that sentence names a parameter, not a command.
         typer.echo("✗ name the repository: `openfactory product declare <project> <owner/repo>`")
         raise typer.Exit(2)
-    ProjectRegistry().set_docs_repo(name, repo)
+    outcome = _perform("product_declare", project=name, docs_repo=docs_repo)
+    if not outcome.ok:
+        typer.echo(f"✗ {outcome.message}")
+        raise typer.Exit(2)
+    repo = outcome.data["docs_repo"]
     typer.echo(f"✓ {name}'s context repository is {repo} — recorded")
-
-    project = _get_project(name)  # RE-READ: the object above predates the record
-    ok, why = context_reachability(project, repo)
-    if ok:
+    if outcome.data["reachable"]:
         typer.echo("  ✓ reachable — `openfactory onboard " + name + "` proposes the declaration "
                    "and the backfill INTO it as a pull request")
         return
-    typer.echo(f"  ⚠ RECORDED, BUT NOT READABLE: {why}")
+    typer.echo(f"  ⚠ RECORDED, BUT NOT READABLE: {outcome.data['why']}")
     typer.echo("    The declaration stands — fix the access and nothing needs re-declaring. "
                "Usually the name or its qualifier is wrong, or the credential has no access "
                "to that repository.")
-    # THE VENDOR'S OWN LIKELY CAUSE, and only to the operator who runs that vendor: telling an
-    # Azure DevOps operator about GitHub App installation selections is noise that costs trust
-    # (the operator, 2026-08-14: any change must serve the product, not one deployment).
-    #
-    # SAID BY THE FORGE'S ROW, because the context repository is read through the forge
-    # (`product.onboard.context_forge`). It was chosen here by `"github" in kinds` over the forge
-    # AND the tracker: two branches in a command every vendor runs, none for a stranger's forge,
-    # and a GitHub cause offered about an Azure Repos repository whose tracker is GitHub.
-    from openfactory.adapters.forge.registry import forge_row
-
-    cause = plugins.sentence(forge_row(project), "when_unreadable", "", project)
-    if cause:
-        typer.echo(f"    {cause}")
+    # THE VENDOR'S OWN LIKELY CAUSE, and only to the operator who runs that vendor — said by the
+    # forge's row, in the row (`_product_declare`), because the context repository is read
+    # through the forge.
+    if outcome.data["cause"]:
+        typer.echo(f"    {outcome.data['cause']}")
     raise typer.Exit(1)
 
 
@@ -4925,7 +4937,8 @@ def product_init(
         root = _Path(tmp) / "docs"
         if docs_repo:
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--no-local", "--depth", "1", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", "--depth", "1", "--", url,
+                                 str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
@@ -4949,7 +4962,7 @@ def product_init(
             docs_repo, made = _create_context_repo(project, name)
             typer.echo(f"{'✓ created' if made else '· found'} {docs_repo}")
             url = _context_clone_url(project, docs_repo)
-            rc = subprocess.run(["git", "clone", "--no-local", url, str(root)],
+            rc = subprocess.run(["git", "clone", "--no-local", "--", url, str(root)],
                                 capture_output=True, text=True, timeout=180)
             if rc.returncode != 0:
                 typer.echo(f"✗ could not clone {docs_repo}: {rc.stderr[-200:]}")
@@ -5014,7 +5027,7 @@ def product_init(
                      # after a partial failure (pushed, then `gh pr create` had no token) must
                      # overwrite rather than dead-lock on a non-fast-forward. Same rule, and the
                      # same reason, as `publish_branch`.
-                     ["push", "--force", "-u", "origin", branch]):
+                     ["push", "--force", "-u", "--", "origin", branch]):
             done = subprocess.run(["git", "-C", str(root), *ident, *args],
                                   capture_output=True, text=True, timeout=180)
             if done.returncode != 0:

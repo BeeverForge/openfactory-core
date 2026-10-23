@@ -1387,7 +1387,7 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
                         detail=_w(language, "branches_unreadable"))
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-import-"))
     try:
-        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, clone_url,
+        rc, out = _git(["clone", "--no-local", "--depth", "1", "--branch", base, "--", clone_url,
                         str(tmp)])
         if rc != 0:
             return Imported(ok=False, refusal=NOT_REFUSED,
@@ -1431,7 +1431,7 @@ def land_import(*, docs_repo: str, clone_url: str, brought: Brought, forge,
         if rc != 0:
             return Imported(ok=False, refusal=NOT_REFUSED, plan=the_plan,
                             detail=f"nothing to commit: {_scrub(out)[-200:]}")
-        rc, out = _git(["push", clone_url, f"HEAD:{base}"], cwd=tmp)
+        rc, out = _git(["push", "--", clone_url, f"HEAD:{base}"], cwd=tmp)
         if rc != 0:
             # SAID, NEVER RETRIED BLINDLY. Under the semaphore nothing of this product moved the
             # base; a refusal here is the repository's own (protected, or moved by somebody

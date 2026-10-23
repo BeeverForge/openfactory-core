@@ -293,6 +293,16 @@ OWNED = {
     # would be a second place deciding what that state is — and the refusals it carries.
     "start_before_code": "product_start",
     "first_source": "product_first_source",
+    # THE INSTALLATION ITSELF (#741). Each marker is the write the row owns, and a front end that
+    # reacquired one would be changing the deployment with no row deciding whether it may — which
+    # is what every one of these verbs did before, from the command line alone:
+    "withdraw": "people_revoke",             # taking a person off the deployment
+    "hold_poller": "poller_pause/poller_resume",  # the deployment-wide hold on pickup
+    "set_agent_name": "product_name",        # what the product role is called
+    "set_docs_repo": "product_declare",      # where the product's requirements live
+    # the doctor's report AS A DOCUMENT: a front end that composed one would be a second opinion
+    # about the same machine — the screen and `--json` both render the row's
+    "as_document": "doctor",
     # The product role (#98). ONE marker for five rows, because they share one seam: a front end
     # that CONSTRUCTS the module is doing the work itself, whatever verb it then calls.
     #
@@ -1829,6 +1839,18 @@ def test_a_rows_reasons_are_what_perform_adds_its_own_and_what_it_relays():
 
     ask = actions.reasons("ask")
     assert set(merge) <= set(ask), "ask hands back merge's refusal, so it can say merge's reasons"
+
+
+def test_not_the_installations_is_listed_only_for_a_row_that_changes_the_installation():
+    """`perform` refuses an installation row to a scoped credential with `not_the_installations`,
+    so only such a row may say it — the same narrowing `not_admin` gets, and held the same way, so
+    a row that stopped being the installation's cannot keep advertising a reason it cannot emit."""
+    installs = [n for n in actions.names() if catalog.CATALOG[n].installation]
+    assert installs, "no installation row to hold the narrowing over"
+    for name in installs:
+        assert base.NOT_THE_INSTALLATIONS in actions.reasons(name), name
+    assert base.NOT_THE_INSTALLATIONS not in actions.reasons("merge")
+    assert base.NOT_THE_INSTALLATIONS not in actions.reasons("product_status")
 
 
 def test_the_catalogue_lists_each_rows_refusal_reasons(client):

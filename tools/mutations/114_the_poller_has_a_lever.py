@@ -8,7 +8,9 @@ down.
 
 TEST = "tests/test_the_poller_has_a_lever.py"
 CLI = "openfactory/cli.py"
+CATALOG = "openfactory/actions/catalog.py"
 SCHED = "openfactory/runtime/temporal/schedule.py"
+ROWS = "tests/test_the_installation_is_changed_through_its_rows.py"
 
 MUTATIONS = [
     ("pausing what is already paused acts anyway, and overwrites the note explaining the hold",
@@ -33,9 +35,14 @@ MUTATIONS = [
      '    running = _in_flight(jobs)\n    if not running:\n        typer.echo("in flight: nothing")\n        return',
      '    running = _in_flight(jobs)\n    if not running:\n        typer.echo("in flight: nothing")'),
 
-    ("a closed job is counted as in flight", CLI,
-     '    return [j for j in jobs if j.get("status") == "running"]',
-     "    return list(jobs)"),
+    # RE-PINNED 2026-10-20 (#741): the pause's filter moved into the `_poller_hold` row, and the
+    # CLI's `_in_flight` now re-filters a list the row already filtered — so cutting the CLI alone
+    # survives. The cut that matters is the row's own, read by a front end as `data.in_flight`,
+    # and the new module is where a finished job beside a running one is asserted dropped.
+    ("a closed job is counted as in flight (the row's answer a front end reads)", CATALOG,
+     '    running = None if jobs is None else [j for j in jobs if j.get("status") == "running"]\n',
+     "    running = None if jobs is None else list(jobs)\n",
+     ROWS),
 
     ("a schedule that could not be read is reported as ON", CLI,
      '    if not intake.get("known"):\n'
@@ -48,13 +55,17 @@ MUTATIONS = [
      '                  "from an outage)"))',
      '                  ""))'),
 
-    ("an unreachable engine raises instead of refusing by name", CLI,
-     '        typer.echo(f"✗ could not pause the poller ({str(exc)[:200]}) — the engine may be "\n'
-     '                   f"unreachable. `openfactory poller status` says whether it can be read.")\n'
-     "        raise typer.Exit(2) from None",
-     "        raise"),
+    # RE-PINNED (#741): the hold moved into the `poller_pause`/`poller_resume` rows, and the
+    # refusal by name with it — the command maps onto the row. Re-raised here, the failure reaches
+    # `perform`'s catch-all, which names the row and not the poller nor where to look.
+    # RE-PINNED 2026-10-20: the line before the refusal logs at INFO now, so the shell says the
+    # failure once; the claim is unchanged.
+    ("an unreachable engine raises instead of refusing by name", CATALOG,
+     '        log.info("could not %s the poller for %s: %s", verb, by, exc)\n',
+     "        raise\n"),
 
     ("the note stops naming who pulled the lever", CLI,
-     '    reason = note or f"paused by {getpass.getuser()} via `openfactory poller pause`"',
+     # RE-PINNED (#741): the shell's login is read through `_shell_user` now.
+     '    reason = note or f"paused by {_shell_user()} via `openfactory poller pause`"',
      '    reason = note or ""'),
 ]

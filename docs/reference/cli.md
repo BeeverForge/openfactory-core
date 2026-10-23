@@ -62,7 +62,8 @@ check with its `id`, `result` (`ok` or `fail`), `detail` and `remedy`, the closi
 code is the report's. A check that does not apply to this deployment reads `result: ok` with a
 `detail` that begins `not applicable — `: `installation_scope` with no GitHub App configured, or
 with an App that no GitHub project uses because a static token wins over it, for one, verifies
-nothing and says so.
+nothing and says so. The document is the `doctor` action's, so `POST /api/act/doctor` answers the
+same one to a front end of one's own — about the process that answered it, which its `build` names.
 
 ### `openfactory explain <checkout> [--language en|pt-BR] [--full]`
 
@@ -235,7 +236,7 @@ without `--allow-unsigned`.
 | `openfactory knowledge build \| check` | build and inspect the Knowledge Layer bundle — a module map the agents are handed. On by default ([ADR-0035](../adr/0035-knowledge-layer-on-by-default.md)). For a project the factory cloned itself, `build --publish` pushes the map to the repository's knowledge branch — without it the map lands in a disposable clone and the command says so. `--repo owner/repo` targets a multi-repo product's other repositories |
 | `openfactory knowledge system PATH…` | the system layer of a product, derived from local checkouts of its sources (`NAME=PATH` names one): its components, the APIs, events and databases between them, and — first — what could not be derived. No model, no network, and nothing in the checkouts is run. `--out DIR` writes the five files the knowledge refresh publishes at `.okf/system/` in the context repository ([the knowledge layer](../knowledge-layer.md) §9; ADR-0052 D17, #268) |
 | `openfactory approver add \| list \| remove` | manage who may authorise a production release. Identity plus password; production is never released from chat ([ADR-0016](../adr/0016-slack-actions-authorization.md)). `list` says on stderr which store it read. While `OPENFACTORY_APPROVERS` is set it is the store, so `add` and `remove` refuse (exit 2) instead of editing a file nothing reads |
-| `openfactory people invite \| list` | the people this deployment names by invitation (the `local` identity row). `invite <id> [--display] [--product] [--by]` prints a one-time link — once; the store keeps its hash — that registers the person with a name and a password of their choosing and records who vouched for them; `list` shows who is registered and which links are still open. The same act is the `people_invite` action on the panel ([configuration](../configuration.md)) |
+| `openfactory people invite \| revoke \| list` | the people this deployment names by invitation (the `local` identity row). `invite <id> [--display] [--product] [--by]` prints a one-time link — once; the store keeps its hash — that registers the person with a name and a password of their choosing and records who vouched for them; `revoke <id>` takes them off the deployment — their registration, every session they hold and any link still open for them — and records who did it, refusing the last person registered while no credential is configured, since the panel would then open to whoever arrives; `list` shows who is registered and which links are still open. The same acts are the `people_invite` and `people_revoke` actions on the panel ([configuration](../configuration.md)) |
 
 ---
 

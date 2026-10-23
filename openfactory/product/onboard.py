@@ -246,7 +246,7 @@ def context_reachability(project, docs_repo: str) -> tuple[bool, str]:
             routes.append((label, url))
 
     for label, url in routes:
-        rc, out = _git(["ls-remote", "--heads", url])
+        rc, out = _git(["ls-remote", "--heads", "--", url])
         if rc != 0:
             return False, f"{label} cannot read it — {scrub(out).strip()[-240:]}"
     return True, ""
@@ -321,7 +321,8 @@ def seed_context_repository(project, docs: str, *, sources: list[str]) -> tuple[
             subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True,
                            check=True, timeout=60)
 
-        subprocess.run(["git", "clone", "--no-local", "-q", where, tmp], capture_output=True,
+        subprocess.run(["git", "clone", "--no-local", "-q", "--", where, tmp],
+                       capture_output=True,
                        text=True, check=True, timeout=60)
         seed = Path(tmp) / namespace.DIR / "product.yaml"
         seed.parent.mkdir(parents=True, exist_ok=True)
@@ -332,7 +333,7 @@ def seed_context_repository(project, docs: str, *, sources: list[str]) -> tuple[
         git("add", "-A")
         git("-c", "user.email=bot@openfactory.local", "-c", "user.name=OpenFactory Bot",
             "commit", "-qm", f"{name}: the product's own context repository")
-        git("push", "-q", "origin", "HEAD:main")
+        git("push", "-q", "--", "origin", "HEAD:main")
     return created, where
 
 

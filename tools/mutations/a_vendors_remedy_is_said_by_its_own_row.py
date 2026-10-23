@@ -31,6 +31,7 @@ TEST = "tests/test_a_provider_is_named_by_its_own_row.py"
 DOCTOR = "openfactory/doctor.py"
 PLUGINS = "openfactory/plugins.py"
 CLI = "openfactory/cli.py"
+CATALOG = "openfactory/actions/catalog.py"
 DOORS = "openfactory/doors.py"
 ACTIVITIES = "openfactory/runtime/temporal/activities.py"
 CREDENTIALS = "openfactory/credentials.py"
@@ -49,10 +50,12 @@ MUTATIONS = [
      '    "names, else its vendor\'s default — has not expired and may read and write this repository")\n',
      '    "names, else its vendor\'s default — has not expired. A GitHub App: grant it access")\n'),
 
-    ("THE DEFECT ITSELF: `product declare` chooses the likely cause by kind again", CLI,
-     '    cause = plugins.sentence(forge_row(project), "when_unreadable", "", project)\n',
+    # RE-PINNED (#741): `product declare` maps onto the `product_declare` row, which asks the
+    # forge's row for the cause now; the project it holds is `found`.
+    ("THE DEFECT ITSELF: `product declare` chooses the likely cause by kind again", CATALOG,
+     '    cause = plugins.sentence(forge_row(found), "when_unreadable", "", found)\n',
      '    cause = ("On GitHub specifically: an App installed on \'Only select repositories\' cannot "\n'
-     '             "see it.") if "github" in {project.forge.kind, project.tracker.kind} else ""\n'),
+     '             "see it.") if "github" in {found.forge.kind, found.tracker.kind} else ""\n'),
 
     ("`project init` points every tracker at one vendor's recipe again", CLI,
      '                   + (f" ({setup})" if setup else ""))\n',

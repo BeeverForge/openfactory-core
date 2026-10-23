@@ -91,17 +91,22 @@ MUTATIONS = [
 
     # ── the panel's action and the shell ──
     # RE-PINNED 2026-10-11 (#562): the row takes `board` too
+    # RE-PINNED (#741): the row declares `installation` between the two lines this cut.
     ("anybody may invite from the panel", CATALOG,
-     '            optional=("display", "product", "board"),\n            params={\n',
-     '            optional=("display", "product", "board"),\n            needs_admin=False,\n'
-     '            params={\n'),
+     '            optional=("display", "product", "board"),\n            installation=True,\n',
+     '            optional=("display", "product", "board"),\n            installation=True,\n'
+     '            needs_admin=False,\n'),
 
     ("the actor is not the voucher", CATALOG,
      '                                       by=(by.id or "").strip())\n',
      '                                       by="panel")\n'),
 
+    # RE-PINNED (#741): `people_revoke` asks the same question, so the anchor carries the line
+    # before it, which is the invitation's own.
     ("a sink that keeps nothing is not refused before a link is minted", CATALOG,
+     '                                "neither")\n'
      "    why = _people.sink_is_durable()\n    if why:\n        return refused(UNAVAILABLE, why)\n",
+     '                                "neither")\n'
      '    why = ""\n    if why:\n        return refused(UNAVAILABLE, why)\n'),
 
     # ── the window the fold reads (found in review, 2026-09-03) ──
@@ -123,7 +128,8 @@ MUTATIONS = [
      '                     "person",\n',
      ""),
 
+    # RE-PINNED (#741): the row names `revoke` between the two.
     ("the shell reference forgets the command", CLI_DOC,
-     "| `openfactory people invite \\| list` |",
+     "| `openfactory people invite \\| revoke \\| list` |",
      "| `openfactory approver-people` |"),
 ]

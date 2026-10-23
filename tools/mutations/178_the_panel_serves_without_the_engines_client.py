@@ -28,6 +28,7 @@ UP = "tests/test_the_engine_starts_only_beside_the_library_its_worker_runs_on.py
 
 APP = "openfactory/api/app.py"
 CLI = "openfactory/cli.py"
+CATALOG = "openfactory/actions/catalog.py"
 HOST = "openfactory/runtime/host.py"
 LADDER = "openfactory/floor/ladder.py"
 READING = "openfactory/floor/reading.py"
@@ -111,11 +112,15 @@ MUTATIONS = [
     ("`openfactory worker` starts its import without asking, and ends in a raw traceback", CLI,
      '    _refuse_without_the_client("the worker cannot start", code=1)\n', ""),
 
-    ("`poller pause` stops asking, and blames an engine that may be unreachable", CLI,
-     '    _refuse_without_the_client("could not pause the poller", code=2)\n', ""),
-
-    ("`poller resume` stops asking, and blames an engine that may be unreachable", CLI,
-     '    _refuse_without_the_client("could not resume the poller", code=2)\n', ""),
+    # RE-PINNED (#741): `poller pause` and `poller resume` map onto their rows, and the two rows
+    # ask through ONE helper (`_poller_hold`), so the two cuts this plan made are one now — and
+    # this one turns both commands red.
+    ("`poller pause` and `poller resume` stop asking, and blame an engine that may be "
+     "unreachable", CATALOG,
+     "    if not host.the_client():\n"
+     '        # NOT "THE ENGINE MAY BE UNREACHABLE" (#178)',
+     "    if False:\n"
+     '        # NOT "THE ENGINE MAY BE UNREACHABLE" (#178)'),
 
     ("the refusal is asked and never said: the library is always reported present", CLI,
      "    if not host.the_client():\n"

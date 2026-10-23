@@ -272,7 +272,7 @@ def ls_remote(remote: str, branch: str) -> str | None:
     if not remote or not branch:
         return None
     try:
-        done = subprocess.run(["git", "ls-remote", "--heads", remote, f"refs/heads/{branch}"],
+        done = subprocess.run(["git", "ls-remote", "--heads", "--", remote, f"refs/heads/{branch}"],
                               capture_output=True, text=True, timeout=20, check=False,
                               env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
     except (OSError, subprocess.SubprocessError) as exc:

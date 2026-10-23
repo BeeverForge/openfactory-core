@@ -212,7 +212,7 @@ def _a_count(raw: str | None) -> int:
 
 def _clone(cfg: BoxConfig, dest: Path, token: str | None) -> None:
     p = subprocess.run(
-        ["git", "clone", "--no-local", "--no-single-branch", clone_url(cfg, token=token),
+        ["git", "clone", "--no-local", "--no-single-branch", "--", clone_url(cfg, token=token),
          str(dest)],
         capture_output=True, text=True, timeout=300,
     )
@@ -225,7 +225,8 @@ def _clone(cfg: BoxConfig, dest: Path, token: str | None) -> None:
     # executor's no-git instruction; #232 pushed a stray branch this way).
     if token:
         subprocess.run(
-            ["git", "-C", str(dest), "remote", "set-url", "origin", clone_url(cfg, token=None)],
+            ["git", "-C", str(dest), "remote", "set-url", "--", "origin",
+             clone_url(cfg, token=None)],
             capture_output=True, text=True, timeout=30,
         )
 

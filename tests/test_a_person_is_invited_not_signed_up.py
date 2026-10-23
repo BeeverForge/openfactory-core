@@ -213,22 +213,50 @@ def test_a_bad_row_costs_only_itself_and_an_unreadable_store_SAYS_SO(caplog):
     assert "OPENFACTORY_PEOPLE_UNREADABLE" in caplog.text
 
 
+def _events_the_store_writes() -> set[str]:
+    """Every event kind `PeopleStore` records, READ FROM ITS SOURCE — the first argument of each
+    `self._record(...)` — so a kind added tomorrow is one the test below must exercise."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(PeopleStore))
+    return {node.args[0].value for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "_record"
+            and node.args and isinstance(node.args[0], ast.Constant)}
+
+
 def test_only_a_REGISTRATION_is_written_without_an_expiry():
     """The invariant `READ_LAST` depends on, pinned rather than the one instance of it.
 
     The window is over events. An account row is permanent and is always the oldest, so any other
     permanent kind evicts it before itself — which is a defect the deployment meets as *"everybody
-    is locked out at once"*. Exercise every write the store makes and assert exactly one kind lands
-    for ever; a fifth event kind added without an expiry turns this red on the day it is written.
+    is locked out at once"*. Exercise every write the store makes and assert only the ACCOUNT's
+    kinds land for ever: the registration that opens one, and since #741 the withdrawal that ends
+    one, which has to outlive the registration it cancels. Every kind the store's source records
+    must be exercised here, so a kind added without an expiry turns this red the day it is written.
     """
     rows = Rows()
     s, _ = invite_and_register(rows)                  # invited, registered
     token = s.login("ana@acme.example", GOOD)         # session
     assert s.revoke(token)                            # revoked
+    assert s.withdraw("ana@acme.example", by="roberto") == ""   # withdrawn: the account's end
 
-    assert {r["role"] for r in rows.rows} == {"invited", "registered", "session", "revoked"}
-    assert {r["role"] for r in rows.rows if not r["expires_at"]} == {"registered"}, \
-        "every kind but the account must expire, or it evicts the accounts from the window"
+    assert {r["role"] for r in rows.rows} == _events_the_store_writes(), \
+        "a kind the store writes is not exercised here, so nothing says whether it expires"
+    assert {r["role"] for r in rows.rows if not r["expires_at"]} == people.ACCOUNT_EVENTS, \
+        "every kind but the account's must expire, or it evicts the accounts from the window"
+
+
+def test_a_withdrawal_of_invitations_alone_expires_with_them():
+    """The other half of the rule above: a withdrawal with no account to end cancels only links
+    that die within the week, so it has no reason to be permanent — and a permanent one would be a
+    row per mistyped address competing with the accounts for the window."""
+    rows = Rows()
+    _, invitation = store(rows).invite("typo@acme.example", by="roberto")
+
+    assert store(rows).withdraw("typo@acme.example", by="roberto") == ""
+    assert rows.rows[-1]["role"] == "withdrawn"
+    assert rows.rows[-1]["expires_at"] == invitation.expires_at
 
 
 def test_the_accounts_do_not_scroll_out_from_underneath_their_own_revocations(monkeypatch):

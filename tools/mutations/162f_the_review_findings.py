@@ -50,19 +50,19 @@ MUTATIONS = [
      "        wanted = base_branch or remote_default_branch(clone_url)"),
 
     ("…and the reverse: an unreachable remote throws away a working checkout", CACHE,
-     "    rc, out = _git([\"ls-remote\", \"--symref\", clone_url, \"HEAD\"])\n"
+     "    rc, out = _git([\"ls-remote\", \"--symref\", \"--\", clone_url, \"HEAD\"])\n"
      "    if rc != 0:\n"
      '        return ""',
-     '    rc, out = _git(["ls-remote", "--symref", clone_url, "HEAD"])\n'
+     '    rc, out = _git(["ls-remote", "--symref", "--", clone_url, "HEAD"])\n'
      '    if rc != 0:\n        raise RuntimeError("unreachable")'),
 
     # RE-PINNED 2026-10-10 (#594): every clone passes `--no-local`
     ("the reclone reuses a name inferred from the tree it has just deleted", CACHE,
      '            rc, out = _git(["clone", "--no-local",\n'
      '                            *(["--branch", base_branch] if base_branch else []),\n'
-     '                            clone_url, str(master)])',
+     '                            "--", clone_url, str(master)])',
      '            rc, out = _git(["clone", "--no-local", *(["--branch", wanted] if wanted else []),\n'
-     "                            clone_url, str(master)])"),
+     '                            "--", clone_url, str(master)])'),
 
     ("the symref answer is parsed as the whole line", CACHE,
      '            return line.split("refs/heads/", 1)[1].split()[0].strip()',

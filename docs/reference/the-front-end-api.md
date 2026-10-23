@@ -51,8 +51,10 @@ the list of what it could not read:
 
 A refusal from `POST /api/act/{name}` is the action's whole outcome — `ok`, `message`, `code`,
 `data` and `detail` — and `data.reason` says why in a word a program branches on: the `code` itself
-where nothing finer applies, or one of `bad_parameters`, `bad_ref`, `out_of_scope`, `not_admin`,
-`engine_unreachable`, `raised`, `reported_nothing`, and `unknown_action` for a name no action has.
+where nothing finer applies, or one of `bad_parameters`, `bad_ref`, `out_of_scope`,
+`not_the_installations` (a credential scoped to an area, refused a row that changes the
+installation), `not_admin`, `engine_unreachable`, `raised`, `reported_nothing`, and
+`unknown_action` for a name no action has.
 `GET /api/v1/actions` lists, as `refusals`, every reason each action can answer.
 
 **A product row's refusal is a refusal, not a 500.** When the product role declines a write on
@@ -235,6 +237,34 @@ the image wrote when it was built. `address_kind` is the kind of address the eng
 never the address: `cloud`, `local` (this machine), `remote` (another host), `undeclared` or
 `unreadable`, and `null` on an install without the engine's client library. `addons` has one row
 per add-on row installed, read from the packages' metadata without loading them.
+
+### Changing the installation
+
+What changes the deployment itself — the people it names, whether it picks work up, what its
+product role is called and where its requirements live — is a catalogued action like any other,
+run with `POST /api/act/{name}` and listed by `GET /api/v1/actions` and `openfactory actions`.
+The command line maps its own verbs onto the same rows, so a screen of one's own can do what the
+shell does. These rows are **the administrator's**: a credential scoped to an area (a board token,
+a product token, an invitation to one area) is refused them with a 403, whichever area the path is
+read as, and only an unscoped credential runs them. The two that record who acted on a person,
+`people_invite` and `people_revoke`, also refuse a credential that names nobody — the shared panel
+token — with a 400 saying so.
+
+<!-- installation:start -->
+| name | takes | what it does |
+|---|---|---|
+| `people_invite` | `person`, [`display`], [`product`], [`board`] | a one-time link that registers a person, vouched for by the caller (`openfactory people invite`) |
+| `people_revoke` | `person` | takes a person off the deployment: their registration, their sessions and any open invitation; the last person registered is refused while no credential is configured, since the panel would open to whoever arrives (`openfactory people revoke`) |
+| `poller_pause` | [`note`] | holds pickup everywhere; `data.in_flight` is the jobs still running, `null` when they could not be read (`openfactory poller pause`) |
+| `poller_resume` | [`note`] | takes work again; `data.intake` is the schedule as read after it (`openfactory poller resume`) |
+| `product_name` | `project`, [`agent_name`] | what the product role is called; omit `agent_name` to read it, `""` for no name (`openfactory product name`) |
+| `product_declare` | `project`, `docs_repo` | records the product's existing context repository and reads it back; `data.reachable` says whether every credential that will read it can (`openfactory product declare`) |
+<!-- installation:end -->
+
+`[name]` is optional. Beside them, `doctor` (`project`) changes nothing and answers any floor
+credential: its `data` is the `openfactory.doctor/1` document `openfactory doctor --json` prints,
+and its `ok` is about the doctor having run — the document's own `ok` says whether the project can
+run a ticket.
 
 ### Outside `/api/`: what a supervisor asks
 

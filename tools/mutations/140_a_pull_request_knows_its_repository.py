@@ -85,8 +85,8 @@ MUTATIONS = [
 
     ("the fast-forward runs in the project's repository, where the proposal's refs do not exist",
      FORGE,
-     '            p = self._git("fetch", ".", f"{head}:{base}", cwd=where)',
-     '            p = self._git("fetch", ".", f"{head}:{base}")'),
+     '            p = self._git("fetch", "--", ".", f"{head}:{base}", cwd=where)',
+     '            p = self._git("fetch", "--", ".", f"{head}:{base}")'),
 
     ("`mergeable_state` looks for the head in the project's repository, and the page says `dirty` "
      "for a proposal that would merge", FORGE,

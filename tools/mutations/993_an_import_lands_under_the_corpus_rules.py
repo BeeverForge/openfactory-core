@@ -174,11 +174,15 @@ MUTATIONS = [
      "        if token and token != the_plan.token:",
      "        if False:"),
 
+    # RE-PINNED 2026-10-23 (#741): the push puts the clone URL behind the end-of-options marker
+    # (`--`); the claim is unchanged.
     ("a refused push is tried again blindly", IMPORTING,
-     "        rc, out = _git([\"push\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n        if rc != 0:\n"
+     "        rc, out = _git([\"push\", \"--\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n"
+     "        if rc != 0:\n"
      "            # SAID, NEVER RETRIED BLINDLY.",
-     "        rc, out = _git([\"push\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n        if rc != 0:\n"
-     "            rc, out = _git([\"push\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n"
+     "        rc, out = _git([\"push\", \"--\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n"
+     "        if rc != 0:\n"
+     "            rc, out = _git([\"push\", \"--\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n"
      "        if rc != 0:\n"
      "            # SAID, NEVER RETRIED BLINDLY."),
 

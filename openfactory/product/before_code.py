@@ -452,7 +452,7 @@ def _list_in_context(project, would_be, entry: str) -> bool:
             onto = branch or onto or "main"
             for args in (["add", "--", PRODUCT_YAML],
                          ["commit", "-qm", f"{project.name}: its first source, {entry}"],
-                         ["push", "-q", "origin", f"HEAD:{onto}"]):
+                         ["push", "-q", "--", "origin", f"HEAD:{onto}"]):
                 done = git(*args, cwd=root)
                 if done.returncode != 0:
                     raise Refused(UNAVAILABLE, f"`sources:` in {cfg.docs_repo} could not be "

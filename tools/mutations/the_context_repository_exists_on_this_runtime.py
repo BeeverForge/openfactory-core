@@ -41,7 +41,7 @@ MUTATIONS = [
      '        typer.echo(f"✓ context repository created for the product "', TEST),
 
     ("the repository is created and left EMPTY — a checkout of `main` fails as before", SEED,
-     '        git("push", "-q", "origin", "HEAD:main")', "        pass", TEST),
+     '        git("push", "-q", "--", "origin", "HEAD:main")', "        pass", TEST),
 
     ("the seed says nothing about which product it is for", SEED,
      '        seed.write_text(f"product: {name}\\nsources:{listed}\\n"',

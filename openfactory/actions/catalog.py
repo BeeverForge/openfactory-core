@@ -7187,13 +7187,13 @@ async def _people_invite(*, person: str, by: Actor, display: str = "",
     AND ONLY THE ADMINISTRATOR INVITES (#562). The row is the floor's, and a board credential is the
     floor's too: without this, whoever holds one could invite an administrator — an invitation
     with neither area — redeem it, and reach the product owner's area it is refused by name. A
-    scoped actor, of either area, is refused; the administrator's credential is unscoped."""
+    scoped actor, of either area, is refused; the administrator's credential is unscoped. That
+    refusal was this body's first line and is the row's declaration now (`installation=True`,
+    #741): `perform` asks it for every row that changes the installation, so the rows that came
+    after this one cannot forget it."""
     from openfactory.identity import people as _people
     from openfactory.identity.local import BOARD_GROUP, PRODUCT_GROUP
 
-    if by.scopes is not None:
-        return refused(DENIED, f"inviting somebody is the administrator's; this credential is "
-                               f"scoped to {', '.join(sorted(by.scopes)) or 'nothing'}")
     scoped = _said_yes(product) or str(product or "").strip().lower() == "product"
     boarded = _said_yes(board) or str(board or "").strip().lower() == "board"
     if scoped and boarded:
@@ -7225,6 +7225,271 @@ async def _people_invite(*, person: str, by: Actor, display: str = "",
                 f"the link appended to the panel's address — it registers them once and expires "
                 f"in {days} days", link=link, person=invitation.id, by=invitation.by,
                 expires_at=invitation.expires_at, product=scoped, board=boarded)
+
+
+async def _people_revoke(*, person: str, by: Actor) -> Outcome:
+    """Take a person off this deployment: their registration, every session they hold, and any
+    invitation still open for them (#741).
+
+    THERE WAS NO WAY TO DO IT. `people invite` minted a link and nothing took one back: a person
+    who left kept a password that opened the panel, and an invitation sent to the wrong address
+    stayed redeemable for its whole week. The store is append-only, so the act is a row of its own
+    (`PeopleStore.withdraw`) that the fold reads as the person's end — and a later invitation, and
+    the registration that redeems it, bring them back like anybody new.
+
+    THE LAST PERSON IS NOT REVOKED WHILE NOTHING ELSE CLOSES THE DOOR. A deployment with nobody
+    registered and no credential in its environment is open to whoever arrives
+    (`LocalIdentity.open_to_everyone`), which is how a new install lets its first operator in —
+    and is the opposite of what somebody revoking an account wants. So that one case refuses, and
+    says what to do first.
+
+    WHO DID IT IS RECORDED, as on an invitation (#759): a withdrawal nobody stands behind — the
+    shared panel token's, which is only CALLED "panel" — is refused before anything is read."""
+    from openfactory.adapters.credential_store.registry import held, refusals
+    from openfactory.identity import people as _people
+    from openfactory.identity.local import CLOSING_ENVS
+    from openfactory.observability.query import StoreUnreadable
+
+    ident = str(person or "").strip()
+    who = (by.id or "").strip()
+    if not who:
+        return refused(INVALID, _people.UNSIGNED_WITHDRAWAL, person=ident)
+    why = _people.sink_is_durable()
+    if why:
+        return refused(UNAVAILABLE, why)
+    store = _people.PeopleStore()
+    try:
+        snap = store.snapshot()
+    except StoreUnreadable as exc:
+        # "NOBODY CALLED THAT" IS AN ANSWER, and a store that cannot be read has not given one.
+        return refused(UNAVAILABLE, f"the people store cannot be read, so nobody was revoked — "
+                                    f"{exc}")
+    registered = ident in snap.people
+    invited = [i for i in snap.invitations.values() if i.id == ident]
+    if not registered and not invited:
+        return refused(NOT_FOUND, f"nobody called {ident!r} is registered or invited here — "
+                                  f"`openfactory people list` shows who is", person=ident)
+    # THE DOOR'S CREDENTIALS ARE ASKED OF THE STORE (#742), as the door itself asks them: one
+    # held in a file closes it too, and so does one the store refuses
+    if (registered and set(snap.people) == {ident}
+            and not refusals(CLOSING_ENVS)
+            and not any(value.strip() for value in held(CLOSING_ENVS).values())):
+        return refused(
+            CONFLICT,
+            f"{ident} is the last person registered here, and with nobody registered and no "
+            f"credential configured the panel opens to whoever arrives — invite their successor, "
+            f"or configure a credential, before revoking them. Nothing was done.", person=ident)
+    sessions = sum(1 for s in snap.sessions.values() if s.person_id == ident)
+    got = store.withdraw(ident, by=who)
+    if got:
+        return refused(INVALID, got, person=ident)
+    what = ("their registration" if registered else "")
+    what += (" and " if what and invited else "") + (
+        f"{len(invited)} open invitation(s)" if invited else "")
+    return done(f"{ident} is revoked — {what} withdrawn, and {sessions} session(s) ended; "
+                f"recorded as done by {who}", person=ident, registered=registered,
+                invitations=len(invited), sessions=sessions, by=who)
+
+
+# ── the installation itself: pickup, the product's configuration, the doctor (#741) ─────────────
+#
+# EVERY VERB THAT CHANGES THE INSTALLATION IS A ROW, so that a front end of one's own can do what
+# the shell does. These were the command line's own code — `poller pause` called the engine's
+# schedule, `product name` and `product declare` wrote the registry — so the panel, a script
+# holding the panel's token and any screen built on the API could not reach them at all. Each is
+# `installation=True`: the administrator's, refused to a scoped credential by `perform`.
+
+async def _poller_hold(*, on: bool, by: Actor, note: object) -> Outcome:
+    """Pause or resume the poller — the deployment-wide hold on pickup — and say what it WAS.
+
+    THE ONE REAL HOLD (`schedule.hold_poller`): per-project `enabled` is a different lever with a
+    different blast radius, and emptying TO-DO holds nothing because auto-split refills it.
+
+    THE NOTE NAMES WHO when the caller gave none, because the note is the only record of WHY the
+    queue is held and an unexplained hold cannot be told from an outage by the next person who
+    looks. A no-op is a sentence, not an error: pausing what is paused changes nothing, and says so
+    with the note the first pause left.
+
+    A PAUSE SAYS WHAT IS STILL RUNNING. It holds NEW pickups only, and an operator pauses in order
+    to roll the deployment — so a pause that reads as "drained" is how a job is interrupted by
+    somebody who believed the opposite. `in_flight` is the running jobs, and `None` when the job
+    list could not be read (#298): an unread list is not a drained floor."""
+    from openfactory.runtime import host
+    from openfactory.util.causes import first_message
+
+    verb = "resume" if on else "pause"
+    if not host.the_client():
+        # NOT "THE ENGINE MAY BE UNREACHABLE" (#178): without the engine's client library the
+        # remedy is an install, and `host.CLIENT_MISSING` is the sentence every surface gives.
+        return refused(UNAVAILABLE, f"could not {verb} the poller: {host.CLIENT_MISSING}")
+    who = (by.display or by.id or "somebody") + (f" via the {by.via}" if by.via else "")
+    reason = str(note or "").strip() or f"{'resumed' if on else 'paused'} by {who}"
+    try:
+        from openfactory.runtime.temporal.schedule import hold_poller
+
+        result = await hold_poller(on=on, note=reason)
+    except Exception as exc:  # noqa: BLE001 — one sentence, the cause, never a traceback
+        # INFO, NOT WARNING: the refusal below is the sentence, and `perform`'s audit line records
+        # it. At WARNING the shell printed this line and then the refusal — the same failure said
+        # twice, where the command used to say it once.
+        log.info("could not %s the poller for %s: %s", verb, by, exc)
+        return refused(UNAVAILABLE, f"could not {verb} the poller "
+                                    f"({first_message(exc, limit=200)}) — the engine may be "
+                                    f"unreachable. `openfactory poller status` says whether it "
+                                    f"can be read.")
+    from openfactory.floor import reading as floor
+
+    if on:
+        intake = (await floor.gather(want=("intake",))).intake or {
+            "known": False, "on": None, "note": ""}
+        said = ("the poller is on again — cards in TO-DO are picked up" if result["changed"]
+                else "the poller was already on. Nothing was changed")
+        return done(said, changed=result["changed"], was_on=result["was_on"],
+                    note=result["note"], intake=intake)
+    jobs = (await floor.gather(want=("jobs",))).jobs
+    running = None if jobs is None else [j for j in jobs if j.get("status") == "running"]
+    said = ("the poller is paused — no card in TO-DO will be picked up anywhere"
+            if result["changed"] else
+            f"the poller was already paused — note: \"{result['note']}\". Nothing was changed")
+    if running is None:
+        said += (". The job list could not be read, so this cannot say whether a job is still "
+                 "running: do not roll the deployment until it can")
+    elif running:
+        said += (f". The pause holds new pickups only, and {len(running)} job(s) are still "
+                 f"running: wait for them before rolling the deployment")
+    else:
+        said += ". Nothing is in flight"
+    return done(said, changed=result["changed"], was_on=result["was_on"], note=result["note"],
+                in_flight=running)
+
+
+async def _poller_pause(*, by: Actor, note: object = "") -> Outcome:
+    return await _poller_hold(on=False, by=by, note=note)
+
+
+async def _poller_resume(*, by: Actor, note: object = "") -> Outcome:
+    return await _poller_hold(on=True, by=by, note=note)
+
+
+async def _product_name(*, project: str, by: Actor, agent_name: object = None) -> Outcome:
+    """What the product role is called in this project's conversations — read, or set.
+
+    Every line the role writes is signed with it and people address it by it, so it is the
+    client's to choose. OMITTED, the row says what it is called now; GIVEN — `""` included, which
+    means no name, and the role introduces itself by function — it sets it, cleaned the way a
+    session's title is and cut at forty characters."""
+    from openfactory.product.sessions import clean_title
+    from openfactory.registry import ProjectRegistry
+
+    found, bad = _project(project)
+    if bad:
+        return bad
+    if agent_name is None:
+        current = getattr(getattr(found, "product", None), "agent_name", "") or ""
+        return done(f"{project}'s product role is called {current!r}" if current
+                    else f"{project}'s product role has no name — it introduces itself by "
+                         f"function", project=project, agent_name=current, changed=False)
+    chosen = clean_title(str(agent_name))[:40]
+    try:
+        ProjectRegistry().set_agent_name(project, chosen)
+    except ValueError as exc:
+        return refused(INVALID, str(exc), project=project)
+    return done(f"{project}'s product role is now called {chosen!r}" if chosen
+                else f"{project}'s product role has no name now — it introduces itself by "
+                     f"function", project=project, agent_name=chosen, changed=True)
+
+
+async def _product_declare(*, project: str, docs_repo: str, by: Actor) -> Outcome:
+    """Declare this product's EXISTING context repository — the client already has one.
+
+    The other half of creating one: an organisation arrives with both shapes, some projects with a
+    documentation repository and some without, and until a verb existed the only way to name one
+    was hand-editing the live registry inside the worker.
+
+    IT IS READ BACK, not just written down. "Declared" and "reachable" are different facts and the
+    distance between them is silent: a typo'd name, a qualifier pointing at another project, a
+    repository outside a credential's selection all record perfectly and surface hours later as the
+    product role answering "I cannot see the requirements". So both credentials that will ever read
+    it are tried here, while somebody is watching — and an unreadable one is still RECORDED
+    (`reachable: false`): fixing the access must not mean declaring it again.
+
+    THE READ LEAVES THE LOOP. `context_reachability` runs `git ls-remote` with each credential and
+    the forge's API, which take seconds, and on the panel this runs on the loop every other request
+    and stream is served from: measured on 2026-10-19 with a 3 s read, a `GET /api/v1/actions` sent
+    0.3 s into a declaration waited 3.95 s for it."""
+    import asyncio
+
+    from openfactory import plugins
+    from openfactory.adapters.forge.registry import forge_row
+    from openfactory.product.onboard import context_reachability
+    from openfactory.registry import ProjectRegistry
+
+    found, bad = _project(project)
+    if bad:
+        return bad
+    repo = str(docs_repo or "").strip().strip("/")
+    if not repo:
+        return refused(INVALID, f"name the repository: `openfactory product declare {project} "
+                                f"<owner/repo>`", project=project)
+    if repo.startswith("-"):
+        # A VALUE THAT LOOKS LIKE AN OPTION IS REFUSED HERE, before it reaches git: the repository
+        # name is read back with `git ls-remote <url>`, and a value beginning with `-` would be
+        # read by git as a flag, not a repository. The `--` the ls-remote carries is the other
+        # half of this; a name is also just never spelled this way.
+        return refused(INVALID, f"a repository is named `owner/repo`, not {docs_repo!r} — a value "
+                                f"that begins with '-' is not {project}'s context repository",
+                       project=project)
+    ProjectRegistry().set_docs_repo(project, repo)
+    found, bad = _project(project)  # RE-READ: the object above predates the record
+    if bad:
+        return bad
+    ok, why = await asyncio.to_thread(context_reachability, found, repo)
+    if ok:
+        return done(f"{project}'s context repository is {repo} — recorded, and reachable",
+                    project=project, docs_repo=repo, reachable=True, why="", cause="")
+    # THE VENDOR'S OWN LIKELY CAUSE, said by the forge's row — the context repository is read
+    # through the forge (`product.onboard.context_forge`), and a cause chosen here by vendor name
+    # would offer one forge's reason about another's repository.
+    cause = plugins.sentence(forge_row(found), "when_unreadable", "", found)
+    return done(f"{project}'s context repository is {repo} — recorded, but not readable: {why}. "
+                f"The declaration stands; fix the access and nothing needs declaring again",
+                project=project, docs_repo=repo, reachable=False, why=why, cause=cause)
+
+
+async def _doctor(*, project: str, by: Actor) -> Outcome:
+    """Every prerequisite of running a ticket on this project, checked — the
+    `openfactory.doctor/1` document as `data`, exactly as `openfactory doctor --json` prints it.
+
+    `ok` IS ABOUT THE PLATFORM, NOT THE ANSWER: the doctor ran and reported, so a project that is
+    NOT ready is still a done outcome whose document says `"ok": false` and which checks failed.
+    A refusal is the doctor not running at all — an unknown project.
+
+    WHOSE OPINION IT IS rides in the document's `build`: the process that answered, which is the
+    worker's from its shell and the panel's through the panel. The two halves of a deployment can
+    disagree about the same machine, and the stamp is what says which one is speaking.
+
+    THE PROBES LEAVE THE LOOP, for the reason `_product_declare`'s read does: `docker info`, the
+    forge's API and the box gate block for up to a minute, and through the panel they would hold
+    every other request for as long — measured on 2026-10-19 with a 3 s probe, a request sent
+    0.3 s in waited 2.75 s."""
+    import asyncio
+
+    from openfactory import doctor as doc
+
+    found, bad = _project(project)
+    if bad:
+        return bad
+    report = await asyncio.to_thread(lambda: doc.diagnose(doc.probes_for(found)))
+    document = doc.as_document(report, project=project, build=namespace.build_stamp())
+    failed = [c["id"] for c in document["checks"] if c["result"] != "ok"]
+    if not failed:
+        said = f"{project} can run a ticket"
+    elif document["verdict"] == "expected":
+        said = (f"{project} is not ready, as expected at this point — next: "
+                f"{document['next_step']}")
+    else:
+        said = f"{project} is not ready — failing: {', '.join(failed)}"
+    return done(said, **document)
 
 
 CATALOG: dict[str, ActionSpec] = {
@@ -8105,9 +8370,10 @@ CATALOG: dict[str, ActionSpec] = {
             summary="issue a one-time link that registers a person on this deployment, vouched "
                     "for by you",
             run=_people_invite,
-            refuses=(INVALID, DENIED, UNAVAILABLE),
+            refuses=(INVALID, UNAVAILABLE),
             required=("person",),
             optional=("display", "product", "board"),
+            installation=True,
             params={
                 "person": "the person's id — an email or a handle, spelled the way a project's "
                           "`admins` will spell it, e.g. `ana@acme.example`",
@@ -8117,6 +8383,81 @@ CATALOG: dict[str, ActionSpec] = {
                 "board": "`yes` to scope them to the board — whoever runs it, refused the "
                          "product owner's area by name",
             },
+        ),
+        ActionSpec(
+            name="people_revoke",
+            summary="take a person off this deployment — their registration, their sessions and "
+                    "any invitation still open for them",
+            run=_people_revoke,
+            refuses=(INVALID, NOT_FOUND, CONFLICT, UNAVAILABLE),
+            required=("person",),
+            installation=True,
+            params={"person": "the person's id, as `openfactory people list` shows it"},
+        ),
+        # ── the installation itself (#741) ──
+        ActionSpec(
+            name="poller_pause",
+            summary="hold pickup everywhere: no card in TO-DO is picked up until the poller is "
+                    "resumed — the jobs already running carry on",
+            run=_poller_pause,
+            refuses=(UNAVAILABLE,),
+            optional=("note",),
+            installation=True,
+        ),
+        ActionSpec(
+            name="poller_resume",
+            summary="take work again: the poller picks cards up from TO-DO on its schedule",
+            run=_poller_resume,
+            refuses=(UNAVAILABLE,),
+            optional=("note",),
+            installation=True,
+            params={"note": "why, if it is worth saying — it replaces the note the pause left"},
+        ),
+        # THE FLOOR'S, THOUGH NAMED `product_`. Naming the product role and declaring where its
+        # requirements live configure the installation, which is the administrator's. A product
+        # credential is refused these rows by the area check — they are the floor's — and a board
+        # credential by `installation`; the HTTP gate also reads `/api/act/product_…` as the product
+        # area and refuses a board credential there. So only an unscoped credential reaches them,
+        # by either door.
+        ActionSpec(
+            name="product_name",
+            summary="say what the product role is called in this project's conversations — or, "
+                    "with no name given, what it is called now",
+            run=_product_name,
+            refuses=(INVALID, NOT_FOUND),
+            required=("project",),
+            optional=("agent_name",),
+            installation=True,
+            # A PRODUCT BEFORE ITS CODE IS NAMED TOO (#992): what its role is called is the product
+            # owner's, which works before the code
+            needs_code=False,
+            params={"agent_name": "what the role is called, e.g. `Nina`; `\"\"` for no name, so "
+                                  "it introduces itself by function; omitted, the row only says "
+                                  "what it is called now"},
+        ),
+        ActionSpec(
+            name="product_declare",
+            summary="record which existing repository holds this product's requirements, and "
+                    "try to read it with every credential that will",
+            run=_product_declare,
+            refuses=(INVALID, NOT_FOUND),
+            required=("project", "docs_repo"),
+            installation=True,
+            # A PRODUCT BEFORE ITS CODE DECLARES ITS CONTEXT TOO (#992): `product start` names this
+            # row as the way to another context for one
+            needs_code=False,
+        ),
+        ActionSpec(
+            name="doctor",
+            summary="check every prerequisite of running a ticket on a project, and say which is "
+                    "missing — the `openfactory.doctor/1` document; changes nothing",
+            run=_doctor,
+            refuses=(NOT_FOUND,),
+            required=("project",),
+            needs_admin=False,
+            # A PROJECT BEFORE ITS CODE IS DIAGNOSED, NOT REFUSED (#992): the doctor's answer for
+            # one is its `code` line, as `env_check`'s is
+            needs_code=False,
         ),
     )
 }
