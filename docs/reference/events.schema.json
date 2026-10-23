@@ -774,7 +774,7 @@
     },
     "HistoryData": {
       "additionalProperties": true,
-      "description": "The conversation's recent turns, handed on (re)subscribing. `earlier` is the cursor of the\npage before them, `\"\"` when these are all of it.",
+      "description": "The conversation's recent turns, handed on (re)subscribing. `staged` is what waits for the\nperson's answer, `null` when nothing does; `earlier` is the cursor of the page before them,\n`\"\"` when these are all of it.",
       "properties": {
         "turns": {
           "items": {
@@ -791,8 +791,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "earlier": {
           "title": "Earlier",
@@ -801,6 +800,7 @@
       },
       "required": [
         "turns",
+        "staged",
         "earlier"
       ],
       "title": "HistoryData",
@@ -1458,7 +1458,7 @@
     },
     "ReplyData": {
       "additionalProperties": true,
-      "description": "The role answered.",
+      "description": "The role answered. `options` are the choices it offers, `null` when it offers none.",
       "properties": {
         "seq": {
           "title": "Seq",
@@ -1490,7 +1490,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Options"
         },
         "final": {
@@ -1504,6 +1503,7 @@
         "text",
         "type",
         "in_reply_to",
+        "options",
         "final"
       ],
       "title": "ReplyData",
@@ -1718,45 +1718,26 @@
     },
     "Staged": {
       "additionalProperties": true,
-      "description": "What waits for the person's answer in this conversation.",
+      "description": "What waits for the person's answer in this conversation: the proposal's token, and the\nwords of its two buttons.",
       "properties": {
         "token": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Token"
+          "title": "Token",
+          "type": "string"
         },
         "approve": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Approve"
+          "title": "Approve",
+          "type": "string"
         },
         "reject": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reject"
+          "title": "Reject",
+          "type": "string"
         }
       },
+      "required": [
+        "token",
+        "approve",
+        "reject"
+      ],
       "title": "Staged",
       "type": "object"
     },
@@ -2028,103 +2009,39 @@
     },
     "Turn": {
       "additionalProperties": true,
-      "description": "One turn of a conversation, as the transcript keeps it.",
+      "description": "One turn of a conversation, as the transcript keeps it. `id` and `in_reply_to` are `\"\"` for\na turn recorded without them; `attachments` is there only when the turn carried files.",
       "properties": {
         "role": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Role"
+          "title": "Role",
+          "type": "string"
         },
         "actor": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Actor"
+          "title": "Actor",
+          "type": "string"
         },
         "text": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Text"
+          "title": "Text",
+          "type": "string"
         },
         "ts": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Ts"
+          "title": "Ts",
+          "type": "string"
         },
         "id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Id"
+          "title": "Id",
+          "type": "string"
         },
         "in_reply_to": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "In Reply To"
+          "title": "In Reply To",
+          "type": "string"
         },
         "mine": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Mine"
+          "title": "Mine",
+          "type": "boolean"
         },
         "overheard": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Overheard"
+          "title": "Overheard",
+          "type": "boolean"
         },
         "attachments": {
           "anyOf": [
@@ -2143,6 +2060,16 @@
           "title": "Attachments"
         }
       },
+      "required": [
+        "role",
+        "actor",
+        "text",
+        "ts",
+        "id",
+        "in_reply_to",
+        "mine",
+        "overheard"
+      ],
       "title": "Turn",
       "type": "object"
     },

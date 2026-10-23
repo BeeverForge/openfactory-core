@@ -518,6 +518,20 @@ def test_every_field_a_socket_frame_writes_is_named_by_its_kind(stream):
         assert required <= always, (kind, sorted(required - always))
 
 
+def test_a_key_every_frame_of_a_kind_writes_is_required():
+    """`events.py`'s rule: a field a producer always writes is required. A key every frame of a
+    kind writes, on both sockets, is one a reader may count on — so its model requires it, and a
+    key written only sometimes stays optional (`required <= always` above)."""
+    always_by_kind: dict[str, list[set[str]]] = {}
+    for frames in _emitted().values():
+        for kind, always, _sometimes in frames:
+            always_by_kind.setdefault(kind, []).append(always - LIFTED.get(kind, set()))
+    for kind, alwayses in always_by_kind.items():
+        _named, required = _fields(kind)
+        every = set.intersection(*alwayses)
+        assert every <= required, (kind, sorted(every - required))
+
+
 def test_every_spread_this_cannot_read_is_one_it_says_where_it_reads():
     """An entry of `UNREAD_SPREADS` no frame spreads any more would excuse the next one silently."""
     used: set = set()
@@ -528,7 +542,7 @@ def test_every_spread_this_cannot_read_is_one_it_says_where_it_reads():
 def test_a_turn_and_what_waits_are_the_rows_their_builders_write():
     """`history` and `earlier` carry turns, and `history` and `staged` what waits: a turn is the
     row `_history` builds, what waits the dict `staging.waiting_in` returns. Their models name
-    every key either writes, and require what it always writes."""
+    every key either writes, and require exactly what it always writes."""
     from openfactory.api.events import Staged, Turn
 
     chat = _tree(PRODUCT_CHAT)
@@ -543,7 +557,7 @@ def test_a_turn_and_what_waits_are_the_rows_their_builders_write():
         always, sometimes = _written(tree, _scopes(tree)[row], row, set())
         named, required = _named_and_required(model)
         assert always | sometimes <= named, (model.__name__, sorted((always | sometimes) - named))
-        assert required <= always, (model.__name__, sorted(required - always))
+        assert required == always, (model.__name__, sorted(required ^ always))
 
 
 def test_the_temporal_frame_writes_only_what_jobs_data_names():
@@ -557,6 +571,9 @@ def test_the_temporal_frame_writes_only_what_jobs_data_names():
     for always, sometimes in frames:
         assert always | sometimes <= named, sorted((always | sometimes) - named)
         assert required <= always, sorted(required - always)
+    # …and what EVERY frame writes, a reader may count on: the model requires it
+    every = set.intersection(*(always for always, _sometimes in frames))
+    assert every <= required, sorted(every - required)
     # the connected frame says where the engine's UI is, through `_engine_ui`, and carries the
     # cached intake and build it spreads
     assert any({"ui_base", "ui_hint", "intake", "build"} <= always | sometimes

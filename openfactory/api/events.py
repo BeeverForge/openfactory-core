@@ -155,25 +155,27 @@ class LogData(EventData):
 # ── the product chat ────────────────────────────────────────────────────────────────────────────
 
 class Turn(EventData):
-    """One turn of a conversation, as the transcript keeps it."""
+    """One turn of a conversation, as the transcript keeps it. `id` and `in_reply_to` are `""` for
+    a turn recorded without them; `attachments` is there only when the turn carried files."""
 
-    role: str | None = None
-    actor: str | None = None
-    text: str | None = None
-    ts: str | None = None
-    id: str | None = None
-    in_reply_to: str | None = None
-    mine: bool | None = None
-    overheard: bool | None = None
+    role: str
+    actor: str
+    text: str
+    ts: str
+    id: str
+    in_reply_to: str
+    mine: bool
+    overheard: bool
     attachments: list[dict[str, Any]] | None = None
 
 
 class Staged(EventData):
-    """What waits for the person's answer in this conversation."""
+    """What waits for the person's answer in this conversation: the proposal's token, and the
+    words of its two buttons."""
 
-    token: str | None = None
-    approve: str | None = None
-    reject: str | None = None
+    token: str
+    approve: str
+    reject: str
 
 
 class SubscribedData(EventData):
@@ -186,11 +188,12 @@ class SubscribedData(EventData):
 
 
 class HistoryData(EventData):
-    """The conversation's recent turns, handed on (re)subscribing. `earlier` is the cursor of the
-    page before them, `""` when these are all of it."""
+    """The conversation's recent turns, handed on (re)subscribing. `staged` is what waits for the
+    person's answer, `null` when nothing does; `earlier` is the cursor of the page before them,
+    `""` when these are all of it."""
 
     turns: list[Turn]
-    staged: Staged | None = None
+    staged: Staged | None
     earlier: str
 
 
@@ -214,14 +217,14 @@ class SaidData(EventData):
 
 
 class ReplyData(EventData):
-    """The role answered."""
+    """The role answered. `options` are the choices it offers, `null` when it offers none."""
 
     seq: int
     id: str
     text: str
     type: str
     in_reply_to: str
-    options: list[Any] | None = None
+    options: list[Any] | None
     final: bool
 
 

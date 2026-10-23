@@ -15,10 +15,16 @@ as a constant key of the frame's own literal — through a function a frame spre
 from it (`first`), a conditional dict it spreads, or a row it nests (a turn, what waits) — and each
 stayed green while the guard read only the literal's own keys.
 
+THE REQUIRED-OR-OPTIONAL ROWS cut a model, and every cut to a model is also red through the
+byte-for-byte schema test, which writing the schema again satisfies. So each is aimed at the one
+test that reads the emitters and must see it without that help: a key every frame of a kind
+writes is required, and a row's model requires exactly what its builder always writes.
+
 The guard under test is `tests/test_the_event_models_describe_every_frame_the_streams_send.py`.
 """
 
 TEST = "tests/test_the_event_models_describe_every_frame_the_streams_send.py"
+ONE = TEST + "::"
 
 APP = "openfactory/api/app.py"
 CHAT = "openfactory/api/product_chat.py"
@@ -80,4 +86,26 @@ MUTATIONS = [
 
     ("G5: `said` writes `files` for `attachments`, in the conditional dict it spreads", CHAT,
      '**({"attachments": list(entry["attachments"])}', '**({"files": list(entry["attachments"])}'),
+
+    # ── what every frame writes is required ────────────────────────────────────────────────────
+    ("C1: `JobsData.jobs` is optional, though every temporal frame writes it", EVENTS,
+     "    jobs: list[EngineJob] | None\n", "    jobs: list[EngineJob] | None = None\n",
+     ONE + "test_the_temporal_frame_writes_only_what_jobs_data_names"),
+
+    ("C2: `SaidData.mine` is optional, though every `said` writes it", EVENTS,
+     "    speaker: str\n    mine: bool\n", "    speaker: str\n    mine: bool | None = None\n",
+     ONE + "test_a_key_every_frame_of_a_kind_writes_is_required"),
+
+    ("`HistoryData.staged` is optional, though every `history` writes it (`null` when nothing "
+     "waits)", EVENTS,
+     "    turns: list[Turn]\n    staged: Staged | None\n",
+     "    turns: list[Turn]\n    staged: Staged | None = None\n",
+     ONE + "test_a_key_every_frame_of_a_kind_writes_is_required"),
+
+    ("a turn's `actor` is optional, though `_history` writes it on every turn", EVENTS,
+     "    role: str\n    actor: str\n", "    role: str\n    actor: str | None = None\n",
+     ONE + "test_a_turn_and_what_waits_are_the_rows_their_builders_write"),
+
+    ("G6: `reply` stops writing `options`, which it always wrote", CHAT,
+     '"options": reply.get("options") or None,', ""),
 ]
