@@ -131,12 +131,16 @@ def _wrapped_line(text: str) -> int | None:
 
 
 def _ends_with_its_reference(text: str, reference: str) -> bool:
-    """Whether the text closes with `(<reference>)`, which the assembly adds from the file name.
+    """Whether the text closes with its reference, which the assembly adds from the file name.
 
     The FIRST line is checked as well as the end: `_item` closes the first line with the
-    reference, so a lead line that ends with it reads twice even with sub-items below. A final
-    full stop or colon, and the emphasis around them, are where `_item` would put it too."""
-    closing = re.compile(rf"\({re.escape(reference)}\)[*_]*[.:]?[*_]*$")
+    reference, so a lead line that ends with it reads twice even with sub-items below. However
+    it is written there, the reader meets it twice (#813): in parentheses or not ("Details in
+    GHSA-…."), inside emphasis or code, before a final mark or a space and one, and an advisory's
+    id in either case. The space is matched on the line only, never across a line break."""
+    marks = r"[*_`]*"                                   # the emphasis or code around it
+    closing = re.compile(rf"\(?{re.escape(reference)}\)?{marks}[\t ]*[.:!?;]?{marks}$",
+                         re.IGNORECASE)
     return any(closing.search(line) for line in (text.splitlines()[0].rstrip(), text.rstrip()))
 
 
