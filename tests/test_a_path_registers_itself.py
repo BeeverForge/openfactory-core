@@ -147,28 +147,52 @@ def test_the_api_model_carries_NO_vendor_default():
 
 # ── 3. one definition, three doors ──────────────────────────────────────────────────────────────
 
+def _called_in(fn) -> set[str]:
+    """Every name `fn` calls, by attribute or by name — read off its syntax, not its text."""
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    return {n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")
+            for n in ast.walk(tree) if isinstance(n, ast.Call)}
+
+
+def _performed_in(fn) -> set[str]:
+    """The rows `fn` performs — `perform("<row>", …)` or the CLI's `_perform("<row>", …)`."""
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    return {n.args[0].value for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and n.args and isinstance(n.args[0], ast.Constant)
+            and (getattr(n.func, "attr", "") == "perform" or getattr(n.func, "id", "") == "_perform")}
+
+
 def test_every_registering_door_asks_the_SAME_two_questions():
     """The reachability half. A door that stops asking passes every test above — it just quietly
-    writes the wrong row, which is exactly how the three came to disagree."""
-    import inspect
+    writes the wrong row, which is exactly how the three came to disagree.
 
-    from openfactory import cli
+    ASKED ONCE SINCE #741: `project add` and `POST /api/projects` are mappings onto the
+    `project_add` row, so the row asks and both doors perform it. `project init` still registers
+    in its own code, so it asks for itself."""
+    # THE KIND IS DECIDED THROUGH `doors.axes_for` since #992 — the axes a product's first source
+    # writes too — and that helper asks `kind_for` itself
+    from openfactory import cli, doors
+    from openfactory.actions import catalog
     from openfactory.api import app as api_module
 
-    for where, src in (("project add / project init", inspect.getsource(cli)),
-                       ("POST /api/projects", inspect.getsource(api_module.add_project))):
-        assert "kind_for(" in src, f"{where} decides the kind on its own"
-        assert "foreign_host(" in src, f"{where} does not ask whose host it is"
-
-    # `project add` ASKS THROUGH `doors.axes_for` since #992 — the axes a product's first source
-    # writes too — and that helper asks `kind_for` itself, so each of the two CLI doors still asks
-    # once, by one name or the other
-    from openfactory import doors
-
-    assert "kind_for(" in inspect.getsource(doors.axes_for), "axes_for decides the kind alone"
-    source = inspect.getsource(cli)
-    assert source.count("doors.kind_for(") + source.count("doors.axes_for(") == 2, (
-        "the two CLI doors must each ask — a shared helper nobody calls twice is one door short")
+    assert "kind_for" in _called_in(doors.axes_for), "axes_for decides the kind alone"
+    for where, fn in (("the project_add row", catalog._project_add),
+                      ("project init", cli.project_init)):
+        called = _called_in(fn)
+        assert called & {"kind_for", "axes_for"}, f"{where} decides the kind on its own"
+        assert "foreign_host" in called, f"{where} does not ask whose host it is"
+    for where, fn in (("project add", cli.project_add), ("POST /api/projects", api_module.add_project)):
+        assert _performed_in(fn) == {"project_add"}, (
+            f"{where} does not map onto the row that asks — a door that writes the row itself is "
+            f"the fourth copy of the rule")
 
 
 def test_an_ADO_address_without_its_coordinates_is_REFUSED_by_name_not_written_as_github(

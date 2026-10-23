@@ -45,7 +45,7 @@ from starlette.routing import compile_path
 from openfactory import __version__, actions, doors
 from openfactory.api import read_models
 from openfactory.api.project_route import AboutItsProject
-from openfactory.contracts.project import Project, ProviderRef
+from openfactory.contracts.project import Project
 from openfactory.floor import reading as _floor_reading
 from openfactory.floor.reading import INTAKE_TTL_S as _INTAKE_TTL_S
 from openfactory.identity import oidc as _sso
@@ -1510,40 +1510,23 @@ def read_address(repo_path: str = "", repo: str = "", provider: str = "") -> dic
     return {"kind": kind, "coordinates": kind != "local", "refusal": ""}
 
 
+# A MAPPING ONTO THE `project_add` ACTION (#741), and held to it: the row asks whose host the
+# address is (#162), decides every axis (ADR-0049 D2) and writes the registry, and it is the
+# installation's, so a credential scoped to the board or the product is refused it here as at
+# `POST /api/act/project_add`. This door had its own copy of the first half and wrote only the
+# tracker axis for a hosted address. What stays here is its own shape: the body it publishes, and
+# 422 for an address that cannot be registered as written, as it always answered one. No
+# docstring on purpose — it would be this route's description in the committed `openapi.json`.
 @app.post("/api/projects", dependencies=_AUTH)
-def add_project(body: NewProject) -> dict:
-    options: dict[str, str] = {}
-    if body.board_owner and body.board_number:
-        options = {"board_owner": body.board_owner, "board_number": body.board_number}
-    # WHOSE HOST IS IT (#162), asked at this door too since D2. It was asked at `project init`
-    # and nowhere else, so the same GitLab URL was refused on the command line and written as a
-    # GitHub row through the panel — and the row is what hands a github.com credential to
-    # whatever host the URL actually names.
-    try:
-        foreign = doors.foreign_host(body.repo_path, provider=body.provider or "")
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if foreign:
-        # THE SENTENCE IS `doors.foreign_refusal`'s (slice 4c) — this door had its own copy of it,
-        # and the panel in front of the door had none at all.
-        raise HTTPException(status_code=422, detail=doors.foreign_refusal(foreign))
-    kind = doors.kind_for(body.repo_path, repo=body.repo or "", provider=body.provider or "")
-    if kind == "local":
-        # EVERY AXIS, SPELLED (D2) — see `openfactory project add`, which writes the same row. An
-        # axis left unwritten inherits `ProviderRef`'s `github` default, and a local project that
-        # inherited it would be handed the deployment's GitHub credential.
-        axes = {"tracker": ProviderRef(kind="local", repo=body.name),
-                "forge": ProviderRef(kind="local", repo=body.name),
-                "ci": ProviderRef(kind="none", repo=body.name)}
-    else:
-        axes = {"tracker": ProviderRef(kind=kind,
-                                       repo=body.repo or doors.infer_repo(body.repo_path) or None,
-                                       options=options)}
-    try:
-        ProjectRegistry().add(Project(name=body.name, repo_path=body.repo_path, **axes))
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return {"ok": True}
+async def add_project(body: NewProject, request: Request) -> dict:
+    outcome = await actions.perform(
+        "project_add", by=_actor(request), project=body.name, repo_path=body.repo_path,
+        provider=body.provider or "", repo=body.repo or "", board_owner=body.board_owner or "",
+        board_number=body.board_number or "")
+    if not outcome.ok:
+        raise HTTPException(status_code=422 if outcome.code == actions.INVALID
+                            else _STATUS.get(outcome.code, 500), detail=outcome.message)
+    return {"ok": True, "changed": outcome.data["changed"], "message": outcome.message}
 
 
 @_read("/api/jobs", read_models.JournalJobs)

@@ -73,9 +73,12 @@ MUTATIONS = [
      '    kind = doors.kind_for(repo_path, repo=repo, provider=provider)\n', TEST),
 
     # ── 3. one claim, three doors ──────────────────────────────────────────────────────────────
+    # RE-PINNED 2026-10-23 (#741): the door answers the `project_add` row's sentence now, so its
+    # own copy would be a sentence of its own in place of the row's.
     ("the API door keeps its own copy of the refusal, which is how the two came to differ", API,
-     '        raise HTTPException(status_code=422, detail=doors.foreign_refusal(foreign))',
-     '        raise HTTPException(status_code=422, detail=f"{foreign} is not supported")', TEST),
+     '                            else _STATUS.get(outcome.code, 500), detail=outcome.message)',
+     '                            else _STATUS.get(outcome.code, 500), '
+     'detail=f"{body.repo_path} is not supported")', TEST),
 
     ("the command line keeps its own copy of the claim", CLI,
      '    return (f"✗ {doors.foreign_refusal(foreign)}\\n"',

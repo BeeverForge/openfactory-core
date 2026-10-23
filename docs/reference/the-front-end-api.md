@@ -136,7 +136,7 @@ means any credential the deployment issued.
 | GET | `/api/product/{project}/search` | product | deprecated alias of `/api/v1/product/{project}/search` |
 | GET | `/api/product/{project}/system` | product | deprecated alias of `/api/v1/product/{project}/system` |
 | GET | `/api/projects` | floor | deprecated alias of `/api/v1/projects` |
-| POST | `/api/projects` | floor | add a project |
+| POST | `/api/projects` | floor | add a project — the `project_add` action, so the administrator's alone; an address it cannot register as written is a 422 |
 | POST | `/api/projects/{name}/enabled` | floor | turn a project's pickup on or off |
 | POST | `/api/projects/{project}/scan` | floor | read a project's queue now, without waiting for the next tick |
 | GET | `/api/promote/{project}/{issue}` | floor | deprecated alias of `/api/v1/promote/{project}/{issue}` |
@@ -259,6 +259,7 @@ token — with a 400 saying so.
 | `poller_resume` | [`note`] | takes work again; `data.intake` is the schedule as read after it (`openfactory poller resume`) |
 | `product_name` | `project`, [`agent_name`] | what the product role is called; omit `agent_name` to read it, `""` for no name (`openfactory product name`) |
 | `product_declare` | `project`, `docs_repo` | records the product's existing context repository and reads it back; `data.reachable` says whether every credential that will read it can (`openfactory product declare`) |
+| `project_add` | `project`, `repo_path`, [`provider`], [`repo`], [`board_owner`], [`board_number`], [`organization`], [`ado_project`], [`repository`], [`work_item_type`], [`token_env`], [`model`], [`language`] | registers a project with every axis its address and options say; a name already registered as asked changes nothing (`data.changed` is `false`), and one registered differently is refused with a 409 naming what differs (`openfactory project add`, and `POST /api/projects`) |
 | `project_remove` | `project` | unregisters a project; nothing else about it is touched (`openfactory project remove`) |
 | `project_set_model` | `project`, `model`, [`role`] | the model the coding agent runs, passed to the harness verbatim, for every role or one (`openfactory project set-model`) |
 | `project_set_language` | `project`, `language` | the language a project speaks first; a reply follows whoever asked (`openfactory project set-language`) |

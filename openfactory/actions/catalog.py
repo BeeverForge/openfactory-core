@@ -7670,6 +7670,126 @@ async def _project_set_preview(*, project: str, by: Actor, required: object = No
     return done(said, project=project, preview=saved.model_dump(mode="json"), dropped=dropped)
 
 
+# ── registering a project, and making it ready to move a ticket (#741) ──────────────────────────
+#
+# THREE DOORS WROTE A PROJECT, AND NONE WAS A ROW. `openfactory project add` and `project init`
+# built the registry row in the command line's own code, and the panel's `POST /api/projects` was a
+# third copy of the first, which wrote the tracker axis alone for a hosted address. So a front end
+# of one's own could not register a project at all, and the two that could disagreed. These rows
+# are the one implementation; the command and the route map onto them.
+
+def _given(value: object) -> str:
+    """A text parameter as a caller handed it — `None`, a missing value and spaces are all `""`."""
+    return str(value or "").strip()
+
+
+def _differs(held, asked) -> list[str]:
+    """The fields `asked` was given that `held` does not hold the same — `[]` when the registry
+    already says what was asked. An axis agrees when its kind and its repository are the same and
+    every option asked for is held with the same value, so a board attached since, or a credential
+    variable named since, is not a disagreement."""
+    from openfactory.contracts.project import ProviderRef
+
+    out = []
+    for key in sorted(asked.model_fields_set - {"name"}):
+        want, have = getattr(asked, key), getattr(held, key, None)
+        if isinstance(want, ProviderRef):
+            same = (isinstance(have, ProviderRef) and want.kind == have.kind
+                    and want.repo == have.repo
+                    and all(have.options.get(k) == v for k, v in want.options.items()))
+        else:
+            same = want == have
+        if not same:
+            out.append(key)
+    return out
+
+
+async def _project_add(*, project: str, repo_path: str, by: Actor, provider: object = "",
+                       repo: object = "", board_owner: object = "", board_number: object = "",
+                       organization: object = "", ado_project: object = "",
+                       repository: object = "", work_item_type: object = "",
+                       token_env: object = "", model: object = "",
+                       language: object = "") -> Outcome:
+    """Register a project with every axis its address and its options say — one write.
+
+    DECIDED BEFORE ANYTHING IS WRITTEN (engineering-lessons §12): whose host the address is, the
+    kind it is on every axis, and, for a kind that needs coordinates, whether they were given or
+    can be read from the address. A refused address leaves the registry as it was.
+
+    SAFE TO RUN AGAIN, AND NEVER OVER WHAT IS THERE. A name already registered as asked is an
+    answer (`changed: false`), so a script that adds and then initialises can be run twice; one
+    registered differently is refused, naming what differs, and nothing is written. Adding again is
+    not how a project is changed — its own rows are (`project_set_model`, `project_set_language`),
+    and `project_remove` first is how it is replaced."""
+    from pydantic import ValidationError
+
+    from openfactory import doors
+    from openfactory.contracts.project import Project, model_refused
+    from openfactory.registry import ProjectRegistry
+
+    name, where, chosen = _given(project), _given(repo_path), _given(provider)
+    # WHOSE HOST IS IT (#162, ADR-0049 D2) — a host nobody here implements is refused by name,
+    # because the row is what later hands a credential to whatever host the address names.
+    try:
+        foreign = doors.foreign_host(where, provider=chosen)
+    except ValueError as exc:
+        return refused(INVALID, str(exc), project=name)
+    if foreign:
+        return refused(INVALID, doors.foreign_refusal(foreign), project=name, foreign=foreign)
+    # THE KIND THIS ADDRESS IS, on every axis, and the axes it writes (ADR-0049 D2): the one
+    # answer this row and a product's first source share (`doors.axes_for`, #992).
+    try:
+        fields = doors.axes_for(
+            name, where, provider=chosen, repo=_given(repo), organization=_given(organization),
+            ado_project=_given(ado_project), repository=_given(repository),
+            work_item_type=_given(work_item_type), token_env=_given(token_env),
+            board_owner=_given(board_owner), board_number=_given(board_number))
+    except doors.MissingCoordinates as exc:
+        # NAMED BY THIS ROW'S PARAMETERS, which a front end fills; the command line names its
+        # flags from them.
+        missing = [flag.lstrip("-").replace("-", "_") for flag in exc.missing]
+        them = "it" if len(missing) == 1 else "them"
+        return refused(INVALID, f"{name} was not registered: {', '.join(missing)} could not be "
+                                f"read from {where!r}, and a project of this kind needs {them} — "
+                                f"pass {them}", project=name, missing=missing)
+    if _given(language):
+        fields["language"] = _given(language)
+    if model not in (None, ""):
+        # VERBATIM, as `project_set_model` saves it: the harness names its models its own way.
+        fields["model"] = str(model)
+    if why := model_refused(fields.get("model")):
+        return refused(INVALID, why, project=name)
+    try:
+        asked = Project(name=name, repo_path=where, **fields)
+    except ValidationError as exc:
+        return refused(INVALID, f"{name} was not registered — {' '.join(str(exc).split())[:300]}",
+                       project=name)
+    registry = ProjectRegistry()
+    try:
+        held = registry.get(name)
+    except KeyError:
+        held = None
+    if held is not None:
+        differs = _differs(held, asked)
+        if differs:
+            return refused(CONFLICT, f"{name} is already registered, with a different "
+                                     f"{', '.join(differs)} — nothing was changed. A project is "
+                                     f"changed by its own rows (project_set_model, "
+                                     f"project_set_language), or removed first and added again",
+                           project=name, differs=differs)
+        return done(f"{name} is already registered as asked — nothing was changed", project=name,
+                    changed=False, registered=held.model_dump(mode="json", exclude_none=True))
+    try:
+        registry.add(asked)
+    except ValueError as exc:
+        # A name another caller registered a moment ago, two projects one installation cannot
+        # hold together, two names one preview slug: the registry's own sentence, and nothing was
+        # written.
+        return refused(CONFLICT, f"{name} was not registered — {exc}", project=name)
+    return done(f"registered project {name!r}", project=name, changed=True,
+                registered=asked.model_dump(mode="json", exclude_none=True))
+
+
 CATALOG: dict[str, ActionSpec] = {
     spec.name: spec for spec in (
         ActionSpec(
@@ -8695,6 +8815,47 @@ CATALOG: dict[str, ActionSpec] = {
                 "cpus": "the CPU limit of each service, e.g. `2`",
                 "memory": "the memory limit of each service, e.g. `2g`",
                 "clear_env": "`true` to drop every run-time name before adding these",
+            },
+        ),
+        ActionSpec(
+            name="project_add",
+            summary="register a project — every axis its address and options say; a name "
+                    "already registered as asked changes nothing, and one registered "
+                    "differently is refused",
+            run=_project_add,
+            refuses=(INVALID, CONFLICT),
+            required=("project", "repo_path"),
+            optional=("provider", "repo", "board_owner", "board_number", "organization",
+                      "ado_project", "repository", "work_item_type", "token_env", "model",
+                      "language"),
+            installation=True,
+            params={
+                "project": "the name to register the project under in this deployment's "
+                           "registry, e.g. `podbeam`",
+                "repo_path": "where the code is: a path on the machine the factory runs on, or "
+                             "a clone URL",
+                "provider": "the kind on every axis, when the address cannot say it — a kind "
+                            "this deployment has, e.g. an installed add-on's; empty reads it "
+                            "from the address",
+                "repo": "the repository as its forge names it, e.g. `owner/name`; empty reads "
+                        "it from a clone URL",
+                "board_owner": "who owns the board the cards are on, given with `board_number`",
+                "board_number": "the board's number, given with `board_owner`",
+                "organization": "the organisation the project lives in, where its kind has "
+                                "one and the address does not carry it",
+                "ado_project": "the project inside that organisation, where the address does "
+                               "not carry it",
+                "repository": "the repository inside that project, where the address does not "
+                              "carry it",
+                "work_item_type": "the kind of card the factory writes on a board that has "
+                                  "several, spelled as the board spells it",
+                "token_env": "the NAME of the environment variable holding this project's "
+                             "credential — never the credential itself; empty uses the kind's "
+                             "default",
+                "model": "the model the coding agent runs, passed to the harness verbatim; "
+                         "empty leaves the harness's default",
+                "language": "a language tag the project speaks first in, e.g. `en` or "
+                            "`pt-BR`; empty is English",
             },
         ),
         ActionSpec(

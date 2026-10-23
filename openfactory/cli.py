@@ -196,46 +196,36 @@ def project_add(
     DevOps: the dev.azure.com clone URL carries the organisation, project and repository, so
     registering with it needs no coordinate flags (docs/setup/azure-devops.md is the whole
     walkthrough). Split setups (e.g. Jira tickets + GitHub code) are edited in the registry."""
-    # WHOSE HOST IS IT — asked HERE too, since ADR-0049 D2. `project init` has refused a foreign
-    # host by name since #162 and this door, one command along in the same help text, wrote it as
-    # GitHub: the same URL, two answers, and the wrong one reaches `factory._authenticated`, which
-    # then offers a github.com credential to whatever host it actually names.
-    try:
-        foreign = doors.foreign_host(repo_path, provider=provider or "")
-    except ValueError as exc:
-        typer.echo(f"✗ {exc}")
-        raise typer.Exit(2) from None
-    if foreign:
-        typer.echo(_foreign_refusal(foreign, provider))
+    # A MAPPING ONTO THE `project_add` ROW (#741), which asks whose host the address is, decides
+    # every axis (ADR-0049 D2) and writes the registry once. What stays here is a command line's
+    # own: the ways out it can offer by its flags, and its exit codes — 2 for a request that
+    # cannot be carried out as written, 1 for one the registry refused.
+    from openfactory.actions.base import INVALID
+
+    outcome = _perform("project_add", project=name, repo_path=repo_path,
+                       provider=provider or "", repo=repo or "", board_owner=board_owner or "",
+                       board_number=board_number or "", organization=organization or "",
+                       ado_project=ado_project or "", repository=repository or "",
+                       work_item_type=work_item_type or "", token_env=token_env or "",
+                       model=model or "", language=language or "")
+    if outcome.ok:
+        typer.echo(f"registered project {name!r}" if outcome.data["changed"]
+                   else f"· {outcome.message}")
+        return
+    if outcome.data.get("foreign"):
+        typer.echo(_foreign_refusal(str(outcome.data["foreign"]), provider))
         raise typer.Exit(2)
-    # THE KIND THIS ADDRESS IS, on every axis (D2), and the axes it writes — `doors.axes_for`,
-    # the one answer this door and a product's first source share (#992). A bare filesystem path
-    # is `local` — the person's own repository, no account anywhere — and a path handed WITH
-    # coordinates keeps the hosted kind, because a mounted checkout of a hosted repository is a
-    # shape that runs today.
-    try:
-        axes = doors.axes_for(name, repo_path, provider=provider or "", repo=repo or "",
-                              organization=organization or "", ado_project=ado_project or "",
-                              repository=repository or "", work_item_type=work_item_type or "",
-                              token_env=token_env or "", board_owner=board_owner or "",
-                              board_number=board_number or "")
-    except doors.MissingCoordinates as exc:
-        typer.echo(f"✗ an Azure DevOps project needs its coordinates and "
-                   f"{', '.join(exc.missing)} could not be read from {repo_path!r}")
+    if outcome.data.get("missing"):
+        flags = ", ".join("--" + str(p).replace("_", "-") for p in outcome.data["missing"])
+        typer.echo(f"✗ an Azure DevOps project needs its coordinates and {flags} could not be "
+                   f"read from {repo_path!r}")
         # vendor-url-ok: this is help text SHOWING A HUMAN the shape to paste, not a URL this
         # platform builds and sends anybody to.
         typer.echo("  the clone URL of an Azure DevOps repository carries all three: "
                    "https://dev.azure.com/<organization>/<project>/_git/<repository>")
-        raise typer.Exit(2) from None
-    reg = ProjectRegistry()
-    kwargs: dict = {"name": name, "repo_path": repo_path, **axes}
-
-    if language:
-        kwargs["language"] = language
-    if model:
-        kwargs["model"] = model
-    reg.add(Project(**kwargs))
-    typer.echo(f"registered project {name!r}")
+        raise typer.Exit(2)
+    typer.echo(f"✗ {outcome.message}")
+    raise typer.Exit(2 if outcome.code == INVALID else 1)
 
 
 def _refuse_the_row(outcome, name: str) -> None:

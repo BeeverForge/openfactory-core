@@ -307,6 +307,10 @@ OWNED = {
     # binds an identifier a front end legitimately needs forbids the wrong thing. What the row
     # owns besides the write is the answer to a name the registry does not hold, with its roster.
     "_no_such_project": "project_remove",
+    # which axes an address is registered as — the kind on every axis and the coordinates a kind
+    # needs (ADR-0049 D2, `doors.axes_for` since #992): a front end that wrote them itself would
+    # be the fourth copy of the rule the three registering doors used to each carry
+    "axes_for": "project_add",
     # the doctor's report AS A DOCUMENT: a front end that composed one would be a second opinion
     # about the same machine — the screen and `--json` both render the row's
     "as_document": "doctor",

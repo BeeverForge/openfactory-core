@@ -608,8 +608,14 @@ def test_a_revocation_is_refused_when_the_sink_keeps_nothing(monkeypatch):
 #: Something plausible for each parameter a project row requires besides the project itself.
 _PLAUSIBLE = {"model": "a-model", "language": "en", "docs_repo": "acme/docs", "person": "x"}
 
+#: The rows that take an address to register a project at. They take a project that is NOT
+#: registered yet, so the rule below is not theirs; theirs is that what is registered already is
+#: never written over (slice 3, below).
+REGISTERS_AT = sorted(name for name in INSTALLATION if "repo_path" in catalog.CATALOG[name].required)
+
 TAKES_A_PROJECT = sorted(name for name in INSTALLATION
-                         if "project" in catalog.CATALOG[name].required)
+                         if "project" in catalog.CATALOG[name].required
+                         and name not in REGISTERS_AT)
 
 
 @pytest.fixture
@@ -808,3 +814,172 @@ def test_a_network_a_preview_may_not_join_is_said_and_not_saved(one_project):
 
     assert out.ok and "network 'host' refused" in out.message, out
     assert ProjectRegistry().get("acme").preview.network == ""
+
+
+# ── 8. registering a project (slice 3) ──────────────────────────────────────────────────────────
+
+def _kinds_the_axes_branch_on() -> set[str]:
+    """The kinds `doors.axes_for` writes differently, read off its comparisons — so a kind it
+    learns to write is a kind the cases below must carry an address for."""
+    fn = next(n for n in parsed(ROOT / "openfactory" / "doors.py").body
+              if isinstance(n, ast.FunctionDef) and n.name == "axes_for")
+    return {c.value for n in ast.walk(fn) if isinstance(n, ast.Compare)
+            for c in ast.walk(n) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+
+
+#: One address for each kind `doors.axes_for` writes differently: a path on this machine (every axis
+#: local), a clone URL whose kind writes the tracker, and one whose kind writes two axes from the
+#: coordinates the URL carries. The panel's door wrote the tracker alone for both URLs.
+ADDRESSES = ("{tmp}/acme", "https://github.com/acme-corp/acme.git",
+             "https://dev.azure.com/acme-org/Payments/_git/acme")
+
+
+def test_the_addresses_cover_every_kind_the_row_writes_differently(tmp_path):
+    from openfactory import doors
+
+    covered = {doors.kind_for(a.format(tmp=tmp_path)) for a in ADDRESSES}
+
+    assert covered == _kinds_the_axes_branch_on(), (covered, _kinds_the_axes_branch_on())
+
+
+@pytest.mark.parametrize("address", ADDRESSES)
+def test_the_command_and_the_panels_door_register_one_row(address, tmp_path, monkeypatch):
+    """`project add` and `POST /api/projects` are mappings onto one row, so the same address
+    registers the same project through either — every axis, not the tracker alone."""
+    from openfactory.api.app import app as panel
+    from openfactory.cli import app
+    from openfactory.registry import ProjectRegistry
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    where = address.format(tmp=tmp_path)
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "by-the-shell.yaml"))
+    shell = CliRunner().invoke(app, ["project", "add", "acme", where])
+    assert shell.exit_code == 0, shell.output
+    by_the_shell = ProjectRegistry().get("acme").model_dump(mode="json")
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "by-the-panel.yaml"))
+    answered = TestClient(panel).post("/api/projects", json={"name": "acme", "repo_path": where})
+
+    assert answered.status_code == 200, answered.text
+    assert ProjectRegistry().get("acme").model_dump(mode="json") == by_the_shell
+
+
+@pytest.mark.parametrize("argv,body", [
+    (["project", "add", "acme", "/srv/acme"], None),
+    (None, {"name": "acme", "repo_path": "/srv/acme"}),
+], ids=["project add", "POST /api/projects"])
+def test_each_registering_door_runs_the_row_and_writes_nothing_itself(argv, body, tmp_path,
+                                                                      monkeypatch):
+    """With the row's own code replaced by a recorder, the door still answers, the recorder ran
+    once, and no registry was written: a door that also wrote the project itself would pass every
+    test that reads the registry back."""
+    from openfactory.api.app import app as panel
+    from openfactory.cli import app
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    registry = tmp_path / "registry.yaml"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(registry))
+    seen = []
+
+    async def recorder(by=None, **params):
+        seen.append(params)
+        return actions.done("recorded", project="acme", changed=True, registered={})
+
+    monkeypatch.setattr(catalog, "CATALOG", {**catalog.CATALOG, "project_add": dataclasses.replace(
+        catalog.CATALOG["project_add"], run=recorder)})
+
+    if argv:
+        out = CliRunner().invoke(app, argv)
+        assert out.exit_code == 0, out.output
+    else:
+        answered = TestClient(panel).post("/api/projects", json=body)
+        assert answered.status_code == 200, answered.text
+
+    assert [p["project"] for p in seen] == ["acme"], "the door did not run project_add"
+    assert not registry.exists(), "the door wrote the registry itself"
+
+
+def test_registering_through_the_panels_door_is_the_administrators(three_credentials, tmp_path,
+                                                                   monkeypatch):
+    """`POST /api/projects` is held to the row's scoping: a board credential passes the floor's
+    door and is refused by the row, a product credential is refused at the door, and nothing is
+    written for either."""
+    from openfactory.registry import ProjectRegistry
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    body = {"name": "acme", "repo_path": str(tmp_path / "acme")}
+    for credential in ("the-board", "the-analyst"):
+        refused = three_credentials.post("/api/projects", json=body,
+                                         headers={"Authorization": f"Bearer {credential}"})
+        assert refused.status_code == 403, (credential, refused.text)
+    assert ProjectRegistry().list() == [], "a scoped credential registered a project"
+
+    admitted = three_credentials.post("/api/projects", json=body,
+                                      headers={"Authorization": "Bearer the-admin"})
+
+    assert admitted.status_code == 200, admitted.text
+    assert [p.name for p in ProjectRegistry().list()] == ["acme"]
+
+
+#: Requests no door may register as written, each with the data a door renders its refusal from.
+#: Each is refused before the registry is read for writing, so the file is never touched.
+UNREGISTRABLE = {
+    "a host nobody here implements": ({"repo_path": "https://gitlab.com/o/acme.git"}, "foreign"),
+    "an address missing the coordinates its kind needs": (
+        {"repo_path": "https://dev.azure.com/acme-org/Payments"}, "missing"),
+    "a model that begins like a flag": ({"repo_path": "/srv/acme", "model": "--flag"}, None),
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNREGISTRABLE))
+def test_an_address_that_cannot_be_registered_as_written_is_refused_and_nothing_is_written(
+        case, tmp_path, monkeypatch):
+    from openfactory.api.app import app as panel
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    registry = tmp_path / "registry.yaml"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(registry))
+    params, rendered_from = UNREGISTRABLE[case]
+
+    out = asyncio.run(actions.perform("project_add", by=ADMIN, project="acme", **params))
+
+    assert out.code == actions.INVALID, out
+    if rendered_from:
+        assert out.data.get(rendered_from), f"the refusal carries no {rendered_from!r}: {out.data}"
+    assert not registry.exists(), f"{case} wrote the registry"
+    if "model" not in params:
+        # THE PANEL'S DOOR ANSWERS AS IT ALWAYS DID, 422 and the row's sentence
+        answered = TestClient(panel).post("/api/projects", json={"name": "acme", **params})
+        assert answered.status_code == 422 and answered.json()["detail"] == out.message, (
+            answered.text)
+        assert not registry.exists()
+
+
+def test_adding_what_is_registered_changes_nothing_and_adding_it_differently_is_refused(
+        tmp_path, monkeypatch):
+    """Safe to run again, and never over what is there: the same request is an answer, even after
+    a board was attached and a model set since — those are not what was asked — and a request
+    for a different address is refused, naming what differs, with the registry byte for byte as
+    it was."""
+    from openfactory.registry import ProjectRegistry
+
+    registry = tmp_path / "registry.yaml"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(registry))
+    asked = {"project": "acme", "repo_path": "https://github.com/acme-corp/acme.git",
+             "language": "pt-BR"}
+    assert asyncio.run(actions.perform("project_add", by=ADMIN, **asked)).data["changed"] is True
+    ProjectRegistry().attach_board("acme", board_owner="acme-corp", board_number="7")
+    ProjectRegistry().set_model("acme", "a-model")
+    before = registry.read_bytes()
+
+    again = asyncio.run(actions.perform("project_add", by=ADMIN, **asked))
+    elsewhere = asyncio.run(actions.perform("project_add", by=ADMIN,
+                                            **{**asked, "repo_path": str(tmp_path / "acme")}))
+
+    assert again.ok and again.data["changed"] is False, again
+    assert elsewhere.code == actions.CONFLICT and "repo_path" in elsewhere.data["differs"], (
+        elsewhere)
+    assert registry.read_bytes() == before, "registering again wrote over what was registered"
