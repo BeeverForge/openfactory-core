@@ -882,13 +882,33 @@ def _registry_of(image: str) -> str:
         else "docker.io"
 
 
+def _whole_seconds(name: str, value: object) -> int:
+    """`value` as a whole number of seconds, 0 or more, or a ValueError naming `name` and `value`.
+    A bool is refused though it is an int; a float is taken only when it is whole."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or \
+            not 0 <= value < float("inf") or value != int(value):
+        raise ValueError(f"the compose preview runtime's {name} must be a whole number of "
+                         f"seconds, 0 or more; got {value!r}")
+    return int(value)
+
+
 class ComposeRuntime:
     """The `compose` row. `clock`/`sleep`/`poll_seconds`/`settle_seconds` exist so readiness is
-    testable with a faked daemon and no wall-clock waiting."""
+    testable with a faked daemon and no wall-clock waiting.
+
+    `stop_seconds` is the grace `down` grants each container before SIGKILL (`-t`). It is short
+    because a preview is disposable: the same `down -v --rmi local` deletes the volumes and the
+    built images a graceful stop would protect, so waiting docker's default 10 s on a process that
+    ignores SIGTERM (PID 1 with no handler) buys nothing. 2 s is the default; the row takes a
+    `stop_seconds` option, but no deployment setting reaches it yet (#1070). It is a whole number
+    of seconds, 0 or more, checked here rather than at `down`: compose's `-t` takes an integer,
+    so a fraction would be truncated (0.5 → an immediate SIGKILL), and docker reads a negative
+    one as waiting forever."""
 
     def __init__(self, *, reach: str | None = None, panel_container: str | None = None,
                  start_timeout: float = 30 * 60, settle_seconds: float = 60,
-                 poll_seconds: float = 2, log_root: str | None = None,
+                 poll_seconds: float = 2, stop_seconds: int = 2,
+                 log_root: str | None = None,
                  clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self.reach = reach or reach_kind()
@@ -896,6 +916,7 @@ class ComposeRuntime:
         self.start_timeout = float(start_timeout)
         self.settle_seconds = float(settle_seconds)
         self.poll_seconds = float(poll_seconds)
+        self.stop_seconds = _whole_seconds("stop_seconds", stop_seconds)
         self.log_root = log_root
         self.clock, self.sleep = clock, sleep
 
@@ -1332,6 +1353,7 @@ class ComposeRuntime:
                                     if isinstance(name, str) and isinstance(spec, dict)
                                     and "build" in spec and "image" not in spec]
         ran = _host(["docker", "compose", "-p", compose_project, "--env-file", os.devnull, "down",
+                     "-t", str(self.stop_seconds),
                      "-v", "--rmi", "local", "--remove-orphans"], env=env, timeout=600)
         for line in f"{ran.out}\n{ran.err}".splitlines():
             line = line.strip()

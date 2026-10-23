@@ -315,7 +315,7 @@ def _down(tmp: Path, text: str, monkeypatch) -> object:
     monkeypatch.setattr(preview_compose, "_remove_workdir", lambda path: [])
     monkeypatch.setattr(preview_compose, "_host", lambda argv, **k: (
         asked.append(list(argv)), preview_compose.Ran(rc=1, out="", err=""))[1])
-    preview_compose.ComposeRuntime._down(SimpleNamespace(panel_container=""), unit,
+    preview_compose.ComposeRuntime._down(SimpleNamespace(panel_container="", stop_seconds=2), unit,
                                          str(tmp / unit))
     return [argv[3:] for argv in asked if argv[:3] == ["docker", "image", "rm"]]
 

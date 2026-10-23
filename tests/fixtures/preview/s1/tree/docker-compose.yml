@@ -42,9 +42,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # start_interval probes every 1 s inside start_period, so a test learns the api is healthy
+    # within a second rather than a whole 5 s interval. It needs compose >= 2.20 and engine >= 25
+    # (API 1.44); an older engine ignores it and probes every `interval`, as before (#1070).
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 5s
+      start_period: 30s
+      start_interval: 1s
 
   migrate:
     build: ./api
@@ -66,9 +71,15 @@ services:
       - pgdata:/var/lib/postgresql/data
       - type: tmpfs
         target: /run/postgresql
+    # postgres runs `initdb` on a fresh volume every preview (`down -v`); compose's default of
+    # 3 retries x 2 s with no start period loses that race on a loaded box, and `service_healthy`
+    # fails the whole `up`. The suite's subject is the preview, not postgres's first start (#1070).
+    # Whether the runtime should retry a client's `up` that lost this race is ADR-0050's call.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app"]
       interval: 2s
+      start_period: 30s
+      retries: 10
     ports:
       - "5432:5432"
 

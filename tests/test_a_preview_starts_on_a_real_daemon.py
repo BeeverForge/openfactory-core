@@ -123,6 +123,7 @@ def test_an_offered_card_is_started_watched_and_ended_on_a_real_daemon(tmp_path,
     def unit(inp):
         project, _ = real_unit(inp)
         return project, ComposeRuntime(reach="network", panel_container="", settle_seconds=5,
+                                       poll_seconds=0.5,
                                        start_timeout=inp.start_timeout_minutes * 60)
 
     monkeypatch.setattr(activities, "_preview_unit", unit)

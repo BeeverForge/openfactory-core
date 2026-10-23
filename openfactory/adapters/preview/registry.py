@@ -36,7 +36,7 @@ def _compose(**kw):
     from openfactory.adapters.preview.compose import ComposeRuntime
 
     known = ("reach", "panel_container", "start_timeout", "settle_seconds", "poll_seconds",
-             "log_root", "clock", "sleep")
+             "stop_seconds", "log_root", "clock", "sleep")
     unknown = sorted(set(kw) - set(known))
     if unknown:
         raise TypeError(f"the compose preview runtime takes no {unknown} — it takes {known}")
