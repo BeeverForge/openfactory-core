@@ -196,8 +196,10 @@ place and renames nothing (when another of its columns is already called *Needs 
 none and says so: name `needs_review` under the tracker's `columns` option to opt in); on Jira and Azure Boards the factory moves cards there only when
 `status_map` (Jira) or `columns` and `state_map` (Azure) name it for the `needs_review` key.
 Opting in moves no card: a pull request already in *Needs Action* waiting on a reviewer stays
-there until the factory next moves it (a re-review sends it to *Needs Review*, the merge to
-*Done*); on GitHub Projects, Jira or Azure Boards you can also move it there by hand.
+there until the factory next moves it (a re-review sends it to *Needs Review*; the merge sends it
+to *In review*, and it reaches *Done* once the change is delivered, at once when the project's
+`.openfactory/project.yaml` declares no `post_merge_deploy:` and no `environments:`); on GitHub
+Projects, Jira or Azure Boards you can also move it there by hand.
 Triage's *waiting too long* finding covers a pull request left there as it covers a park; the
 product role's review of parked cards does not list it, because it has nothing to diagnose
 (ADR-0019 §6).
