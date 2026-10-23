@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -447,6 +448,29 @@ def test_an_operators_stop_timeout_reaches_the_down(s1, monkeypatch):
     assert down[down.index("-t") + 1] == "15"
     assert build_runtime("compose", stop_seconds=15, panel_container="openfactory-panel",
                          reach="network").stop_seconds == 15
+
+
+def test_a_stop_timeout_of_zero_reaches_the_down_as_kill_now(s1, monkeypatch):
+    daemon = _daemon(monkeypatch)
+    _runtime().up(s1)
+
+    _runtime(stop_seconds=0).down(s1.compose_project, s1.workdir)
+
+    down = daemon.argvs("down")[-1]
+    assert down[down.index("-t") + 1] == "0"
+
+
+@pytest.mark.parametrize("bad", [0.5, -1, "2", True])
+def test_a_stop_timeout_that_is_not_a_whole_number_of_seconds_is_refused_when_built(bad,
+                                                                                    monkeypatch):
+    daemon = _daemon(monkeypatch)
+
+    with pytest.raises(ValueError, match=rf"stop_seconds.*{re.escape(repr(bad))}"):
+        _runtime(stop_seconds=bad)
+    with pytest.raises(ValueError, match=rf"stop_seconds.*{re.escape(repr(bad))}"):
+        build_runtime("compose", stop_seconds=bad, panel_container="openfactory-panel",
+                      reach="network")
+    assert not daemon.argvs("down")
 
 
 def test_down_removes_only_the_images_this_units_document_built(s1, monkeypatch):
