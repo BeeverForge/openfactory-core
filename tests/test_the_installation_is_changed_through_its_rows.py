@@ -386,6 +386,16 @@ def test_the_front_end_contract_lists_exactly_the_installation_rows_and_what_the
         assert said == list(spec.parameters), (name, said, spec.parameters)
 
 
+def test_the_catalogue_a_front_end_reads_marks_exactly_the_installation_rows():
+    """`GET /api/v1/actions` says which rows are the installation's, so a screen of one's own that
+    holds a scoped credential can leave them out rather than offer a button that answers 403."""
+    from openfactory.api.app import app
+
+    listed = TestClient(app).get("/api/v1/actions").json()
+
+    assert sorted(row["name"] for row in listed if row["installation"]) == INSTALLATION, listed
+
+
 # ── 5. one doctor, whichever door asked ─────────────────────────────────────────────────────────
 
 def test_the_doctor_row_answers_the_document_the_command_prints(tmp_path, monkeypatch):

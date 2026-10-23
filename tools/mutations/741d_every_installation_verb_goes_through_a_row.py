@@ -18,7 +18,8 @@ The claims, each a group of rows:
   4. the walk is held to the app: a group it loses, a walk that stops at the root, a command whose
      body it cannot read and a function shadowed by another of its name are each seen;
   5. the door is `perform`: a shell that runs its rows without it is seen by the positive twin,
-     which a static walk alone could not see.
+     which a static walk alone could not see;
+  6. the catalogue a front end reads says which rows are the installation's.
 
 The schedule's hold reached as the module's attribute (claim 1) is red only because the reading
 enters the schedule's pausing functions (slice 4); without that, the walk saw a hold by its name
@@ -36,6 +37,7 @@ ONBOARD_TEST = ("tests/test_onboard_builds_the_context_too.py::"
 
 CLI = "openfactory/cli.py"
 ONBOARDING = "openfactory/onboarding/onboard.py"
+API = "openfactory/api/app.py"
 
 MUTATIONS = [
     # ── 1. a command that is no mapping writes the installation ─────────────────────────────────
@@ -222,4 +224,10 @@ MUTATIONS = [
      "    return asyncio.run(act_layer.CATALOG[name].run(\n"
      '        by=act_layer.Actor(id=who, display=who, via="cli", admin=True), **params))\n',
      TWIN),
+
+    # ── 6. the catalogue says whose a row is ────────────────────────────────────────────────────
+    ("the catalogue a front end reads stops saying which rows are the installation's", API,
+     '         "installation": s.installation,\n',
+     '         "installation": False,\n',
+     TEST + "::test_the_catalogue_a_front_end_reads_marks_exactly_the_installation_rows"),
 ]
