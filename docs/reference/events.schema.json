@@ -153,9 +153,17 @@
           "title": "Project"
         },
         "product": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
-          "title": "Product",
-          "type": "null"
+          "title": "Product"
         },
         "data": {
           "$ref": "#/$defs/AckData"
@@ -624,7 +632,7 @@
       "type": "object"
     },
     "Envelope": {
-      "description": "One event, from any stream. `id` names it within its stream; `at` is when it was sent;\n`project` is the project it is about, when there is one; `product` is the product\nconversation's key, for the kinds in `PRODUCT_KINDS` and no other.",
+      "description": "One event, from any stream. `id` names it within its stream; `at` is when it was sent;\n`project` is the project it is about, when there is one; `product` is the product's key, for\nthe kinds in `PRODUCT_KINDS`, and for an answer (`ack`, `refused`) about one.",
       "properties": {
         "kind": {
           "enum": [
@@ -1557,9 +1565,17 @@
           "title": "Project"
         },
         "product": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
-          "title": "Product",
-          "type": "null"
+          "title": "Product"
         },
         "data": {
           "$ref": "#/$defs/RefusedData"

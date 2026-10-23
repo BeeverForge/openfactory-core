@@ -317,6 +317,13 @@ while it stays open: a credential that stops opening its path ends the stream.
 | `/api/temporal/stream` | Server-sent events | a JSON frame of the jobs' state — the jobs, whether the poller runs, the build — on connect and whenever it changes; `"jobs": null` when the engine cannot be read | a named event, `ended`, with why: `signed_out`, `not_allowed` or `unavailable` |
 | `/api/jobs/{project}/{issue}/stream` | Server-sent events | the run's log events as they are written; a reconnect resumes from its `Last-Event-ID` (`v2-<n>`) | the same `ended` event |
 
+On `/api/product/stream`, an `ack` or a `refused` names the product it answers about, as
+`product` (the product's key), when it answers about one the credential may read: the `ack` of a
+message sent into the subscribed conversation, the `refused` of a conversation of that product, or
+of a message or a page asked of the subscribed conversation that broke on the server. It names
+none before a subscription, for a project with no product role, or to a credential that may not
+read the product area (#1088).
+
 **One typed description of every frame (#679).** The streams above still send their frames in
 the shapes the table gives; none of them sends an envelope yet. What #679 adds so far is a
 DESCRIPTION: [`events.schema.json`](events.schema.json), committed beside `openapi.json`, names one
@@ -325,7 +332,8 @@ per kind: the sockets' `kind`s, `jobs` for the temporal stream's frame, `log` fo
 and `ended`. A frame of today is that envelope's `data`, less the socket's own `kind` (and less
 the floor `update`'s `project`, which the envelope carries); `id` and `at` are not on today's
 frames. `product` is required for the kinds a product conversation emits (`subscribed`,
-`history`, `earlier`, `said`, `reply`, `staged`, `presence`, `resync`) and absent for every other.
+`history`, `earlier`, `said`, `reply`, `staged`, `presence`, `resync`), is what an `ack` or a
+`refused` frame names when it names one, and is absent for every other.
 It is generated, never edited by hand:
 `tests/test_the_event_models_describe_every_frame_the_streams_send.py` fails when it is not what
 the models generate, and when a stream's code writes a kind, or a key in a socket's or the

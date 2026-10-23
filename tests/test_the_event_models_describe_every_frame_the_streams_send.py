@@ -89,7 +89,7 @@ def _frames() -> list[tuple[str, str, dict]]:
         (CHAT, "staged", {"kind": "staged", "staged": None}),
         (CHAT, "presence", presence_for({"running": True, "stage": "lendo o quadro"}, "ana")),
         (CHAT, "ack", {"kind": "ack", "id": "m1", "ok": True, "text": "sent", "state": "queued",
-                       "ahead": 0}),
+                       "ahead": 0, "product": PRODUCT}),
         (CHAT, "refused", {"kind": "refused", "why": "this credential may not read the product "
                                                      "area."}),
         (CHAT, "resync", {"kind": "resync"}),
@@ -119,6 +119,10 @@ def _product_of(kind: str) -> str | None:
     from openfactory.api.events import PRODUCT_KINDS
 
     return PRODUCT if kind in PRODUCT_KINDS else None
+
+
+#: The kinds whose frame names the product it answers about, when it answers about one (#1088).
+ANSWERS = {"ack", "refused"}
 
 
 # ── the committed schema ────────────────────────────────────────────────────────────────────────
@@ -212,14 +216,15 @@ def test_every_frame_maps_onto_the_envelope_and_validates(stream, kind, frame):
     assert set(event) <= {"kind", "id", "at", "project", "product", "data"}
     assert event["kind"] == kind and event["id"] == "e-1" and event["at"] == AT
     assert event["project"] == "acme"
-    assert event.get("product") == product
+    assert event.get("product") == (frame.get("product") if kind in ANSWERS else product)
     assert "kind" not in event["data"] or kind == "log"   # a log event's own `kind` is its data
     Envelope.model_validate(event)
     typed = validate(event)
     assert type(typed.data) is DATA_MODELS[kind]
     # what the frame carried is all still there, in `data`
     for key, value in frame.items():
-        if key == "kind" and kind != "log" or key == "project" and kind == "update":
+        if (key == "kind" and kind != "log" or key == "project" and kind == "update"
+                or key == "product" and kind in ANSWERS):
             continue
         assert event["data"][key] == value, key
 
@@ -262,11 +267,12 @@ def test_a_frame_whose_data_does_not_fit_its_kind_is_refused():
 # ── product, when one applies ───────────────────────────────────────────────────────────────────
 
 def test_the_product_kinds_are_the_conversations_own():
-    from openfactory.api.events import KINDS, PRODUCT_KINDS
+    from openfactory.api.events import ANSWER_KINDS, KINDS, PRODUCT_KINDS
 
     assert set(PRODUCT_KINDS) == {"subscribed", "history", "earlier", "said", "reply", "staged",
                                   "presence", "resync"}
     assert set(PRODUCT_KINDS) < set(KINDS)
+    assert set(ANSWER_KINDS) == ANSWERS and not ANSWERS & set(PRODUCT_KINDS)
 
 
 @pytest.mark.parametrize(("stream", "kind", "frame"),
@@ -286,7 +292,7 @@ def test_product_is_required_for_a_kind_that_belongs_to_a_product(stream, kind, 
 @pytest.mark.parametrize(("stream", "kind", "frame"),
                          [f for f in _frames() if f[1] not in {"subscribed", "history", "earlier",
                                                                "said", "reply", "staged",
-                                                               "presence", "resync"}],
+                                                               "presence", "resync", *ANSWERS}],
                          ids=lambda v: v if isinstance(v, str) else "")
 def test_product_is_absent_or_null_for_a_kind_that_does_not(stream, kind, frame):
     from openfactory.api.events import validate
@@ -298,6 +304,34 @@ def test_product_is_absent_or_null_for_a_kind_that_does_not(stream, kind, frame)
     assert validate(nulled).product is None
     with pytest.raises(ValidationError):
         validate({**absent, "product": PRODUCT})
+
+
+@pytest.mark.parametrize(("stream", "kind", "frame"),
+                         [f for f in _frames() if f[1] in ANSWERS],
+                         ids=lambda v: v if isinstance(v, str) else "")
+def test_an_answer_names_the_product_it_was_about_or_none(stream, kind, frame):
+    """#1088: an `ack` or a `refused` answers what the page sent, which may have been about one
+    product's conversation or about none — so `product` is there when it was, a non-empty key,
+    and absent or null when it was not."""
+    from openfactory.api.events import validate
+
+    bare = {k: v for k, v in frame.items() if k != "product"}
+    assert validate(_map(stream, kind, {**bare, "product": PRODUCT}, id="e", at=AT)
+                    ).product == PRODUCT
+    absent = _map(stream, kind, bare, id="e", at=AT)
+    assert "product" not in absent and validate(absent).product is None
+    assert validate({**absent, "product": None}).product is None
+    with pytest.raises(ValidationError):
+        validate({**absent, "product": ""})
+
+
+def test_an_answer_takes_the_product_its_frame_names_onto_the_envelope():
+    from openfactory.api.events import from_frame
+
+    for kind, frame in (("ack", {"id": "m1", "ok": True, "text": "sent"}),
+                        ("refused", {"why": "no"})):
+        event = from_frame(CHAT, {"kind": kind, **frame, "product": PRODUCT}, id="e", at=AT)
+        assert event["product"] == PRODUCT and "product" not in event["data"], event
 
 
 # ── the emitters, read: the kinds and fields above are the ones the code writes ─────────────────
@@ -322,7 +356,7 @@ UNREAD_SPREADS = {
 }
 
 #: The keys a frame of a kind carries that go onto the envelope rather than into its `data`.
-LIFTED = {"update": {"project"}}
+LIFTED = {"update": {"project"}, "ack": {"product"}, "refused": {"product"}}
 
 _FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef)
 

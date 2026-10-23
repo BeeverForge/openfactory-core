@@ -26,11 +26,13 @@ sockets' `hello` and `bye` are one kind each, and the two event streams' `ended`
 temporal stream's unnamed frame is `jobs`, and a run's journal line is `log` — whose own `kind`
 (`state`, `review`…) stays in `data`, where it always was.
 
-`product` IS THE CONVERSATION'S, AND ONLY ITS. The kinds a product chat subscription emits
-(`PRODUCT_KINDS`) are about one product's conversation, and carry its key (`product_key`); every
-other kind carries none. `ack` and `refused` are NOT product kinds: they answer what the page sent
-on the socket, and are sent before any subscription as readily as after it — "open a conversation
-before writing in it", "there is no product role to talk to" — where there is no product to name.
+`product` IS THE CONVERSATION'S, OR WHAT AN ANSWER WAS ABOUT. The kinds a product chat
+subscription emits (`PRODUCT_KINDS`) are about one product's conversation, and always carry its
+key (`product_key`). `ack` and `refused` (`ANSWER_KINDS`) answer what the page sent on the socket,
+and carry the product only when what they answer was about one: an `ack` of a message sent into
+the subscribed conversation, a `refused` of a conversation of a product the credential may read.
+Before any subscription — "open a conversation before writing in it", "there is no product role
+to talk to" — there is no product to name, and none is named. Every other kind carries none.
 
 THE DATA MODELS FOLLOW `read_models`' FIRST RULE: each allows what it does not name, so a key a
 producer adds tomorrow reaches a reader as it does today. A field a producer always writes is
@@ -68,6 +70,10 @@ ENDED = "ended"
 Kind = Literal["hello", "update", "bye", "subscribed", "history", "earlier", "said", "reply",
                "staged", "presence", "ack", "refused", "resync", "jobs", "log", "ended"]
 KINDS: tuple[str, ...] = get_args(Kind)
+
+#: The kinds that answer what a page sent on the product chat's socket, and carry the `product`
+#: it was about only when it was about one — the socket's own frame names it (#1088).
+ANSWER_KINDS = ("ack", "refused")
 
 #: The kinds that are about one product's conversation, and so carry its `product`.
 PRODUCT_KINDS = ("subscribed", "history", "earlier", "said", "reply", "staged", "presence",
@@ -278,8 +284,8 @@ class ResyncData(EventData):
 
 class Envelope(BaseModel):
     """One event, from any stream. `id` names it within its stream; `at` is when it was sent;
-    `project` is the project it is about, when there is one; `product` is the product
-    conversation's key, for the kinds in `PRODUCT_KINDS` and no other."""
+    `project` is the project it is about, when there is one; `product` is the product's key, for
+    the kinds in `PRODUCT_KINDS`, and for an answer (`ack`, `refused`) about one."""
 
     kind: Kind
     id: str = Field(min_length=1)
@@ -299,6 +305,13 @@ class _Owned(Envelope):
     """A kind a product's conversation emits: `product` is its key."""
 
     product: str = Field(min_length=1)
+
+
+class _Answer(Envelope):
+    """An answer to what the page sent: `product` is the key of the product it was about, absent
+    or null when it was about none."""
+
+    product: str | None = Field(default=None, min_length=1)
 
 
 class HelloEvent(_Unowned):
@@ -351,12 +364,12 @@ class PresenceEvent(_Owned):
     data: PresenceData
 
 
-class AckEvent(_Unowned):
+class AckEvent(_Answer):
     kind: Literal["ack"]
     data: AckData
 
 
-class RefusedEvent(_Unowned):
+class RefusedEvent(_Answer):
     kind: Literal["refused"]
     data: RefusedData
 
@@ -406,8 +419,9 @@ def from_frame(stream: str, frame: dict, *, id: str, at: str | datetime,
 
     A socket's frame names its kind and loses it to the envelope. An event stream's names none:
     it is the stream's own kind, or `ended` when the SSE `event` was. The floor's `update` carries
-    its `project` on the envelope. `product` is written only when given — a kind it does not apply
-    to leaves it absent, and `validate` refuses one that names it.
+    its `project` on the envelope, and an answer (`ack`, `refused`) the `product` it names.
+    Otherwise `product` is written only when given — a kind it does not apply to leaves it
+    absent, and `validate` refuses one that names it.
 
     Raises `ValueError` for a stream that is not one of today's, or a kind it does not emit."""
     kinds = STREAMS.get(stream)
@@ -422,6 +436,8 @@ def from_frame(stream: str, frame: dict, *, id: str, at: str | datetime,
         raise ValueError(f"{stream} does not emit a {kind!r} frame (it emits {', '.join(kinds)})")
     if kind == "update" and "project" in data:
         project = data.pop("project")
+    if kind in ANSWER_KINDS and "product" in data:
+        product = data.pop("product")
     out: dict[str, Any] = {"kind": kind, "id": id,
                            "at": at.isoformat() if isinstance(at, datetime) else at,
                            "project": project, "data": data}

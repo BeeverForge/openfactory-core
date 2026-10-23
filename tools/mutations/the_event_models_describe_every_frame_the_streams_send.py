@@ -27,6 +27,11 @@ two keys the stream's model already named.
 THE PUBLISHED TEXT (review point 9): a description in the schema names no card; the ids stay
 in the code's comments.
 
+AN ANSWER NAMES ITS PRODUCT (#1088): an `ack` or a `refused` about a product this person may read
+names it on the socket, and its event carries it; one about none, or to a credential that may
+not read the product area, names none. The socket's rows are aimed at the chat's own tests, which
+drive the real socket (`tests/test_the_panel_is_a_chat.py`).
+
 THE LAST ROWS hold the rules the tests state that the first review named and no row covered:
 how `from_frame` reads a frame (C10, C11), what the command answers when it cannot write (C12),
 and which kinds carry a product (C5, C6, C14) — the latter aimed, like the model rows above, at
@@ -43,6 +48,7 @@ CHAT = "openfactory/api/product_chat.py"
 EVENTS = "openfactory/api/events.py"
 STAGING = "openfactory/product/staging.py"
 READS = "openfactory/api/read_models.py"
+CHAT_TEST = "tests/test_the_panel_is_a_chat.py::"
 
 MUTATIONS = [
     # ── the emitters move, the models do not ───────────────────────────────────────────────────
@@ -51,8 +57,8 @@ MUTATIONS = [
      '            sub.frames.put_nowait((sub.generation, {"kind": "behind"}))'),
 
     ("E2: the ack's `ahead` is renamed, and `AckData` still names `ahead`", CHAT,
-     '"state": data.get("state", ""), "ahead": data.get("ahead", 0)})',
-     '"state": data.get("state", ""), "behind": data.get("ahead", 0)})'),
+     '"state": data.get("state", ""), "ahead": data.get("ahead", 0),',
+     '"state": data.get("state", ""), "behind": data.get("ahead", 0),'),
 
     ("E3: the temporal frame's `connected` is renamed, and `JobsData` still requires it", APP,
      '                frame = {"connected": True, "address": addr, **_engine_ui(tv),',
@@ -170,4 +176,36 @@ MUTATIONS = [
      'for the link when nobody said (`ui_hint`, `""` when `ui_base` is known)."""',
      'for the link when nobody said (`ui_hint`, `""` when `ui_base` is known) — #183."""',
      ONE + "test_no_description_the_schema_publishes_names_a_card"),
+
+    # ── an answer names the product it is about (#1088) ────────────────────────────────────────
+    ("the ack of a message sent into the subscribed conversation stops naming its product", CHAT,
+     '"ahead": data.get("ahead", 0),\n                     "product": sub.product})',
+     '"ahead": data.get("ahead", 0)})',
+     CHAT_TEST + "test_an_ack_and_a_refusal_name_the_product_they_answer_about"),
+
+    ("the refusal of a conversation of a product the person may read stops naming it", CHAT,
+     '"why": why, "product": product_key(project)})', '"why": why})',
+     CHAT_TEST + "test_an_ack_and_a_refusal_name_the_product_they_answer_about"),
+
+    ("the refusal of a message that broke stops naming the product it was sent to", CHAT,
+     '**({"product": sub.product}', '**({}',
+     CHAT_TEST + "test_an_ack_and_a_refusal_name_the_product_they_answer_about"),
+
+    ("a credential that may not read the product area is told the product's key", CHAT,
+     'await _tell({"kind": "refused", "why": "this credential may not read the product "',
+     'await _tell({"kind": "refused", "product": product_key(project), '
+     '"why": "this credential may not read the product "',
+     CHAT_TEST + "test_a_credential_that_may_not_read_the_product_area_is_not_told_its_product"),
+
+    ("an `ack` refuses a `product` again", EVENTS,
+     "class AckEvent(_Answer):", "class AckEvent(_Unowned):",
+     ONE + "test_an_answer_names_the_product_it_was_about_or_none"),
+
+    ("an answer accepts an empty `product`", EVENTS,
+     "    product: str | None = Field(default=None, min_length=1)\n",
+     "    product: str | None = None\n",
+     ONE + "test_an_answer_names_the_product_it_was_about_or_none"),
+
+    ("`from_frame` leaves an answer's `product` in its `data` as well", EVENTS,
+     'product = data.pop("product")', 'product = data.get("product")'),
 ]
