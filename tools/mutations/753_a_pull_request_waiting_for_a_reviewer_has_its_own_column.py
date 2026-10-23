@@ -69,6 +69,10 @@ THE CLAIMS, each with a red twin below:
      the board read; row 56 makes the board's warning send a board whose `in_review` or
      `needs_action` is already called "Needs Review" to a re-run of `init`, which adds nothing there,
      instead of to a name of `needs_review`'s own under the `columns` option.
+ 13. **The rows already on the board win over the deployment's map (#1067).** Row 57 reads the map
+     over the board's rows in `columns.carried_by`, so a board whose `in_review` a first `init`
+     called "Needs Review", re-run after the map renamed `in_review`, gets a second "Needs Review"
+     column. The cut survived every module that covered the line (PR #1040's review, Finding 2).
 """
 
 TEST = "tests/test_a_pull_request_waiting_for_a_reviewer_is_not_a_blocked_card.py"
@@ -400,4 +404,10 @@ MUTATIONS = [
      "    if not carrier:\n",
      "    if True:\n",
      f"{AC3}::test_the_local_board_names_the_columns_option_where_another_column_carries_needs_review"),
+
+    # ── 13. the board's rows win over the deployment's map ──────────────────────────────────────
+    ("the deployment's map wins over the board's rows in `carried_by`", COLUMNS,
+     "    carriers = {**named, **had}",
+     "    carriers = {**had, **named}",
+     f"{AC3}::test_a_rerun_reads_the_boards_own_name_over_a_map_that_renamed_it_since"),
 ]
