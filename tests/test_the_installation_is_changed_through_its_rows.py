@@ -1381,3 +1381,28 @@ def test_a_source_for_a_product_before_its_code_is_refused_and_nothing_is_pushed
 
     assert out.code == actions.INVALID and "product_first_source" in out.message, out
     assert _declared_on(bare, tmp_path) is None and forge.opened == [], "something was proposed"
+
+
+def test_a_step_that_raises_is_a_failed_step_and_the_steps_around_it_stand(a_machine,
+                                                                           monkeypatch):
+    """A board's creation that raises something nobody expected is a failed step all the same:
+    the project stays registered, the manifest is still written, and the answer says all three —
+    rather than one sentence about the exception with nothing said about what stands."""
+    from openfactory.adapters.board_setup import registry as setups
+
+    class _Raises:
+        def attached(self, project):
+            return ""
+
+        def create(self, **_kw):
+            raise RuntimeError("the tracker answered 502")
+
+    monkeypatch.setattr(setups, "board_creator", lambda kind: _Raises())
+
+    out = asyncio.run(actions.perform("project_init", by=ADMIN, project="myapp",
+                                      repo_path=str(a_machine)))
+
+    states = {s["step"]: s["state"] for s in out.data.get("steps", [])}
+    assert out.code == actions.FAILED, out
+    assert (states["register"], states["board"], states["manifest"]) == ("done", "failed", "done")
+    assert "502" in out.message, out.message
