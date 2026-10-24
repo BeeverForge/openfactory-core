@@ -479,7 +479,11 @@ def _reaches(path: Path, name: str, *, door: tuple[Path, str] | None = None,
     from its own parameter — written by a name something else defines too (`add`, `remove`,
     `set_enabled`, `register`); a method a class inherits; a row's runner handed on uncalled; a
     relative import (the package had none on 2026-10-24); and what a module runs when it is
-    imported. Each of those, put in a command of `cli.py` on 2026-10-24, passed rule 10.
+    imported. Six of those were put in a command of `cli.py` on 2026-10-24 and each passed rule
+    10: `getattr(ProjectRegistry(), "set_enabled")`, a module-level table, an inherited method,
+    `set_enabled` on another object's attribute, a registry handed back from a parameter, and a
+    runner bound to a name before it was called. A function a call returns IS read: the function
+    that returns it names it, and the walk enters what a function names.
 
     THE CATALOGUE'S EDGE WAS WHERE THIS READING STOPPED, and two rows wrote past it: main's
     `product_start` and `product_first_source` (#992) register a project and give it its code
