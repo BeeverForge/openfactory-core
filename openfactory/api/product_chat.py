@@ -535,7 +535,11 @@ async def serve(ws, *, actor, watch, close_code) -> None:
     state: dict = {"sub": None, "generation": 0}
 
     async def _tell(frame: dict) -> None:
-        # a frame for this socket whatever it is subscribed to: an ack, a refusal
+        # a frame for this socket whatever it is subscribed to: an ack, a refusal. AN ANSWER NAMES
+        # THE PRODUCT IT WAS ABOUT, when it was about one this credential may read (#1088): one
+        # socket may follow several products, and an answer that does not say which one it is
+        # about is one a page can only guess the owner of. Never before a project is resolved, nor
+        # to a credential that may not read the product area — that one is not told its key.
         await frames.put((None, frame))
 
     async def _subscribe(asked: dict) -> None:
@@ -561,7 +565,7 @@ async def serve(ws, *, actor, watch, close_code) -> None:
         key, why = conversation_for(actor, project, asked)
         if why:
             log.warning("DENIED_CONVERSATION %s by %s", name, actor)
-            await _tell({"kind": "refused", "why": why})
+            await _tell({"kind": "refused", "why": why, "product": product_key(project)})
             return
         if state["sub"] is not None:
             fan.unsubscribe(state["sub"])
@@ -628,7 +632,8 @@ async def serve(ws, *, actor, watch, close_code) -> None:
                and files else {}))
         data = dict(outcome.data or {})
         await _tell({"kind": "ack", "id": said_id, "ok": outcome.ok, "text": outcome.message,
-                     "state": data.get("state", ""), "ahead": data.get("ahead", 0)})
+                     "state": data.get("state", ""), "ahead": data.get("ahead", 0),
+                     "product": sub.product})
         if outcome.ok:
             fan.poke(sub.product, sub.conversation)
 
@@ -650,9 +655,15 @@ async def serve(ws, *, actor, watch, close_code) -> None:
             except Exception:  # noqa: BLE001 — one frame that broke must not end the socket mute
                 log.exception("the product chat could not handle a %r frame",
                               str(asked.get("kind"))[:20])
+                sub = state["sub"]
+                # a message or a page asked of the subscribed conversation is about its product;
+                # a subscription that broke may have broken before its product was resolved
                 await _tell({"kind": "refused", "id": str(asked.get("id") or "")[:128],
                              "why": "something broke on our side — nothing was sent; try again "
-                                    "in a moment."})
+                                    "in a moment.",
+                             **({"product": sub.product}
+                                if sub is not None and asked.get("kind") in ("say", "earlier")
+                                else {})})
 
     async def _until_the_credential_ends() -> None:
         # THE SOCKET'S HANDSHAKE WAS ITS ONLY GATE until #208; this is the same re-check the floor's

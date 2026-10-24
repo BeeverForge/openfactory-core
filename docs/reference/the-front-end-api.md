@@ -321,10 +321,37 @@ while it stays open: a credential that stops opening its path ends the stream.
 | `/api/temporal/stream` | Server-sent events | a JSON frame of the jobs' state — the jobs, whether the poller runs, the build — on connect and whenever it changes; `"jobs": null` when the engine cannot be read | a named event, `ended`, with why: `signed_out`, `not_allowed` or `unavailable` |
 | `/api/jobs/{project}/{issue}/stream` | Server-sent events | the run's log events as they are written; a reconnect resumes from its `Last-Event-ID` (`v2-<n>`) | the same `ended` event |
 
+On `/api/product/stream`, an `ack` or a `refused` names the product it answers about, as
+`product` (the product's key), when it answers about one the credential may read: the `ack` of a
+message sent into the subscribed conversation, the `refused` of a conversation of that product, or
+of a message or a page asked of the subscribed conversation that broke on the server. It names
+none before a subscription, for a project with no product role, or to a credential that may not
+read the product area (#1088).
+
+**One typed description of every frame (#679).** The streams above still send their frames in
+the shapes the table gives; none of them sends an envelope yet. What #679 adds so far is a
+DESCRIPTION: [`events.schema.json`](events.schema.json), committed beside `openapi.json`, names one
+envelope — `kind`, `id`, `at`, `project`, `product` when one applies, and `data` — and a data model
+per kind: the sockets' `kind`s, `jobs` for the temporal stream's frame, `log` for a run's log line,
+and `ended`. A frame of today is that envelope's `data`, less the socket's own `kind` (and less
+the floor `update`'s `project`, and the `product` an `ack` or a `refused` names, which the
+envelope carries); `id` and `at` are not on today's frames. `product` is required for the kinds a product conversation emits (`subscribed`,
+`history`, `earlier`, `said`, `reply`, `staged`, `presence`, `resync`), is what an `ack` or a
+`refused` frame names when it names one, and is absent or `null` for every other.
+It is generated, never edited by hand:
+`tests/test_the_event_models_describe_every_frame_the_streams_send.py` fails when it is not what
+the models generate, and when a stream's code writes a kind, or a key in a socket's or the
+temporal stream's frame, in a dict that frame spreads, or in a turn or what waits, that the models
+do not name; `python -m openfactory.api.events` writes it again. One stream that sends the envelope
+itself is the next slice of #679.
+
 ## 5. What is not here yet
 
 This is slice 1 of #561. The default front end still ships with the API, in the same process and
 image, and is turned off by its setting; moving it into a module of its own, built only on this
 contract, and a guide with a minimal example are the slices after it. Only the reads that declare
 their model are under `/api/v1/` (#678, #940); the actions, the streams and the deliberately
-unversioned reads (section 3) are not versioned yet.
+unversioned reads (section 3) are not versioned yet. No stream sends the envelope
+[`events.schema.json`](events.schema.json) describes (section 4): one stream at `/api/v1/events`
+that sends it, with an `id` a client resumes from after a reconnect, is the next part of #679, and
+the four streams above stay until the default front end has moved to it.

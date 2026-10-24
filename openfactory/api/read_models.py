@@ -160,12 +160,16 @@ class EngineJob(ReadModel):
 
 class EngineJobsRead(ReadModel):
     """`/api/temporal/jobs` — the jobs, live. `jobs` is `None` when nobody could ask the engine,
-    `[]` when it answered and nothing is there."""
+    `[]` when it answered and nothing is there. A connected answer says where the engine's UI is
+    (`ui_base`), and the sentence that stands in for the link when nobody said (`ui_hint`, `""`
+    when `ui_base` is known)."""
 
     connected: bool | None = None
     build: dict[str, Any] | None = None
     jobs: list[EngineJob] | None = None
     address: str | None = None
+    ui_base: str | None = None
+    ui_hint: str | None = None
     error: str | None = None
     intake: dict[str, Any] | None = None
 

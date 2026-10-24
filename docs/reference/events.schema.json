@@ -1,0 +1,2292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenFactory event",
+  "description": "One typed event, for every stream the API pushes.",
+  "discriminator": {
+    "mapping": {
+      "ack": "#/$defs/AckEvent",
+      "bye": "#/$defs/ByeEvent",
+      "earlier": "#/$defs/EarlierEvent",
+      "ended": "#/$defs/EndedEvent",
+      "hello": "#/$defs/HelloEvent",
+      "history": "#/$defs/HistoryEvent",
+      "jobs": "#/$defs/JobsEvent",
+      "log": "#/$defs/LogEvent",
+      "presence": "#/$defs/PresenceEvent",
+      "refused": "#/$defs/RefusedEvent",
+      "reply": "#/$defs/ReplyEvent",
+      "resync": "#/$defs/ResyncEvent",
+      "said": "#/$defs/SaidEvent",
+      "staged": "#/$defs/StagedEvent",
+      "subscribed": "#/$defs/SubscribedEvent",
+      "update": "#/$defs/UpdateEvent"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/HelloEvent"
+    },
+    {
+      "$ref": "#/$defs/UpdateEvent"
+    },
+    {
+      "$ref": "#/$defs/ByeEvent"
+    },
+    {
+      "$ref": "#/$defs/SubscribedEvent"
+    },
+    {
+      "$ref": "#/$defs/HistoryEvent"
+    },
+    {
+      "$ref": "#/$defs/EarlierEvent"
+    },
+    {
+      "$ref": "#/$defs/SaidEvent"
+    },
+    {
+      "$ref": "#/$defs/ReplyEvent"
+    },
+    {
+      "$ref": "#/$defs/StagedEvent"
+    },
+    {
+      "$ref": "#/$defs/PresenceEvent"
+    },
+    {
+      "$ref": "#/$defs/AckEvent"
+    },
+    {
+      "$ref": "#/$defs/RefusedEvent"
+    },
+    {
+      "$ref": "#/$defs/ResyncEvent"
+    },
+    {
+      "$ref": "#/$defs/JobsEvent"
+    },
+    {
+      "$ref": "#/$defs/LogEvent"
+    },
+    {
+      "$ref": "#/$defs/EndedEvent"
+    }
+  ],
+  "$defs": {
+    "AckData": {
+      "additionalProperties": true,
+      "description": "What became of a message the page sent, by the id the page gave it.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State"
+        },
+        "ahead": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ahead"
+        }
+      },
+      "required": [
+        "id",
+        "ok",
+        "text"
+      ],
+      "title": "AckData",
+      "type": "object"
+    },
+    "AckEvent": {
+      "properties": {
+        "kind": {
+          "const": "ack",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product"
+        },
+        "data": {
+          "$ref": "#/$defs/AckData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "AckEvent",
+      "type": "object"
+    },
+    "ByeData": {
+      "additionalProperties": true,
+      "description": "A socket is closing. `ended` is there when the credential stopped opening it; without it,\n`reason` is what broke.",
+      "properties": {
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "ended": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndedData"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "ByeData",
+      "type": "object"
+    },
+    "ByeEvent": {
+      "properties": {
+        "kind": {
+          "const": "bye",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "default": null,
+          "title": "Product",
+          "type": "null"
+        },
+        "data": {
+          "$ref": "#/$defs/ByeData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "ByeEvent",
+      "type": "object"
+    },
+    "ChannelMessage": {
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "ts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ts"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token"
+        },
+        "answer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer"
+        },
+        "by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "By"
+        }
+      },
+      "title": "ChannelMessage",
+      "type": "object"
+    },
+    "EarlierData": {
+      "additionalProperties": true,
+      "description": "The page of turns before the one shown, as the page asked.",
+      "properties": {
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/Turn"
+          },
+          "title": "Turns",
+          "type": "array"
+        },
+        "earlier": {
+          "title": "Earlier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "turns",
+        "earlier"
+      ],
+      "title": "EarlierData",
+      "type": "object"
+    },
+    "EarlierEvent": {
+      "properties": {
+        "kind": {
+          "const": "earlier",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/EarlierData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "product",
+        "data"
+      ],
+      "title": "EarlierEvent",
+      "type": "object"
+    },
+    "EndedData": {
+      "additionalProperties": true,
+      "description": "Why a stream stopped: the gate's answer to the credential it was opened with — `why` and\n`status`, beside the refusal's own body. Every refusal says `detail`; a 401 from a provider\nwith a login page also names it (`login`), so the page can send the browser there.",
+      "properties": {
+        "why": {
+          "enum": [
+            "signed_out",
+            "not_allowed",
+            "unavailable"
+          ],
+          "title": "Why",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "integer"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "login": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Login"
+        }
+      },
+      "required": [
+        "why",
+        "status",
+        "detail"
+      ],
+      "title": "EndedData",
+      "type": "object"
+    },
+    "EndedEvent": {
+      "properties": {
+        "kind": {
+          "const": "ended",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "default": null,
+          "title": "Product",
+          "type": "null"
+        },
+        "data": {
+          "$ref": "#/$defs/EndedData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "EndedEvent",
+      "type": "object"
+    },
+    "EngineJob": {
+      "additionalProperties": true,
+      "description": "One job as the durable engine lists it (`runtime.temporal.view.list_jobs`).",
+      "properties": {
+        "workflow_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "issue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issue"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action"
+        },
+        "attention": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attention"
+        },
+        "wedged": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wedged"
+        }
+      },
+      "title": "EngineJob",
+      "type": "object"
+    },
+    "Envelope": {
+      "description": "One event, from any stream. `id` names it within its stream; `at` is when it was sent;\n`project` is the project it is about, when there is one; `product` is the product's key, for\nthe kinds in `PRODUCT_KINDS`, and for an answer (`ack`, `refused`) about one.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "hello",
+            "update",
+            "bye",
+            "subscribed",
+            "history",
+            "earlier",
+            "said",
+            "reply",
+            "staged",
+            "presence",
+            "ack",
+            "refused",
+            "resync",
+            "jobs",
+            "log",
+            "ended"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product"
+        },
+        "data": {
+          "$ref": "#/$defs/EventData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "Envelope",
+      "type": "object"
+    },
+    "EventData": {
+      "additionalProperties": true,
+      "description": "What one kind of event carries: its named fields, and whatever else it carries.",
+      "properties": {},
+      "title": "EventData",
+      "type": "object"
+    },
+    "HelloData": {
+      "additionalProperties": true,
+      "description": "A socket opened. The floor's says how often it re-reads (`tick`, seconds); the chat's says\nnothing more.",
+      "properties": {
+        "tick": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tick"
+        }
+      },
+      "title": "HelloData",
+      "type": "object"
+    },
+    "HelloEvent": {
+      "properties": {
+        "kind": {
+          "const": "hello",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "default": null,
+          "title": "Product",
+          "type": "null"
+        },
+        "data": {
+          "$ref": "#/$defs/HelloData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "HelloEvent",
+      "type": "object"
+    },
+    "HistoryData": {
+      "additionalProperties": true,
+      "description": "The conversation's recent turns, handed on (re)subscribing. `staged` is what waits for the\nperson's answer, `null` when nothing does; `earlier` is the cursor of the page before them,\n`\"\"` when these are all of it.",
+      "properties": {
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/Turn"
+          },
+          "title": "Turns",
+          "type": "array"
+        },
+        "staged": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Staged"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "earlier": {
+          "title": "Earlier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "turns",
+        "staged",
+        "earlier"
+      ],
+      "title": "HistoryData",
+      "type": "object"
+    },
+    "HistoryEvent": {
+      "properties": {
+        "kind": {
+          "const": "history",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/HistoryData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "product",
+        "data"
+      ],
+      "title": "HistoryEvent",
+      "type": "object"
+    },
+    "HowToAnswer": {
+      "additionalProperties": true,
+      "properties": {
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "title": "HowToAnswer",
+      "type": "object"
+    },
+    "JobsData": {
+      "additionalProperties": true,
+      "description": "The durable jobs' state (`/api/temporal/stream`). `jobs` is ALWAYS sent, and is `null` when\nthe engine could not be read — never `[]`, which is an engine that answered with nothing.\nA connected frame says where the engine's UI is (`ui_base`), and the sentence that stands in\nfor the link when nobody said (`ui_hint`, `\"\"` when `ui_base` is known).",
+      "properties": {
+        "connected": {
+          "title": "Connected",
+          "type": "boolean"
+        },
+        "jobs": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/EngineJob"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Jobs"
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Address"
+        },
+        "ui_base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Base"
+        },
+        "ui_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ui Hint"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "intake": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intake"
+        },
+        "build": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build"
+        }
+      },
+      "required": [
+        "connected",
+        "jobs"
+      ],
+      "title": "JobsData",
+      "type": "object"
+    },
+    "JobsEvent": {
+      "properties": {
+        "kind": {
+          "const": "jobs",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "default": null,
+          "title": "Product",
+          "type": "null"
+        },
+        "data": {
+          "$ref": "#/$defs/JobsData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "JobsEvent",
+      "type": "object"
+    },
+    "LogData": {
+      "additionalProperties": true,
+      "description": "One line of a run's log, as the journal wrote it (`observability.events.JobEvent`).",
+      "properties": {
+        "ts": {
+          "title": "Ts",
+          "type": "string"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "ticket_id": {
+          "title": "Ticket Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "state",
+            "agent_action",
+            "validation",
+            "review",
+            "pr",
+            "note",
+            "warning",
+            "error"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object"
+        }
+      },
+      "required": [
+        "ts",
+        "job_id",
+        "ticket_id",
+        "kind",
+        "message"
+      ],
+      "title": "LogData",
+      "type": "object"
+    },
+    "LogEvent": {
+      "properties": {
+        "kind": {
+          "const": "log",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "default": null,
+          "title": "Product",
+          "type": "null"
+        },
+        "data": {
+          "$ref": "#/$defs/LogData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "LogEvent",
+      "type": "object"
+    },
+    "MessagesRead": {
+      "additionalProperties": true,
+      "description": "`/api/messages/{project}` — what the factory said to a project, and what it waits to hear.",
+      "properties": {
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ChannelMessage"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messages"
+        },
+        "pending": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PendingQuestion"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StagedSuggestion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "MessagesRead",
+      "type": "object"
+    },
+    "Option": {
+      "additionalProperties": true,
+      "properties": {
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "consequence": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consequence"
+        }
+      },
+      "title": "Option",
+      "type": "object"
+    },
+    "PendingQuestion": {
+      "additionalProperties": true,
+      "properties": {
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "ts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ts"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Option"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Options"
+        },
+        "answer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HowToAnswer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "PendingQuestion",
+      "type": "object"
+    },
+    "PresenceData": {
+      "additionalProperties": true,
+      "description": "What the role is doing, as this person may see it: `ahead` is how many turns come before\ntheirs, `stage` what it is doing while it thinks.",
+      "properties": {
+        "state": {
+          "enum": [
+            "idle",
+            "thinking",
+            "answering",
+            "offline"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "ahead": {
+          "title": "Ahead",
+          "type": "integer"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage"
+        }
+      },
+      "required": [
+        "state",
+        "ahead"
+      ],
+      "title": "PresenceData",
+      "type": "object"
+    },
+    "PresenceEvent": {
+      "properties": {
+        "kind": {
+          "const": "presence",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/PresenceData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "product",
+        "data"
+      ],
+      "title": "PresenceEvent",
+      "type": "object"
+    },
+    "ProjectRow": {
+      "additionalProperties": true,
+      "description": "One project this deployment runs: the kind of each axis, its board, whether pickup is on,\nand its box's verdict (`box_prove.health`). `board` is the tracker's board option as the\nregistry holds it, a number or a name.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "repo_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repo Path"
+        },
+        "tracker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tracker"
+        },
+        "forge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forge"
+        },
+        "ci": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci"
+        },
+        "board": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Board"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "box": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Box"
+        }
+      },
+      "title": "ProjectRow",
+      "type": "object"
+    },
+    "RefusedData": {
+      "additionalProperties": true,
+      "description": "What the page asked was refused, and why.",
+      "properties": {
+        "why": {
+          "title": "Why",
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        }
+      },
+      "required": [
+        "why"
+      ],
+      "title": "RefusedData",
+      "type": "object"
+    },
+    "RefusedEvent": {
+      "properties": {
+        "kind": {
+          "const": "refused",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product"
+        },
+        "data": {
+          "$ref": "#/$defs/RefusedData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "RefusedEvent",
+      "type": "object"
+    },
+    "ReplyData": {
+      "additionalProperties": true,
+      "description": "The role answered. `options` are the choices it offers, `null` when it offers none.",
+      "properties": {
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "in_reply_to": {
+          "title": "In Reply To",
+          "type": "string"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Options"
+        },
+        "final": {
+          "title": "Final",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "seq",
+        "id",
+        "text",
+        "type",
+        "in_reply_to",
+        "options",
+        "final"
+      ],
+      "title": "ReplyData",
+      "type": "object"
+    },
+    "ReplyEvent": {
+      "properties": {
+        "kind": {
+          "const": "reply",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ReplyData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "product",
+        "data"
+      ],
+      "title": "ReplyEvent",
+      "type": "object"
+    },
+    "ResyncData": {
+      "additionalProperties": true,
+      "description": "The socket fell behind: read the conversation again from the transcript.",
+      "properties": {},
+      "title": "ResyncData",
+      "type": "object"
+    },
+    "ResyncEvent": {
+      "properties": {
+        "kind": {
+          "const": "resync",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/ResyncData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "product",
+        "data"
+      ],
+      "title": "ResyncEvent",
+      "type": "object"
+    },
+    "SaidData": {
+      "additionalProperties": true,
+      "description": "A person said something in the conversation.",
+      "properties": {
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "speaker": {
+          "title": "Speaker",
+          "type": "string"
+        },
+        "mine": {
+          "title": "Mine",
+          "type": "boolean"
+        },
+        "overheard": {
+          "title": "Overheard",
+          "type": "boolean"
+        },
+        "attachments": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachments"
+        }
+      },
+      "required": [
+        "seq",
+        "id",
+        "text",
+        "speaker",
+        "mine",
+        "overheard"
+      ],
+      "title": "SaidData",
+      "type": "object"
+    },
+    "SaidEvent": {
+      "properties": {
+        "kind": {
+          "const": "said",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/SaidData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "product",
+        "data"
+      ],
+      "title": "SaidEvent",
+      "type": "object"
+    },
+    "Staged": {
+      "additionalProperties": true,
+      "description": "What waits for the person's answer in this conversation: the proposal's token, and the\nwords of its two buttons.",
+      "properties": {
+        "token": {
+          "title": "Token",
+          "type": "string"
+        },
+        "approve": {
+          "title": "Approve",
+          "type": "string"
+        },
+        "reject": {
+          "title": "Reject",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "approve",
+        "reject"
+      ],
+      "title": "Staged",
+      "type": "object"
+    },
+    "StagedData": {
+      "additionalProperties": true,
+      "description": "What waits for the person's answer changed; `null` when nothing does any more.",
+      "properties": {
+        "staged": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Staged"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "staged"
+      ],
+      "title": "StagedData",
+      "type": "object"
+    },
+    "StagedEvent": {
+      "properties": {
+        "kind": {
+          "const": "staged",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/StagedData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "product",
+        "data"
+      ],
+      "title": "StagedEvent",
+      "type": "object"
+    },
+    "StagedSuggestion": {
+      "additionalProperties": true,
+      "description": "The one action the tech-lead proposed; `live: false` with a `reason` when it may be shown\nand not pressed.",
+      "properties": {
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token"
+        },
+        "ts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ts"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action"
+        },
+        "issue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issue"
+        },
+        "params": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Params"
+        },
+        "labels": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Labels"
+        },
+        "live": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "act": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HowToAnswer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "StagedSuggestion",
+      "type": "object"
+    },
+    "SubscribedData": {
+      "additionalProperties": true,
+      "description": "The socket follows a conversation now: the room, or one of the person's own.",
+      "properties": {
+        "project": {
+          "title": "Project",
+          "type": "string"
+        },
+        "private": {
+          "title": "Private",
+          "type": "boolean"
+        },
+        "room": {
+          "title": "Room",
+          "type": "boolean"
+        },
+        "session": {
+          "title": "Session",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "private",
+        "room",
+        "session"
+      ],
+      "title": "SubscribedData",
+      "type": "object"
+    },
+    "SubscribedEvent": {
+      "properties": {
+        "kind": {
+          "const": "subscribed",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/SubscribedData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "product",
+        "data"
+      ],
+      "title": "SubscribedEvent",
+      "type": "object"
+    },
+    "Turn": {
+      "additionalProperties": true,
+      "description": "One turn of a conversation, as the transcript keeps it. `id` and `in_reply_to` are `\"\"` for\na turn recorded without them; `attachments` is there only when the turn carried files.",
+      "properties": {
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "actor": {
+          "title": "Actor",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "ts": {
+          "title": "Ts",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "in_reply_to": {
+          "title": "In Reply To",
+          "type": "string"
+        },
+        "mine": {
+          "title": "Mine",
+          "type": "boolean"
+        },
+        "overheard": {
+          "title": "Overheard",
+          "type": "boolean"
+        },
+        "attachments": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachments"
+        }
+      },
+      "required": [
+        "role",
+        "actor",
+        "text",
+        "ts",
+        "id",
+        "in_reply_to",
+        "mine",
+        "overheard"
+      ],
+      "title": "Turn",
+      "type": "object"
+    },
+    "UpdateData": {
+      "additionalProperties": true,
+      "description": "What changed for the project the floor's socket follows — only the sections that changed.\nA section the store could not read is `null`, never empty. `projects` is what `/api/projects`\nanswers, and `chat` what `/api/messages/{project}` answers.",
+      "properties": {
+        "projects": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ProjectRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Projects"
+        },
+        "chat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MessagesRead"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "UpdateData",
+      "type": "object"
+    },
+    "UpdateEvent": {
+      "properties": {
+        "kind": {
+          "const": "update",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project"
+        },
+        "product": {
+          "default": null,
+          "title": "Product",
+          "type": "null"
+        },
+        "data": {
+          "$ref": "#/$defs/UpdateData"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "data"
+      ],
+      "title": "UpdateEvent",
+      "type": "object"
+    }
+  }
+}

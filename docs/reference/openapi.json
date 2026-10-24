@@ -4926,6 +4926,28 @@
             ],
             "title": "Address"
           },
+          "ui_base": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ui Base"
+          },
+          "ui_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ui Hint"
+          },
           "error": {
             "anyOf": [
               {
@@ -4953,7 +4975,7 @@
         "additionalProperties": true,
         "type": "object",
         "title": "EngineJobsRead",
-        "description": "`/api/temporal/jobs` — the jobs, live. `jobs` is `None` when nobody could ask the engine,\n`[]` when it answered and nothing is there."
+        "description": "`/api/temporal/jobs` — the jobs, live. `jobs` is `None` when nobody could ask the engine,\n`[]` when it answered and nothing is there. A connected answer says where the engine's UI is\n(`ui_base`), and the sentence that stands in for the link when nobody said (`ui_hint`, `\"\"`\nwhen `ui_base` is known)."
       },
       "FloorRead": {
         "properties": {

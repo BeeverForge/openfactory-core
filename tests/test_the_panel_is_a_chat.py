@@ -21,6 +21,7 @@ held over `panel.html`, and its frame handling is executed under node.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import shutil
@@ -327,6 +328,84 @@ def test_a_private_key_that_is_not_ones_own_is_REFUSED_at_the_subscription(chat)
         assert frames[-1]["kind"] == "refused", frames
         assert "one person's alone" in frames[-1]["why"]
         assert not any(f["kind"] in ("subscribed", "history") for f in frames), frames
+
+
+# ── an answer says which product it is about (#1088) ───────────────────────────────────────────
+
+def test_an_ack_and_a_refusal_name_the_product_they_answer_about(chat, monkeypatch):
+    """One socket may follow several products, so an `ack` or a `refused` about one names it —
+    `product`, the product's key: an ack of a message sent into the subscribed conversation, a
+    refusal of a conversation of a product this person may read, a refusal of a message that
+    broke. An answer about none — a message before any subscription, a project with no product
+    role — names none."""
+    from openfactory import actions
+    from openfactory.api import app as api
+    from openfactory.product.key import product_key
+    from openfactory.registry import ProjectRegistry
+
+    books = product_key(ProjectRegistry().get("books"))
+    with TestClient(api.app) as client, _open(client, ANA) as ana, _open(client, BRUNO) as bruno:
+        assert _next(ana, 5)["kind"] == "hello"
+        sid = say(ana, "cedo demais")
+        early = until(ana, lambda f: f["kind"] == "ack" and f["id"] == sid)[-1]
+        assert early["ok"] is False and "product" not in early, early
+
+        ana.send_json({"kind": "subscribe", "project": "nowhere"})
+        nowhere = until(ana, lambda f: f["kind"] == "refused")[-1]
+        assert "product" not in nowhere, nowhere
+
+        ana.send_json({"kind": "subscribe", "project": "books", "room": False})
+        until(ana, lambda f: f["kind"] == "history")
+        sid = say(ana, "de qual produto?")
+        ack = until(ana, lambda f: f["kind"] == "ack" and f["id"] == sid)[-1]
+        assert ack["ok"] is True and ack["product"] == books, ack
+
+        refused = subscribe(bruno, room=False, thread="person:ana")[-1]
+        assert refused["kind"] == "refused" and refused["product"] == books, refused
+
+        async def _broke(*_a, **_k):
+            raise RuntimeError("the door did not answer")
+
+        monkeypatch.setattr(actions, "perform", _broke)
+        sid = say(ana, "e agora?")
+        broke = until(ana, lambda f: f["kind"] == "refused" and f.get("id") == sid)[-1]
+        assert broke["product"] == books, broke
+
+
+async def test_a_credential_that_may_not_read_the_product_area_is_not_told_its_product(chat):
+    """The refusal of a credential that may not read the product area names no product: it is
+    not that credential's to learn the product's key. Driven on `serve` itself, with an actor the
+    product area refuses: the socket's gate decides who may open it, and this check is the one
+    `serve` makes behind it."""
+    from openfactory.api.product_chat import serve
+
+    class _Page:
+        def __init__(self) -> None:
+            self.asked: asyncio.Queue = asyncio.Queue()
+            self.sent: list[dict] = []
+
+        async def receive_json(self):
+            return await self.asked.get()
+
+        async def send_json(self, frame):
+            self.sent.append(frame)
+
+    watch = SimpleNamespace(seconds_left=lambda: 3600, due=lambda: False)
+    actor = SimpleNamespace(id="dora", conversation="person:dora", may_enter=lambda _area: False)
+    page = _Page()
+    page.asked.put_nowait({"kind": "subscribe", "project": "books"})
+    serving = asyncio.create_task(serve(page, actor=actor, watch=watch, close_code=lambda _w: 1008))
+    try:
+        for _ in range(500):
+            if any(f["kind"] == "refused" for f in page.sent):
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        serving.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await serving
+    (refused,) = [f for f in page.sent if f["kind"] == "refused"]
+    assert "may not read the product area" in refused["why"] and "product" not in refused, refused
 
 
 def test_the_filter_is_asked_for_every_frame_not_trusted_from_the_subscription():
