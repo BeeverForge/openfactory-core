@@ -35,7 +35,8 @@ drive the real socket (`tests/test_the_panel_is_a_chat.py`).
 THE LAST ROWS hold the rules the tests state that the first review named and no row covered:
 how `from_frame` reads a frame (C10, C11), what the command answers when it cannot write (C12),
 and which kinds carry a product (C5, C6, C14) — the latter aimed, like the model rows above, at
-the test that states the rule rather than at the schema drift test.
+the test that states the rule rather than at the schema drift test — and three more cuts of the
+same rules, taken from the factory's own repair of this plan.
 
 The guard under test is `tests/test_the_event_models_describe_every_frame_the_streams_send.py`.
 """
@@ -151,6 +152,19 @@ MUTATIONS = [
     ("C14: a product kind accepts an empty `product`", EVENTS,
      "    product: str = Field(min_length=1)\n", "    product: str\n",
      ONE + "test_product_is_required_for_a_kind_that_belongs_to_a_product"),
+
+    # the next three are cuts the factory's own repair of this plan made (28272dc3, rows C6, C11
+    # and C12 there): the same rules, broken another way
+    ("a kind no product owns accepts a `product`", EVENTS,
+     "    product: None = None\n", "    product: str | None = None\n",
+     ONE + "test_product_is_absent_or_null_for_a_kind_that_does_not"),
+
+    ("`from_frame` writes `product` on every envelope, `null` where the kind has none", EVENTS,
+     '    if product is not None:\n        out["product"] = product\n',
+     '    out["product"] = product\n'),
+
+    ("the command exits 1 without saying why it could not write", EVENTS,
+     '        print(f"could not write {target}: {exc}", file=sys.stderr)\n', ""),
 
     # ── the shapes that were left open ─────────────────────────────────────────────────────────
     ("`UpdateData.projects` is free-form rows again, not the rows `/api/projects` declares", EVENTS,
