@@ -22,7 +22,8 @@ THE RULES HELD HERE, each over cases read from the code rather than named:
   8. a project is registered by one row, whichever door asked, and a registered one is never
      written over;
   9. a row of several steps says what each step came to — a step that raises is a failed step,
-     said, never a traceback — and running it again does only what is missing.
+     said, never a traceback, and never with the credential a git call was handed — and running
+     it again does only what is missing.
 """
 
 from __future__ import annotations
@@ -1635,3 +1636,118 @@ def test_a_step_a_read_only_directory_stops_is_said_at_the_terminal_never_a_trac
     assert "Traceback" not in shown, shown
     failed = [line for line in ran.stdout.splitlines() if line.startswith("✗")]
     assert ran.returncode == 1 and failed and str(locked) in failed[0], shown
+
+
+# ── 9, and what a step says carries no credential (review of #1085) ───────────────────────────
+
+#: A forge credential, spelled as a GitHub App installation token is.
+CREDENTIAL = "ghs_" + "Q7xR2mK9pL4vN8wT3yH6jB1cF5dZ0sAeUuIo"
+
+
+def _times_out(args, address, timeout):
+    import subprocess
+
+    raise subprocess.TimeoutExpired(args, timeout)
+
+
+def _exits_naming_its_remote(args, address, timeout):
+    """As git says an address it could not reach: the address as it was given, credential and
+    all."""
+    import subprocess
+
+    return subprocess.CompletedProcess(args, 128, "", f"fatal: unable to access '{address}/': "
+                                                      f"Could not resolve host: github.com\n")
+
+
+def _raises_with_its_command(args, address, timeout):
+    """What any of them raises once it is run with `check=True`: its argv, in the exception."""
+    import subprocess
+
+    raise subprocess.CalledProcessError(128, args)
+
+
+#: The ways a git call of a row can fail: `(argv, the address, its timeout) -> what run answers`.
+FAILURES = {"times out": _times_out, "exits naming its remote": _exits_naming_its_remote,
+            "raises with its command": _raises_with_its_command}
+
+
+def _a_product_whose_remote_carries_a_credential(root: Path, monkeypatch, *,
+                                                 failing: int | None = None, how: str = ""):
+    """`_a_product` on a fresh machine at `root`, its context repository's address carrying
+    `CREDENTIAL` as the GitHub adapter's does, and every git call recorded: `(params, the calls,
+    the address)`. The `failing`-th call fails `how`; every other runs, with the bare repository
+    in the address's place — so everything before the failure really happens."""
+    import subprocess
+
+    params, forge = _a_product(_a_fresh_machine(root, monkeypatch), monkeypatch)
+    address = f"https://x-access-token:{CREDENTIAL}@github.com/acme-corp/acme-context.git"
+    monkeypatch.setattr(forge, "clone_url", lambda repo, *, token=None: address)
+    real, calls = getattr(subprocess.run, "real", subprocess.run), []
+
+    def run(args, *a, **kw):
+        if not (isinstance(args, list) and args[:1] == ["git"]):
+            return real(args, *a, **kw)
+        calls.append(list(args))
+        if len(calls) - 1 == failing:
+            return FAILURES[how](args, address, kw.get("timeout"))
+        return real([forge.bare if part == address else part for part in args], *a, **kw)
+
+    run.real = real
+    monkeypatch.setattr(subprocess, "run", run)
+    return params, calls, address
+
+
+def _the_git_calls_of_a_clean_run(root: Path, monkeypatch) -> list[list[str]]:
+    """Every git call `product_init` makes when none fails — read off a run, so a call added to
+    the row is a case."""
+    params, calls, address = _a_product_whose_remote_carries_a_credential(root, monkeypatch)
+    clean = asyncio.run(actions.perform("product_init", by=ADMIN, **params))
+    assert clean.ok, clean
+    assert any(address in call for call in calls), (
+        f"no git call was handed the address that carries the credential: {calls}")
+    return list(calls)
+
+
+@pytest.mark.parametrize("how", sorted(FAILURES))
+def test_whichever_git_call_fails_and_however_the_answer_carries_no_credential(how, tmp_path,
+                                                                                monkeypatch):
+    """The context repository's address carries the forge's credential (`https://x-access-token:
+    <token>@…`), and git says it: a call that runs out of time raises with its argv, one that
+    cannot reach the address names it, and one run to check raises with its argv. A clone that
+    ran out of time put the token into `message` and `data.steps` — what the panel shows, the
+    API answers and the terminal prints (review of #1085, 2026-10-24). So every git call of a
+    clean run is made to fail each way, and the whole answer is read."""
+    calls = _the_git_calls_of_a_clean_run(tmp_path / "clean", monkeypatch)
+
+    for at, call in enumerate(calls):
+        params, _, _ = _a_product_whose_remote_carries_a_credential(
+            tmp_path / f"failing-{at}", monkeypatch, failing=at, how=how)
+        out = asyncio.run(actions.perform("product_init", by=ADMIN, **params))
+
+        answer = json.dumps({"message": out.message, "data": dict(out.data)}, default=str)
+        assert CREDENTIAL not in answer, (
+            f"`{' '.join(call[:3])} …` that {how} put the credential into the answer: {answer}")
+
+
+def test_a_git_call_that_carries_the_credential_and_runs_out_of_time_is_said_as_one(tmp_path,
+                                                                                    monkeypatch):
+    """Said in a sentence naming the repository and the time it was given — `could not clone
+    acme-corp/acme-context: timed out after 180 s` — never as the command `subprocess` puts in
+    the exception (`Command '[…]' timed out after 180 seconds`): the command is the address, and
+    a sentence is what a person can act on."""
+    calls = _the_git_calls_of_a_clean_run(tmp_path / "clean", monkeypatch)
+    carrying = [at for at, call in enumerate(calls)
+                if any(CREDENTIAL in part for part in call)]
+    assert carrying, calls
+
+    for at in carrying:
+        params, _, _ = _a_product_whose_remote_carries_a_credential(
+            tmp_path / f"failing-{at}", monkeypatch, failing=at, how="times out")
+        out = asyncio.run(actions.perform("product_init", by=ADMIN, **params))
+
+        said = {s["step"]: s for s in out.data.get("steps", [])}
+        declaration = said.get("declaration") or {}
+        assert out.code == actions.FAILED and declaration.get("state") == actions.STEP_FAILED, out
+        assert ("acme-corp/acme-context" in declaration["said"]
+                and f"timed out after {catalog._A_CONTEXT_GIT_S} s" in declaration["said"]
+                and "Command '" not in declaration["said"]), declaration

@@ -8153,11 +8153,43 @@ def _product_sources(project, given: list[str]) -> tuple[list[str], list[str]]:
     return sorted(spelled.values()), unreadable
 
 
+#: How long the context repository's clone and push may take, in seconds.
+_A_CONTEXT_GIT_S = 180
+
+
+def _the_credential_in(address: str) -> str:
+    """The secret an authenticated address carries — its password, as GitHub's
+    `x-access-token:<token>@` and Azure's `<user>:<token>@` spell it — or `""` for an address that
+    carries none, as a path on this machine does.
+
+    READ OFF THE ADDRESS ITSELF, not off the credential this row resolved: `clone_url_for` lets
+    the forge adapter's own credential win over the caller's, so the address may carry one nobody
+    here was handed."""
+    from urllib.parse import urlsplit
+
+    try:
+        return urlsplit(address).password or ""
+    except ValueError:
+        return ""
+
+
+def _withheld(text: object, *secrets: str) -> str:
+    """`text` with every secret given withheld (`causes.scrubbed`) — the whole of it, so a caller
+    caps it after, at the end its reader looks at: truncation is not redaction."""
+    import sys
+
+    from openfactory.util.causes import scrubbed
+
+    return scrubbed(text, *secrets, limit=sys.maxsize)
+
+
 def _the_declaration_step(project, docs_repo: str, root: Path, *, sources: list[str],
-                          write: bool, made_now: bool, shown: dict) -> dict:
+                          write: bool, made_now: bool, shown: dict, withhold: list[str]) -> dict:
     """The product's declaration in its context repository, as one step: already there, shown,
     proposed for review on the platform's own branch, or why not. Fills `shown` with what a
-    terminal or a screen shows of the plan — the file, its folder, what each source still needs."""
+    terminal or a screen shows of the plan — the file, its folder, what each source still needs —
+    and `withhold` with what nothing the step says may carry, the credential the clone's address
+    carries, which the caller's guard needs too."""
     import subprocess
 
     from openfactory.credentials import bot_identity
@@ -8172,12 +8204,23 @@ def _the_declaration_step(project, docs_repo: str, root: Path, *, sources: list[
 
     name = project.name
     url = context_clone_url(project, docs_repo)
+    # THE CREDENTIAL, NOT THE ADDRESS: an address on this machine is a path a person needs to read.
+    withhold.append(_the_credential_in(url))
     clone = ["git", "clone", "--no-local", *([] if made_now else ["--depth", "1"]), "--", url,
              str(root)]
-    cloned = subprocess.run(clone, capture_output=True, text=True, timeout=180)
-    if cloned.returncode != 0:
+    try:
+        cloned = subprocess.run(clone, capture_output=True, text=True, timeout=_A_CONTEXT_GIT_S)
+    except subprocess.TimeoutExpired:
+        # SAID IN A SENTENCE, NEVER AS THE COMMAND: `str(TimeoutExpired)` is the whole argv, and
+        # the address in it carries the forge's credential — a clone that ran out of time put
+        # `https://x-access-token:<token>@…` into the row's message and `data.steps`, which the
+        # panel, the API's JSON and the terminal all show (review of #1085, 2026-10-24).
         return _step("declaration", STEP_FAILED,
-                     f"could not clone {docs_repo}: {cloned.stderr[-200:]}")
+                     f"could not clone {docs_repo}: timed out after {_A_CONTEXT_GIT_S} s")
+    if cloned.returncode != 0:
+        # GIT NAMES THE ADDRESS IT COULD NOT REACH, credential and all, in its own words.
+        return _step("declaration", STEP_FAILED,
+                     f"could not clone {docs_repo}: {_withheld(cloned.stderr, *withhold)[-200:]}")
     if made_now:
         # A REPOSITORY BORN EMPTY HAS NO BRANCH: the clone lands on an unborn HEAD, and one named
         # base is what every later step assumes.
@@ -8217,10 +8260,11 @@ def _the_declaration_step(project, docs_repo: str, root: Path, *, sources: list[
                  # dead-locking on a non-fast-forward — and an open review shows the latest
                  ["push", "--force", "-u", "--", "origin", branch]):
         ran = subprocess.run(["git", "-C", str(root), *ident, *args],
-                             capture_output=True, text=True, timeout=180)
+                             capture_output=True, text=True, timeout=_A_CONTEXT_GIT_S)
         if ran.returncode != 0:
+            # `origin` IS THE CLONE'S ADDRESS, and a push that cannot reach it names it.
             return _step("declaration", STEP_FAILED,
-                         f"git {args[0]} failed: {(ran.stderr or '')[-200:]}")
+                         f"git {args[0]} failed: {_withheld(ran.stderr or '', *withhold)[-200:]}")
     # THROUGH THE PORT, NOT THROUGH ONE VENDOR'S CLI (#95), and ASKED FIRST: a review already open
     # on this branch is the one the push just updated, and opening a second is what a retry used
     # to attempt. Unread is not "none" — then it opens, as it always did.
@@ -8284,6 +8328,7 @@ def _product_init_steps(project, *, sources: list[str], write: bool,
     else:
         context = _step("context", STEP_ALREADY, f"{name}'s context repository is {docs_repo}",
                         docs_repo=docs_repo)
+    withhold: list[str] = []
     try:
         if made_now:
             # RE-READ WHAT WAS JUST RECORDED: the project in hand predates the record, and `plan`
@@ -8294,14 +8339,16 @@ def _product_init_steps(project, *, sources: list[str], write: bool,
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             declaration = _the_declaration_step(project, docs_repo, Path(tmp) / "docs",
                                                 sources=sources, write=write, made_now=made_now,
-                                                shown=shown)
+                                                shown=shown, withhold=withhold)
     except Exception as exc:  # noqa: BLE001 — the context step before it stands, said with it
         # ANY STEP THAT RAISES IS A FAILED STEP: a git that could not run or ran out of time, and
         # anything nobody named — a credential that could not be resolved for the clone took the
         # context step's `done` down with it, a repository just created in the client's
-        # organisation said nowhere (review of #1085).
+        # organisation said nowhere (review of #1085). WITHHELD, THEN CAPPED: what a git call
+        # raises is its whole argv, and the clone's carries the forge's credential.
         declaration = _step("declaration", STEP_FAILED,
-                            f"the declaration could not be read or proposed: {exc}")
+                            f"the declaration could not be read or proposed: "
+                            f"{_withheld(exc, *withhold)[:300]}")
     shown.setdefault("docs_repo", docs_repo)
     return _the_steps_came_to(name, [context, declaration], **shown)
 

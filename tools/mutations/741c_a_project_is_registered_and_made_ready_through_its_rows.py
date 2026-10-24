@@ -21,7 +21,10 @@ The claims, each a group of rows:
      source, and lists nothing of its own;
   7. the row completes a board that is there already where its row says it may, as the command
      did before it mapped onto the row (#753's opt-in): it adds the column the board lacks, says
-     `done` only when the board has a key it lacked, and says a column it declined to add.
+     `done` only when the board has a key it lacked, and says a column it declined to add;
+  8. what a step says carries no credential: a clone that runs out of time is said in a sentence,
+     and git's own words, and whatever a git call raises, are said with the credential the
+     context repository's address carries withheld.
 """
 
 TEST = "tests/test_the_installation_is_changed_through_its_rows.py"
@@ -31,6 +34,7 @@ CLI = "openfactory/cli.py"
 API = "openfactory/api/app.py"
 RERUN = "tests/test_a_rerun_of_init_gives_an_existing_local_board_its_review_column.py"
 AC3 = "tests/test_a_board_that_maps_no_review_column_keeps_todays_board.py"
+NO_CREDENTIAL = f"{TEST}::test_whichever_git_call_fails_and_however_the_answer_carries_no_credential"
 
 MUTATIONS = [
     # ── 1. registered once ────────────────────────────────────────────────────────────────────
@@ -155,4 +159,33 @@ MUTATIONS = [
      '    also = ""\n',
      f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
 
+    # ── 8. what a step says carries no credential (review of #1085) ─────────────────────────────
+    ("a clone that runs out of time is said as its command, address and all", CATALOG,
+     "    except subprocess.TimeoutExpired:\n        # SAID IN A SENTENCE, NEVER AS THE COMMAND",
+     "    except ZeroDivisionError:\n        # SAID IN A SENTENCE, NEVER AS THE COMMAND",
+     f"{TEST}::test_a_git_call_that_carries_the_credential_and_runs_out_of_time_is_said_as_one"),
+    ("the declaration's guard says what was raised as it was raised", CATALOG,
+     '                            f"{_withheld(exc, *withhold)[:300]}")',
+     '                            f"{exc}")',
+     f"{NO_CREDENTIAL}[raises with its command]"),
+    ("a clone git refused is said in git's words, address and all", CATALOG,
+     "{_withheld(cloned.stderr, *withhold)[-200:]}",
+     "{cloned.stderr[-200:]}",
+     f"{NO_CREDENTIAL}[exits naming its remote]"),
+    ("a push git refused is said in git's words, address and all", CATALOG,
+     "{_withheld(ran.stderr or '', *withhold)[-200:]}",
+     "{(ran.stderr or '')[-200:]}",
+     f"{NO_CREDENTIAL}[exits naming its remote]"),
+    ("the credential the address carries is not handed to what withholds", CATALOG,
+     "    withhold.append(_the_credential_in(url))\n",
+     "",
+     NO_CREDENTIAL),
+    ("no credential is read off an address", CATALOG,
+     '        return urlsplit(address).password or ""\n',
+     '        return ""\n',
+     NO_CREDENTIAL),
+    ("withholding withholds nothing", CATALOG,
+     "    return scrubbed(text, *secrets, limit=sys.maxsize)\n",
+     "    return str(text)\n",
+     NO_CREDENTIAL),
 ]
