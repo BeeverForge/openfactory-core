@@ -355,6 +355,11 @@ def test_an_answer_takes_the_product_its_frame_names_onto_the_envelope():
 # sometimes. A spread this cannot read fails here unless `UNREAD_SPREADS` names it and says where
 # its keys are read instead. The rows a frame nests are read where they are built: a turn in
 # `product_chat._history`, what waits in `staging.waiting_in`.
+#
+# WHAT IS NOT READ: a key set on a frame after its literal (`frame["k"] = …`, `frame.update(…)`) —
+# no emitter does that today, outside `_stream_snapshot`'s `out`, which is read — and the rows of
+# any other nested value (a project row, an engine job, an attachment), typed by the reads that
+# declare them or left open.
 
 APP = ROOT / "openfactory" / "api" / "app.py"
 PRODUCT_CHAT = ROOT / "openfactory" / "api" / "product_chat.py"
