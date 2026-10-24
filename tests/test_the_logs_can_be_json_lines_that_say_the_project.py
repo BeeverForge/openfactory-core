@@ -196,6 +196,8 @@ OUTSIDE_THE_LOG = {
         "main": "`python -m openfactory.runtime.temporal.starter`, an operator's command"},
     "openfactory/api/openapi.py": {
         "main": "`python -m openfactory.api.openapi`, which writes the contract's document"},
+    "openfactory/api/events.py": {
+        "main": "`python -m openfactory.api.events`, which writes the event schema beside it"},
     "openfactory/adapters/extract/pdf.py": {
         "main": "the extraction's child process, whose stdout is the pipe its parent reads"},
     "openfactory/product/evaluation/__main__.py": {
