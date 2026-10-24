@@ -7876,10 +7876,16 @@ def _project_to_initialise(name: str, *, repo_path: str, repo: str, language: st
 
 
 def _the_board_step(project, *, board_owner: str) -> dict:
-    """The project's board with the platform's columns: created, already there, or its tracker's
-    own. WHETHER THERE IS ONE TO CREATE IS THE TRACKER'S DECLARATION, asked of the board-setup
-    registry (ADR-0049 D1): on some trackers the project's own workflow is the board, and setting
-    it up is a recipe the board's row says, not a call this platform makes."""
+    """The project's board with the platform's columns: created, completed, already there, or its
+    tracker's own. WHETHER THERE IS ONE TO CREATE IS THE TRACKER'S DECLARATION, asked of the
+    board-setup registry (ADR-0049 D1): on some trackers the project's own workflow is the board,
+    and setting it up is a recipe the board's row says, not a call this platform makes.
+
+    A BOARD THAT IS THERE ALREADY IS COMPLETED where its row says `create` may be called on it
+    (`completes_an_attached_board`): that is how a re-run gives a local board made before "Needs
+    Review" existed its seventh column, the opt-in `changes/753.upgrade.md` gives. The step says
+    `done` only when the board has a key it lacked before, and says a column the row declined to
+    add, with the way in (`left_out`)."""
     from openfactory import plugins
     from openfactory.adapters.board_setup.base import BoardSetupError
     from openfactory.adapters.board_setup.registry import board_creator
@@ -7899,10 +7905,21 @@ def _the_board_step(project, *, board_owner: str) -> dict:
                                                 f"nothing to create"
                                                 + (f" ({setup})" if setup else ""))
         attached = creator.attached(project)
-        if attached:
+        # A ROW WHOSE `create` MINTS A SECOND BOARD does not say it completes one, and is never
+        # called on a board it already has. The local row says so: skipping its `create` here
+        # never gave a six-row board its seventh column (measured 2026-10-21 on a board written
+        # by 1be1835a's `project init`).
+        if attached and not getattr(creator, "completes_an_attached_board", False):
             return _step("board", STEP_ALREADY, f"board already attached ({attached})")
         from openfactory.credentials import deployment_tracker_token, tracker_token_for
 
+        # WHICH KEYS THE BOARD HAS BEFORE `create`, for a row that can say (`keys`, optional):
+        # whether it added a column is decided by them, never by `attached()`'s sentence, which
+        # lists names by position — a re-order read as an addition and `init` said "added the
+        # columns it lacked" on a hand-ordered board it added nothing to (PR #1040's review,
+        # 2026-10-22). A row with no `keys` is compared by its sentence, the only answer it gives.
+        keys_of = getattr(creator, "keys", None)
+        keys_before = keys_of(project) if callable(keys_of) and attached else None
         # AN EMPTY OWNER IS THE ROW'S TO REFUSE: a board this platform holds itself lives under
         # nobody, and refusing here would refuse to create a board that needs no owner. THE
         # PROJECT'S OWN RESOLUTION (#822), which ends with the deployment's pair — so the static
@@ -7916,6 +7933,17 @@ def _the_board_step(project, *, board_owner: str) -> dict:
         # answers `""`, and an empty coordinate is one every later read would special-case.
         if number:
             ProjectRegistry().attach_board(project.name, board_owner=owner, board_number=number)
+        now, added = "", False
+        if attached:
+            now = creator.attached(project)
+            added = (bool(keys_of(project) - keys_before) if keys_before is not None
+                     else now != attached)
+        # A COLUMN THE ROW DECLINED TO ADD IS SAID, with the way in: a local board whose
+        # `in_review` or `needs_action` was already called "Needs Review" keeps one column of that
+        # name, and a re-run that declined the release note's opt-in in silence would read as a
+        # defect (PR #1040's review, 2026-10-22). Optional, read with `getattr`.
+        left_out = getattr(creator, "left_out", None)
+        declined = (left_out(project) or "") if callable(left_out) else ""
     except BoardSetupError as exc:
         # THE PROJECT STAYS REGISTERED — tickets-only is legitimate — and the steps after this one
         # still run, so a project whose board was refused can still finish being initialised
@@ -7927,8 +7955,14 @@ def _the_board_step(project, *, board_owner: str) -> dict:
         log.warning("the board step of %s raised: %s", project.name,
                     first_message(exc, limit=300))
         return _step("board", STEP_FAILED, f"board: {first_message(exc, limit=300)}")
-    return _step("board", STEP_DONE, f"board created with the platform's columns — {url}",
-                 url=url)
+    also = f"; {declined}" if declined else ""
+    if not attached:
+        return _step("board", STEP_DONE, f"board created with the platform's columns — {url}"
+                                         f"{also}", url=url)
+    if added:
+        return _step("board", STEP_DONE, f"board: added the columns it lacked — {now}{also}",
+                     url=url)
+    return _step("board", STEP_ALREADY, f"board already attached ({attached}){also}")
 
 
 def _the_context_step(name: str) -> dict | None:

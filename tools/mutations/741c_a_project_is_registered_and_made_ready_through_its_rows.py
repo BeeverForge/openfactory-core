@@ -18,7 +18,10 @@ The claims, each a group of rows:
   5. the installation's rows are declared — and the guard sees a write past the catalogue's edge,
      `product_start`'s in `product/before_code.py` and `product_init`'s in `product/onboard.py`;
   6. before its code, a product is declared with no source: `product_init` runs for it, refuses a
-     source, and lists nothing of its own.
+     source, and lists nothing of its own;
+  7. the row completes a board that is there already where its row says it may, as the command
+     did before it mapped onto the row (#753's opt-in): it adds the column the board lacks, says
+     `done` only when the board has a key it lacked, and says a column it declined to add.
 """
 
 TEST = "tests/test_the_installation_is_changed_through_its_rows.py"
@@ -26,6 +29,8 @@ TEST = "tests/test_the_installation_is_changed_through_its_rows.py"
 CATALOG = "openfactory/actions/catalog.py"
 CLI = "openfactory/cli.py"
 API = "openfactory/api/app.py"
+RERUN = "tests/test_a_rerun_of_init_gives_an_existing_local_board_its_review_column.py"
+AC3 = "tests/test_a_board_that_maps_no_review_column_keeps_todays_board.py"
 
 MUTATIONS = [
     # ── 1. registered once ────────────────────────────────────────────────────────────────────
@@ -131,4 +136,23 @@ MUTATIONS = [
     ("a product before its code lists the project's own name as its source", CATALOG,
      "    own = [] if before_its_code(project) else [_source_repo(project)]\n",
      "    own = [_source_repo(project)]\n"),
+
+    # ── 7. an attached board is completed by the row (#753, restacked onto main) ────────────────
+    ("the row skips an attached board's `create` again, so a re-run adds no column", CATALOG,
+     '        if attached and not getattr(creator, "completes_an_attached_board", False):',
+     "        if attached:",
+     f"{RERUN}::test_the_rerun_adds_needs_review_between_in_review_and_needs_action[the row]"),
+    ("the row says a board it completed was already there", CATALOG,
+     "    if added:\n",
+     "    if False:\n",
+     f"{RERUN}::test_the_rerun_says_what_it_added[the row]"),
+    ("the row decides `added` by the position-ordered sentence", CATALOG,
+     "            added = (bool(keys_of(project) - keys_before) if keys_before is not None",
+     "            added = (now != attached if keys_before is not None",
+     f"{RERUN}::test_init_decides_added_by_the_keys_not_by_the_sentence[the row]"),
+    ("the row leaves the column it declined to add out of what the step says", CATALOG,
+     '    also = f"; {declined}" if declined else ""\n',
+     '    also = ""\n',
+     f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
+
 ]

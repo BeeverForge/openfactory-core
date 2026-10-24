@@ -16,6 +16,11 @@ Done`: the two columns in the wrong order.
 The six rows are written LITERALLY, as `tests/a_pull_request_awaiting_review_on_each_row.py`
 writes them for AC3, with TO-DO renamed the way a deployment may rename it (C-14), so a re-run
 that restored the platform's word would show.
+
+EVERY RE-RUN COMES THROUGH BOTH DOORS: the command a person types, and the `project_init` row it
+maps onto, which the panel and `act` run too. The completion lives in the row's board step since
+#741 moved `project init` onto the row; the command is one door onto it, and the opt-in the upgrade
+note gives must hold whichever a deployment uses.
 """
 
 from __future__ import annotations
@@ -45,6 +50,19 @@ def _cards(root) -> list[tuple]:
         return db.execute("SELECT * FROM cards WHERE project = 'myapp' ORDER BY ref").fetchall()
 
 
+#: The doors a re-run comes through: what a person types, and the row every front end maps onto.
+DOORS = {
+    "project init": lambda repo: ("project", "init", "myapp", str(repo)),
+    "the row": lambda repo: ("act", "project_init", "-p", "myapp"),
+}
+
+
+@pytest.fixture(params=sorted(DOORS))
+def rerun(request):
+    """Run `project_init` again on `myapp`, through one door: `(exit code, what it said)`."""
+    return lambda repo: om.cli(*DOORS[request.param](repo))
+
+
 @pytest.fixture
 def six_row_board(tmp_path, monkeypatch):
     """A registered local project whose board is main's six rows, with one card on it."""
@@ -65,10 +83,10 @@ def six_row_board(tmp_path, monkeypatch):
     return tmp_path, repo
 
 
-def test_the_rerun_adds_needs_review_between_in_review_and_needs_action(six_row_board):
+def test_the_rerun_adds_needs_review_between_in_review_and_needs_action(six_row_board, rerun):
     root, repo = six_row_board
 
-    code, out = om.cli("project", "init", "myapp", str(repo))
+    code, out = rerun(repo)
 
     assert code == 0, out
     assert [name for _, name, _ in _columns(root)] == [
@@ -76,21 +94,21 @@ def test_the_rerun_adds_needs_review_between_in_review_and_needs_action(six_row_
         "Done"], f"the re-run left the six-row board as {_columns(root)}; it said:\n{out}"
 
 
-def test_the_rerun_gives_every_column_a_position_of_its_own(six_row_board):
+def test_the_rerun_gives_every_column_a_position_of_its_own(six_row_board, rerun):
     """A tie sorts by insertion order, which is how the measured board read Needs Review AFTER
     Needs Action: the order the panel shows must not depend on when a row was written."""
     root, repo = six_row_board
 
-    om.cli("project", "init", "myapp", str(repo))
+    rerun(repo)
 
     positions = [position for _, _, position in _columns(root)]
     assert len(set(positions)) == len(positions) == 7, f"positions after the re-run: {_columns(root)}"
 
 
-def test_the_rerun_renames_no_column_the_deployment_had(six_row_board):
+def test_the_rerun_renames_no_column_the_deployment_had(six_row_board, rerun):
     root, repo = six_row_board
 
-    om.cli("project", "init", "myapp", str(repo))
+    rerun(repo)
 
     names = {key: name for key, name, _ in _columns(root)}
     assert {key: names.get(key) for key, _ in MAINS_SIX} == {
@@ -98,32 +116,32 @@ def test_the_rerun_renames_no_column_the_deployment_had(six_row_board):
         "a re-run of init renamed a column the deployment had")
 
 
-def test_the_rerun_leaves_the_cards_where_they_were(six_row_board):
+def test_the_rerun_leaves_the_cards_where_they_were(six_row_board, rerun):
     """The new column is opted into, not back-filled: a card in Needs Action before the re-run is
     there after it, and the next move of a pull request is what puts one in Needs Review."""
     root, repo = six_row_board
     before = _cards(root)
 
-    om.cli("project", "init", "myapp", str(repo))
+    rerun(repo)
 
     assert _cards(root) == before, "a re-run of init touched the cards"
 
 
-def test_the_rerun_says_what_it_added(six_row_board):
+def test_the_rerun_says_what_it_added(six_row_board, rerun):
     """`init` is read at a terminal: a re-run that changed the board says so, and names it."""
     _, repo = six_row_board
 
-    _, out = om.cli("project", "init", "myapp", str(repo))
+    _, out = rerun(repo)
 
     assert "Needs Review" in out and "added" in out, out
 
 
-def test_a_second_rerun_on_the_seven_row_board_changes_nothing(six_row_board):
+def test_a_second_rerun_on_the_seven_row_board_changes_nothing(six_row_board, rerun):
     root, repo = six_row_board
-    om.cli("project", "init", "myapp", str(repo))
+    rerun(repo)
     seven = _columns(root)
 
-    code, out = om.cli("project", "init", "myapp", str(repo))
+    code, out = rerun(repo)
 
     assert code == 0, out
     assert _columns(root) == seven
@@ -143,7 +161,7 @@ def a_hand_ordered_seven_row_board(six_row_board):
     return root, repo
 
 
-def test_a_rerun_keeps_the_order_a_person_gave_the_board(a_hand_ordered_seven_row_board):
+def test_a_rerun_keeps_the_order_a_person_gave_the_board(a_hand_ordered_seven_row_board, rerun):
     """A re-run that adds nothing moves nothing: the board a person ordered by hand keeps its order.
 
     RED ON 3cfca18d AND ON fa0171c1 (@robertocsp, PR #1040's review, Not-blocking 3, 2026-10-22):
@@ -153,13 +171,14 @@ def test_a_rerun_keeps_the_order_a_person_gave_the_board(a_hand_ordered_seven_ro
     root, repo = a_hand_ordered_seven_row_board
     before = _columns(root)
 
-    code, out = om.cli("project", "init", "myapp", str(repo))
+    code, out = rerun(repo)
 
     assert code == 0, out
     assert _columns(root) == before, f"a re-run that added nothing re-ordered the board:\n{out}"
 
 
-def test_a_rerun_that_adds_nothing_does_not_say_it_added_columns(a_hand_ordered_seven_row_board):
+def test_a_rerun_that_adds_nothing_does_not_say_it_added_columns(a_hand_ordered_seven_row_board,
+                                                                  rerun):
     """`init` says "added the columns it lacked" only when the board has a key it lacked before.
 
     RED ON 3cfca18d AND ON fa0171c1 (the same review point): the sentence was decided by comparing
@@ -167,12 +186,12 @@ def test_a_rerun_that_adds_nothing_does_not_say_it_added_columns(a_hand_ordered_
     the columns it lacked" on a board it had added nothing to."""
     _, repo = a_hand_ordered_seven_row_board
 
-    _, out = om.cli("project", "init", "myapp", str(repo))
+    _, out = rerun(repo)
 
     assert "added the columns it lacked" not in out, out
 
 
-def test_init_decides_added_by_the_keys_not_by_the_sentence(a_hand_ordered_seven_row_board,
+def test_init_decides_added_by_the_keys_not_by_the_sentence(a_hand_ordered_seven_row_board, rerun,
                                                              monkeypatch):
     """A row whose `create` re-orders a board and adds no key has added nothing, whatever its
     `attached()` sentence now reads: `init` compares the keys before and after.
@@ -196,7 +215,7 @@ def test_init_decides_added_by_the_keys_not_by_the_sentence(a_hand_ordered_seven
 
     monkeypatch.setattr(LocalBoardSetup, "create", create_and_reorder)
 
-    _, out = om.cli("project", "init", "myapp", str(repo))
+    _, out = rerun(repo)
 
     assert [key for key, _, _ in _columns(root)][-2:] == ["needs_action", "done"], (
         f"the stand-in row did not re-order the board: {_columns(root)}")
