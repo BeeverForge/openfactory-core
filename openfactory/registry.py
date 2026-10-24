@@ -513,6 +513,11 @@ class ProjectRegistry:
     # ── writes ──────────────────────────────────────────────────────────────────────────────────
 
     def add(self, project: Project) -> None:
+        from openfactory.contracts.project import model_refused
+
+        why = model_refused(getattr(project, "model", None))
+        if why:  # the same rule as `set_model`: both write a project's model
+            raise ValueError(why)
         with self._locked():
             raw = self._load_raw()
             if project.name in raw:
@@ -638,7 +643,16 @@ class ProjectRegistry:
 
         A single string and a per-role dict do not merge: narrowing `model: x` with
         `--role executor y` would either drop x for every other role or invent an expansion this
-        method cannot know is wanted. That case REFUSES with both forms named."""
+        method cannot know is wanted. That case REFUSES with both forms named.
+
+        The value is saved verbatim (the harness names its own models) EXCEPT one shape: it may
+        not begin with '-'. The harness is handed it as one `--model=<value>` token, so a leading
+        '-' is refused here, where every writer passes (`model_refused`)."""
+        from openfactory.contracts.project import model_refused
+
+        why = model_refused(model)
+        if why:
+            raise ValueError(why)
         if role:
             from openfactory.adapters.agent.registry import known_roles
 

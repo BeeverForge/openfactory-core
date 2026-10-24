@@ -81,17 +81,26 @@ def test_a_language_nobody_translated_is_still_accepted(registry):
 # ── the command, and what it must NOT claim ─────────────────────────────────────────────────────
 
 def test_the_cli_exposes_it_next_to_the_other_registry_setters():
+    from openfactory.actions import catalog
     from openfactory.cli import project_set_language
 
     assert callable(project_set_language)
     # A CALL, NOT A SUBSTRING. `assert "set_language" in src` was a TAUTOLOGY (guard audit,
     # 2026-08-17): the source includes `def project_set_language`, whose own name contains the
     # anchor — so the real `reg.set_language(...)` call could be deleted with the guard green.
+    #
+    # TWO HOPS SINCE #741: the command performs the `project_set_language` row, and the row
+    # reaches the setter and turns both of its refusals into sentences. Each hop is a call.
     import ast
 
-    tree = ast.parse(inspect.getsource(project_set_language))
+    command = ast.parse(inspect.getsource(project_set_language))
+    performed = {n.args[0].value for n in ast.walk(command) if isinstance(n, ast.Call)
+                 and getattr(n.func, "id", "") == "_perform" and n.args
+                 and isinstance(n.args[0], ast.Constant)}
+    assert performed == {"project_set_language"}, "the command does not reach the row"
+    tree = ast.parse(inspect.getsource(catalog._project_set_language))
     calls = {getattr(n.func, "attr", "") for n in ast.walk(tree) if isinstance(n, ast.Call)}
-    assert "set_language" in calls, "the command does not reach the setter"
+    assert "set_language" in calls, "the row does not reach the setter"
     handled = {getattr(h.type, "id", "") for n in ast.walk(tree)
                if isinstance(n, ast.Try) for h in n.handlers}
     for refusal in ("KeyError", "ValueError"):

@@ -7498,6 +7498,178 @@ async def _doctor(*, project: str, by: Actor) -> Outcome:
     return done(said, **document)
 
 
+# ── a project's own settings, and its removal (#741) ────────────────────────────────────────────
+#
+# THE REGISTRY IS READ PER RUN, so each of these takes effect on the next job with no restart —
+# which is why they exist at all: the only other way to change one was editing the registry's YAML
+# inside the worker. Each answers an unknown project with the roster, as `_project` does, because
+# the commonest cause is a typo and the second is a worker baked without the project.
+
+def _no_such_project(project: str, *, so: str = "") -> Outcome:
+    """The refusal for a name this registry does not hold, with what it does hold."""
+    from openfactory.registry import ProjectRegistry
+
+    known = ", ".join(sorted(p.name for p in ProjectRegistry().list())) or "none"
+    return refused(NOT_FOUND, f"there is no project called {project!r} on this deployment"
+                              + (f" — {so}" if so else "") + f". It knows: {known}.",
+                   project=project)
+
+
+async def _project_remove(*, project: str, by: Actor) -> Outcome:
+    """Unregister a project, or refuse — naming the roster — when the name is not registered.
+
+    THE REGISTRY REFUSES AN UNKNOWN NAME (#138), and this says so rather than reporting a removal
+    nobody made: a shell loop with a quoting mistake once removed nothing, one call per project,
+    and every call said it had. NOTHING ELSE ABOUT THE PROJECT IS TOUCHED — its board, its
+    repositories, what the product role remembers; `project forget` is the verb for the last."""
+    from openfactory.registry import ProjectRegistry
+
+    try:
+        ProjectRegistry().remove(project)
+    except KeyError:
+        return _no_such_project(project, so="nothing was removed")
+    return done(f"removed {project!r}", project=project)
+
+
+async def _project_set_model(*, project: str, model: str, by: Actor,
+                             role: object = "") -> Outcome:
+    """Which model the coding agent runs for this project — one string for every role, or with
+    `role` the per-role shape, one call per role.
+
+    PASSED TO THE HARNESS VERBATIM: each harness names its models its own way, and policing the
+    string here would refuse exactly the routes an enterprise needs. Whether the harness
+    recognises it is asked of the harness, on the machine that will run it, by whoever set it —
+    the shell does, after this row has saved it; a name it does not recognise is a warning there,
+    never a refusal here.
+
+    AND THIS ROW SAYS IT DID NOT ASK (`checked: false`). Only the shell asks; a front end of one's
+    own reaches this row alone, and an `ok` with nothing else said is the silence the pilot read
+    as a confirmation on 2026-08-15, when a typo'd model was shown on the panel like a setting."""
+    from openfactory.registry import ProjectRegistry
+
+    chosen = str(role or "").strip() or None
+    try:
+        ProjectRegistry().set_model(project, str(model), role=chosen)
+    except KeyError:
+        return _no_such_project(project)
+    except ValueError as exc:
+        return refused(INVALID, str(exc), project=project)
+    scope = f"role {chosen!r}" if chosen else "every role"
+    return done(f"{project}: model {model!r} for {scope} — takes effect on the next job, no "
+                f"restart needed (the registry is read per run). Not checked against the harness "
+                f"here: the first job proves it, and fails naming this model if the harness will "
+                f"not run it", project=project, model=str(model), role=chosen, checked=False)
+
+
+async def _project_set_language(*, project: str, language: str, by: Actor) -> Outcome:
+    """Which language this project SPEAKS FIRST — its park alerts, its scheduled rounds, the
+    comments nobody asked it to write. A reply is not governed by this: it follows the language of
+    whoever asked, which is the harness's own rule (`roles.language_directive`)."""
+    from openfactory.registry import ProjectRegistry
+
+    try:
+        ProjectRegistry().set_language(project, str(language))
+    except KeyError:
+        return _no_such_project(project)
+    except ValueError as exc:
+        return refused(INVALID, str(exc), project=project)
+    chosen = str(language).strip()
+    return done(f"{project}: unprompted messages in {chosen!r} — takes effect on the next one, "
+                f"no restart needed (the registry is read per run).", project=project,
+                language=chosen)
+
+
+def _either(value: object) -> bool | None:
+    """A yes or a no a caller handed in any spelling — `None` when it handed neither, which a
+    policy reads as "keep what is there". Consent is `_said_yes`'s; this adds the no."""
+    if value is None or value == "":
+        return None
+    if _said_yes(value):
+        return True
+    if value is False or str(value).strip().lower() in {"false", "no", "n", "0"}:
+        return False
+    raise ValueError(f"{value!r} is neither yes nor no")
+
+
+async def _project_set_preview(*, project: str, by: Actor, required: object = None,
+                               hours: object = None, auto_start: object = None,
+                               env: object = None, build_arg: object = None,
+                               network: object = None, cpus: object = None,
+                               memory: object = None, clear_env: object = None) -> Outcome:
+    """What the OPERATOR decides about a project's previews (ADR-0050 D6, D8, D9): whether one is
+    required before a merge, how long it lives, which names each service may receive, egress and
+    limits. MERGED into what the registry holds — a parameter not given keeps its value.
+
+    THE ONE DOOR THAT VALIDATES WHAT IT WRITES. A name a preview may never receive — the
+    factory's own credentials, any project's `token_env`, every name a harness route requires — is
+    dropped by the registry's writer and said here, in `dropped`; it is never written to a file a
+    person trusts. That list bounds a preview however it is set, because this row reaches every
+    unscoped panel credential and a preview runs code nobody merged (ADR-0050 D8, amended)."""
+    from pydantic import ValidationError
+
+    from openfactory.contracts.project import PreviewPolicy
+    from openfactory.registry import ProjectRegistry
+
+    found, bad = _project(project)
+    if bad:
+        return bad
+    policy = (found.preview or PreviewPolicy()).model_dump(mode="json")
+    envs, args = _listed(env), _listed(build_arg)
+
+    def _pairs(items: list[str], table: dict) -> dict:
+        out = {k: dict(v) for k, v in table.items()}
+        for item in items:
+            svc, _, rest = item.partition("=")
+            container, _, worker = rest.partition("=")
+            if not svc or not container:
+                raise ValueError(f"{item!r} is not svc=NAME or svc=NAME=WORKER_NAME")
+            out.setdefault(svc, {})[container] = worker or container
+        return out
+
+    try:
+        if _either(clear_env):
+            policy["env"] = {}
+        policy["env"] = _pairs(envs, policy["env"])
+        policy["build_args"] = _pairs(args, policy["build_args"])
+        if hours is not None and hours != "":
+            # A NUMBER OR A REFUSAL: the policy reads anything else as its default, so `6h` from
+            # a front end's body was saved as 24 and reported as a success. The shell's
+            # `--hours` is typed as an int and never sent one.
+            try:
+                hours = int(str(hours).strip())
+            except ValueError:
+                raise ValueError(f"{hours!r} is not a number of hours, 1 to 168") from None
+        for key, value in (("required", _either(required)), ("auto_start", _either(auto_start)),
+                           ("hours", hours), ("network", network), ("cpus", cpus),
+                           ("memory", memory)):
+            if value is not None:
+                policy[key] = value
+        registry = ProjectRegistry()
+        registry.set_preview(project, policy)
+        saved = registry.get(project).preview
+    except KeyError:
+        return _no_such_project(project)
+    except (ValueError, ValidationError) as exc:
+        return refused(INVALID, f"the preview policy was not changed — "
+                                f"{' '.join(str(exc).split())[:300]}", project=project)
+    dropped = sorted({f"{s}={c}" for item in envs + args
+                      for s, _, rest in [item.partition("=")]
+                      for c in [rest.partition("=")[0]]
+                      if c not in {**saved.env.get(s, {}), **saved.build_args.get(s, {})}})
+    said = (f"{project}: previews {'required before a merge' if saved.required else 'optional'}"
+            f", {'started on their own' if saved.auto_start else 'started on demand'}"
+            f", up for {saved.hours}h, egress: {saved.network or 'none'}")
+    if dropped:
+        said += (f"; refused (a credential of the factory's own, or not a name): "
+                 f"{', '.join(dropped)}")
+    if network not in (None, "") and saved.network != str(network).strip():
+        # THE POLICY DROPS IT WITH A LOG LINE, which a front end never reads: said here, or the
+        # sentence above reads "egress: none" as what was asked for.
+        said += (f"; network {network!r} refused — a preview joins an operator network by name, "
+                 f"never bridge or host")
+    return done(said, project=project, preview=saved.model_dump(mode="json"), dropped=dropped)
+
+
 CATALOG: dict[str, ActionSpec] = {
     spec.name: spec for spec in (
         ActionSpec(
@@ -8452,6 +8624,78 @@ CATALOG: dict[str, ActionSpec] = {
             # A PRODUCT BEFORE ITS CODE DECLARES ITS CONTEXT TOO (#992): `product start` names this
             # row as the way to another context for one
             needs_code=False,
+        ),
+        ActionSpec(
+            name="project_remove",
+            summary="unregister a project — nothing else about it is touched",
+            run=_project_remove,
+            refuses=(NOT_FOUND,),
+            required=("project",),
+            installation=True,
+            # A PROJECT BEFORE ITS CODE IS REMOVED TOO (#992): taking it out of the registry reads
+            # nothing of its code
+            needs_code=False,
+        ),
+        ActionSpec(
+            name="project_set_model",
+            summary="say which model the coding agent runs for a project, for every role or one",
+            run=_project_set_model,
+            refuses=(INVALID, NOT_FOUND),
+            required=("project", "model"),
+            optional=("role",),
+            installation=True,
+            # A PROJECT BEFORE ITS CODE IS SET TOO (#992): this is the registry's row for it, and
+            # reads nothing of the code
+            needs_code=False,
+            params={
+                "model": "the harness's own model string, passed to it verbatim — whatever "
+                         "name the harness this project runs gives the model",
+                "role": "one role to set it for, by the name the roles go by (`executor`, "
+                        "`reviewer`, `techlead`, `product`, or an installed one); empty sets "
+                        "every role",
+            },
+        ),
+        ActionSpec(
+            name="project_set_language",
+            summary="say which language a project speaks first — a reply always follows whoever "
+                    "asked",
+            run=_project_set_language,
+            refuses=(INVALID, NOT_FOUND),
+            required=("project", "language"),
+            installation=True,
+            # A PROJECT BEFORE ITS CODE IS SET TOO (#992): this is the registry's row for it, and
+            # reads nothing of the code
+            needs_code=False,
+            params={"language": "a language tag, e.g. `en` or `pt-BR` — any tag the project's "
+                                "agents understand"},
+        ),
+        ActionSpec(
+            name="project_set_preview",
+            summary="decide a project's previews: whether one is required before a merge, how "
+                    "long it lives, the names each service may receive, egress and limits",
+            run=_project_set_preview,
+            refuses=(INVALID, NOT_FOUND),
+            required=("project",),
+            optional=("required", "hours", "auto_start", "env", "build_arg", "network", "cpus",
+                      "memory", "clear_env"),
+            installation=True,
+            # A PROJECT BEFORE ITS CODE IS SET TOO (#992): this is the registry's row for it, and
+            # reads nothing of the code
+            needs_code=False,
+            params={
+                "required": "`true` and the factory never merges this project on its own — a "
+                            "person looks and merges; `false` lifts it; omitted keeps it",
+                "hours": "how long a preview stays up, 1 to 168",
+                "auto_start": "`true` to start a preview when a pull request waits for a person, "
+                              "`false` to start one only when somebody presses start",
+                "env": "names a service may receive at run time, comma-separated, each "
+                       "`svc=NAME` or `svc=NAME=WORKER_NAME`, `*` for every service",
+                "build_arg": "names a BUILD of a changed service may read, the same shape",
+                "network": "an operator network the services join for egress; empty for none",
+                "cpus": "the CPU limit of each service, e.g. `2`",
+                "memory": "the memory limit of each service, e.g. `2g`",
+                "clear_env": "`true` to drop every run-time name before adding these",
+            },
         ),
         ActionSpec(
             name="doctor",

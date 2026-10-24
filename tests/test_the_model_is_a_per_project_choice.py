@@ -133,10 +133,10 @@ def test_every_role_has_an_env_override(monkeypatch):
 _MODEL_FOR = {"opencode": "anthropic/chosen-9"}
 
 
-@pytest.mark.parametrize(("kind", "flag"), [("claude_code", "--model"), ("codex", "-m"),
-                                            ("kimi", "-m"), ("opencode", "-m")])
-def test_the_executors_model_reaches_the_command_line(monkeypatch, kind, flag):
-    """`build_executor` is the call site that dropped it. End at the command, not the object."""
+@pytest.mark.parametrize("kind", ["claude_code", "codex", "kimi", "opencode"])
+def test_the_executors_model_reaches_the_command_line(monkeypatch, kind):
+    """`build_executor` is the call site that dropped it. End at the command, not the object —
+    and every harness carries it as one `--model=<value>` token (#741)."""
     _clear(monkeypatch)
     chosen = _MODEL_FOR.get(kind, "chosen-9")
     p = _project(harness=kind, model=chosen)
@@ -146,7 +146,7 @@ def test_the_executors_model_reaches_the_command_line(monkeypatch, kind, flag):
     agent.execute(sandbox=sb, workspace=_ws(), context=_ctx())
 
     assert sb.commands, "the adapter never ran a command"
-    assert f"{flag} {chosen}" in sb.commands[0], sb.commands[0]
+    assert f"--model={chosen}" in sb.commands[0], sb.commands[0]
 
 
 @pytest.mark.parametrize("kind", ["claude_code", "codex", "kimi", "opencode"])

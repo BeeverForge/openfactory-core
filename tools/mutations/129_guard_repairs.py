@@ -16,10 +16,12 @@ MUTATIONS = [
      'cfg = getattr(project, "produtos", None)',
      "tests/test_techlead_watch.py"),
 
+    # RE-PINNED (#741): the command maps onto the `project_set_language` row, which is where the
+    # setter is reached now — the guard follows both hops.
     ("the set-language command stops reaching the setter",
-     "openfactory/cli.py",
-     "        reg.set_language(name, language)",
-     "        _ = (reg, name, language)",
+     "openfactory/actions/catalog.py",
+     "        ProjectRegistry().set_language(project, str(language))",
+     "        _ = (ProjectRegistry, project, language)",
      "tests/test_a_project_can_change_the_language_it_speaks_first.py"),
 
     ("the release routes straight past the gate query",

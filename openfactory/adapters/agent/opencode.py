@@ -293,7 +293,7 @@ class OpenCodeAdapter:
         pipe = [f"cat {shlex.quote(prompt_path)} |"] if prompt_path else []
         cmd = [BEFORE_THE_HARNESS, *pipe, *env, harness, "run", "--format", "json"]
         if model:
-            cmd += ["-m", shlex.quote(model)]
+            cmd += [shlex.quote(f"--model={model}")]  # flag and value as one token
         if read_only:
             cmd += ["--agent", JUDGE_AGENT]
         if resume_session:

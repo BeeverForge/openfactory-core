@@ -11,9 +11,9 @@ What these pin:
 
 1. THE MANIFEST'S BLOCK: paths inside the repository, ports that exist, no service both opened
    and excluded.
-2. THE OPERATOR'S POLICY: the factory's own credentials and every project's `token_env` refused —
-   at the write and at the read — without making the registry unloadable; `bridge`/`host` refused
-   as egress; the TTL clamped.
+2. THE OPERATOR'S POLICY: the factory's own credentials, every project's `token_env` and every
+   name a harness route requires refused — at the write and at the read — without making the
+   registry unloadable; `bridge`/`host` refused as egress; the TTL clamped.
 3. ONE SLUG, ONE PROJECT, refused where a person names the project.
 4. THE SHAPE ON THE FLOOR: the compose spec's four names in every project, and a project's own
    declared compose files, are human-gated.
@@ -23,14 +23,18 @@ What these pin:
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
 from openfactory.contracts import Manifest, RunResult, ValidationResult
-from openfactory.contracts.project import PreviewPolicy, Project
+from openfactory.contracts.project import PREVIEW_ENV_DENIED_HARNESS, PreviewPolicy, Project
 from openfactory.orchestrator.merge_policy import should_auto_merge
 from openfactory.policy import protected
 from tests.test_walking_skeleton import repo  # noqa: F401 — the fixture
+from tests.the_tree_read_once import parsed
 
 _PASS = [ValidationResult(name="test", command="pytest -q", exit_code=0, passed=True)]
 
@@ -121,6 +125,52 @@ def test_no_projects_token_env_reaches_a_preview_written_or_read(registry):
     path.write_text(text)
     assert reg.get("acme").preview.env == {"web": {}}
     assert next(p for p in reg.list() if p.name == "acme").preview.env == {"web": {}}
+
+
+ROUTES_PY = Path(__file__).resolve().parents[1] / "openfactory" / "adapters" / "agent" / "routes.py"
+
+
+def _what_the_harness_routes_require() -> frozenset[str]:
+    """Every name an `AuthRoute` in `routes.py` requires, read from its syntax — a comment naming
+    a variable counts for nothing, and a route added there is read here without editing this."""
+    tree = parsed(ROUTES_PY)
+    return frozenset(
+        node.value
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "AuthRoute"
+        for kw in call.keywords if kw.arg == "requires"
+        for node in ast.walk(kw.value)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str))
+
+
+def test_the_harness_names_a_preview_is_refused_are_every_name_a_route_requires():
+    """ONE LIST, HELD HERE (#741). Setting a preview's names became a row any unscoped panel
+    credential reaches, and a preview runs unmerged code: a name a harness reaches its model with
+    must never be one it can read. The list is a literal in the contract, which imports no
+    adapter, so this is what keeps it equal to what the routes declare."""
+    required = _what_the_harness_routes_require()
+
+    assert "OPENAI_API_KEY" in required, f"the routes were not read: {sorted(required)}"
+    assert set(PREVIEW_ENV_DENIED_HARNESS) == required, (
+        f"listed but no route requires it: {sorted(set(PREVIEW_ENV_DENIED_HARNESS) - required)}; "
+        f"required and not listed: {sorted(required - set(PREVIEW_ENV_DENIED_HARNESS))}")
+
+
+@pytest.mark.parametrize("name", sorted(_what_the_harness_routes_require()))
+def test_no_name_a_harness_route_requires_reaches_a_preview_written_or_read(name, registry):
+    """On either side of a mapping, at the write and at the read — the rule the factory's own
+    credentials already had."""
+    reg, path = registry
+    reg.set_preview("acme", {"env": {"web": [name, "APP_ENV"]},
+                             "build_args": {"web": {"SAFE": name}, "api": {name: "SAFE"}}})
+
+    import yaml
+
+    written = yaml.safe_load(path.read_text())["projects"]["acme"]["preview"]
+    assert name not in str(written), f"{name} was written into the registry"
+    assert reg.get("acme").preview.env == {"web": {"APP_ENV": "APP_ENV"}}
+    path.write_text(path.read_text().replace("APP_ENV: APP_ENV", f"{name}: {name}"))
+    assert reg.get("acme").preview.env == {"web": {}}, f"{name} was read back from a file"
 
 
 def test_the_operator_decides_from_the_cli_and_reads_it_back(registry):

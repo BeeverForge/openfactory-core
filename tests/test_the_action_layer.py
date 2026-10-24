@@ -300,6 +300,13 @@ OWNED = {
     "hold_poller": "poller_pause/poller_resume",  # the deployment-wide hold on pickup
     "set_agent_name": "product_name",        # what the product role is called
     "set_docs_repo": "product_declare",      # where the product's requirements live
+    "set_model": "project_set_model",        # which model a project's agent runs
+    "set_language": "project_set_language",  # which language a project speaks first
+    "set_preview": "project_set_preview",    # what the operator decides about its previews
+    # `remove` CANNOT BE A MARKER — a front end's lists remove things all day, and a marker that
+    # binds an identifier a front end legitimately needs forbids the wrong thing. What the row
+    # owns besides the write is the answer to a name the registry does not hold, with its roster.
+    "_no_such_project": "project_remove",
     # the doctor's report AS A DOCUMENT: a front end that composed one would be a second opinion
     # about the same machine — the screen and `--json` both render the row's
     "as_document": "doctor",

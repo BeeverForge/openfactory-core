@@ -177,7 +177,7 @@ def test_execute_builds_the_verified_flag_set():
     CodexAdapter(model="gpt-5").execute(sandbox=sb, workspace=_ws(), context=_ctx())
     cmd = sb.commands[0]
     for flag in ("codex exec", "--json", "-o .openfactory-codex-last-message",
-                 "--skip-git-repo-check", "-s workspace-write", "-m gpt-5"):
+                 "--skip-git-repo-check", "-s workspace-write", "--model=gpt-5"):
         assert flag in cmd, flag
     assert " -- " in cmd  # a prompt starting with '-' must not be read as a flag
 
@@ -356,7 +356,7 @@ def test_kimi_prompt_mode_asks_no_permission_flag():
     assert "--auto" not in flags and "--plan" not in flags
     assert "--yolo" not in flags and " -y " not in flags
     assert "--output-format stream-json" in cmd
-    assert "-m k3" in cmd and "-p " in cmd
+    assert "--model=k3" in cmd and "-p " in cmd
 
 
 def test_kimi_execute_carries_the_ROLE_FILE():

@@ -264,7 +264,7 @@ class KimiAdapter:
         # model, and prompt mode is auto already — see the module docstring, difference 1.
         cmd = [*head, "--output-format", "stream-json"]
         if model:
-            cmd += ["-m", shlex.quote(model)]
+            cmd += [shlex.quote(f"--model={model}")]  # flag and value as one token
         if resume_session:
             cmd += ["-S", shlex.quote(resume_session)]
         cmd += ["-p", "-" if prompt_path else shlex.quote(prompt)]

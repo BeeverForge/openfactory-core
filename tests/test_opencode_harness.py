@@ -176,7 +176,7 @@ def test_the_model_is_passed_as_provider_slash_model():
     sb = _FakeSandbox(_GOOD)
     OpenCodeAdapter(model="amazon-bedrock/anthropic.claude-sonnet-4-5").execute(
         sandbox=sb, workspace=_ws(), context=_ctx())
-    assert "-m amazon-bedrock/anthropic.claude-sonnet-4-5" in sb.commands[0]
+    assert "--model=amazon-bedrock/anthropic.claude-sonnet-4-5" in sb.commands[0]
 
 
 # ── read-only: enforcement, and a repository that cannot argue with it ───────────────────────────

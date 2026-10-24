@@ -166,6 +166,11 @@ def _invocation(command: str) -> tuple[str, str | None, list[tuple[str, str | No
         if token == "--":
             break
         assert token.startswith("-"), f"{token!r} is not an option of codex exec {PINNED}"
+        if token.startswith("--") and "=" in token:  # the one-token `--opt=value` form (#741)
+            option, value = token.split("=", 1)
+            assert option in arity, f"{option!r} is not an option of any codex exec {PINNED} subcommand"
+            options.append((option, value))
+            continue
         assert token in arity, f"{token!r} is not an option of any codex exec {PINNED} subcommand"
         options.append((token, next(tokens) if arity[token] else None))
     return subcommand, session, options
@@ -235,7 +240,8 @@ def test_a_fresh_job_keeps_its_sandbox_flag(shape, mode):
 
 #: What the row built on main (3a582f1) in full access, token for token, past `codex exec`.
 _FULL_ACCESS = ["--json", "-o", ".openfactory-codex-last-message", "--skip-git-repo-check",
-                "--ignore-user-config", "--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-5"]
+                "--ignore-user-config", "--dangerously-bypass-approvals-and-sandbox",
+                "--model=gpt-5"]
 
 
 @pytest.mark.parametrize("mode", ["full-access", "full-access-env"])

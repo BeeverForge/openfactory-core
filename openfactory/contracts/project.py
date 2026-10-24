@@ -170,6 +170,21 @@ PREVIEW_ENV_DENIED_PREFIXES = ("OPENFACTORY_", "TEMPORAL_", "ANTHROPIC_", "CLAUD
 PREVIEW_ENV_DENIED = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "GH_TOKEN", "GITHUB_TOKEN",
                       "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
                       "AZURE_DEVOPS_PAT", "JIRA_API_TOKEN")
+#: EVERY NAME A HARNESS ROUTE REQUIRES (`adapters/agent/routes.py`, `AuthRoute.requires`): the key
+#: the box's harness reaches its model with, and the switch and the region that choose its route
+#: (#741, 2026-10-20). Refused to a preview like the factory's own credentials, and for the same
+#: reason: since the policy became a row, every unscoped panel credential sets it, and a preview
+#: runs code from a pull request nobody merged. `OPENAI_API_KEY`, which the opencode route
+#: requires in `box.env`, matched no prefix above, so a panel login, and before it the command
+#: line, could hand it to an unmerged Dockerfile. A literal here because a contract imports no
+#: adapter; `tests/test_a_preview_is_declared_by_the_project_and_decided_by_the_operator.py`
+#: holds it equal to what the routes declare, so a route that comes to require another name fails
+#: the suite until the name is refused here too.
+PREVIEW_ENV_DENIED_HARNESS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "AWS_DEFAULT_REGION",
+                              "AWS_REGION", "AZURE_API_KEY", "AZURE_RESOURCE_NAME",
+                              "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK",
+                              "CLAUDE_CODE_USE_VERTEX", "CLOUD_ML_REGION", "OPENAI_API_KEY",
+                              "VERTEX_REGION")
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -179,6 +194,19 @@ def preview_name_refused(name: str) -> str:
         return "not an environment variable name"
     if name in PREVIEW_ENV_DENIED or name.startswith(PREVIEW_ENV_DENIED_PREFIXES):
         return "a credential of the factory's own"
+    if name in PREVIEW_ENV_DENIED_HARNESS:
+        return "a name the factory's harness reaches its model with"
+    return ""
+
+
+def model_refused(model: object) -> str:
+    """Why `model` may not be saved as a project's model, or "" when it may — one string, or the
+    per-role shape (a role → string map), each value asked the same. A model is otherwise saved
+    verbatim (`ProjectRegistry.set_model`): only a value that begins with '-' is refused."""
+    values = model.values() if isinstance(model, dict) else [model]
+    for value in values:
+        if isinstance(value, str) and value.lstrip().startswith("-"):
+            return f"a model name does not begin with '-' — {value!r} was not saved"
     return ""
 
 

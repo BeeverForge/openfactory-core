@@ -353,8 +353,12 @@ otherwise: `memory_total` (8g, what one preview's services may reserve together)
 (12), `pids_limit` (512), `tmpfs_size` (256m), `caps` (what is left after dropping every
 capability), `start_timeout_minutes` (30), `upstream_timeout_seconds` (180) and
 `keep_failed_minutes` (30). A name that is one of the factory's own credentials — `OPENFACTORY_*`,
-`TEMPORAL_*`, `ANTHROPIC_*`, `CLAUDE_*`, the known vendor tokens, any project's `token_env` — is
-refused on either side of a mapping, and said; `bridge` and `host` are refused as the network.
+`TEMPORAL_*`, `ANTHROPIC_*`, `CLAUDE_*`, the known vendor tokens, any project's `token_env`, and
+every name a harness route requires (`OPENAI_API_KEY`, `AZURE_API_KEY`, `AZURE_RESOURCE_NAME`,
+`AWS_REGION`, `AWS_DEFAULT_REGION`, `CLOUD_ML_REGION`, `VERTEX_REGION`) — is refused on either side
+of a mapping, and said; `bridge` and `host` are refused as the network. The same policy is the
+`project_set_preview` action, so any credential that is the installation's administrator on the
+panel sets it too, within the same refusals.
 
 **`channel`** — where the factory speaks to *this project's* humans. It is deliberately absent
 from the example above: unset means **the panel**, the one surface that always exists, and that
