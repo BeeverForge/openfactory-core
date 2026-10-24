@@ -223,6 +223,10 @@ nothing in it reads as an empty board, and a project that is not there still rea
 Single-quote it in YAML, because JQL quotes with `"`. Unset, or blank, the queries are exactly
 those of a project without it.
 
+**The cockpit's Board link opens the panel's own board for a project with `scope_jql`**, so it
+shows that project's scoped slice. An Azure Boards project with `scope_epic` follows the same
+rule. Every other project opens its provider's board.
+
 **Every project on a shared Jira project needs its own `scope_jql`, and no issue may be in two
 scopes.** The scope narrows only the project that declares it: one project left without a scope
 still reads all of `DAR` as its queue and picks up every other project's tickets. Nothing compares

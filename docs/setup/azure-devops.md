@@ -345,12 +345,20 @@ tracker:
 
 It is the id, not the title, because two work items can share a title. Quote it in YAML.
 
+The hierarchy root's work item type is not checked: a readable Feature id also scopes to its
+descendants, and a readable leaf id produces an empty board. Check that the id names the intended
+Epic before enabling pickup.
+
 **What it limits.** The pickup queue, the board the panel and the product role read, the list of
 the project's cards, and the search for an already filed card of the same title. Each is the query
 it was without the option with `[System.Id] IN (…every work item under the Epic…)` added, so the
 scope only narrows what the team's area paths already select; it never widens it. "Under" means at
 any depth, whatever levels the process has (Epic → Feature → Product Backlog Item here, Epic →
 Issue → Task on Basic). Unset, or blank, the queries are exactly those of a project without it.
+
+**Where the cockpit's Board link opens.** With `scope_epic`, it opens the panel's own board, which
+shows this project's scoped slice. A Jira project with `scope_jql` follows the same rule. Every
+other project opens its provider's board.
 
 **What it costs.** One extra request per board or tracker instance, a recursive link query that
 returns the Epic's subtree; it is not repeated for each column. An Epic can name at most 1,500 work
@@ -377,8 +385,10 @@ commenting on one. Name only cards under the Epic to them.
 - **A card the factory files itself is not under the Epic.** A split's children, the product role's
   cards and an impediment are created in the project and linked to nothing above them, and in an
   Epic → Feature → Item hierarchy there is no obvious parent to attach them to. Outside the scope,
-  the poller does not pick them up and the panel does not show them. File the cards you want
-  worked under a Feature of the Epic yourself.
+  the poller does not pick them up, the panel does not show them, and a retry files another because
+  the search for an earlier filing does not find them. The scoped project refuses to edit, close,
+  remove, queue or rank them until they are under the Epic. File the cards you want worked under a
+  Feature of the Epic yourself.
 - **Every project on a shared team needs its own `scope_epic`.** The scope narrows only the project
   that declares it: a project left without one still reads the whole team. A work item has one
   parent, so two different Epics never overlap; two projects naming the same Epic read the same

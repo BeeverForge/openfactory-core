@@ -260,9 +260,9 @@ def test_a_scope_epic_that_is_not_an_id_is_unreadable_and_names_the_option(azure
     assert site.queries == [], "a value that is not an id must not reach Azure DevOps at all"
 
 
-def test_an_epic_with_nothing_under_it_is_an_empty_queue_not_an_unreadable_board(azure):
-    """The other half of telling "not there" from "nothing under it": the Epic exists, so the board
-    IS readable and says so (`{}`), where an unreadable one says `None`."""
+def test_a_readable_leaf_scope_is_an_empty_queue_not_an_unreadable_board(azure):
+    """Scope resolves a hierarchy root without checking its type. A readable leaf therefore gives
+    an empty board (`{}`), where a missing or unreadable root says `None`."""
     board, site = azure(scope_epic="300")       # a card with no children: the root alone
 
     assert board.items_in_status("Approved") == []
