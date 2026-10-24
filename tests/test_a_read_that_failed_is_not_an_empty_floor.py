@@ -506,6 +506,7 @@ def _index(scenario: str) -> dict:
         "async function api(u){const a=routes[u];if(!a||a.fail)throw new Error((a&&a.fail)||'x');"
         "return JSON.parse(JSON.stringify(a.body))}",
         "const nodes={'#app':{innerHTML:''}};function $(s){return nodes[s]||null}",
+        "const document={activeElement:null};",
         "let _floor=null,inbox=null;function needsYouHtml(){return ''}function boxChip(){return ''}",
         "const toasts=[];function toast(a,b){toasts.push(b)}function curProject(){return ''}",
         "let _bd={};",
