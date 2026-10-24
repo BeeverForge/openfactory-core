@@ -347,9 +347,27 @@ def _bound(node: ast.AST):
             yield target.id, node.iter, True
 
 
+_TOPS: dict[Path, dict[str, _Is]] = {}
+
+
+def _held_at_the_top(path: Path) -> dict[str, _Is]:
+    """What the names the module at `path` binds at its top are known to hold (`_REGISTRY =
+    ProjectRegistry()`), read as a function's own names are."""
+    if path not in _TOPS:
+        typed = _TOPS[path] = {}  # a cycle sees what is known so far
+        scope = _Scope(path, _module(path).imports, typed)
+        for _ in range(3):  # a name bound to a name bound to a build
+            for n in parsed(path).body:
+                for name, value, each in _bound(n):
+                    if not each and (held := _type(scope, value)) is not None:
+                        typed.setdefault(name, held)
+    return _TOPS[path]
+
+
 def _scope(path: Path, key: str, given: frozenset = frozenset()) -> _Scope:
     """The function `key` of the module at `path`, with its parameters holding what `given` says
-    its caller handed them."""
+    its caller handed them, and the names it does not bind itself what they hold at its module's
+    top."""
     if (path, key, given) not in _SCOPES:
         fn = _module(path).functions[key]
         scope = _SCOPES[(path, key, given)] = _Scope(
@@ -360,6 +378,11 @@ def _scope(path: Path, key: str, given: frozenset = frozenset()) -> _Scope:
         for p in params:
             if (found := _annotated(scope, p.annotation)) is not None:
                 scope.typed.setdefault(p.arg, found)
+        own = {p.arg for p in (*params, fn.args.vararg, fn.args.kwarg) if p is not None} | {
+            n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+        for name, held in _held_at_the_top(path).items():
+            if name not in own:
+                scope.typed.setdefault(name, held)
         for _ in range(3):  # a name bound to a name bound to a build
             for n in ast.walk(fn):
                 for name, value, each in _bound(n):
@@ -457,7 +480,8 @@ def _reaches(path: Path, name: str, *, door: tuple[Path, str] | None = None,
     WHAT IS READ AS A WRITE, called or handed on:
       - a writer of the registry or the people store on a value the reading knows is one: built
         there (`ProjectRegistry()`), a name bound to one (`registry = registry or
-        ProjectRegistry()` included), what a function of the package returns when it returns one
+        ProjectRegistry()` included) in the function or, when the function does not bind that name
+        itself, at its module's top, what a function of the package returns when it returns one
         (by its annotation, or a `return` of one), a parameter annotated as one, or a parameter a
         caller handed one to, by position or by name, or as an argument after a function it hands
         on (`asyncio.to_thread(helper, registry)`);
@@ -494,7 +518,9 @@ def _reaches(path: Path, name: str, *, door: tuple[Path, str] | None = None,
     WRITE WAS SEEN ONLY ON AN INSTANCE BUILT IN THE SAME FUNCTION: an independent review of slice
     4 put five commands in `cli.py` — a registry handed to a helper, one a helper returned, a
     class's method, `catalog.CATALOG["enable"].run(...)` and `import openfactory.product.onboard
-    as pob` — and each passed this walk; each is a cut of plan 741d now."""
+    as pob` — and each passed this walk; each is a cut of plan 741d now. A second review bound a
+    registry at `cli.py`'s top and wrote `set_enabled` through it from a command, which passed too;
+    so is that."""
     return _walk(path, name, frozenset(), door, set() if seen is None else seen, set())
 
 

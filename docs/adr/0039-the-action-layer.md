@@ -156,7 +156,8 @@ for.
 > `perform`, naming the rows that write it. The walk is a static reading, and it sees the shapes
 > it reads: a function of the package a command names, through any form of absolute import, as a
 > module's attribute, or as a method of an instance it can type; a registry or a store it can type
-> (built, bound to a name, returned by a function, annotated, or handed in by a caller), or a
+> (built, bound to a name in the function or at its module's top, returned by a function,
+> annotated, or handed in by a caller), or a
 > writer by a name nothing else in the package defines; and a row's runner called off the
 > catalogue. It does not see a name looked up by a string, a function held in a module's table, a
 > registry it cannot type written by a name something else defines too, an inherited method, a

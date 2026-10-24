@@ -15,8 +15,9 @@ The claims, each a group of rows:
      returned, a class's method, `catalog.CATALOG["enable"].run(...)`, `import openfactory.x as
      y`) and each other step the reading takes: a registry handed by name, through a thread, by a
      parameter's annotation, by `registry or ProjectRegistry()`, a module imported whole, a writer
-     on another object's attribute by a name only the registry has, and a row's runner taken off
-     the catalogue by `.get`, by a loop over its items and by `actions.spec`;
+     on another object's attribute by a name only the registry has, a row's runner taken off the
+     catalogue by `.get`, by a loop over its items and by `actions.spec`, and a registry the
+     module binds at its top;
   3. every command that maps onto an installation row is seen the day it writes the installation
      itself again, beside its row — sixteen commands, `onboard` twice: from the command, and from
      the onboarding module it calls;
@@ -32,7 +33,8 @@ The claims, each a group of rows:
 The schedule's hold reached as the module's attribute (claim 1) is red only because the reading
 enters the schedule's pausing functions (slice 4); without that, the walk saw a hold by its name
 alone and this row survived. Each of claim 2's rows passed the walk the review was made on
-(`191a9fdc`).
+(`191a9fdc`), and the registry bound at the module's top, which a second review found, passed
+`b298fcf3` too.
 """
 
 TEST = "tests/test_the_installation_is_changed_through_its_rows.py"
@@ -200,6 +202,13 @@ MUTATIONS = [
      "def run_row_cmd(row: str) -> None:\n"
      "    from openfactory import actions as act_layer\n\n"
      "    asyncio.run(act_layer.spec(row).run())\n\n\n" + MAIN,
+     GUARD),
+    ("a command writes through a registry its module binds at its top", CLI,
+     MAIN,
+     "_REGISTRY = ProjectRegistry()\n\n\n"
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    _REGISTRY.set_enabled(name, False)\n\n\n" + MAIN,
      GUARD),
 
     # ── 3. each mapped command writes the installation itself again, beside its row ─────────────
