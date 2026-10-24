@@ -536,10 +536,11 @@ async def serve(ws, *, actor, watch, close_code) -> None:
 
     async def _tell(frame: dict) -> None:
         # a frame for this socket whatever it is subscribed to: an ack, a refusal. AN ANSWER NAMES
-        # THE PRODUCT IT WAS ABOUT, when it was about one this credential may read (#1088): one
-        # socket may follow several products, and an answer that does not say which one it is
-        # about is one a page can only guess the owner of. Never before a project is resolved, nor
-        # to a credential that may not read the product area — that one is not told its key.
+        # THE PRODUCT IT WAS ABOUT, when it was about one this credential may read (#1088), so a
+        # page can tell which product an answer is about: this socket follows one conversation at
+        # a time, and the stream that is to carry several products at once routes by the same
+        # key. Never before a project is resolved, nor to a credential that may not read the
+        # product area — that one is not told its key.
         await frames.put((None, frame))
 
     async def _subscribe(asked: dict) -> None:

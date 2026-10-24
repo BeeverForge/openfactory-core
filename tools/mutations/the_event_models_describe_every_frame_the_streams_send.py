@@ -76,18 +76,22 @@ MUTATIONS = [
     # ── the fields the review found unnamed ────────────────────────────────────────────────────
     ("`JobsData` stops naming the engine UI's `ui_base` and `ui_hint`, which every connected "
      "frame carries and the default front end reads", EVENTS,
-     "    ui_base: str | None = None\n    ui_hint: str | None = None\n", ""),
+     "    ui_base: str | None = None\n    ui_hint: str | None = None\n", "",
+     ONE + "test_the_temporal_frame_writes_only_what_jobs_data_names"),
 
     ("`EndedData` makes `detail` optional again, though every refusal body writes it", EVENTS,
-     "    detail: str\n", "    detail: str | None = None\n"),
+     "    detail: str\n", "    detail: str | None = None\n",
+     ONE + "test_ended_writes_why_status_and_a_refusal_body_ended_data_names"),
 
     ("`EndedData` stops naming `login`, which a 401 from a provider with a login page writes",
      EVENTS,
-     "    detail: str\n    login: str | None = None\n", "    detail: str\n"),
+     "    detail: str\n    login: str | None = None\n", "    detail: str\n",
+     ONE + "test_ended_writes_why_status_and_a_refusal_body_ended_data_names"),
 
     ("`LogData` loses a field the journal's `JobEvent` writes", EVENTS,
      "    ts: str\n    job_id: str\n    ticket_id: str\n",
-     "    ts: str\n    ticket_id: str\n"),
+     "    ts: str\n    ticket_id: str\n",
+     ONE + "test_a_log_frame_is_a_journal_line_field_for_field"),
 
     # ── a key that reaches a frame other than as the literal's own ─────────────────────────────
     ("G1: the floor's `update` writes `project_list` for `projects`, through `_stream_snapshot` "
