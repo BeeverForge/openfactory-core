@@ -9,16 +9,19 @@ kind, committed beside the OpenAPI description as `docs/reference/events.schema.
 WHAT IS PROVEN HERE:
 
   · the committed schema is the one the models generate, and the test that finds them apart says
-    the command that writes it again;
+    the command that writes it again; none of its descriptions names a card;
   · a representative frame of every kind each stream emits today maps onto the envelope and
     validates against its kind's model — built by the producers themselves where they are plain
     functions (`frames_of`, `presence_for`, `JobEvent`);
-  · `product` is required for the kinds that belong to a product, and absent or null for the rest;
+  · `product` is required for the kinds that belong to a product, optional for an answer (`ack`,
+    `refused`, which name it when they answer about one — #1088), and absent or null for the rest;
   · the kinds and keys are the ones the EMITTERS write — read from their source, so a kind
     renamed in `app.py` or `product_chat.py`, a kind `STREAMS` claims a stream emits that it does
     not, or a key renamed or added in a socket's or the temporal stream's frame, in a dict that
     frame spreads, or in a turn or what waits, fails here rather than drifting from the schema.
-    What the reading follows, and the one spread it does not, is said where it reads.
+    What the reading follows, and the one spread it does not, is said where it reads. A key every
+    frame of a kind writes is required, and the floor's sections and the temporal read are typed
+    as the reads that write them.
 """
 
 from __future__ import annotations
