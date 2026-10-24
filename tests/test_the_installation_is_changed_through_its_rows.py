@@ -2270,10 +2270,18 @@ def test_every_installation_row_is_the_mapping_of_a_command():
     """THE POSITIVE TWIN, and #741's other half: the shell's verbs are mappings over the
     installation's rows. Each installation row is handed to `perform`, by name, from a command the
     walk reaches — so the walk reads the commands down to the door, and a walk that lost a group,
-    or a door the shell's verbs stopped going through, loses the rows they map."""
+    or a door the shell's verbs stopped going through, loses the rows they map.
+
+    A NEW INSTALLATION ROW COMES WITH ITS VERB, in the same pull request: #741 asks that the shell
+    can do what a front end can, and #1041, the next rows for the registry, asks for a typed verb
+    for each option. So the failure says what to add rather than naming an exemption: there is
+    none, and a row that should have no verb of its own is a decision for the review that adds
+    it."""
     mapped = {row for words in _commands() for row in _walked(words)[1]}
 
     missing = sorted(set(INSTALLATION) - mapped)
     assert not missing, (
-        f"installation rows no command maps onto: {missing} — `openfactory act` reaches every "
-        f"row, and the verb that changes this part of the installation is a mapping onto it")
+        f"installation rows no command maps onto: {missing} — add the verb that changes this part "
+        f"of the installation, calling the row through `perform` as the other verbs do, in the "
+        f"pull request that adds the row. `openfactory act` reaches every row, but it is not "
+        f"that verb")
