@@ -349,7 +349,9 @@ header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--r
    and that is the more urgent fact (the NEXT card will not be picked up). */
 .proj.busy{border-top-color:var(--amber)}
 .proj.held{border-top-color:var(--err)}
-.proj .top{display:flex;align-items:flex-start;gap:11px}
+.proj .top{display:flex;align-items:flex-start;gap:11px;color:inherit;text-decoration:none}
+.proj .top:focus-visible,.proj .sw:focus-visible{outline:2px solid var(--cyan);outline-offset:4px}
+.proj .sw{border:0;padding:0}
 .proj .ic{width:38px;height:38px;border-radius:9px;display:grid;place-items:center;font:800 var(--t-md) var(--mono);
   background:linear-gradient(135deg,var(--avatar-a),var(--avatar-b));color:var(--avatar-txt);flex:none}
 .proj h3{margin:0;font-size:var(--t-lg);font-weight:750}
@@ -1983,6 +1985,8 @@ function boxChip(b){
 
 // --- index: the projects ---------------------------------------------------
 function renderIndex(){
+  const active=document.activeElement;
+  const focusId=active&&active.closest("#app")?active.id:"";
   // EVERY CARD'S VERDICT RIDES THE ONE ANSWER (#144). This ran the ladder per card, in the
   // browser; the platform now decides all of them in a single walk and the census is counted from
   // exactly those, so a card and the header cannot disagree about the project under it.
@@ -1998,23 +2002,27 @@ function renderIndex(){
                  unknown:"st-idle"}[fs.level]||"st-idle";
     const edge={err:"held",warn:"busy",ok:fs.cause==="running"?"busy":""}[fs.level]||"";
     return `<div class="proj ${edge}" data-act="go" data-to="/p/${encodeURIComponent(p.name)}">
-      <div class="top">
+      <a class="top" id="project-${encodeURIComponent(p.name)}" href="/p/${encodeURIComponent(p.name)}" aria-label="Open project ${esc(p.name)}"
+         onclick="event.stopPropagation();event.preventDefault();go(this.getAttribute('href'))">
         <div class="ic">${esc(p.name.slice(0,2).toUpperCase())}</div>
         <div style="flex:1"><h3>${esc(p.name)}</h3>
           <div class="chips">${boxChip(p.box)}<span class="chip">${esc(p.tracker)}</span><span class="chip">${esc(p.forge)}</span>${p.board?`<span class="chip">board ${esc(String(p.board))}</span>`:""}</div></div>
         <span class="proj-status ${badge}"><span class="dot"></span>${esc(fs.short)}</span>
-      </div>
+      </a>
       <div class="stat">
         <div class="grow sub" title="${esc(fs.detail||fs.clause)}">${esc(fs.clause)}</div>
-        <div class="sw ${p.enabled?"on":""}" title="${p.enabled?"enabled — pulls TO-DO on its own":"disabled"}" onclick="event.stopPropagation();toggleProject('${esc(p.name)}',${!p.enabled})"></div>
+        <button type="button" id="pickup-${encodeURIComponent(p.name)}" class="sw ${p.enabled?"on":""}" role="switch" aria-checked="${p.enabled}"
+          aria-label="Pickup for ${esc(p.name)}" title="${p.enabled?"enabled — pulls TO-DO on its own":"disabled"}"
+          onclick="event.stopPropagation();toggleProject('${esc(p.name)}',${!p.enabled})"></button>
       </div></div>`}).join("");
   $("#app").innerHTML=`
     ${needsYouHtml(inbox)}
     <div class="sechead"><span class="lbl">Projects</span><span class="rule"></span>
-      <button class="btn ghost sm" onclick="openRegister()">＋ New project</button></div>
+      <button class="btn ghost sm" id="registerProject" onclick="openRegister()">＋ New project</button></div>
     <div class="grid">${cards||(projects===null
       ? `<div class="empty"><div class="big">?</div>the project list could not be read — this is not evidence that there are none</div>`
       : `<div class="empty"><div class="big">◭</div>no projects yet — register the first one</div>`)}</div>`;
+  const next=focusId&&document.getElementById(focusId);if(next)next.focus({preventScroll:true});
 }
 
 // ── THE PRODUCT ROLE'S SURFACE (#98) ──────────────────────────────────────────────────────────
