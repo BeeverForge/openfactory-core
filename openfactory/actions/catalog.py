@@ -8211,8 +8211,8 @@ def _the_declaration_step(project, docs_repo: str, root: Path, *, sources: list[
 def _product_init_steps(project, *, sources: list[str], write: bool,
                         create_context: bool) -> Outcome:
     """`product_init`'s steps, in order, off the loop that called it: the context repository —
-    declared, or created when there is none and it was asked for — and the declaration in it."""
-    import subprocess
+    declared, or created when there is none and it was asked for — and the declaration in it.
+    NEITHER RAISES: a step that raised is a failed step, said with the one before it."""
     import tempfile
 
     from openfactory.product.onboard import PRODUCT_YAML, create_context_repository
@@ -8239,29 +8239,35 @@ def _product_init_steps(project, *, sources: list[str], write: bool,
             # shape, where creating a repository is somebody else's process.
             return _the_steps_came_to(name, [_step("context", STEP_FAILED, str(exc))],
                                       docs_repo="", **shown)
-        except RuntimeError as exc:
+        except Exception as exc:  # noqa: BLE001 — a repository not made is a failed step, said
+            # A VENDOR'S REFUSAL, AND ANYTHING NOBODY NAMED: a directory this installation cannot
+            # write raised out of the row as a traceback, with no step said (review of #1085).
             return _the_steps_came_to(name, [_step(
                 "context", STEP_FAILED, f"could not create the context repository: {exc}")],
                 docs_repo="", **shown)
         context = _step("context", STEP_DONE if made else STEP_ALREADY,
                         f"{'created' if made else 'found'} {docs_repo}", docs_repo=docs_repo)
-        # RE-READ WHAT WAS JUST RECORDED: the project in hand predates the record, and `plan`
-        # refused "no product: section" on the very run that created the repository
-        # (onboarding-v2 verification pass, 2026-08-10).
-        project = ProjectRegistry().get(name)
     else:
         context = _step("context", STEP_ALREADY, f"{name}'s context repository is {docs_repo}",
                         docs_repo=docs_repo)
-    with tempfile.TemporaryDirectory() as tmp:
-        try:
+    try:
+        if made_now:
+            # RE-READ WHAT WAS JUST RECORDED: the project in hand predates the record, and `plan`
+            # refused "no product: section" on the very run that created the repository
+            # (onboarding-v2 verification pass, 2026-08-10).
+            project = ProjectRegistry().get(name)
+        # A CLEAN-UP THAT FAILS never rewrites what the step came to: the review is open or not.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             declaration = _the_declaration_step(project, docs_repo, Path(tmp) / "docs",
                                                 sources=sources, write=write, made_now=made_now,
                                                 shown=shown)
-        except (OSError, subprocess.SubprocessError) as exc:
-            # A git that could not run, or ran out of time, is a step that failed — said with the
-            # context step before it, which stands
-            declaration = _step("declaration", STEP_FAILED,
-                                f"the declaration could not be read or proposed: {exc}")
+    except Exception as exc:  # noqa: BLE001 — the context step before it stands, said with it
+        # ANY STEP THAT RAISES IS A FAILED STEP: a git that could not run or ran out of time, and
+        # anything nobody named — a credential that could not be resolved for the clone took the
+        # context step's `done` down with it, a repository just created in the client's
+        # organisation said nowhere (review of #1085).
+        declaration = _step("declaration", STEP_FAILED,
+                            f"the declaration could not be read or proposed: {exc}")
     shown.setdefault("docs_repo", docs_repo)
     return _the_steps_came_to(name, [context, declaration], **shown)
 

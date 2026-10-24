@@ -61,8 +61,9 @@ MUTATIONS = [
      "    except Exception as exc:  # noqa: BLE001 — a step that raised is a failed step, said\n",
      "    except ZeroDivisionError as exc:\n"),
     ("a declaration whose git could not run takes the context step down with it", CATALOG,
-     "        except (OSError, subprocess.SubprocessError) as exc:\n",
-     "        except ZeroDivisionError as exc:\n"),
+     "    except Exception as exc:  # noqa: BLE001 — the context step before it stands, said "
+     "with it\n",
+     "    except ZeroDivisionError as exc:\n"),
 
     # ── 4. only what is missing ────────────────────────────────────────────────────────────────
     ("`project_init` sets the language it was given on a project already registered", CATALOG,
