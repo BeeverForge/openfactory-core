@@ -29,6 +29,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -178,26 +179,33 @@ def _descriptions(node: object) -> list[str]:
     return []
 
 
+#: A card id in a published description: `#` and any number of digits, or the older `C-NN`.
+#: WIDER THAN `tests/test_no_card_id_reaches_a_stranger.py`'s `CARD_ID`, which stops at three
+#: digits because four are a year or a port in a log line or a help screen. The cards are four
+#: digits now (#1088), and in a schema's description a `#` before digits is never a port or a year.
+CARD_IN_A_DESCRIPTION = re.compile(r"#\d+\b|C-\d{2}\b")
+
+
 def test_no_description_the_schema_publishes_names_a_card():
     """The schema is read by whoever builds a front end of their own, who cannot open the tracker
     a card id points to — the line `tests/test_no_card_id_reaches_a_stranger.py` holds for what a
     stranger reads. The ids stay in the code, as comments."""
     from openfactory.api.events import schema
-    from tests.test_no_card_id_reaches_a_stranger import CARD_ID
 
     said = _descriptions(schema())
     assert len(said) >= 20, f"the sweep read {len(said)} descriptions — has the schema moved?"
-    assert [d for d in said if CARD_ID.search(d)] == []
+    assert [d for d in said if CARD_IN_A_DESCRIPTION.search(d)] == []
 
 
-def test_the_description_sweep_can_SEE_a_card_id(monkeypatch):
-    """Its positive twin: an id written into a model's docstring reaches the schema, and is seen."""
+@pytest.mark.parametrize("card", ["#183", "#1088", "C-22"])
+def test_the_description_sweep_can_SEE_a_card_id(monkeypatch, card):
+    """Its positive twin: an id written into a model's docstring reaches the schema, and is seen —
+    a three-digit one, a four-digit one, and the older scheme."""
     from openfactory.api.events import JobsData, schema
-    from tests.test_no_card_id_reaches_a_stranger import CARD_ID
 
-    monkeypatch.setattr(JobsData, "__doc__", "The durable jobs' state — #183.")
-    assert [d for d in _descriptions(schema()) if CARD_ID.search(d)] == [
-        "The durable jobs' state — #183."]
+    monkeypatch.setattr(JobsData, "__doc__", f"The durable jobs' state — {card}.")
+    assert [d for d in _descriptions(schema()) if CARD_IN_A_DESCRIPTION.search(d)] == [
+        f"The durable jobs' state — {card}."]
 
 
 # ── every frame of today, on the envelope ───────────────────────────────────────────────────────

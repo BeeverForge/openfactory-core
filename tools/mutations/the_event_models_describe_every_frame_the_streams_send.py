@@ -177,6 +177,12 @@ MUTATIONS = [
      'for the link when nobody said (`ui_hint`, `""` when `ui_base` is known) — #183."""',
      ONE + "test_no_description_the_schema_publishes_names_a_card"),
 
+    ("`AckData`'s published description names a card four digits long (#1088), which the "
+     "three-digit pattern of the help-screen sweep reads as a year", EVENTS,
+     'What became of a message the page sent, by the id the page gave it."""',
+     'What became of a message the page sent, by the id the page gave it (#1088)."""',
+     ONE + "test_no_description_the_schema_publishes_names_a_card"),
+
     # ── an answer names the product it is about (#1088) ────────────────────────────────────────
     ("the ack of a message sent into the subscribed conversation stops naming its product", CHAT,
      '"ahead": data.get("ahead", 0),\n                     "product": sub.product})',
