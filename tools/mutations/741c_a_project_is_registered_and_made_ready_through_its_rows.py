@@ -11,7 +11,8 @@ The claims, each a group of rows:
   2. the doors map onto the rows and write nothing themselves, and the panel's is the
      administrator's;
   3. a row of several steps says what each step came to — a failed step is not a success, the
-     sentence names every step, and a step that raises is a failed step with the others standing;
+     sentence names every step, and a step that raises, whichever it is, is a failed step with
+     the others standing, said at the terminal and never as a traceback;
   4. running it again does only what is missing: a registered project is not written over, a
      declaration whose review is open is not proposed twice;
   5. the installation's rows are declared — and the guard sees a write past the catalogue's edge,
@@ -64,6 +65,34 @@ MUTATIONS = [
      "    except Exception as exc:  # noqa: BLE001 — the context step before it stands, said "
      "with it\n",
      "    except ZeroDivisionError as exc:\n"),
+    # a step that raises, whichever it is (review of #1085)
+    ("a registry that cannot be written raises out of `project_init`", CATALOG,
+     "    except Exception as exc:  # noqa: BLE001 — a registry that cannot be written is a "
+     "failed step\n",
+     "    except ZeroDivisionError as exc:\n"),
+    ("a checkout that cannot be written takes the registration and the board down with it",
+     CATALOG,
+     "    except Exception as exc:  # noqa: BLE001 — a checkout that cannot be written is a "
+     "failed step\n",
+     "    except ZeroDivisionError as exc:\n"),
+    ("a context repository not made for a reason nobody named raises out of `product_init`",
+     CATALOG,
+     "        except Exception as exc:  # noqa: BLE001 — a repository not made is a failed step, "
+     "said\n",
+     "        except RuntimeError as exc:\n"),
+    ("the declaration's guard holds only what git raises again, so a credential that cannot be "
+     "resolved takes the context step down with it", CATALOG,
+     "    except Exception as exc:  # noqa: BLE001 — the context step before it stands, said "
+     "with it\n",
+     '    except (OSError, __import__("subprocess").SubprocessError) as exc:\n'),
+    ("a step that raised logs its traceback, which a terminal prints above the steps", CATALOG,
+     '        log.warning("the board step of %s raised: %s", project.name,\n'
+     "                    first_message(exc, limit=300))\n",
+     '        log.warning("the board step of %s raised: %s", project.name,\n'
+     "                    first_message(exc, limit=300), exc_info=True)\n"),
+    ("`project init` exits 0 when the registration failed", CLI,
+     '    if any(one["step"] == "register" and one["state"] == STEP_FAILED for one in steps):\n',
+     "    if False:\n"),
 
     # ── 4. only what is missing ────────────────────────────────────────────────────────────────
     ("`project_init` sets the language it was given on a project already registered", CATALOG,
