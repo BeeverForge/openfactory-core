@@ -4610,28 +4610,47 @@ function paintJobLog(project,issue){
 }
 
 // --- cost dashboard (GET /api/metrics → PER-PROJECT spend; Chart.js, filters, per-task table) --
-let _DASH=null, _dc={};
-function _ensureChart(){return new Promise(res=>{
-  if(window.Chart)return res();
-  const s=document.createElement("script");
-  s.src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js";
-  s.onload=()=>res(); s.onerror=()=>res(); document.head.appendChild(s);
-});}
+let _DASH=null, _dc={}, _dashRead=0, _chartReady=null;
+function _ensureChart(){
+  if(window.Chart)return Promise.resolve();
+  if(_chartReady)return _chartReady;
+  _chartReady=new Promise(res=>{
+    const s=document.createElement("script");
+    const done=()=>{
+      clearTimeout(timer);s.onload=s.onerror=null;
+      if(!window.Chart){s.remove();_chartReady=null}
+      res();
+    };
+    const timer=setTimeout(done,8000);
+    s.src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js";
+    s.onload=done;s.onerror=done;document.head.appendChild(s);
+  });
+  return _chartReady;
+}
 function _fmtDur(s){ if(s==null||s<0)return "—"; s=Math.round(s); const m=Math.floor(s/60); return m?`${m}m ${String(s%60).padStart(2,"0")}s`:`${s}s`; }
 function _sumBy(runs,k){ const o={}; runs.forEach(r=>{const key=r[k]||"—"; o[key]=(o[key]||0)+(r.cost_usd||0)}); return o; }
 function _opt(vals,cur){ return `<option value="">all</option>`+vals.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join(""); }
 
 async function openCosts(project){
+  const request=++_dashRead;
   const el=$("#dash"); el.style.display="block";
-  el.innerHTML=`<div class="dhead"><h2>Cost</h2><span class="sub">loading…</span></div>`;
-  await _ensureChart();
+  el.innerHTML=`<div class="dhead"><h2>Cost</h2><span class="sub">loading…</span><button class="btn ghost" onclick="closeCosts()">close ✕</button></div>`;
+  // The optional chart CDN must never hold the local totals or the close control hostage.
+  const chart=_ensureChart();
   // `why` is the server's sentence when the read was DECLINED OR FAILED (#181): a 403's
   // `{detail}` used to be truthy, so it went to `_renderDashShell` as the telemetry.
   let d,why=""; try{ d=await api("/api/metrics"+(project?`?project=${encodeURIComponent(project)}`:"")) }catch(e){ d=null;why=String((e&&e.message)||e) }
+  if(request!==_dashRead)return;
   if(!d){ el.innerHTML=`<div class="dhead"><h2>Cost</h2><button class="btn ghost" onclick="closeCosts()">close ✕</button></div><div class="empty" style="padding:24px">${why?"the telemetry could not be read — "+esc(why):"no telemetry — the table is empty, or this panel cannot read it"}</div>`; return; }
   _DASH={data:d};
   _renderDashShell(d);
   _dashApply();
+  chart.then(()=>{
+    if(request!==_dashRead)return;
+    const status=$("#chartStatus");
+    if(status)status.textContent=window.Chart?"":"Charts unavailable — totals and task details are still available.";
+    if(window.Chart)_dashApply();
+  });
 }
 function _renderDashShell(d){
   const runs=d.runs||[], U=(k)=>[...new Set(runs.map(r=>r[k]).filter(Boolean))].sort();
@@ -4662,6 +4681,7 @@ function _renderDashShell(d){
     <div class="tile"><div class="k">average time / task</div><div class="v" id="dTime">—</div></div>
   </div>
   <div class="auto" id="dAuto"></div>
+  <div id="chartStatus" class="sub" role="status">${window.Chart?"":"Loading charts — totals and task details are available below."}</div>
   <div class="charts">
     <div class="chartbox"><div class="k">cost per day</div><div style="position:relative;height:200px"><canvas id="cDay"></canvas></div></div>
     <div class="chartbox"><div class="k">by model</div><div style="position:relative;height:200px"><canvas id="cModel"></canvas></div></div>
@@ -4897,7 +4917,10 @@ function _renderKnowledgeDelta(arms){
   box.style.display="block";
   box.innerHTML=`${rows}<span class="sub"> with OKF vs <b>${esc(ctlName)}</b> (medians, n=${t.cost.length} vs ${c.cost.length})</span>`;
 }
-function closeCosts(){ $("#dash").style.display="none"; Object.values(_dc).forEach(c=>c&&c.destroy()); _dc={}; }
+function closeCosts(){ ++_dashRead; $("#dash").style.display="none"; Object.values(_dc).forEach(c=>c&&c.destroy()); _dc={}; }
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape" && $("#dash").style.display==="block" && !$("#modal").open)closeCosts();
+});
 function closeModal(){$("#modal").close()}
 function modalClosed(){
   const el=$("#modal");if(el.open)return;el.innerHTML="";el.dataset.kind="";

@@ -388,7 +388,7 @@ def test_a_refused_COST_read_is_not_handed_to_the_dashboard():
     got = run(f"routes={{'/api/metrics':[{json.dumps(REFUSED)}],'/api/whoami':[{{status:200,"
               f"body:{json.dumps(ANA)}}}]}};nodes['#dash']=node();"
               "await openCosts();return {shells,html:nodes['#dash'].innerHTML}", "openCosts",
-              stubs="let shells=0,_DASH=null;function _ensureChart(){}"
+              stubs="let shells=0,_DASH=null,_dashRead=0;function _ensureChart(){return Promise.resolve()}"
                     "function _renderDashShell(){shells++}function _dashApply(){}")
     assert got["shells"] == 0, "a refusal was rendered as cost telemetry"
     assert REFUSED["body"]["detail"] in got["html"], got["html"]
