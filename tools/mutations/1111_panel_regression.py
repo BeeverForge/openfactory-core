@@ -8,6 +8,6 @@ MUTATIONS = [
      '  } catch(e){\n    // A lost response',
      '  } catch(e){ throw e;\n    // A lost response'),
     ('lost response erases the draft', PANEL,
-     '    toast("Save not confirmed",',
-     '    _bd.form=null;toast("Save not confirmed",'),
+     '    r = {ok:false, unconfirmed:true,',
+     '    _bd.form=null;r = {ok:false, unconfirmed:true,'),
 ]
