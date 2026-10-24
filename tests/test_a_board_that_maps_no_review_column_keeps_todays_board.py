@@ -232,6 +232,60 @@ def test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carrie
     assert landed == "needs_action", f"the pull request waiting on a person landed in {landed!r}"
 
 
+def test_a_rerun_reads_the_boards_own_name_over_a_map_that_renamed_it_since(tmp_path, monkeypatch):
+    """The rows already on the board win over the deployment's map (`columns.carried_by`): a board
+    whose `in_review` a first `init` called "Needs Review", re-run after the map renamed `in_review`
+    to "Em revisão", still has ONE column of that name, its own `in_review`, and `init` says which
+    column carries it. A re-run renames nothing (`INSERT OR IGNORE`), so the board's row is the
+    name the board shows, whatever the map says now.
+
+    The board is the one a first `init` writes under `columns: {in_review: "Needs Review"}`, six
+    rows and no `needs_review`, as the test below holds of that first write
+    (`test_a_new_local_board_whose_map_calls_another_column_needs_review_has_one`); it is made here
+    from a seven-row board, as #1067 measured it.
+
+    RED UNDER THE CUT `{**named, **had}` → `{**had, **named}` (#1067, PR #1040's review, Finding 2,
+    measured on 6a09c6ff): with the map read over the board, `in_review` reads "Em revisão", nothing
+    carries "Needs Review", and the re-run writes `needs_review` under it beside the `in_review`
+    row that already has that name, the two-rows-one-name defect of PR #1040's Blocking 1. That cut
+    survived every module that covered the line."""
+    import json
+    import sqlite3
+    import sys
+
+    import yaml
+
+    sys.path.insert(0, "tests")
+    import one_machine as om
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = om.a_repository(tmp_path)
+    om.a_deployment(tmp_path, monkeypatch=monkeypatch)
+    code, out = om.cli("project", "init", "myapp", str(repo))
+    assert code == 0, out
+    db = tmp_path / "board.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("DELETE FROM columns WHERE project = 'myapp' AND key = 'needs_review'")
+        conn.execute("UPDATE columns SET name = 'Needs Review' WHERE project = 'myapp' "
+                     "AND key = 'in_review'")
+    registry = tmp_path / "registry.yaml"
+    data = yaml.safe_load(registry.read_text())
+    data["projects"]["myapp"]["tracker"].setdefault("options", {})["columns"] = json.dumps(
+        {"in_review": "Em revisão"})
+    registry.write_text(yaml.safe_dump(data))
+
+    code, out = om.cli("project", "init", "myapp", str(repo))
+
+    assert code == 0, out
+    with sqlite3.connect(db) as conn:
+        rows = conn.execute("SELECT key, name FROM columns WHERE project = 'myapp' "
+                            "ORDER BY position").fetchall()
+    assert [key for key, name in rows if name == "Needs Review"] == ["in_review"], (
+        f"the re-run left {rows}; it said:\n{out}")
+    assert "'in_review'" in out and "map needs_review" in out, (
+        f"init did not say which column already carries \"Needs Review\":\n{out}")
+
+
 @pytest.mark.parametrize("carrier", ["in_review", "needs_action"])
 def test_a_new_local_board_whose_map_calls_another_column_needs_review_has_one(carrier, tmp_path):
     """The same rule on a board's FIRST `init`: a deployment whose `columns:` already calls
