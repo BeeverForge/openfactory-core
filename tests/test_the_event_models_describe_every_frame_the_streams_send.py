@@ -35,6 +35,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parents[1]
 COMMITTED = ROOT / "docs" / "reference" / "events.schema.json"
 
@@ -381,7 +383,8 @@ Written = tuple[set[str], set[str]]
 
 
 def _tree(path: Path) -> ast.Module:
-    return ast.parse(path.read_text(encoding="utf-8"))
+    """`path` parsed once per content for the whole process (`tests/the_tree_read_once.py`)."""
+    return parsed(path)
 
 
 def _function(tree: ast.AST, name: str) -> ast.AST:
