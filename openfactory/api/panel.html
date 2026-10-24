@@ -5604,14 +5604,21 @@ async function boardSaveCard(){
   const f = _bd.form; if(!f) return;
   const title = (f.title||"").trim(), body = _bbody();
   if(!title){ toast("Not saved", "say what the card is called", "err"); return; }
-  const r = f.mode === "new"
-    ? await act("card_create", {project:_bd.project, title, body})
-    : await act("card_edit", {project:_bd.project, issue:_bd.card, title, body});
+  let r;
+  try {
+    r = f.mode === "new"
+      ? await act("card_create", {project:_bd.project, title, body})
+      : await act("card_edit", {project:_bd.project, issue:_bd.card, title, body});
+  } catch(e){
+    // A lost response may follow a committed write, so check before repeating a create.
+    r = {ok:false, unconfirmed:true,
+         message:"The connection failed. Your draft is kept; check the board before retrying Save."};
+  }
   if(!r.ok){
     // A PARTIAL EDIT IS NOT "NOT CHANGED": the row names what landed in `changed`, and the form it
     // was typed in no longer describes the card, so it closes onto the card as it now is.
     const partly = f.mode === "edit" && (r.data||{}).changed;
-    toast(f.mode === "new" ? "Not opened" : partly ? "Partly changed" : "Not changed",
+    toast(r.unconfirmed ? "Save not confirmed" : f.mode === "new" ? "Not opened" : partly ? "Partly changed" : "Not changed",
           r.message||"", "err");
     if(partly){ if(f.timer) clearTimeout(f.timer); _bd.form = null; _bd.sig = null;
                 await refreshBoard(); }
