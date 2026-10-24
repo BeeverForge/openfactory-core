@@ -1,0 +1,298 @@
+[
+  {
+    "number": 1102,
+    "title": "The visible card and the POST target disagree",
+    "images": [
+      [
+        "A \u00b7 Drawer shown before Post",
+        "1102-visible-card-1.png"
+      ],
+      [
+        "B \u00b7 After Post: the real card 2",
+        "1102-post-landed-on-card-2.png"
+      ]
+    ],
+    "measurements": {
+      "before_post": {
+        "visible_card": "1",
+        "visible_title": "Normal QA card",
+        "post_target": "2"
+      },
+      "comment_in_card_1": false,
+      "comment_in_card_2": true,
+      "comment": "Visual evidence: written while the drawer showed card 1; 2026-10-24T11:49:45+00:00"
+    },
+    "note": "Controlled test: only card 1's real fetch response was delayed by 700 ms. The POST reached the real local backend.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1103,
+    "title": "One double-click created two cards",
+    "images": [
+      [
+        "A \u00b7 One new-card form",
+        "1103-before-save.png"
+      ],
+      [
+        "B \u00b7 Both persisted cards on Backlog",
+        "1103-two-created-cards.png"
+      ]
+    ],
+    "measurements": {
+      "double_click_interval_ms": 50,
+      "delayed_response_ms": 800,
+      "persisted_cards": [
+        {
+          "ref": "7",
+          "title": "Visual evidence: one Save double-click 11:49:45"
+        },
+        {
+          "ref": "8",
+          "title": "Visual evidence: one Save double-click 11:49:45"
+        }
+      ]
+    },
+    "note": "Controlled response latency; both card creations were handled and persisted by the real backend.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1104,
+    "title": "A completed POST erased a newer unsent draft",
+    "images": [
+      [
+        "A \u00b7 New draft while the previous Post is pending",
+        "1104-new-draft-before-response.png"
+      ],
+      [
+        "B \u00b7 After the previous Post succeeds",
+        "1104-draft-erased-after-response.png"
+      ]
+    ],
+    "measurements": {
+      "newer_draft_before": "UNSENT newer draft: this text must survive the earlier POST.",
+      "composer_after_response": "",
+      "first_comment_persisted": true,
+      "newer_draft_persisted": false
+    },
+    "note": "Only the first comment response was delayed by 1300 ms. The second draft was typed through the actual UI.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1105,
+    "title": "A card deep link becomes a board link and loses the card on reload",
+    "images": [
+      [
+        "A \u00b7 Requested the card link: drawer opens",
+        "1105-card-link-opened.png"
+      ],
+      [
+        "B \u00b7 Reload: drawer is gone",
+        "1105-card-gone-after-reload.png"
+      ]
+    ],
+    "measurements": {
+      "requested_url": "http://127.0.0.1:8877/p/qa-sandbox/card/1",
+      "after_open": {
+        "actual_url": "http://127.0.0.1:8877/p/qa-sandbox/board",
+        "drawer_class": "drawer on"
+      },
+      "after_reload": {
+        "actual_url": "http://127.0.0.1:8877/p/qa-sandbox/board",
+        "drawer_class": "drawer"
+      }
+    },
+    "note": "The URL values below are read from Playwright page.url; browser chrome is not part of a webpage screenshot.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1106,
+    "title": "The phone viewport hides Cost and Board beyond its right edge",
+    "images": [
+      [
+        "A \u00b7 Actual 375 \u00d7 812 visible viewport",
+        "1106-actual-phone-viewport.png"
+      ],
+      [
+        "B \u00b7 Entire document, including horizontal overflow",
+        "1106-entire-overflowing-document.png"
+      ]
+    ],
+    "measurements": {
+      "viewport_width": 375,
+      "document_width": 592,
+      "theme_right": 384.078125,
+      "cost_left": 408.078125,
+      "board_left": 506.328125
+    },
+    "note": "The second capture includes the overflow; the first shows only what is visible in the phone-sized viewport.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1107,
+    "title": "Tab skips the project tile and pickup switch",
+    "images": [
+      [
+        "Project index after keyboard-only traversal",
+        "1107-project-controls-keyboard.png"
+      ]
+    ],
+    "measurements": {
+      "observed_tab_sequence": [
+        {
+          "tag": "BUTTON",
+          "id": "theme",
+          "text": "light",
+          "inside_project": false
+        },
+        {
+          "tag": "BUTTON",
+          "id": "",
+          "text": "\uff0b New project",
+          "inside_project": false
+        },
+        {
+          "tag": "BODY",
+          "id": "",
+          "text": "OpenFactory\nLIGHTS-OUT SOFTWARE FLOOR\nlive\nlight\ncost\nboard\n",
+          "inside_project": false
+        },
+        {
+          "tag": "BUTTON",
+          "id": "theme",
+          "text": "light",
+          "inside_project": false
+        },
+        {
+          "tag": "BUTTON",
+          "id": "",
+          "text": "\uff0b New project",
+          "inside_project": false
+        },
+        {
+          "tag": "BODY",
+          "id": "",
+          "text": "OpenFactory\nLIGHTS-OUT SOFTWARE FLOOR\nlive\nlight\ncost\nboard\n",
+          "inside_project": false
+        },
+        {
+          "tag": "BUTTON",
+          "id": "theme",
+          "text": "light",
+          "inside_project": false
+        },
+        {
+          "tag": "BUTTON",
+          "id": "",
+          "text": "\uff0b New project",
+          "inside_project": false
+        }
+      ],
+      "actual_DOM_semantics": {
+        "project": {
+          "tag": "DIV",
+          "tabIndex": -1,
+          "role": null
+        },
+        "pickup": {
+          "tag": "DIV",
+          "tabIndex": -1,
+          "role": null,
+          "aria_checked": null
+        }
+      }
+    },
+    "note": "The measurements are read from the live DOM. Both project controls are DIV elements with tabIndex \u22121.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1108,
+    "title": "Keyboard focus escaped the modal and activated the background theme",
+    "images": [
+      [
+        "A \u00b7 New project modal remains open",
+        "1108-modal-open-dark.png"
+      ],
+      [
+        "B \u00b7 Tab escaped; Enter changed the background theme",
+        "1108-background-theme-activated.png"
+      ]
+    ],
+    "measurements": {
+      "after_Register_then_Tab_twice": {
+        "focused_id": "theme",
+        "inside_modal": false,
+        "theme": "dark"
+      },
+      "theme_after_Enter": "light",
+      "modal_still_open": true
+    },
+    "note": "",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1109,
+    "title": "The Cost overlay has no close control while loading",
+    "images": [
+      [
+        "Actual Cost overlay while Chart.js is pending",
+        "1109-loading-without-close.png"
+      ]
+    ],
+    "measurements": {
+      "overlay_text": "Cost\nloading\u2026",
+      "button_count": 0,
+      "visible_after_Escape": true
+    },
+    "note": "Controlled test: the Chart.js request was intentionally left pending. No product UI or response was fabricated.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1110,
+    "title": "Revisiting Logs hides a new run that reload reveals",
+    "images": [
+      [
+        "A \u00b7 Returned through the app: #901 missing",
+        "1110-revisited-logs-missing-new-run.png"
+      ],
+      [
+        "B \u00b7 Full browser reload: #901 appears",
+        "1110-after-browser-reload.png"
+      ]
+    ],
+    "measurements": {
+      "fresh_API_issues": [
+        "901",
+        "3",
+        "2",
+        "1"
+      ],
+      "revisited_UI_has_901": false,
+      "reloaded_UI_has_901": true
+    },
+    "note": "Journal #901 is an explicitly seeded local test fixture. No durable job or coding agent was run.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  },
+  {
+    "number": 1111,
+    "title": "Save failed, but the form shows no error",
+    "images": [
+      [
+        "A \u00b7 Completed form before Save",
+        "1111-before-failed-save.png"
+      ],
+      [
+        "B \u00b7 After the request failed: no visible error",
+        "1111-after-failed-save.png"
+      ]
+    ],
+    "measurements": {
+      "page_errors": [
+        "Failed to fetch"
+      ],
+      "toasts": "",
+      "retained_title": "Visual evidence: offline Save"
+    },
+    "note": "Only POST /api/act/card_create was aborted with internetdisconnected. Other panel requests remained available.",
+    "run_utc": "2026-10-24T11:49:45+00:00"
+  }
+]
