@@ -31,7 +31,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from openfactory import namespace
+from openfactory import gitpin, namespace
 from openfactory.actions.base import (
     CONFLICT,
     DENIED,
@@ -8206,8 +8206,8 @@ def _the_declaration_step(project, docs_repo: str, root: Path, *, sources: list[
     url = context_clone_url(project, docs_repo)
     # THE CREDENTIAL, NOT THE ADDRESS: an address on this machine is a path a person needs to read.
     withhold.append(_the_credential_in(url))
-    clone = ["git", "clone", "--no-local", *([] if made_now else ["--depth", "1"]), "--", url,
-             str(root)]
+    clone = gitpin.argv(["clone", "--no-local", *([] if made_now else ["--depth", "1"]), "--", url,
+                         str(root)])
     try:
         cloned = subprocess.run(clone, capture_output=True, text=True, timeout=_A_CONTEXT_GIT_S)
     except subprocess.TimeoutExpired:
@@ -8258,13 +8258,14 @@ def _the_declaration_step(project, docs_repo: str, root: Path, *, sources: list[
                  # --force: the bot's OWN onboarding branch, so a run after a partial failure
                  # (pushed, then the review request did not open) overwrites rather than
                  # dead-locking on a non-fast-forward — and an open review shows the latest
-                 ["push", "--force", "-u", "--", "origin", branch]):
+                 gitpin.pinned(["push", "--force", "-u", "--", "origin", branch])):
         ran = subprocess.run(["git", "-C", str(root), *ident, *args],
                              capture_output=True, text=True, timeout=_A_CONTEXT_GIT_S)
         if ran.returncode != 0:
             # `origin` IS THE CLONE'S ADDRESS, and a push that cannot reach it names it.
+            said = _withheld(ran.stderr or '', *withhold)[-200:]
             return _step("declaration", STEP_FAILED,
-                         f"git {args[0]} failed: {_withheld(ran.stderr or '', *withhold)[-200:]}")
+                         f"git {gitpin.subcommand(args)} failed: {said}")
     # THROUGH THE PORT, NOT THROUGH ONE VENDOR'S CLI (#95), and ASKED FIRST: a review already open
     # on this branch is the one the push just updated, and opening a second is what a retry used
     # to attempt. Unread is not "none" — then it opens, as it always did.

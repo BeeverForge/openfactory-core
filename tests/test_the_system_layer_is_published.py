@@ -30,6 +30,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from openfactory import gitpin
 from openfactory.contracts.product import ProductConfig
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.knowledge import pipeline
@@ -409,7 +410,8 @@ def test_the_system_layer_refresh_asks_the_forge_whatever_the_window(product, mo
     real = repo_cache.subprocess.run
 
     def counting(args, *a, **kw):
-        if isinstance(args, (list, tuple)) and list(args[:2]) == ["git", "ls-remote"]:
+        if (isinstance(args, (list, tuple)) and args[:1] == ["git"]
+                and gitpin.subcommand(args) == "ls-remote"):
             for name in SOURCES:
                 if any(str(x).rstrip("/").endswith(f"{name}.git") for x in args):
                     asked[name] = asked.get(name, 0) + 1

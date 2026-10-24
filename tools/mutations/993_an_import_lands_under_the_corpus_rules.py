@@ -177,14 +177,14 @@ MUTATIONS = [
     # RE-PINNED 2026-10-23 (#741): the push puts the clone URL behind the end-of-options marker
     # (`--`); the claim is unchanged.
     ("a refused push is tried again blindly", IMPORTING,
-     "        rc, out = _git([\"push\", \"--\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n"
-     "        if rc != 0:\n"
-     "            # SAID, NEVER RETRIED BLINDLY.",
-     "        rc, out = _git([\"push\", \"--\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n"
-     "        if rc != 0:\n"
-     "            rc, out = _git([\"push\", \"--\", clone_url, f\"HEAD:{base}\"], cwd=tmp)\n"
-     "        if rc != 0:\n"
-     "            # SAID, NEVER RETRIED BLINDLY."),
+     '        rc, out = _git(gitpin.pinned(["push", "--", clone_url, f"HEAD:{base}"]), cwd=tmp)\n'
+     '        if rc != 0:\n'
+     '            # SAID, NEVER RETRIED BLINDLY.',
+     '        rc, out = _git(gitpin.pinned(["push", "--", clone_url, f"HEAD:{base}"]), cwd=tmp)\n'
+     '        if rc != 0:\n'
+     '            rc, out = _git(gitpin.pinned(["push", "--", clone_url, f"HEAD:{base}"]), cwd=tmp)\n'
+     '        if rc != 0:\n'
+     '            # SAID, NEVER RETRIED BLINDLY.'),
 
     # ── 7. the next search ─────────────────────────────────────────────────────────────────────
     ("the product's index is never brought up to what the import landed", MODULE,

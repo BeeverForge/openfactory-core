@@ -33,6 +33,7 @@ import tempfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from openfactory import gitpin
 from openfactory.adapters import gitworktrees
 from openfactory.adapters.sandbox.base import (
     BranchHeldElsewhere,
@@ -805,8 +806,8 @@ class WorktreeSandbox(SandboxAdapter):
                 keep = False
         elif checkout_existing:
             source = remote_url or "origin"
-            rc, out = _run(["git", "-C", str(repo_path), "fetch", "--", source,
-                            f"+{branch}:refs/remotes/origin/{branch}"], timeout=180)
+            rc, out = _run(gitpin.argv(["-C", str(repo_path), "fetch", "--", source,
+                                        f"+{branch}:refs/remotes/origin/{branch}"]), timeout=180)
             if rc == 0:
                 start = f"origin/{branch}"
             elif _remote_has_no_such_branch(out):
@@ -991,8 +992,8 @@ class WorktreeSandbox(SandboxAdapter):
         could have kept, and it refuses before an agent has spent anything. The half-made worktree
         and branch are removed first, so a retry starts clean."""
         wp = str(wt)
-        rc, out = _run(["git", "-C", wp, "fetch", "--", remote_url, f"refs/heads/{base_branch}"],
-                       timeout=180)
+        rc, out = _run(gitpin.argv(["-C", wp, "fetch", "--", remote_url,
+                                    f"refs/heads/{base_branch}"]), timeout=180)
         read = rc == 0
         if read and from_base:
             rc, out = _run(["git", "-C", wp, "reset", "--hard", "--quiet", "FETCH_HEAD"])
@@ -1165,7 +1166,8 @@ class WorktreeSandbox(SandboxAdapter):
         # the bot's; execution is serial (idempotency, engineering.md #3).
         target = remote_url or "origin"
         rc, out = _run(
-            ["git", "-C", str(workspace.path), "push", "--force", "--", target, workspace.branch]
+            gitpin.argv(["-C", str(workspace.path), "push", "--force", "--", target,
+                         workspace.branch])
         )
         if rc != 0:
             raise RuntimeError(f"push failed: {_redact(out)}")
@@ -1179,7 +1181,7 @@ class WorktreeSandbox(SandboxAdapter):
         # "conflict" (textual conflict → aborted, tree left clean for a human).
         wp = str(workspace.path)
         target = remote_url or "origin"
-        rc, out = _run(["git", "-C", wp, "fetch", "--", target, base], timeout=180)
+        rc, out = _run(gitpin.argv(["-C", wp, "fetch", "--", target, base]), timeout=180)
         if rc != 0:
             raise RuntimeError(f"fetch failed: {_redact(out)}")
         # already on top of the latest base? (fetched base is an ancestor of HEAD)

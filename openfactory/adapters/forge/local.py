@@ -50,6 +50,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from openfactory import gitpin
 from openfactory.adapters import gitworktrees
 from openfactory.adapters.board_db import connect, next_pr, now_iso
 
@@ -748,7 +749,7 @@ class LocalForge:
         else:
             # Nobody has it out: move the ref without touching any tree. `fetch . <head>:<base>`
             # is the one command that fast-forwards a branch that is not checked out.
-            p = self._git("fetch", "--", ".", f"{head}:{base}", cwd=where)
+            p = self._git(*gitpin.pinned(["fetch", "--", ".", f"{head}:{base}"]), cwd=where)
         if p.returncode != 0:
             sentence = self._sentence(p)
             self._refuse(pr, sentence)

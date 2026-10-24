@@ -41,6 +41,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from openfactory import gitpin
+
 log = logging.getLogger("openfactory.onboarding.propose_manifest")
 
 _GIT_TIMEOUT = 180
@@ -83,7 +85,7 @@ def _git(args: list[str], cwd: Path | None = None) -> tuple[int, str]:
         p = subprocess.run(["git", *ident, *args], cwd=cwd, capture_output=True, text=True,
                            timeout=_GIT_TIMEOUT, check=False)
     except subprocess.TimeoutExpired:
-        return 124, (f"git {args[0] if args else '?'} timed out after {_GIT_TIMEOUT}s — the "
+        return 124, (f"git {gitpin.subcommand(args) or '?'} timed out after {_GIT_TIMEOUT}s — the "
                      f"repository may be large or the network slow; nothing was changed")
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
@@ -180,10 +182,11 @@ def clone_for_proposal(*, clone_url: str, base: str = "",
     before this parameter existed, and `read_history` names the shallow checkout rather than
     reporting a quiet repository."""
     tmp = Path(tempfile.mkdtemp(prefix="openfactory-manifest-"))
-    shallow = ["clone", "--no-local", "--depth", "1", *(["--branch", base] if base else []),
-               "--", clone_url, str(tmp)]
-    rc, out = (_git(["clone", "--no-local", "--filter=blob:none",
-                     *(["--branch", base] if base else []), "--", clone_url, str(tmp)])
+    shallow = gitpin.pinned(["clone", "--no-local", "--depth", "1",
+                             *(["--branch", base] if base else []), "--", clone_url, str(tmp)])
+    rc, out = (_git(gitpin.pinned(["clone", "--no-local", "--filter=blob:none",
+                                   *(["--branch", base] if base else []), "--", clone_url,
+                                   str(tmp)]))
                if history else _git(shallow))
     if history and rc != 0:
         # `git clone` refuses a target directory that is not empty, and a failed clone leaves one
@@ -206,8 +209,8 @@ def clone_for_proposal(*, clone_url: str, base: str = "",
     # origin: every push passes the URL explicitly. So the credential leaves the tree the
     # moment the clone lands — the same rule repo_cache and the tech-lead's diagnosis clone
     # already enforce (adversarial review, 2026-08-13).
-    _git(["-C", str(tmp), "remote", "set-url", "--", "origin",
-          re.sub(r"(https://)[^@/\s]+@", r"\1", clone_url)])
+    _git(gitpin.pinned(["-C", str(tmp), "remote", "set-url", "--", "origin",
+                        re.sub(r"(https://)[^@/\s]+@", r"\1", clone_url)]))
     return tmp, ""
 
 
@@ -382,7 +385,7 @@ def propose(*, checkout: Path, manifest_path: str, repo: str, clone_url: str, ba
     # is then rejected as non-fast-forward — which would wedge the verb permanently on exactly
     # the repositories where it had already worked once. Same rule, same reason, as
     # `product init`'s onboarding branch.
-    rc, out = _git(["push", "--force", "-u", "--", clone_url, branch], cwd=checkout)
+    rc, out = _git(gitpin.pinned(["push", "--force", "-u", "--", clone_url, branch]), cwd=checkout)
     if rc != 0:
         return Proposal(ok=False, ref=branch,
                         detail=f"could not push {branch}: {scrub(out)[-200:]}")

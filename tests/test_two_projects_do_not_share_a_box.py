@@ -30,6 +30,7 @@ import re
 
 import pytest
 
+from openfactory import gitpin
 from openfactory.adapters.sandbox.container import ContainerSandbox
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -228,7 +229,7 @@ def test_a_failed_clone_raises_instead_of_mounting_an_empty_directory(monkeypatc
     import openfactory.adapters.sandbox.container as mod
 
     def _host(args, timeout=None):
-        if args[:2] == ["git", "clone"]:
+        if args[:1] == ["git"] and gitpin.subcommand(args) == "clone":
             return 128, "fatal: repository 'https://github.com/o/n.git' not found"
         return 0, ""
 

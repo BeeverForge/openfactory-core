@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from openfactory import gitpin
 from openfactory.knowledge import build_bundle, write_bundle
 from openfactory.knowledge.bundle import BUNDLE_DIRNAME, MANIFEST_FILE
 from openfactory.knowledge.pipeline import (
@@ -549,7 +550,7 @@ def test_a_rejected_push_is_retried_on_the_new_tip(tmp_path: Path, monkeypatch):
     real_git, pushes = pipeline._git, []
 
     def flaky(*args, **kwargs):
-        if args and args[0] == "push":
+        if gitpin.subcommand(args) == "push":
             pushes.append(args)
             if len(pushes) == 1:
                 return 1, "! [rejected] (non-fast-forward)"

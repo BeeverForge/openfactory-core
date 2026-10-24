@@ -53,6 +53,7 @@ import time
 import uuid
 from pathlib import Path
 
+from openfactory import gitpin
 from openfactory.adapters import gitworktrees
 from openfactory.util.filelock import FileLock
 
@@ -161,7 +162,7 @@ def _scrub_remote(path: Path, clone_url: str) -> None:
     would take the sizing gate down, which is worse."""
     public = re.sub(r"(https://)[^@/\s]+@", r"\1", clone_url or "")
     if public and public != clone_url:
-        _git(["remote", "set-url", "--", "origin", public], cwd=path)
+        _git(gitpin.pinned(["remote", "set-url", "--", "origin", public]), cwd=path)
 
 
 def _git(args: list[str], cwd: Path | None = None,
@@ -232,7 +233,7 @@ def remote_default_branch(clone_url: str) -> str:
     `""` ON ANY TROUBLE, and the caller falls back to what it already has: an unreachable remote
     must not be the reason a working checkout is thrown away.
     """
-    rc, out = _git(["ls-remote", "--symref", "--", clone_url, "HEAD"])
+    rc, out = _git(gitpin.pinned(["ls-remote", "--symref", "--", clone_url, "HEAD"]))
     if rc != 0:
         return ""
     return _symref_branch(out)
@@ -337,9 +338,9 @@ class RepoCache:
             # An empty ask lets git pick, which is what it means. `--no-local`, like every clone
             # the platform runs (#594): a path is read through the pack protocol, never copied
             # file by file while the source's own maintenance repacks it.
-            rc, out = _git(["clone", "--no-local",
-                            *(["--branch", base_branch] if base_branch else []),
-                            "--", clone_url, str(master)])
+            rc, out = _git(gitpin.pinned(["clone", "--no-local",
+                                          *(["--branch", base_branch] if base_branch else []),
+                                          "--", clone_url, str(master)]))
             if rc != 0:
                 # GIT'S WHOLE SENTENCE (#592): the last 160 characters cut inside the object's path,
                 # and the words before it, what git was doing when the file was not there, were
@@ -498,8 +499,8 @@ class RepoCache:
         refspec keeps `origin/<base>` meaning what it always did — without it the fetch would only
         move FETCH_HEAD and the reset below would silently use a stale ref."""
         spec = f"+refs/heads/{base_branch}:refs/remotes/origin/{base_branch}"
-        fetch = (["fetch", "--", clone_url, spec] if clone_url
-                 else ["fetch", "--", "origin", base_branch])
+        fetch = (gitpin.pinned(["fetch", "--", clone_url, spec]) if clone_url
+                 else gitpin.pinned(["fetch", "--", "origin", base_branch]))
         for args in (fetch,
                      ["checkout", "-f", base_branch],
                      ["reset", "--hard", f"origin/{base_branch}"],
@@ -657,7 +658,7 @@ def _remote_tip(public: str, base_branch: str, env: dict[str, str]) -> tuple[str
     did not say: an unknown declared branch, an unreachable forge, a host that answers no symref.
     `ls-remote` transfers no objects, so this is a ref advertisement and nothing else."""
     patterns = ["HEAD", *([f"refs/heads/{base_branch}"] if base_branch else [])]
-    asked = _git_out(["ls-remote", "--symref", "--", public, *patterns], None, env)
+    asked = _git_out(gitpin.pinned(["ls-remote", "--symref", "--", public, *patterns]), None, env)
     if asked.returncode != 0:
         return base_branch, ""
     symref = _symref_branch(asked.stdout)
@@ -838,7 +839,7 @@ class SparseRepoCache(RepoCache):
                 ready = True
             else:
                 spec = f"+refs/heads/{branch}:refs/remotes/origin/{branch}"
-                fetched = _git_out(["fetch", "--", "origin", spec], master, env)
+                fetched = _git_out(gitpin.pinned(["fetch", "--", "origin", spec]), master, env)
                 if fetched.returncode != 0:
                     # UNREACHABLE IS NOT CORRUPT: the master is kept for the turn after, and
                     # this turn is told — never served code it could not bring up to date
@@ -847,9 +848,10 @@ class SparseRepoCache(RepoCache):
         if not ready:
             shutil.rmtree(master, ignore_errors=True)
             master.parent.mkdir(parents=True, exist_ok=True)
-            cloned = _git_out(["clone", "--no-local", "--filter=blob:none", "--no-checkout",
-                               *(["--branch", base_branch] if base_branch else []),
-                               "--", public, str(master)], None, env)
+            cloned = _git_out(gitpin.pinned(["clone", "--no-local", "--filter=blob:none",
+                                             "--no-checkout",
+                                             *(["--branch", base_branch] if base_branch else []),
+                                             "--", public, str(master)]), None, env)
             if cloned.returncode != 0:
                 return self._failed(project, cloned.stderr or cloned.stdout)
             if not self._checkout(master, "HEAD", env):

@@ -49,7 +49,7 @@ MUTATIONS = [
      '    return _step("context", STEP_DONE, f"context repository created "', TEST),
 
     ("the repository is created and left EMPTY — a checkout of `main` fails as before", SEED,
-     '        git("push", "-q", "--", "origin", "HEAD:main")', "        pass", TEST),
+     '        git(*gitpin.pinned(["push", "-q", "--", "origin", "HEAD:main"]))', "        pass", TEST),
 
     ("the seed says nothing about which product it is for", SEED,
      '        seed.write_text(f"product: {name}\\nsources:{listed}\\n"',

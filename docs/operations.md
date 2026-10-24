@@ -245,6 +245,28 @@ prune/retention rules). The core never reads an agent token; it only round-trips
    Token acquisition is GitHub-specific and lives in the GitHub adapter; the core only
    ever sees the opaque `OPENFACTORY_BOT_TOKEN`.
 
+### Which transports the core's git calls may use
+
+Every git call the core makes on the host that reaches a remote (`clone`, `fetch`,
+`ls-remote`, `push`, `remote set-url`) carries pinned transport settings, built in one place,
+`openfactory/gitpin.py`. Those calls may use only:
+
+- **https** and **ssh**: the GitHub and Azure DevOps forges, and `git@…` / `ssh://…` remotes;
+- **file**: the local forge's repository paths and clones of the worker's cache.
+
+**ext**, **fd**, **http**, **git**, **ftp** and **ftps** are refused whatever the machine's
+git configuration says, and any other protocol is refused by the `protocol.allow=never` default.
+A `-c` overrides only the same key, so the pin sets that default and each of these transports by
+name, before the subcommand: a machine's `protocol.ext.allow=always` does not let a remote named
+`ext::…` run a command on the host. A remote on plain `http://` is refused too; use `https://`.
+
+Known gap: a `GIT_ALLOW_PROTOCOL` environment variable in the core's environment still
+overrides these settings. Do not set it for the core's process.
+
+This is the first slice of #931. The core's local git calls (`add`, `commit`, `rev-parse`, …)
+and the shell-string git commands the core sends into the box are later slices of #931 and
+are not pinned yet.
+
 ### PR posture (merge policy)
 
 Default `merge_policy: human` — the bot opens the PR, posts the reviewer's verdict
