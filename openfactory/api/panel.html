@@ -471,7 +471,9 @@ header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--r
 .needs-review .rv-points{flex:1 1 100%;margin:2px 0 0;padding-left:18px;color:var(--dim);font-size:var(--t-sm);line-height:1.5}
 .needs-review .rv-points li{margin:2px 0}
 .sg-param{flex:1 1 100%;color:var(--dim);font-size:var(--t-sm);line-height:1.5;margin-bottom:4px}
-#modal{position:fixed;inset:0;background:rgba(3,5,9,.66);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:60}
+#modal{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;padding:0;color:inherit;background:rgba(3,5,9,.66);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:60}
+#modal[open]{display:flex}
+#modal::backdrop{background:transparent}
 .mbox{background:var(--card2);border:1px solid var(--line2);border-radius:14px;padding:22px;width:400px;box-shadow:0 24px 60px -12px var(--shadow);animation:fade .2s ease}
 .mbox h3{margin:0 0 4px}.mbox .muted{font-size:var(--t-xs);color:var(--muted)}
 label{display:block;font-size:var(--t-xs);color:var(--muted);margin:10px 0 4px}
@@ -873,7 +875,7 @@ body.ps{overflow:hidden}
 
 <div class="wrap" id="app"><div class="sk"></div><div class="sk"></div></div>
 
-<div id="modal"></div>
+<dialog id="modal" aria-label="Dialog"></dialog>
 <div id="dash"></div>
 <div id="boardview"></div>
 <div id="toasts"></div>
@@ -4455,7 +4457,19 @@ async function toggleProject(name,enabled){
   toast(name,enabled?"enabled":"disabled",enabled?"ok":"err");
   projects=await api("/api/projects").catch(()=>projects);render();
 }
-function modal(html){$("#modal").innerHTML=`<div class="mbox">${html}</div>`;$("#modal").style.display="flex"}
+let _modalOpener="";
+function modal(html){
+  const el=$("#modal"), active=el.contains(document.activeElement)?document.activeElement.id:"";
+  el.innerHTML=`<div class="mbox">${html}</div>`;
+  const title=el.querySelector("h3");
+  if(title){title.id="modalTitle";el.setAttribute("aria-labelledby",title.id)}
+  else el.removeAttribute("aria-labelledby");
+  if(!el.open){_modalOpener=(document.activeElement||{}).id||"";el.showModal()}
+  else{
+    const next=(active&&document.getElementById(active))||el.querySelector("input,select,textarea,button,[tabindex='0']");
+    if(next)next.focus();
+  }
+}
 
 // --- LOGS, the free way ------------------------------------------------------------------------
 // The deployment with a cloud has a console listing every run. The free one has the same thing and
@@ -4884,7 +4898,14 @@ function _renderKnowledgeDelta(arms){
   box.innerHTML=`${rows}<span class="sub"> with OKF vs <b>${esc(ctlName)}</b> (medians, n=${t.cost.length} vs ${c.cost.length})</span>`;
 }
 function closeCosts(){ $("#dash").style.display="none"; Object.values(_dc).forEach(c=>c&&c.destroy()); _dc={}; }
-function closeModal(){$("#modal").style.display="none";$("#modal").innerHTML="";$("#modal").dataset.kind=""}
+function closeModal(){$("#modal").close()}
+function modalClosed(){
+  const el=$("#modal");if(el.open)return;el.innerHTML="";el.dataset.kind="";
+  // Live index updates can replace the native dialog's original return-focus element.
+  const opener=_modalOpener&&document.getElementById(_modalOpener);if(opener)opener.focus();
+  _modalOpener="";
+}
+$("#modal").addEventListener("close",modalClosed);
 $("#modal").addEventListener("click",e=>{if(e.target.id=="modal")closeModal()});
 
 // the card-click briefing — WHY the job is in its state + every gate/check that ran, so
