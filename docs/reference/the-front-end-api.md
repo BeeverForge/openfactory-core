@@ -330,10 +330,10 @@ DESCRIPTION: [`events.schema.json`](events.schema.json), committed beside `opena
 envelope — `kind`, `id`, `at`, `project`, `product` when one applies, and `data` — and a data model
 per kind: the sockets' `kind`s, `jobs` for the temporal stream's frame, `log` for a run's log line,
 and `ended`. A frame of today is that envelope's `data`, less the socket's own `kind` (and less
-the floor `update`'s `project`, which the envelope carries); `id` and `at` are not on today's
-frames. `product` is required for the kinds a product conversation emits (`subscribed`,
+the floor `update`'s `project`, and the `product` an `ack` or a `refused` names, which the
+envelope carries); `id` and `at` are not on today's frames. `product` is required for the kinds a product conversation emits (`subscribed`,
 `history`, `earlier`, `said`, `reply`, `staged`, `presence`, `resync`), is what an `ack` or a
-`refused` frame names when it names one, and is absent for every other.
+`refused` frame names when it names one, and is absent or `null` for every other.
 It is generated, never edited by hand:
 `tests/test_the_event_models_describe_every_frame_the_streams_send.py` fails when it is not what
 the models generate, and when a stream's code writes a kind, or a key in a socket's or the
@@ -347,4 +347,7 @@ This is slice 1 of #561. The default front end still ships with the API, in the 
 image, and is turned off by its setting; moving it into a module of its own, built only on this
 contract, and a guide with a minimal example are the slices after it. Only the reads that declare
 their model are under `/api/v1/` (#678, #940); the actions, the streams and the deliberately
-unversioned reads (section 3) are not versioned yet.
+unversioned reads (section 3) are not versioned yet. No stream sends the envelope
+[`events.schema.json`](events.schema.json) describes (section 4): one stream at `/api/v1/events`
+that sends it, with an `id` a client resumes from after a reconnect, is the next part of #679, and
+the four streams above stay until the default front end has moved to it.
