@@ -333,7 +333,8 @@ def test_a_private_key_that_is_not_ones_own_is_REFUSED_at_the_subscription(chat)
 # ── an answer says which product it is about (#1088) ───────────────────────────────────────────
 
 def test_an_ack_and_a_refusal_name_the_product_they_answer_about(chat, monkeypatch):
-    """One socket may follow several products, so an `ack` or a `refused` about one names it —
+    """An `ack` or a `refused` about a product names it, so a page can tell which product an
+    answer is about, and the stream that is to carry several products at once can route it —
     `product`, the product's key: an ack of a message sent into the subscribed conversation, a
     refusal of a conversation of a product this person may read, a refusal of a message that
     broke. An answer about none — a message before any subscription, a project with no product
