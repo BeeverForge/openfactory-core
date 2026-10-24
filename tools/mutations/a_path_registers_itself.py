@@ -32,6 +32,7 @@ DOORS_TEST = "tests/test_the_doors_derive_from_the_registries.py"
 DOORS = "openfactory/doors.py"
 CLI = "openfactory/cli.py"
 API = "openfactory/api/app.py"
+CATALOG = "openfactory/actions/catalog.py"
 
 MUTATIONS = [
     # ── 1. the reading ─────────────────────────────────────────────────────────────────────────
@@ -61,6 +62,9 @@ MUTATIONS = [
      '                 if host in owned), "")', SLICE),
 
     # ── 2. every axis ──────────────────────────────────────────────────────────────────────────
+    # RE-PINNED 2026-10-23 (#741): `project add` and `POST /api/projects` map onto the
+    # `project_add` row, which writes the axes `doors.axes_for` gives; the API door's own copy is
+    # gone, and its claim is cut below as the door writing its own row again.
     # RE-PINNED (#992): `project add`'s axes moved to `doors.axes_for`, which a product's first
     # source writes too
     ("`project add` writes the tracker alone for a local project, so the forge inherits GitHub",
@@ -75,37 +79,60 @@ MUTATIONS = [
      '        local = {"kind": "local", "repo": None, "options": {}}', SLICE),
 
     ("the API door writes the tracker alone again", API,
-     '        axes = {"tracker": ProviderRef(kind="local", repo=body.name),\n'
-     '                "forge": ProviderRef(kind="local", repo=body.name),\n'
-     '                "ci": ProviderRef(kind="none", repo=body.name)}',
-     '        axes = {"tracker": ProviderRef(kind="local", repo=body.name)}', SLICE),
+     '    outcome = await actions.perform(\n'
+     '        "project_add", by=_actor(request), project=body.name, repo_path=body.repo_path,',
+     '    from openfactory.contracts.project import ProviderRef\n'
+     '    ProjectRegistry().add(Project(name=body.name, repo_path=body.repo_path,\n'
+     '                                  tracker=ProviderRef(kind="local", repo=body.name)))\n'
+     '    return {"ok": True, "changed": True, "message": ""}\n'
+     '    outcome = await actions.perform(\n'
+     '        "project_add", by=_actor(request), project=body.name, repo_path=body.repo_path,',
+     SLICE),
 
-    ("`project init` leaves the ci axis unwritten for a local project", CLI,
-     '            kwargs["ci"] = ProviderRef(kind="none", repo=inferred, options={})', "",
-     DOORS_TEST),
+    # RE-PINNED 2026-10-23 (#741): the row's code now, and aimed at the slice's own test of
+    # `project init` on a path — the doors suite it was aimed at never read the `ci` axis, so this
+    # row had been surviving there.
+    ("`project init` leaves the ci axis unwritten for a local project", CATALOG,
+     '        fields["ci"] = ProviderRef(kind="none", repo=inferred, options={})\n', "",
+     SLICE),
 
     # ── 3. the doors stop asking ───────────────────────────────────────────────────────────────
     ("the API model carries a vendor default again, so the panel registers every project as "
      "GitHub", API, '    provider: str = ""', '    provider: str = "github"', SLICE),
 
+    # RE-PINNED 2026-10-23 (#741): the question is the `project_add` row's, which the command
+    # maps onto.
     ("`project add` stops asking whose host it is — the #162 door, reopened at the door beside "
-     "the one that closed it", CLI,
-     "    try:\n        foreign = doors.foreign_host(repo_path, provider=provider or \"\")\n"
-     "    except ValueError as exc:\n        typer.echo(f\"✗ {exc}\")\n"
-     "        raise typer.Exit(2) from None\n    if foreign:\n"
-     "        typer.echo(_foreign_refusal(foreign, provider))\n        raise typer.Exit(2)\n",
+     "the one that closed it", CATALOG,
+     "    try:\n        foreign = doors.foreign_host(where, provider=chosen)\n"
+     "    except ValueError as exc:\n        return refused(INVALID, str(exc), project=name)\n"
+     "    if foreign:\n"
+     "        return refused(INVALID, doors.foreign_refusal(foreign), project=name, "
+     "foreign=foreign)\n",
      "", SLICE),
 
     # RE-PINNED 2026-09-10 (slice 4c): this door's copy of the sentence became
     # `doors.foreign_refusal(foreign)`, so the cut is the refusal itself going quiet — the row
     # is then written as GitHub, which is the claim this line has always been about.
+    # RE-PINNED 2026-10-23 (#741): the door asks nothing of its own now — it performs
+    # `project_add`, which asks — so a door that stops asking is one that writes its row itself,
+    # by the kind the address reads as, and never reaches the row's question.
     ("the API door stops asking whose host it is", API,
-     "        raise HTTPException(status_code=422, detail=doors.foreign_refusal(foreign))",
-     "        pass", SLICE),
+     '    outcome = await actions.perform(\n'
+     '        "project_add", by=_actor(request), project=body.name, repo_path=body.repo_path,',
+     '    from openfactory.contracts.project import ProviderRef\n'
+     '    ProjectRegistry().add(Project(name=body.name, repo_path=body.repo_path, tracker=ProviderRef(\n'
+     '        kind=doors.kind_for(body.repo_path), repo=doors.infer_repo(body.repo_path))))\n'
+     '    return {"ok": True, "changed": True, "message": ""}\n'
+     '    outcome = await actions.perform(\n'
+     '        "project_add", by=_actor(request), project=body.name, repo_path=body.repo_path,',
+     SLICE),
 
+    # RE-PINNED 2026-10-23 (#741): `project init` renders the `project_init` row's refusal, and
+    # its ways out are still this file's.
     ("the refusal goes back to being written twice, and the copies drift", CLI,
-     "            typer.echo(_foreign_refusal(foreign, provider))\n"
-     "            raise typer.Exit(2) from None",
-     '            typer.echo(f"✗ {foreign} is not supported")\n'
-     "            raise typer.Exit(2) from None", DOORS_TEST),
+     "            typer.echo(_foreign_refusal(str(outcome.data[\"foreign\"]), provider))\n"
+     "            raise typer.Exit(2)\n",
+     '            typer.echo(f"✗ {outcome.data[\'foreign\']} is not supported")\n'
+     "            raise typer.Exit(2)\n", DOORS_TEST),
 ]

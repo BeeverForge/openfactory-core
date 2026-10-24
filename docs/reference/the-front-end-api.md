@@ -136,7 +136,7 @@ means any credential the deployment issued.
 | GET | `/api/product/{project}/search` | product | deprecated alias of `/api/v1/product/{project}/search` |
 | GET | `/api/product/{project}/system` | product | deprecated alias of `/api/v1/product/{project}/system` |
 | GET | `/api/projects` | floor | deprecated alias of `/api/v1/projects` |
-| POST | `/api/projects` | floor | add a project |
+| POST | `/api/projects` | floor | add a project — the `project_add` action, so the administrator's alone; an address it cannot register as written is a 422 |
 | POST | `/api/projects/{name}/enabled` | floor | turn a project's pickup on or off |
 | POST | `/api/projects/{project}/scan` | floor | read a project's queue now, without waiting for the next tick |
 | GET | `/api/promote/{project}/{issue}` | floor | deprecated alias of `/api/v1/promote/{project}/{issue}` |
@@ -257,8 +257,13 @@ token — with a 400 saying so.
 | `people_revoke` | `person` | takes a person off the deployment: their registration, their sessions and any open invitation; the last person registered is refused while no credential is configured, since the panel would open to whoever arrives (`openfactory people revoke`) |
 | `poller_pause` | [`note`] | holds pickup everywhere; `data.in_flight` is the jobs still running, `null` when they could not be read (`openfactory poller pause`) |
 | `poller_resume` | [`note`] | takes work again; `data.intake` is the schedule as read after it (`openfactory poller resume`) |
+| `product_start` | `project`, `docs_repo`, [`provider`], [`token_env`], [`language`] | registers a product before its code: a project with its context repository and no code repository, the context read back (`openfactory product start`) |
+| `product_first_source` | `project`, `repo_path`, [`token_env`], [`board_owner`], [`board_number`] | gives a product that started before its code its code repository: the first entry of `sources:` and the registry's (`openfactory product first-source`) |
 | `product_name` | `project`, [`agent_name`] | what the product role is called; omit `agent_name` to read it, `""` for no name (`openfactory product name`) |
+| `product_init` | `project`, [`source`], [`write`], [`create_context`] | onboards the product's context repository: creates it in the client's organisation when there is none and `create_context` is `true`, and shows the declaration it needs — `data.product_yaml` and `data.todo` — or with `write` proposes it for review on the platform's own branch; `data.steps` says what each step came to, a review already open is the one the run updates, and a step that failed makes it a 500 that names what was done before it. It runs for a product that started before its code, declaring it with `sources: []`, and refuses a `source` there: listing one is `product_first_source`'s (`openfactory product init`) |
 | `product_declare` | `project`, `docs_repo` | records the product's existing context repository and reads it back; `data.reachable` says whether every credential that will read it can (`openfactory product declare`) |
+| `project_add` | `project`, `repo_path`, [`provider`], [`repo`], [`board_owner`], [`board_number`], [`organization`], [`ado_project`], [`repository`], [`work_item_type`], [`token_env`], [`model`], [`language`] | registers a project with every axis its address and options say; a name already registered as asked changes nothing (`data.changed` is `false`), and one registered differently is refused with a 409 naming what differs (`openfactory project add`, and `POST /api/projects`) |
+| `project_init` | `project`, [`repo_path`], [`repo`], [`board_owner`], [`language`], [`provider`] | makes a project ready to move a ticket — registers it from `repo_path` if it is not registered, creates its board (or adds the columns a board it has lacks, where the board's row can), seeds its context repository where this installation owns it, scaffolds its manifest — each step only if it is missing; `data.steps` says what each came to, and a step that failed makes it a 500 that names what was done before it (`openfactory project init`) |
 | `project_remove` | `project` | unregisters a project; nothing else about it is touched (`openfactory project remove`) |
 | `project_set_model` | `project`, `model`, [`role`] | the model the coding agent runs, passed to the harness verbatim, for every role or one (`openfactory project set-model`) |
 | `project_set_language` | `project`, `language` | the language a project speaks first; a reply follows whoever asked (`openfactory project set-language`) |
@@ -269,6 +274,17 @@ token — with a 400 saying so.
 credential: its `data` is the `openfactory.doctor/1` document `openfactory doctor --json` prints,
 and its `ok` is about the doctor having run — the document's own `ok` says whether the project can
 run a ticket.
+
+**Rows of several steps.** `project_init` and `product_init` take several steps with the network
+between them, and say in `data.steps` what each came to: in order, each `{step, state, said}`, the
+state one of `done` (this call did it), `already` (it was there before), `skipped` (not this
+project's to do) and `failed`. A failed step makes the answer a 500 with the code `failed`, whose
+`message` names every step, the ones that were done included. The steps after it that do not need
+it still run. The retry is the same call, made again: every step asks first whether its result is
+there, so nothing is made twice, nothing registered is written over, and a review already open is
+the one the call updates. `project_add` is one write, safe to repeat the same way. A project
+already registered as asked answers `data.changed: false`. One registered differently is a 409,
+and `data.differs` names the fields that differ.
 
 ### Outside `/api/`: what a supervisor asks
 

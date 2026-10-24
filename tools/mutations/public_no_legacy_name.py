@@ -318,24 +318,28 @@ MUTATIONS = [
      "        declared = namespace.resolve(docs_root, PRODUCT_YAML, project=project.name)\n",
      "        declared = docs_root / PRODUCT_YAML\n",
      DOORS),
+    # RE-PINNED 2026-10-23 (#741): `product init` maps onto the `product_init` row, whose
+    # declaration step stops on the plan's refusal; the cut lets it fall through to the write.
     ("`product init --write` prints the plan's refusal and writes anyway",
-     "openfactory/cli.py",
-     "        if result.refusal:\n"
-     "            typer.echo(f\"✗ {result.refusal}\")\n"
-     "            raise typer.Exit(1)\n",
-     "        if result.refusal:\n"
-     "            typer.echo(f\"✗ {result.refusal}\")\n",
+     "openfactory/actions/catalog.py",
+     "    if result.refusal:\n"
+     "        return _step(\"declaration\", STEP_FAILED, result.refusal)\n",
+     "    if result.refusal:\n"
+     "        _step(\"declaration\", STEP_FAILED, result.refusal)\n",
      DOORS),
+    # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, so this
+    # code is the row's now, in `actions/catalog.py`; the claim is unchanged.
     ("`project init` scaffolds over the retired name again",
-     "openfactory/cli.py",
-     "            dest = namespace.resolve(Path(project.repo_path).expanduser(),\n"
-     "                                     project.manifest_path, project=name)\n",
-     "            dest = Path(project.repo_path).expanduser() / project.manifest_path\n",
+     "openfactory/actions/catalog.py",
+     "        dest = namespace.resolve(Path(where).expanduser(), project.manifest_path, "
+     "project=name)\n",
+     "        dest = Path(where).expanduser() / project.manifest_path\n",
      DOORS),
+    # RE-PINNED 2026-10-23 (#741): the command exits on the steps the row says failed.
     ("`project init` refuses the scaffold and exits zero",
      "openfactory/cli.py",
-     "    if board_failed or manifest_refused:\n",
-     "    if board_failed:\n",
+     "& {\"board\", \"manifest\"}:\n",
+     "& {\"board\"}:\n",
      DOORS),
     # ── the guard file's own hygiene (review, 2026-08-26) ──────────────────────────────────────
     # the CLI imported lazily, i.e. for the first time UNDER the fixture's registry patch: its

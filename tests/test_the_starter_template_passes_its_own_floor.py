@@ -22,9 +22,9 @@ import pathlib
 import tempfile
 
 from openfactory import namespace
-from openfactory.cli import _MANIFEST_TEMPLATE
 from openfactory.contracts.project import Project, ProviderRef
 from openfactory.loader import load_manifest
+from openfactory.onboarding.starter import MANIFEST_TEMPLATE as _MANIFEST_TEMPLATE
 from openfactory.policy.conformance import floor_reason
 
 

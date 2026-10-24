@@ -97,7 +97,6 @@ AC3 = "tests/test_a_board_that_maps_no_review_column_keeps_todays_board.py"
 AC456 = "tests/test_a_card_in_the_review_column_is_one_the_platform_maps.py"
 VOCABULARY = "tests/test_the_columns_and_the_identity_are_the_platforms.py"
 QUEUE_READERS = "tests/test_the_queues_readers_read_columns_by_key.py"
-CLI = "openfactory/cli.py"
 L_SETUP = "openfactory/adapters/board_setup/local.py"
 RERUN = "tests/test_a_rerun_of_init_gives_an_existing_local_board_its_review_column.py"
 
@@ -296,9 +295,9 @@ MUTATIONS = [
      AC456),
 
     # ── 8. a re-run of init on an existing local board ──────────────────────────────────────────
-    ("init skips create on any attached board again", CLI,
-     '    elif attached and not getattr(create_board, "completes_an_attached_board", False):',
-     "    elif attached:",
+    ("init skips create on any attached board again", CATALOG,
+     '        if attached and not getattr(creator, "completes_an_attached_board", False):',
+     "        if attached:",
      f"{RERUN}::test_the_rerun_adds_needs_review_between_in_review_and_needs_action"),
 
     ("the local row no longer says create completes an attached board", L_SETUP,
@@ -323,14 +322,14 @@ MUTATIONS = [
      "        return \"\", f\"{panel_url()}/p/{name}/board\"",
      f"{RERUN}::test_the_rerun_leaves_the_cards_where_they_were"),
 
-    ("a re-run that added a column says nothing about it", CLI,
-     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if added",
-     "                typer.echo(f\"✓ board: the columns are there — {now}\" if added",
+    ("a re-run that added a column says nothing about it", CATALOG,
+     '        return _step("board", STEP_DONE, f"board: added the columns it lacked — {now}{also}",',
+     '        return _step("board", STEP_DONE, f"board: the columns are there — {now}{also}",',
      f"{RERUN}::test_the_rerun_says_what_it_added"),
 
-    ("a re-run that added nothing says it added the columns", CLI,
-     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if added",
-     "                typer.echo(f\"✓ board: added the columns it lacked — {now}\" if True",
+    ("a re-run that added nothing says it added the columns", CATALOG,
+     "    if added:\n",
+     "    if True:\n",
      f"{RERUN}::test_a_second_rerun_on_the_seven_row_board_changes_nothing"),
 
     # ── 9. the write takes the rule the read takes ──────────────────────────────────────────────
@@ -383,9 +382,9 @@ MUTATIONS = [
      "    carriers = dict(had)",
      f"{AC3}::test_a_new_local_board_whose_map_calls_another_column_needs_review_has_one"),
 
-    ("`init` is silent about the column it declined to add", CLI,
-     "            if callable(left_out) and (why := left_out(project)):",
-     "            if False and callable(left_out) and (why := left_out(project)):",
+    ("`init` is silent about the column it declined to add", CATALOG,
+     '        declined = (left_out(project) or "") if callable(left_out) else ""',
+     '        declined = ""',
      f"{AC3}::test_a_rerun_of_init_adds_no_second_needs_review_where_another_column_carries_it"),
 
     # ── 11. a re-run that adds nothing moves nothing, and says it added nothing ─────────────────
@@ -394,9 +393,9 @@ MUTATIONS = [
      "            if True:\n",
      f"{RERUN}::test_a_rerun_keeps_the_order_a_person_gave_the_board"),
 
-    ("`init` decides \"added\" by the position-ordered sentence again", CLI,
-     "                added = (keys_of(project) - keys_before if keys_before is not None",
-     "                added = (now != attached if keys_before is not None",
+    ("`init` decides \"added\" by the position-ordered sentence again", CATALOG,
+     "            added = (bool(keys_of(project) - keys_before) if keys_before is not None",
+     "            added = (now != attached if keys_before is not None",
      f"{RERUN}::test_init_decides_added_by_the_keys_not_by_the_sentence"),
 
     # ── 12. the board's warning names the remedy the setup leaves ───────────────────────────────

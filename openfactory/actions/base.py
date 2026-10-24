@@ -240,6 +240,38 @@ def failure_reference() -> str:
     return secrets.token_hex(4)
 
 
+# ── a row of several steps (#741) ────────────────────────────────────────────────────────────────
+#
+# SOME ROWS ARE SEVERAL ACTS WITH THE NETWORK BETWEEN THEM. `project_init` registers a project,
+# creates its board and writes its manifest; `product_init` creates a context repository and
+# proposes a declaration in it. One sentence about the last thing that broke says nothing about
+# the half that worked, and a retry that redoes that half makes a second board or a second
+# repository. So such a row says, in `data["steps"]`, what each step came to — in order, each a
+# `step(...)` — and every step asks first whether its result is already there, so running the row
+# again does only what is missing.
+
+#: this run did it
+STEP_DONE = "done"
+#: it was there before this run, and nothing was done
+STEP_ALREADY = "already"
+#: it is not this project's to do here — a tracker that brings its own board
+STEP_SKIPPED = "skipped"
+#: it was tried and did not happen, and `said` is why. The row is then not `ok`, and running it
+#: again starts from what is still missing
+STEP_FAILED = "failed"
+
+STEP_STATES = frozenset({STEP_DONE, STEP_ALREADY, STEP_SKIPPED, STEP_FAILED})
+
+
+def step(name: str, state: str, said: str, **data: object) -> dict[str, object]:
+    """One step of a several-step row, as `data["steps"]` carries it: `{"step", "state", "said"}`
+    and whatever the step adds. A state outside `STEP_STATES` is refused here, for the reason
+    `refused` refuses a code outside `CODES`."""
+    if state not in STEP_STATES:
+        raise ValueError(f"unknown step state {state!r} — one of {sorted(STEP_STATES)}")
+    return {"step": name, "state": state, "said": said, **data}
+
+
 # ── the table ────────────────────────────────────────────────────────────────────────────────────
 
 #: The signature every action has. Keyword-only, always async, always returns an Outcome.

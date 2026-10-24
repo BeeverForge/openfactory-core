@@ -17,7 +17,13 @@ THE RULES HELD HERE, each over cases read from the code rather than named:
   4. the contract a front end is written against lists exactly the installation's rows;
   5. the doctor's document is one document, whichever door asked for it;
   6. a person revoked is gone — account, sessions and links — and the last one registered is not
-     revoked while nothing else closes the panel's door.
+     revoked while nothing else closes the panel's door;
+  7. a project's own settings are set by its rows, and the command line writes none of them;
+  8. a project is registered by one row, whichever door asked, and a registered one is never
+     written over;
+  9. a row of several steps says what each step came to — a step that raises is a failed step,
+     said, never a traceback, and never with the credential a git call was handed — and running
+     it again does only what is missing.
 """
 
 from __future__ import annotations
@@ -25,6 +31,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import dataclasses
+import functools
 import json
 import re
 from pathlib import Path
@@ -77,6 +84,7 @@ def _writers(path: str, owner: str, through: str) -> frozenset[str]:
             for n in ast.walk(fn)))
 
 
+@functools.cache
 def _poller_holds() -> frozenset[str]:
     """The schedule module's functions that pause or unpause a schedule."""
     tree = parsed(ROOT / "openfactory/runtime/temporal/schedule.py")
@@ -121,23 +129,69 @@ def _writes_directly(fn: ast.AST) -> set[str]:
     return found
 
 
-def _catalog_writes() -> dict[str, set[str]]:
-    """`row → what it writes`, following the catalogue's own helpers it calls by name."""
-    tree = parsed(CATALOG_PY)
-    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+def _module_file(dotted: str) -> Path | None:
+    """The file of a module of the package, or `None` for a name that is not one."""
+    for candidate in (ROOT / (dotted.replace(".", "/") + ".py"),
+                      ROOT / dotted.replace(".", "/") / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
 
-    def reached(name: str, seen: set[str]) -> set[str]:
-        if name in seen or name not in functions:
+
+def _from_the_package(node: ast.AST) -> dict[str, str]:
+    """What `node` imports from the package: local name → dotted path, a module's
+    (`from openfactory.product import before_code`) or a function's (`from
+    openfactory.product.onboard import create_context_repository`)."""
+    return {alias.asname or alias.name: f"{n.module}.{alias.name}"
+            for n in ast.walk(node)
+            if isinstance(n, ast.ImportFrom) and not n.level
+            and (n.module or "").startswith("openfactory")
+            for alias in n.names}
+
+
+@functools.cache
+def _catalog_writes() -> dict[str, set[str]]:
+    """`row → what it writes`, following what its runner names: the catalogue's own helpers, by a
+    call or handed on — a row whose steps leave the loop hands its body to `asyncio.to_thread` —
+    and the package's functions it imports, by name or as a module's attribute.
+
+    THE CATALOGUE'S EDGE WAS WHERE THIS READING STOPPED, and two rows wrote past it: main's
+    `product_start` and `product_first_source` (#992) register a project and give it its code
+    through `product/before_code.py`, and they read as rows that write nothing, so neither was
+    declared the installation's and a board credential ran both (slice 3)."""
+    modules: dict[Path, tuple[dict[str, ast.AST], dict[str, str]]] = {}
+
+    def module(path: Path) -> tuple[dict[str, ast.AST], dict[str, str]]:
+        if path not in modules:
+            tree = parsed(path)
+            modules[path] = ({n.name: n for n in tree.body
+                              if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)},
+                             _from_the_package(tree))
+        return modules[path]
+
+    def reached(path: Path, name: str, seen: set[tuple[Path, str]]) -> set[str]:
+        functions, imported = module(path)
+        if (path, name) in seen or name not in functions:
             return set()
-        seen.add(name)
+        seen.add((path, name))
         fn = functions[name]
+        names = {**imported, **_from_the_package(fn)}
         out = _writes_directly(fn)
         for n in ast.walk(fn):
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
-                out |= reached(n.func.id, seen)
+            if isinstance(n, ast.Name) and n.id in functions:
+                out |= reached(path, n.id, seen)
+            elif isinstance(n, ast.Name) and n.id in names:
+                home, _, called = names[n.id].rpartition(".")
+                if (found := _module_file(home)) is not None:
+                    out |= reached(found, called, seen)
+            elif (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                  and n.value.id in names
+                  and (found := _module_file(names[n.value.id])) is not None):
+                out |= reached(found, n.attr, seen)
         return out
 
-    return {name: reached(spec.run.__name__, set()) for name, spec in catalog.CATALOG.items()}
+    return {name: reached(CATALOG_PY, spec.run.__name__, set())
+            for name, spec in catalog.CATALOG.items()}
 
 
 def test_what_writes_the_installation_is_read_off_the_modules_that_write_it():
@@ -148,6 +202,10 @@ def test_what_writes_the_installation_is_read_off_the_modules_that_write_it():
     assert {"invite", "withdraw"} <= WRITERS["PeopleStore"], WRITERS["PeopleStore"]
     assert "hold_poller" in _poller_holds()
     assert {"get", "list"}.isdisjoint(WRITERS["ProjectRegistry"]), "a read counted as a write"
+    # PAST THE CATALOGUE'S EDGE: a row whose write is a function of another module of the package
+    # — handed to a thread as a module's attribute — is read as writing it
+    assert "ProjectRegistry.add" in _catalog_writes()["product_start"], (
+        "the reading stops at the catalogue's edge again")
 
 
 # ── 1. a row that writes the installation says so, and only such a row ─────────────────────────
@@ -608,8 +666,19 @@ def test_a_revocation_is_refused_when_the_sink_keeps_nothing(monkeypatch):
 #: Something plausible for each parameter a project row requires besides the project itself.
 _PLAUSIBLE = {"model": "a-model", "language": "en", "docs_repo": "acme/docs", "person": "x"}
 
+#: The rows that register a project, read off what they write.
+REGISTERS = sorted(name for name, what in _catalog_writes().items()
+                   if "ProjectRegistry.add" in what)
+
+#: Of those, the ones that need more than its name — where the new project lives. They take a
+#: project that is NOT registered yet, so the rule below is not theirs; theirs is that what is
+#: registered already is never written over (slice 3, below).
+REGISTERS_A_NEW_ONE = sorted(name for name in REGISTERS
+                             if set(catalog.CATALOG[name].required) - {"project"})
+
 TAKES_A_PROJECT = sorted(name for name in INSTALLATION
-                         if "project" in catalog.CATALOG[name].required)
+                         if "project" in catalog.CATALOG[name].required
+                         and name not in REGISTERS_A_NEW_ONE)
 
 
 @pytest.fixture
@@ -808,3 +877,877 @@ def test_a_network_a_preview_may_not_join_is_said_and_not_saved(one_project):
 
     assert out.ok and "network 'host' refused" in out.message, out
     assert ProjectRegistry().get("acme").preview.network == ""
+
+
+# ── 8. registering a project (slice 3) ──────────────────────────────────────────────────────────
+
+def _kinds_the_axes_branch_on() -> set[str]:
+    """The kinds `doors.axes_for` writes differently, read off its comparisons — so a kind it
+    learns to write is a kind the cases below must carry an address for."""
+    fn = next(n for n in parsed(ROOT / "openfactory" / "doors.py").body
+              if isinstance(n, ast.FunctionDef) and n.name == "axes_for")
+    return {c.value for n in ast.walk(fn) if isinstance(n, ast.Compare)
+            for c in ast.walk(n) if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+
+
+#: One address for each kind `doors.axes_for` writes differently: a path on this machine (every axis
+#: local), a clone URL whose kind writes the tracker, and one whose kind writes two axes from the
+#: coordinates the URL carries. The panel's door wrote the tracker alone for both URLs.
+ADDRESSES = ("{tmp}/acme", "https://github.com/acme-corp/acme.git",
+             "https://dev.azure.com/acme-org/Payments/_git/acme")
+
+
+def test_the_addresses_cover_every_kind_the_row_writes_differently(tmp_path):
+    from openfactory import doors
+
+    covered = {doors.kind_for(a.format(tmp=tmp_path)) for a in ADDRESSES}
+
+    assert covered == _kinds_the_axes_branch_on(), (covered, _kinds_the_axes_branch_on())
+
+
+@pytest.mark.parametrize("address", ADDRESSES)
+def test_the_command_and_the_panels_door_register_one_row(address, tmp_path, monkeypatch):
+    """`project add` and `POST /api/projects` are mappings onto one row, so the same address
+    registers the same project through either — every axis, not the tracker alone."""
+    from openfactory.api.app import app as panel
+    from openfactory.cli import app
+    from openfactory.registry import ProjectRegistry
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    where = address.format(tmp=tmp_path)
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "by-the-shell.yaml"))
+    shell = CliRunner().invoke(app, ["project", "add", "acme", where])
+    assert shell.exit_code == 0, shell.output
+    by_the_shell = ProjectRegistry().get("acme").model_dump(mode="json")
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "by-the-panel.yaml"))
+    answered = TestClient(panel).post("/api/projects", json={"name": "acme", "repo_path": where})
+
+    assert answered.status_code == 200, answered.text
+    assert ProjectRegistry().get("acme").model_dump(mode="json") == by_the_shell
+
+
+@pytest.mark.parametrize("argv,body", [
+    (["project", "add", "acme", "/srv/acme"], None),
+    (None, {"name": "acme", "repo_path": "/srv/acme"}),
+], ids=["project add", "POST /api/projects"])
+def test_each_registering_door_runs_the_row_and_writes_nothing_itself(argv, body, tmp_path,
+                                                                      monkeypatch):
+    """With the row's own code replaced by a recorder, the door still answers, the recorder ran
+    once, and no registry was written: a door that also wrote the project itself would pass every
+    test that reads the registry back."""
+    from openfactory.api.app import app as panel
+    from openfactory.cli import app
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    registry = tmp_path / "registry.yaml"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(registry))
+    seen = []
+
+    async def recorder(by=None, **params):
+        seen.append(params)
+        return actions.done("recorded", project="acme", changed=True, registered={})
+
+    monkeypatch.setattr(catalog, "CATALOG", {**catalog.CATALOG, "project_add": dataclasses.replace(
+        catalog.CATALOG["project_add"], run=recorder)})
+
+    if argv:
+        out = CliRunner().invoke(app, argv)
+        assert out.exit_code == 0, out.output
+    else:
+        answered = TestClient(panel).post("/api/projects", json=body)
+        assert answered.status_code == 200, answered.text
+
+    assert [p["project"] for p in seen] == ["acme"], "the door did not run project_add"
+    assert not registry.exists(), "the door wrote the registry itself"
+
+
+def test_registering_through_the_panels_door_is_the_administrators(three_credentials, tmp_path,
+                                                                   monkeypatch):
+    """`POST /api/projects` is held to the row's scoping: a board credential passes the floor's
+    door and is refused by the row, a product credential is refused at the door, and nothing is
+    written for either."""
+    from openfactory.registry import ProjectRegistry
+
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(tmp_path / "registry.yaml"))
+    body = {"name": "acme", "repo_path": str(tmp_path / "acme")}
+    for credential in ("the-board", "the-analyst"):
+        refused = three_credentials.post("/api/projects", json=body,
+                                         headers={"Authorization": f"Bearer {credential}"})
+        assert refused.status_code == 403, (credential, refused.text)
+    assert ProjectRegistry().list() == [], "a scoped credential registered a project"
+
+    admitted = three_credentials.post("/api/projects", json=body,
+                                      headers={"Authorization": "Bearer the-admin"})
+
+    assert admitted.status_code == 200, admitted.text
+    assert [p.name for p in ProjectRegistry().list()] == ["acme"]
+
+
+#: Requests no door may register as written, each with the data a door renders its refusal from.
+#: Each is refused before the registry is read for writing, so the file is never touched.
+UNREGISTRABLE = {
+    "a host nobody here implements": ({"repo_path": "https://gitlab.com/o/acme.git"}, "foreign"),
+    "an address missing the coordinates its kind needs": (
+        {"repo_path": "https://dev.azure.com/acme-org/Payments"}, "missing"),
+    "a model that begins like a flag": ({"repo_path": "/srv/acme", "model": "--flag"}, None),
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNREGISTRABLE))
+def test_an_address_that_cannot_be_registered_as_written_is_refused_and_nothing_is_written(
+        case, tmp_path, monkeypatch):
+    from openfactory.api.app import app as panel
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    registry = tmp_path / "registry.yaml"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(registry))
+    params, rendered_from = UNREGISTRABLE[case]
+
+    out = asyncio.run(actions.perform("project_add", by=ADMIN, project="acme", **params))
+
+    assert out.code == actions.INVALID, out
+    if rendered_from:
+        assert out.data.get(rendered_from), f"the refusal carries no {rendered_from!r}: {out.data}"
+    assert not registry.exists(), f"{case} wrote the registry"
+    if "model" not in params:
+        # THE PANEL'S DOOR ANSWERS AS IT ALWAYS DID, 422 and the row's sentence
+        answered = TestClient(panel).post("/api/projects", json={"name": "acme", **params})
+        assert answered.status_code == 422 and answered.json()["detail"] == out.message, (
+            answered.text)
+        assert not registry.exists()
+
+
+def test_adding_what_is_registered_changes_nothing_and_adding_it_differently_is_refused(
+        tmp_path, monkeypatch):
+    """Safe to run again, and never over what is there: the same request is an answer, even after
+    a board was attached and a model set since — those are not what was asked — and a request
+    for a different address is refused, naming what differs, with the registry byte for byte as
+    it was."""
+    from openfactory.registry import ProjectRegistry
+
+    registry = tmp_path / "registry.yaml"
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(registry))
+    asked = {"project": "acme", "repo_path": "https://github.com/acme-corp/acme.git",
+             "language": "pt-BR"}
+    assert asyncio.run(actions.perform("project_add", by=ADMIN, **asked)).data["changed"] is True
+    ProjectRegistry().attach_board("acme", board_owner="acme-corp", board_number="7")
+    ProjectRegistry().set_model("acme", "a-model")
+    before = registry.read_bytes()
+
+    again = asyncio.run(actions.perform("project_add", by=ADMIN, **asked))
+    elsewhere = asyncio.run(actions.perform("project_add", by=ADMIN,
+                                            **{**asked, "repo_path": str(tmp_path / "acme")}))
+
+    assert again.ok and again.data["changed"] is False, again
+    assert elsewhere.code == actions.CONFLICT and "repo_path" in elsewhere.data["differs"], (
+        elsewhere)
+    assert registry.read_bytes() == before, "registering again wrote over what was registered"
+
+
+# ── 9. a row of several steps says what each came to, and is safe to run again (slice 3) ──────
+
+def _rows_reaching(helper: str) -> set[str]:
+    """The rows whose runner reaches `helper` in the catalogue, by a call or by handing a function
+    on — the same walk as rule 1's."""
+    tree = parsed(CATALOG_PY)
+    functions = {n.name: n for n in tree.body
+                 if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+
+    def reaches(name: str, seen: set[str]) -> bool:
+        if name in seen or name not in functions:
+            return False
+        seen.add(name)
+        return name == helper or any(isinstance(n, ast.Name) and reaches(n.id, seen)
+                                     for n in ast.walk(functions[name]))
+
+    return {name for name, spec in catalog.CATALOG.items() if reaches(spec.run.__name__, set())}
+
+
+#: The rows of several steps: those that answer through `_the_steps_came_to`.
+STEPPED = sorted(_rows_reaching("_the_steps_came_to"))
+
+
+def _a_fresh_machine(root: Path, monkeypatch) -> Path:
+    """A one-machine deployment at `root` with a repository of the person's own — nothing of this
+    machine reached, nothing remote."""
+    from tests.one_machine import a_deployment, a_repository
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("HOME", str(root))
+    a_deployment(root, monkeypatch=monkeypatch)
+    return a_repository(root)
+
+
+@pytest.fixture
+def a_machine(tmp_path, monkeypatch):
+    return _a_fresh_machine(tmp_path, monkeypatch)
+
+
+def _a_push_that_fails_once(monkeypatch) -> None:
+    """The first `git push` of the run fails, as a full disk or a dropped connection makes it."""
+    import subprocess
+
+    real, state = subprocess.run, {"failed": False}
+
+    def once(args, *a, **kw):
+        if isinstance(args, list) and "push" in args and not state["failed"]:
+            state["failed"] = True
+            raise subprocess.CalledProcessError(1, args, stderr="no room on the disk")
+        return real(args, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", once)
+
+
+def _init_a_path(repo, monkeypatch):
+    """`project_init` on a path, with the context repository's push failing the first time."""
+    _a_push_that_fails_once(monkeypatch)
+    return {"project": "myapp", "repo_path": str(repo)}, "context"
+
+
+class _ContextForge:
+    """A forge that creates the context repository by naming one that exists, clones it from a
+    bare repository on this machine, and remembers the review it opened — so a second run can be
+    told one is open."""
+
+    def __init__(self, bare: str):
+        self.bare, self.opened = bare, []
+
+    def create_repository(self, *, name, private=True, description=""):
+        return f"acme-corp/{name}", True
+
+    def clone_url(self, repo, *, token=None):
+        return self.bare
+
+    def open_pr(self, *, head, base, title, body, repo=""):
+        self.opened.append(head)
+        return "https://forge.invalid/acme-corp/acme-context/pull/1"
+
+    def pr_for_head(self, branch, *, repo=""):
+        return "https://forge.invalid/acme-corp/acme-context/pull/1" if branch in self.opened else ""
+
+    def pr_status(self, *, pr, repo=""):
+        return "open"
+
+
+def _a_product(repo, monkeypatch):
+    """`product_init` creating a hosted project's context repository and proposing its
+    declaration — `(params, forge)`. The forge is a double over a bare repository on this
+    machine; the registry and everything between them is real."""
+    import subprocess
+
+    from openfactory.adapters.forge import registry as forges
+    from openfactory.contracts.project import Project, ProviderRef
+    from openfactory.product import onboard
+    from openfactory.registry import ProjectRegistry
+
+    ident = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    bare, seed = repo.parent / "acme-context.git", repo.parent / "acme-context-seed"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
+    (seed / "README.md").write_text("the client's context repository\n", encoding="utf-8")
+    for args in (["add", "README.md"], ["commit", "-q", "-m", "seed"],
+                 ["push", "-q", str(bare), "main"]):
+        subprocess.run(["git", *ident, "-C", str(seed), *args], check=True)
+    forge = _ContextForge(str(bare))
+    monkeypatch.setattr(forges, "build_forge", lambda *a, **kw: forge)
+    monkeypatch.setattr(onboard, "_context_token", lambda p: None)
+    ProjectRegistry().add(Project(name="acme", repo_path=str(repo),
+                                  tracker=ProviderRef(kind="github", repo="acme-corp/acme"),
+                                  forge=ProviderRef(kind="github", repo="acme-corp/acme")))
+    return {"project": "acme", "create_context": "true", "write": "true"}, forge
+
+
+def _init_a_product(repo, monkeypatch):
+    """`_a_product`, with the declaration's push failing the first time."""
+    params, _ = _a_product(repo, monkeypatch)
+    _a_push_that_fails_once(monkeypatch)
+    return params, "declaration"
+
+
+#: How each row of several steps is driven to fail halfway: `(params, the step that fails)`, the
+#: cause failing once and then passing.
+HALFWAY = {"project_init": _init_a_path, "product_init": _init_a_product}
+
+
+def test_every_row_of_several_steps_is_driven_halfway():
+    assert STEPPED, "no row answers through `_the_steps_came_to` — the reading sees nothing"
+    assert sorted(HALFWAY) == STEPPED, (
+        f"rows of several steps {STEPPED}, driven halfway {sorted(HALFWAY)}: a row that takes "
+        f"several steps must show what it says when one fails, and that running it again finishes")
+
+
+@pytest.mark.parametrize("name", STEPPED)
+def test_a_row_of_several_steps_says_what_was_done_when_a_step_fails_and_finishes_when_run_again(
+        name, a_machine, monkeypatch):
+    """A failure halfway is a list of what is done and what is not, not one sentence about the last
+    thing that broke; running the row again does what is missing and nothing twice; and a third
+    run finds everything there."""
+    from openfactory.registry import ProjectRegistry
+
+    params, failing = HALFWAY[name](a_machine, monkeypatch)
+
+    first = asyncio.run(actions.perform(name, by=ADMIN, **params))
+    states = {s["step"]: s["state"] for s in first.data["steps"]}
+    assert first.code == actions.FAILED and states[failing] == actions.STEP_FAILED, first
+    before_it = [s["step"] for s in first.data["steps"]][:list(states).index(failing)]
+    assert before_it and all(states[s] == actions.STEP_DONE for s in before_it), (
+        f"the steps before {failing!r} are not said to be done: {first.data['steps']}")
+    for s in first.data["steps"]:
+        assert s["said"] in first.message, f"{s['step']} is not said in the sentence: {first}"
+
+    second = asyncio.run(actions.perform(name, by=ADMIN, **params))
+    again = {s["step"]: s["state"] for s in second.data["steps"]}
+    assert second.ok and again[failing] == actions.STEP_DONE, second
+    assert all(again[s] in (actions.STEP_ALREADY, actions.STEP_SKIPPED) for s in before_it), (
+        f"running it again did again what was done: {second.data['steps']}")
+    registered = Path(ProjectRegistry().path).read_bytes()
+
+    third = asyncio.run(actions.perform(name, by=ADMIN, **params))
+    assert third.ok and all(s["state"] in (actions.STEP_ALREADY, actions.STEP_SKIPPED)
+                            for s in third.data["steps"]), third
+    assert Path(ProjectRegistry().path).read_bytes() == registered
+
+
+def test_a_front_end_is_told_which_steps_were_done_when_a_later_one_failed(a_machine,
+                                                                          monkeypatch):
+    """Through `POST /api/act/{name}` a failed step is the outcome's code, and the steps ride with
+    it — so a screen of one's own can show that the project is registered and its board made,
+    and offer the same button again."""
+    from openfactory.api.app import app as panel
+
+    _a_push_that_fails_once(monkeypatch)
+
+    r = TestClient(panel).post("/api/act/project_init", json={"params": {
+        "project": "myapp", "repo_path": str(a_machine)}})
+
+    assert r.status_code == 500, r.text
+    said = {s["step"]: s["state"] for s in r.json()["data"]["steps"]}
+    assert said["register"] == "done" and said["context"] == "failed", said
+    assert "running it again does only what is missing" in r.json()["message"]
+
+
+@pytest.mark.parametrize("argv,row", [
+    (["project", "init", "acme"], "project_init"),
+    (["product", "init", "acme", "--write"], "product_init"),
+])
+def test_each_verb_of_several_steps_runs_its_row_and_writes_nothing_itself(argv, row, one_project,
+                                                                          monkeypatch):
+    """The command is a mapping: with the row's own code replaced by a recorder, the verb answers,
+    the recorder ran once, and the registry is byte for byte as it was."""
+    from openfactory import cli
+
+    before, seen = one_project.read_bytes(), []
+
+    async def recorder(by=None, **params):
+        seen.append(params)
+        return actions.done("recorded", steps=[{"step": "declaration", "state": "already",
+                                                 "said": "already declared"}],
+                            local=True, base_branch="main", already_correct=True)
+
+    monkeypatch.setattr(catalog, "CATALOG", {**catalog.CATALOG, row: dataclasses.replace(
+        catalog.CATALOG[row], run=recorder)})
+
+    out = CliRunner().invoke(cli.app, argv)
+
+    assert out.exit_code == 0, out.output
+    assert len(seen) == 1, f"{argv} did not run {row}"
+    assert one_project.read_bytes() == before, f"{argv} wrote the registry itself"
+
+
+# ── 8, again: what is registered is never written over (slice 3) ────────────────────────────
+
+def _add_elsewhere(repo):
+    return {"project": "myapp", "repo_path": str(repo.parent / "elsewhere")}
+
+
+def _init_elsewhere(repo):
+    return {"project": "myapp", "repo_path": str(repo.parent / "elsewhere"), "language": "pt-BR"}
+
+
+def _start_before_its_code(repo):
+    return {"project": "myapp", "docs_repo": "myapp-context"}
+
+
+#: For each row that registers: a request naming a project already registered, differently.
+OVER_IT = {"project_add": _add_elsewhere, "project_init": _init_elsewhere,
+           "product_start": _start_before_its_code}
+
+
+def test_every_row_that_registers_is_asked_to_write_over_a_project():
+    assert sorted(OVER_IT) == REGISTERS, (REGISTERS, sorted(OVER_IT))
+
+
+@pytest.mark.parametrize("name", REGISTERS)
+def test_a_row_that_registers_never_writes_over_what_is_registered(name, a_machine):
+    """Whatever the request says, a project that is registered keeps its address, its axes and its
+    language: `project_add` refuses and names what differs, `project_init` initialises the project
+    as it is registered, and `product_start` will not start one that already has its code."""
+    from openfactory.registry import ProjectRegistry
+
+    assert asyncio.run(actions.perform("project_add", by=ADMIN, project="myapp",
+                                       repo_path=str(a_machine))).ok
+    before = Path(ProjectRegistry().path).read_bytes()
+
+    out = asyncio.run(actions.perform(name, by=ADMIN, **OVER_IT[name](a_machine)))
+
+    assert out.ok or out.code == actions.CONFLICT, out
+    assert Path(ProjectRegistry().path).read_bytes() == before, f"{name} wrote over myapp"
+
+
+# ── 9, before the code: a product's declaration names no source it cannot vouch for (slice 3) ──
+
+#: The two shapes a product before its code is registered in (`before_code.context_axes`): on a
+#: hosted forge its axes name no repository, and on this machine they carry the project's own
+#: name — which is no repository yet, and must not be listed as one.
+BEFORE_ITS_CODE = {"hosted": ("github", None), "this machine": ("local", "acme")}
+
+
+@pytest.fixture(params=sorted(BEFORE_ITS_CODE))
+def a_product_before_its_code(request, a_machine, monkeypatch):
+    """`acme`, registered with its context repository and no code repository (#992), its context
+    doubled over a bare repository that does not declare the product yet."""
+    import subprocess
+
+    from openfactory.adapters.forge import registry as forges
+    from openfactory.contracts.product import ProductConfig
+    from openfactory.contracts.project import Project, ProviderRef, before_its_code
+    from openfactory.product import onboard
+    from openfactory.registry import ProjectRegistry
+
+    ident = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    bare, seed = a_machine.parent / "acme-context.git", a_machine.parent / "acme-context-seed"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
+    (seed / "README.md").write_text("the client's context repository\n", encoding="utf-8")
+    for args in (["add", "README.md"], ["commit", "-q", "-m", "seed"],
+                 ["push", "-q", str(bare), "main"]):
+        subprocess.run(["git", *ident, "-C", str(seed), *args], check=True)
+    forge = _ContextForge(str(bare))
+    monkeypatch.setattr(forges, "build_forge", lambda *a, **kw: forge)
+    monkeypatch.setattr(onboard, "_context_token", lambda p: None)
+    kind, own = BEFORE_ITS_CODE[request.param]
+    axes = {"tracker": ProviderRef(kind=kind, repo=own)}
+    if kind == "local":
+        axes |= {"forge": ProviderRef(kind=kind, repo=own),
+                 "ci": ProviderRef(kind="none", repo=own)}
+    ProjectRegistry().add(Project(name="acme", repo_path="", **axes,
+                                  product=ProductConfig(docs_repo="acme-corp/acme-context")))
+    assert before_its_code(ProjectRegistry().get("acme"))
+    return bare, forge
+
+
+def _declared_on(bare: Path, tmp: Path):
+    """What the proposal branch of the context declares, read back with the loader's own reader."""
+    import subprocess
+
+    from openfactory.product.loader import _read_docs_manifest
+    from openfactory.product.onboard import proposal_branch
+
+    branch = proposal_branch("acme")
+    if subprocess.run(["git", "-C", str(bare), "rev-parse", "--verify", "-q",
+                       f"refs/heads/{branch}"], capture_output=True).returncode != 0:
+        return None
+    checkout = tmp / "read-back"
+    subprocess.run(["git", "clone", "-q", "-b", branch, str(bare), str(checkout)], check=True,
+                   capture_output=True)
+    docs, error = _read_docs_manifest(checkout)
+    assert docs is not None, error
+    return docs
+
+
+def test_a_product_before_its_code_is_declared_with_no_source_and_its_link_admits_it(
+        a_product_before_its_code, tmp_path):
+    """`product start` sends a product whose context does not declare it here, so the row runs
+    before the code (`needs_code=False`) — and writes `sources: []`, the one list a project with
+    no code may be declared with: the axes of a product before its code name no repository of
+    its own to list."""
+    from openfactory.product.config import resolve_product_link
+    from openfactory.registry import ProjectRegistry
+
+    bare, forge = a_product_before_its_code
+
+    out = asyncio.run(actions.perform("product_init", by=ADMIN, project="acme", write="true"))
+
+    assert out.ok, out
+    docs = _declared_on(bare, tmp_path)
+    assert docs is not None and docs.product == "acme" and list(docs.sources) == [], docs
+    link = resolve_product_link(project=ProjectRegistry().get("acme"), manifest_docs_repo="",
+                                docs=docs)
+    assert link.active, f"the declaration the row proposed is refused by the link: {link}"
+
+
+def test_a_source_for_a_product_before_its_code_is_refused_and_nothing_is_pushed(
+        a_product_before_its_code, tmp_path):
+    """Listing a repository is the first source's act, which records it too: here it would make a
+    member of a product that can vouch for nobody (#992's one declaration per act)."""
+    bare, forge = a_product_before_its_code
+
+    out = asyncio.run(actions.perform("product_init", by=ADMIN, project="acme",
+                                      source="acme-corp/acme", write="true"))
+
+    assert out.code == actions.INVALID and "product_first_source" in out.message, out
+    assert _declared_on(bare, tmp_path) is None and forge.opened == [], "something was proposed"
+
+
+# ── 9, again: a step that raises is a failed step, whichever step it is (review of #1085) ──────
+
+def _steps_of(row: str) -> list[str]:
+    """The steps `row` can say: the first argument of every `actions.base.step(...)` call its
+    runner reaches in the catalogue, by a call or by handing a function on — `_rows_reaching`'s
+    walk. Read off the code, so a step added to a row is a case below."""
+    from openfactory.actions import base
+
+    tree = parsed(CATALOG_PY)
+    functions = {n.name: n for n in tree.body
+                 if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+    # THE NAME THE CATALOGUE CALLS IT BY, read off the module rather than spelled here
+    called = {name for name, value in vars(catalog).items() if value is base.step}
+    seen, said, todo = set(), set(), [catalog.CATALOG[row].run.__name__]
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in functions:
+            continue
+        seen.add(name)
+        for node in ast.walk(functions[name]):
+            if isinstance(node, ast.Name):
+                todo.append(node.id)
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                  and node.func.id in called and node.args
+                  and isinstance(node.args[0], ast.Constant)
+                  and isinstance(node.args[0].value, str)):
+                said.add(node.args[0].value)
+    return sorted(said)
+
+
+#: Every step of every row of several steps: `(row, step)`.
+RAISABLE = [(row, step) for row in STEPPED for step in _steps_of(row)]
+
+
+def _a_path(repo, monkeypatch):
+    """`project_init` on a path of the person's own — `(params, None)`: no forge to double."""
+    return {"project": "myapp", "repo_path": str(repo)}, None
+
+
+#: Each row of several steps on a fresh machine, where every one of its steps has something to do:
+#: `(params, the forge's double or None)`.
+FRESH = {"project_init": _a_path, "product_init": _a_product}
+
+
+def _the_registry_cannot_be_written(repo, monkeypatch, forge):
+    """The registry's directory is a file, so its lock cannot be taken — what a read-only
+    directory does, for whoever runs the suite."""
+    (repo.parent / "not-a-directory").write_text("", encoding="utf-8")
+    monkeypatch.setenv("OPENFACTORY_REGISTRY",
+                       str(repo.parent / "not-a-directory" / "registry.yaml"))
+
+
+def _the_tracker_raises(repo, monkeypatch, forge):
+    """The board's creation raises something nobody expected."""
+    from openfactory.adapters.board_setup import registry as setups
+
+    class _Raises:
+        def attached(self, project):
+            return ""
+
+        def create(self, **_kw):
+            raise RuntimeError("the tracker answered 502")
+
+    monkeypatch.setattr(setups, "board_creator", lambda kind: _Raises())
+
+
+def _the_installations_directory_cannot_be_written(repo, monkeypatch, forge):
+    """Where this installation keeps its context repositories is a file, so none is made there."""
+    from openfactory import namespace
+
+    where = namespace.operator_path("context")
+    where.parent.mkdir(parents=True, exist_ok=True)
+    where.write_text("", encoding="utf-8")
+
+
+def _the_checkout_cannot_be_written(repo, monkeypatch, forge):
+    """The manifest's directory is a file in the checkout — the review's read-only checkout, for
+    whoever runs the suite."""
+    from openfactory import namespace
+
+    (repo / namespace.DIR).write_text("", encoding="utf-8")
+
+
+def _the_forge_drops_the_connection(repo, monkeypatch, forge):
+    """The forge drops the connection that creates the context repository."""
+    def drops(**_kw):
+        raise ConnectionResetError("[Errno 54] Connection reset by peer")
+
+    monkeypatch.setattr(forge, "create_repository", drops)
+
+
+def _the_credential_cannot_be_resolved(repo, monkeypatch, forge):
+    """The clone's address, which carries the context repository's credential, cannot be made."""
+    def unresolved(repo, *, token=None):
+        raise LookupError("no credential for acme-corp/acme-context")
+
+    monkeypatch.setattr(forge, "clone_url", unresolved)
+
+
+#: How each step of each row is made to raise, from inside the step: `(repo, monkeypatch, forge)`.
+RAISING = {
+    ("project_init", "register"): _the_registry_cannot_be_written,
+    ("project_init", "board"): _the_tracker_raises,
+    ("project_init", "context"): _the_installations_directory_cannot_be_written,
+    ("project_init", "manifest"): _the_checkout_cannot_be_written,
+    ("product_init", "context"): _the_forge_drops_the_connection,
+    ("product_init", "declaration"): _the_credential_cannot_be_resolved,
+}
+
+
+def test_every_step_of_every_row_of_several_steps_is_made_to_raise():
+    assert RAISABLE, "no step is read off the rows of several steps — the reading sees nothing"
+    assert sorted(RAISING) == sorted(RAISABLE), (
+        f"steps {sorted(RAISABLE)}, made to raise {sorted(RAISING)}: every step a row can say "
+        f"must be shown failing when it raises")
+    assert sorted(FRESH) == STEPPED, (STEPPED, sorted(FRESH))
+
+
+@pytest.mark.parametrize("row,step", RAISABLE)
+def test_a_step_that_raises_is_a_failed_step_and_the_steps_around_it_stand(row, step, tmp_path,
+                                                                           monkeypatch, caplog):
+    """Whichever step raises, and whatever it raises, it is a failed step: the row answers
+    `failed`, with every step it took in `data.steps` and in its sentence. The steps before it
+    stand as a run where nothing raised says them, and the steps after it still run — except
+    after the first, which the others are done on (the project registered, the context
+    repository there), where nothing is tried. Before, only the board step said so: any other
+    raised out of the row, and the registration and the board were said nowhere (review of
+    #1085). And nothing is logged that a terminal prints as a traceback — a failure speaks by
+    name."""
+    import logging
+
+    params, _ = FRESH[row](_a_fresh_machine(tmp_path / "clean", monkeypatch), monkeypatch)
+    clean = asyncio.run(actions.perform(row, by=ADMIN, **params))
+    took = [(s["step"], s["state"]) for s in clean.data.get("steps", [])]
+    assert clean.ok and sorted(name for name, _ in took) == _steps_of(row), (
+        f"a run of {row} where nothing raises did not take every step it can say: {clean}")
+    at = [name for name, _ in took].index(step)
+
+    repo = _a_fresh_machine(tmp_path / "raising", monkeypatch)
+    params, forge = FRESH[row](repo, monkeypatch)
+    RAISING[row, step](repo, monkeypatch, forge)
+    with caplog.at_level(logging.WARNING):
+        out = asyncio.run(actions.perform(row, by=ADMIN, **params))
+
+    said = [(s["step"], s["state"]) for s in out.data.get("steps", [])]
+    assert out.code == actions.FAILED and said, f"the {step} step raised out of {row}: {out}"
+    assert said[:at] == took[:at], f"the steps before {step} do not stand: {said}"
+    assert said[at] == (step, actions.STEP_FAILED), said
+    assert said[at + 1:] == ([] if at == 0 else took[at + 1:]), (
+        f"the steps after {step} did not run as they would have: {said}")
+    for s in out.data["steps"]:
+        assert s["said"] in out.message, f"{s['step']} is not said in the sentence: {out}"
+    traced = [r.getMessage() for r in caplog.records if r.exc_info]
+    assert not traced, f"a traceback reaches the terminal: {traced}"
+
+
+# ── and at the terminal, on a read-only directory, as the review drove it ─────────────────────
+
+def _git_init(where: Path) -> Path:
+    import subprocess
+
+    where.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(where)], check=True)
+    return where
+
+
+def _a_read_only_checkout(root, monkeypatch):
+    """`project init` on a `git init`'d directory made read-only — the review's reproduction."""
+    checkout = _git_init(root / "ro")
+    return ["project", "init", "roapp", str(checkout)], checkout
+
+
+def _a_read_only_registry(root, monkeypatch):
+    """`project init` with the registry's directory read-only."""
+    registry = root / "registry-ro"
+    registry.mkdir()
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(registry / "registry.yaml"))
+    return ["project", "init", "rwapp", str(_git_init(root / "rw"))], registry
+
+
+def _a_read_only_installation(root, monkeypatch):
+    """`product init --create-context` for a project on this machine, with the directory this
+    installation keeps its context repositories under read-only."""
+    from openfactory import namespace
+
+    added = asyncio.run(actions.perform("project_add", by=ADMIN, project="rwapp",
+                                        repo_path=str(_git_init(root / "rw"))))
+    assert added.ok, added
+    installation = namespace.operator_path("context").parent
+    installation.mkdir(parents=True, exist_ok=True)
+    return ["product", "init", "rwapp", "--create-context", "--write"], installation
+
+
+#: Each row's command, run where a directory one of its steps writes is read-only:
+#: `(argv, the directory)`.
+READ_ONLY = {
+    ("project_init", "register"): _a_read_only_registry,
+    ("project_init", "manifest"): _a_read_only_checkout,
+    ("product_init", "context"): _a_read_only_installation,
+}
+
+
+def test_every_row_of_several_steps_is_run_at_the_terminal_on_a_read_only_directory():
+    assert sorted({row for row, _ in READ_ONLY}) == STEPPED, (STEPPED, sorted(READ_ONLY))
+    assert set(READ_ONLY) <= set(RAISABLE), sorted(set(READ_ONLY) - set(RAISABLE))
+
+
+@pytest.mark.parametrize("row,step", sorted(READ_ONLY))
+def test_a_step_a_read_only_directory_stops_is_said_at_the_terminal_never_a_traceback(
+        row, step, tmp_path, monkeypatch):
+    """The command a person types, in a process of its own, on a directory it cannot write: the
+    step that could not write is a line naming the directory, the command exits 1, and nothing
+    is printed as a traceback. `project init` on a read-only checkout printed one, and no line
+    for the registration and the board it had done (review of #1085)."""
+    import os
+    import subprocess
+    import sys
+
+    from tests.one_machine import a_deployment
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    (tmp_path / "home").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    a_deployment(tmp_path, monkeypatch=monkeypatch)
+    argv, locked = READ_ONLY[row, step](tmp_path, monkeypatch)
+    locked.chmod(0o555)
+    try:
+        if os.access(locked, os.W_OK):
+            pytest.skip(f"a read-only directory does not stop this user ({os.geteuid()=})")
+        # THIS TREE'S CODE, whichever install the interpreter has: the working directory holds
+        # no package, so the import comes from PYTHONPATH.
+        ran = subprocess.run([sys.executable, "-m", "openfactory.cli", *argv], cwd=tmp_path,
+                             env={**os.environ, "PYTHONPATH": str(ROOT)}, capture_output=True,
+                             text=True, timeout=180)
+    finally:
+        locked.chmod(0o755)
+
+    shown = ran.stdout + ran.stderr
+    assert "Traceback" not in shown, shown
+    failed = [line for line in ran.stdout.splitlines() if line.startswith("✗")]
+    assert ran.returncode == 1 and failed and str(locked) in failed[0], shown
+
+
+# ── 9, and what a step says carries no credential (review of #1085) ───────────────────────────
+
+#: A forge credential, spelled as a GitHub App installation token is.
+CREDENTIAL = "ghs_" + "Q7xR2mK9pL4vN8wT3yH6jB1cF5dZ0sAeUuIo"
+
+
+def _times_out(args, address, timeout):
+    import subprocess
+
+    raise subprocess.TimeoutExpired(args, timeout)
+
+
+def _exits_naming_its_remote(args, address, timeout):
+    """As git says an address it could not reach: the address as it was given, credential and
+    all."""
+    import subprocess
+
+    return subprocess.CompletedProcess(args, 128, "", f"fatal: unable to access '{address}/': "
+                                                      f"Could not resolve host: github.com\n")
+
+
+def _raises_with_its_command(args, address, timeout):
+    """What any of them raises once it is run with `check=True`: its argv, in the exception."""
+    import subprocess
+
+    raise subprocess.CalledProcessError(128, args)
+
+
+#: The ways a git call of a row can fail: `(argv, the address, its timeout) -> what run answers`.
+FAILURES = {"times out": _times_out, "exits naming its remote": _exits_naming_its_remote,
+            "raises with its command": _raises_with_its_command}
+
+
+def _a_product_whose_remote_carries_a_credential(root: Path, monkeypatch, *,
+                                                 failing: int | None = None, how: str = ""):
+    """`_a_product` on a fresh machine at `root`, its context repository's address carrying
+    `CREDENTIAL` as the GitHub adapter's does, and every git call recorded: `(params, the calls,
+    the address)`. The `failing`-th call fails `how`; every other runs, with the bare repository
+    in the address's place — so everything before the failure really happens."""
+    import subprocess
+
+    params, forge = _a_product(_a_fresh_machine(root, monkeypatch), monkeypatch)
+    address = f"https://x-access-token:{CREDENTIAL}@github.com/acme-corp/acme-context.git"
+    monkeypatch.setattr(forge, "clone_url", lambda repo, *, token=None: address)
+    real, calls = getattr(subprocess.run, "real", subprocess.run), []
+
+    def run(args, *a, **kw):
+        if not (isinstance(args, list) and args[:1] == ["git"]):
+            return real(args, *a, **kw)
+        calls.append(list(args))
+        if len(calls) - 1 == failing:
+            return FAILURES[how](args, address, kw.get("timeout"))
+        return real([forge.bare if part == address else part for part in args], *a, **kw)
+
+    run.real = real
+    monkeypatch.setattr(subprocess, "run", run)
+    return params, calls, address
+
+
+def _the_git_calls_of_a_clean_run(root: Path, monkeypatch) -> list[list[str]]:
+    """Every git call `product_init` makes when none fails — read off a run, so a call added to
+    the row is a case."""
+    params, calls, address = _a_product_whose_remote_carries_a_credential(root, monkeypatch)
+    clean = asyncio.run(actions.perform("product_init", by=ADMIN, **params))
+    assert clean.ok, clean
+    assert any(address in call for call in calls), (
+        f"no git call was handed the address that carries the credential: {calls}")
+    return list(calls)
+
+
+@pytest.mark.parametrize("how", sorted(FAILURES))
+def test_whichever_git_call_fails_and_however_the_answer_carries_no_credential(how, tmp_path,
+                                                                                monkeypatch):
+    """The context repository's address carries the forge's credential (`https://x-access-token:
+    <token>@…`), and git says it: a call that runs out of time raises with its argv, one that
+    cannot reach the address names it, and one run to check raises with its argv. A clone that
+    ran out of time put the token into `message` and `data.steps` — what the panel shows, the
+    API answers and the terminal prints (review of #1085, 2026-10-24). So every git call of a
+    clean run is made to fail each way, and the whole answer is read."""
+    calls = _the_git_calls_of_a_clean_run(tmp_path / "clean", monkeypatch)
+
+    for at, call in enumerate(calls):
+        params, _, _ = _a_product_whose_remote_carries_a_credential(
+            tmp_path / f"failing-{at}", monkeypatch, failing=at, how=how)
+        out = asyncio.run(actions.perform("product_init", by=ADMIN, **params))
+
+        answer = json.dumps({"message": out.message, "data": dict(out.data)}, default=str)
+        assert CREDENTIAL not in answer, (
+            f"`{' '.join(call[:3])} …` that {how} put the credential into the answer: {answer}")
+
+
+def test_a_git_call_that_carries_the_credential_and_runs_out_of_time_is_said_as_one(tmp_path,
+                                                                                    monkeypatch):
+    """Said in a sentence naming the repository and the time it was given — `could not clone
+    acme-corp/acme-context: timed out after 180 s` — never as the command `subprocess` puts in
+    the exception (`Command '[…]' timed out after 180 seconds`): the command is the address, and
+    a sentence is what a person can act on."""
+    calls = _the_git_calls_of_a_clean_run(tmp_path / "clean", monkeypatch)
+    carrying = [at for at, call in enumerate(calls)
+                if any(CREDENTIAL in part for part in call)]
+    assert carrying, calls
+
+    for at in carrying:
+        params, _, _ = _a_product_whose_remote_carries_a_credential(
+            tmp_path / f"failing-{at}", monkeypatch, failing=at, how="times out")
+        out = asyncio.run(actions.perform("product_init", by=ADMIN, **params))
+
+        said = {s["step"]: s for s in out.data.get("steps", [])}
+        declaration = said.get("declaration") or {}
+        assert out.code == actions.FAILED and declaration.get("state") == actions.STEP_FAILED, out
+        assert ("acme-corp/acme-context" in declaration["said"]
+                and f"timed out after {catalog._A_CONTEXT_GIT_S} s" in declaration["said"]
+                and "Command '" not in declaration["said"]), declaration

@@ -66,6 +66,11 @@ from openfactory.actions.base import (
     REASONS,
     REPORTED_NOTHING,
     SCOPES,
+    STEP_ALREADY,
+    STEP_DONE,
+    STEP_FAILED,
+    STEP_SKIPPED,
+    STEP_STATES,
     SYSTEM,
     UNAVAILABLE,
     UNIMPLEMENTED,
@@ -77,15 +82,17 @@ from openfactory.actions.base import (
     failure_reference,
     not_moved_yet,
     refused,
+    step,
 )
 
 log = logging.getLogger("openfactory.actions")
 
 __all__ = [
     "CATALOG", "CODES", "CONFLICT", "DENIED", "FAILED", "FLOOR", "INVALID", "NOT_FOUND", "OK",
-    "PRODUCT", "REASONS", "SCOPES", "SYSTEM", "UNAVAILABLE", "UNIMPLEMENTED", "ActionSpec",
-    "Actor", "Outcome", "done", "names", "not_moved_yet", "perform", "proposable", "reasons",
-    "refused", "run_staged", "spec",
+    "PRODUCT", "REASONS", "SCOPES", "STEP_ALREADY", "STEP_DONE", "STEP_FAILED", "STEP_SKIPPED",
+    "STEP_STATES", "SYSTEM", "UNAVAILABLE", "UNIMPLEMENTED", "ActionSpec", "Actor", "Outcome",
+    "done", "names", "not_moved_yet", "perform", "proposable", "reasons", "refused", "run_staged",
+    "spec", "step",
 ]
 
 

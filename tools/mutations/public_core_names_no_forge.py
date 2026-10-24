@@ -158,10 +158,12 @@ MUTATIONS = [
      "openfactory/adapters/board_setup/registry.py",
      "    return builder() if builder is not None else None\n",
      "    return None\n"),
+    # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, so this
+    # code is the row's now, in `actions/catalog.py`; the claim is unchanged.
     ("init stops asking the registry",
-     "openfactory/cli.py",
-     "    create_board = board_creator(tracker_kind or \"github\")\n",
-     "    create_board = None\n",
+     "openfactory/actions/catalog.py",
+     "    creator = board_creator(kind or \"github\")\n",
+     "    creator = None\n",
      _FIRST_HOUR_TEST),
     # ── the harnesses ───────────────────────────────────────────────────────────────────────────
     ("a sibling import returns",

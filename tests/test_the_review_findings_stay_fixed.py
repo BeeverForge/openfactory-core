@@ -87,11 +87,13 @@ def test_the_context_repo_clone_uses_the_PROJECTS_credential():
     other, so this module can no longer mention one vendor at all. Raised by the operator while
     reviewing these very changes (2026-08-14): a fix must serve the product, not one
     deployment."""
-    from openfactory import cli
+    from openfactory.actions import catalog
     from openfactory.product import onboard as po
 
-    assert "context_clone_url" in _code_of(cli._context_clone_url), (
-        "the CLI grew its own resolution again — two drifting copies is how the original "
+    # THE CLONE IS THE `product_init` ROW'S since #741 (the command maps onto it), so the row is
+    # what must delegate — not a CLI helper nothing calls any more.
+    assert "context_clone_url" in _code_of(catalog._the_declaration_step), (
+        "the row grew its own resolution again — two drifting copies is how the original "
         "defect shipped")
     code = _code_of(po.context_clone_url) + _code_of(po._context_token)
     assert "clone_url_for(" in code and "forge_token_for(" in code
