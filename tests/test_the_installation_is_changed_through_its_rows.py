@@ -21,8 +21,8 @@ THE RULES HELD HERE, each over cases read from the code rather than named:
   7. a project's own settings are set by its rows, and the command line writes none of them;
   8. a project is registered by one row, whichever door asked, and a registered one is never
      written over;
-  9. a row of several steps says what each step came to, and running it again does only what is
-     missing.
+  9. a row of several steps says what each step came to — a step that raises is a failed step,
+     said, never a traceback — and running it again does only what is missing.
 """
 
 from __future__ import annotations
@@ -1070,17 +1070,21 @@ def _rows_reaching(helper: str) -> set[str]:
 STEPPED = sorted(_rows_reaching("_the_steps_came_to"))
 
 
-@pytest.fixture
-def a_machine(tmp_path, monkeypatch):
-    """A one-machine deployment with a repository of the person's own — nothing of this machine
-    reached, nothing remote."""
+def _a_fresh_machine(root: Path, monkeypatch) -> Path:
+    """A one-machine deployment at `root` with a repository of the person's own — nothing of this
+    machine reached, nothing remote."""
     from tests.one_machine import a_deployment, a_repository
 
     for var in CLOSING_ENVS:
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
-    a_deployment(tmp_path, monkeypatch=monkeypatch)
-    return a_repository(tmp_path)
+    monkeypatch.setenv("HOME", str(root))
+    a_deployment(root, monkeypatch=monkeypatch)
+    return a_repository(root)
+
+
+@pytest.fixture
+def a_machine(tmp_path, monkeypatch):
+    return _a_fresh_machine(tmp_path, monkeypatch)
 
 
 def _a_push_that_fails_once(monkeypatch) -> None:
@@ -1129,10 +1133,10 @@ class _ContextForge:
         return "open"
 
 
-def _init_a_product(repo, monkeypatch):
+def _a_product(repo, monkeypatch):
     """`product_init` creating a hosted project's context repository and proposing its
-    declaration, with the declaration's push failing the first time. The forge is a double over
-    a bare repository on this machine; the registry and everything between them is real."""
+    declaration — `(params, forge)`. The forge is a double over a bare repository on this
+    machine; the registry and everything between them is real."""
     import subprocess
 
     from openfactory.adapters.forge import registry as forges
@@ -1154,8 +1158,14 @@ def _init_a_product(repo, monkeypatch):
     ProjectRegistry().add(Project(name="acme", repo_path=str(repo),
                                   tracker=ProviderRef(kind="github", repo="acme-corp/acme"),
                                   forge=ProviderRef(kind="github", repo="acme-corp/acme")))
+    return {"project": "acme", "create_context": "true", "write": "true"}, forge
+
+
+def _init_a_product(repo, monkeypatch):
+    """`_a_product`, with the declaration's push failing the first time."""
+    params, _ = _a_product(repo, monkeypatch)
     _a_push_that_fails_once(monkeypatch)
-    return {"project": "acme", "create_context": "true", "write": "true"}, "declaration"
+    return params, "declaration"
 
 
 #: How each row of several steps is driven to fail halfway: `(params, the step that fails)`, the
@@ -1383,11 +1393,60 @@ def test_a_source_for_a_product_before_its_code_is_refused_and_nothing_is_pushed
     assert _declared_on(bare, tmp_path) is None and forge.opened == [], "something was proposed"
 
 
-def test_a_step_that_raises_is_a_failed_step_and_the_steps_around_it_stand(a_machine,
-                                                                           monkeypatch):
-    """A board's creation that raises something nobody expected is a failed step all the same:
-    the project stays registered, the manifest is still written, and the answer says all three —
-    rather than one sentence about the exception with nothing said about what stands."""
+# ── 9, again: a step that raises is a failed step, whichever step it is (review of #1085) ──────
+
+def _steps_of(row: str) -> list[str]:
+    """The steps `row` can say: the first argument of every `actions.base.step(...)` call its
+    runner reaches in the catalogue, by a call or by handing a function on — `_rows_reaching`'s
+    walk. Read off the code, so a step added to a row is a case below."""
+    from openfactory.actions import base
+
+    tree = parsed(CATALOG_PY)
+    functions = {n.name: n for n in tree.body
+                 if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+    # THE NAME THE CATALOGUE CALLS IT BY, read off the module rather than spelled here
+    called = {name for name, value in vars(catalog).items() if value is base.step}
+    seen, said, todo = set(), set(), [catalog.CATALOG[row].run.__name__]
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in functions:
+            continue
+        seen.add(name)
+        for node in ast.walk(functions[name]):
+            if isinstance(node, ast.Name):
+                todo.append(node.id)
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                  and node.func.id in called and node.args
+                  and isinstance(node.args[0], ast.Constant)
+                  and isinstance(node.args[0].value, str)):
+                said.add(node.args[0].value)
+    return sorted(said)
+
+
+#: Every step of every row of several steps: `(row, step)`.
+RAISABLE = [(row, step) for row in STEPPED for step in _steps_of(row)]
+
+
+def _a_path(repo, monkeypatch):
+    """`project_init` on a path of the person's own — `(params, None)`: no forge to double."""
+    return {"project": "myapp", "repo_path": str(repo)}, None
+
+
+#: Each row of several steps on a fresh machine, where every one of its steps has something to do:
+#: `(params, the forge's double or None)`.
+FRESH = {"project_init": _a_path, "product_init": _a_product}
+
+
+def _the_registry_cannot_be_written(repo, monkeypatch, forge):
+    """The registry's directory is a file, so its lock cannot be taken — what a read-only
+    directory does, for whoever runs the suite."""
+    (repo.parent / "not-a-directory").write_text("", encoding="utf-8")
+    monkeypatch.setenv("OPENFACTORY_REGISTRY",
+                       str(repo.parent / "not-a-directory" / "registry.yaml"))
+
+
+def _the_tracker_raises(repo, monkeypatch, forge):
+    """The board's creation raises something nobody expected."""
     from openfactory.adapters.board_setup import registry as setups
 
     class _Raises:
@@ -1399,10 +1458,180 @@ def test_a_step_that_raises_is_a_failed_step_and_the_steps_around_it_stand(a_mac
 
     monkeypatch.setattr(setups, "board_creator", lambda kind: _Raises())
 
-    out = asyncio.run(actions.perform("project_init", by=ADMIN, project="myapp",
-                                      repo_path=str(a_machine)))
 
-    states = {s["step"]: s["state"] for s in out.data.get("steps", [])}
-    assert out.code == actions.FAILED, out
-    assert (states["register"], states["board"], states["manifest"]) == ("done", "failed", "done")
-    assert "502" in out.message, out.message
+def _the_installations_directory_cannot_be_written(repo, monkeypatch, forge):
+    """Where this installation keeps its context repositories is a file, so none is made there."""
+    from openfactory import namespace
+
+    where = namespace.operator_path("context")
+    where.parent.mkdir(parents=True, exist_ok=True)
+    where.write_text("", encoding="utf-8")
+
+
+def _the_checkout_cannot_be_written(repo, monkeypatch, forge):
+    """The manifest's directory is a file in the checkout — the review's read-only checkout, for
+    whoever runs the suite."""
+    from openfactory import namespace
+
+    (repo / namespace.DIR).write_text("", encoding="utf-8")
+
+
+def _the_forge_drops_the_connection(repo, monkeypatch, forge):
+    """The forge drops the connection that creates the context repository."""
+    def drops(**_kw):
+        raise ConnectionResetError("[Errno 54] Connection reset by peer")
+
+    monkeypatch.setattr(forge, "create_repository", drops)
+
+
+def _the_credential_cannot_be_resolved(repo, monkeypatch, forge):
+    """The clone's address, which carries the context repository's credential, cannot be made."""
+    def unresolved(repo, *, token=None):
+        raise LookupError("no credential for acme-corp/acme-context")
+
+    monkeypatch.setattr(forge, "clone_url", unresolved)
+
+
+#: How each step of each row is made to raise, from inside the step: `(repo, monkeypatch, forge)`.
+RAISING = {
+    ("project_init", "register"): _the_registry_cannot_be_written,
+    ("project_init", "board"): _the_tracker_raises,
+    ("project_init", "context"): _the_installations_directory_cannot_be_written,
+    ("project_init", "manifest"): _the_checkout_cannot_be_written,
+    ("product_init", "context"): _the_forge_drops_the_connection,
+    ("product_init", "declaration"): _the_credential_cannot_be_resolved,
+}
+
+
+def test_every_step_of_every_row_of_several_steps_is_made_to_raise():
+    assert RAISABLE, "no step is read off the rows of several steps — the reading sees nothing"
+    assert sorted(RAISING) == sorted(RAISABLE), (
+        f"steps {sorted(RAISABLE)}, made to raise {sorted(RAISING)}: every step a row can say "
+        f"must be shown failing when it raises")
+    assert sorted(FRESH) == STEPPED, (STEPPED, sorted(FRESH))
+
+
+@pytest.mark.parametrize("row,step", RAISABLE)
+def test_a_step_that_raises_is_a_failed_step_and_the_steps_around_it_stand(row, step, tmp_path,
+                                                                           monkeypatch, caplog):
+    """Whichever step raises, and whatever it raises, it is a failed step: the row answers
+    `failed`, with every step it took in `data.steps` and in its sentence. The steps before it
+    stand as a run where nothing raised says them, and the steps after it still run — except
+    after the first, which the others are done on (the project registered, the context
+    repository there), where nothing is tried. Before, only the board step said so: any other
+    raised out of the row, and the registration and the board were said nowhere (review of
+    #1085). And nothing is logged that a terminal prints as a traceback — a failure speaks by
+    name."""
+    import logging
+
+    params, _ = FRESH[row](_a_fresh_machine(tmp_path / "clean", monkeypatch), monkeypatch)
+    clean = asyncio.run(actions.perform(row, by=ADMIN, **params))
+    took = [(s["step"], s["state"]) for s in clean.data.get("steps", [])]
+    assert clean.ok and sorted(name for name, _ in took) == _steps_of(row), (
+        f"a run of {row} where nothing raises did not take every step it can say: {clean}")
+    at = [name for name, _ in took].index(step)
+
+    repo = _a_fresh_machine(tmp_path / "raising", monkeypatch)
+    params, forge = FRESH[row](repo, monkeypatch)
+    RAISING[row, step](repo, monkeypatch, forge)
+    with caplog.at_level(logging.WARNING):
+        out = asyncio.run(actions.perform(row, by=ADMIN, **params))
+
+    said = [(s["step"], s["state"]) for s in out.data.get("steps", [])]
+    assert out.code == actions.FAILED and said, f"the {step} step raised out of {row}: {out}"
+    assert said[:at] == took[:at], f"the steps before {step} do not stand: {said}"
+    assert said[at] == (step, actions.STEP_FAILED), said
+    assert said[at + 1:] == ([] if at == 0 else took[at + 1:]), (
+        f"the steps after {step} did not run as they would have: {said}")
+    for s in out.data["steps"]:
+        assert s["said"] in out.message, f"{s['step']} is not said in the sentence: {out}"
+    traced = [r.getMessage() for r in caplog.records if r.exc_info]
+    assert not traced, f"a traceback reaches the terminal: {traced}"
+
+
+# ── and at the terminal, on a read-only directory, as the review drove it ─────────────────────
+
+def _git_init(where: Path) -> Path:
+    import subprocess
+
+    where.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(where)], check=True)
+    return where
+
+
+def _a_read_only_checkout(root, monkeypatch):
+    """`project init` on a `git init`'d directory made read-only — the review's reproduction."""
+    checkout = _git_init(root / "ro")
+    return ["project", "init", "roapp", str(checkout)], checkout
+
+
+def _a_read_only_registry(root, monkeypatch):
+    """`project init` with the registry's directory read-only."""
+    registry = root / "registry-ro"
+    registry.mkdir()
+    monkeypatch.setenv("OPENFACTORY_REGISTRY", str(registry / "registry.yaml"))
+    return ["project", "init", "rwapp", str(_git_init(root / "rw"))], registry
+
+
+def _a_read_only_installation(root, monkeypatch):
+    """`product init --create-context` for a project on this machine, with the directory this
+    installation keeps its context repositories under read-only."""
+    from openfactory import namespace
+
+    added = asyncio.run(actions.perform("project_add", by=ADMIN, project="rwapp",
+                                        repo_path=str(_git_init(root / "rw"))))
+    assert added.ok, added
+    installation = namespace.operator_path("context").parent
+    installation.mkdir(parents=True, exist_ok=True)
+    return ["product", "init", "rwapp", "--create-context", "--write"], installation
+
+
+#: Each row's command, run where a directory one of its steps writes is read-only:
+#: `(argv, the directory)`.
+READ_ONLY = {
+    ("project_init", "register"): _a_read_only_registry,
+    ("project_init", "manifest"): _a_read_only_checkout,
+    ("product_init", "context"): _a_read_only_installation,
+}
+
+
+def test_every_row_of_several_steps_is_run_at_the_terminal_on_a_read_only_directory():
+    assert sorted({row for row, _ in READ_ONLY}) == STEPPED, (STEPPED, sorted(READ_ONLY))
+    assert set(READ_ONLY) <= set(RAISABLE), sorted(set(READ_ONLY) - set(RAISABLE))
+
+
+@pytest.mark.parametrize("row,step", sorted(READ_ONLY))
+def test_a_step_a_read_only_directory_stops_is_said_at_the_terminal_never_a_traceback(
+        row, step, tmp_path, monkeypatch):
+    """The command a person types, in a process of its own, on a directory it cannot write: the
+    step that could not write is a line naming the directory, the command exits 1, and nothing
+    is printed as a traceback. `project init` on a read-only checkout printed one, and no line
+    for the registration and the board it had done (review of #1085)."""
+    import os
+    import subprocess
+    import sys
+
+    from tests.one_machine import a_deployment
+
+    for var in CLOSING_ENVS:
+        monkeypatch.delenv(var, raising=False)
+    (tmp_path / "home").mkdir()
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    a_deployment(tmp_path, monkeypatch=monkeypatch)
+    argv, locked = READ_ONLY[row, step](tmp_path, monkeypatch)
+    locked.chmod(0o555)
+    try:
+        if os.access(locked, os.W_OK):
+            pytest.skip(f"a read-only directory does not stop this user ({os.geteuid()=})")
+        # THIS TREE'S CODE, whichever install the interpreter has: the working directory holds
+        # no package, so the import comes from PYTHONPATH.
+        ran = subprocess.run([sys.executable, "-m", "openfactory.cli", *argv], cwd=tmp_path,
+                             env={**os.environ, "PYTHONPATH": str(ROOT)}, capture_output=True,
+                             text=True, timeout=180)
+    finally:
+        locked.chmod(0o755)
+
+    shown = ran.stdout + ran.stderr
+    assert "Traceback" not in shown, shown
+    failed = [line for line in ran.stdout.splitlines() if line.startswith("✗")]
+    assert ran.returncode == 1 and failed and str(locked) in failed[0], shown
