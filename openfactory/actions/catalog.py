@@ -7886,15 +7886,18 @@ def _the_board_step(project, *, board_owner: str) -> dict:
     from openfactory.registry import ProjectRegistry
     from openfactory.util.causes import first_message
 
-    kind = ((project.tracker.kind or "") if project.tracker else "github").strip().lower()
-    creator = board_creator(kind or "github")
-    if creator is None:
-        from openfactory.adapters.board.factory import board_row
-
-        setup = plugins.sentence(board_row(project), "setup", "", project)
-        return _step("board", STEP_SKIPPED, f"board: the {kind} tracker brings its own — nothing "
-                                            f"to create" + (f" ({setup})" if setup else ""))
     try:
+        # ASKED INSIDE THE STEP: an add-on's board row that cannot be built, or a registry that
+        # cannot record the board, is this step failing, never the row raising.
+        kind = ((project.tracker.kind or "") if project.tracker else "github").strip().lower()
+        creator = board_creator(kind or "github")
+        if creator is None:
+            from openfactory.adapters.board.factory import board_row
+
+            setup = plugins.sentence(board_row(project), "setup", "", project)
+            return _step("board", STEP_SKIPPED, f"board: the {kind} tracker brings its own — "
+                                                f"nothing to create"
+                                                + (f" ({setup})" if setup else ""))
         attached = creator.attached(project)
         if attached:
             return _step("board", STEP_ALREADY, f"board already attached ({attached})")
@@ -7909,18 +7912,21 @@ def _the_board_step(project, *, board_owner: str) -> dict:
         number, url = creator.create(
             project=project, owner=owner, title=project.name,
             token=tracker_token_for(project) or deployment_tracker_token(project))
+        # ONLY WHERE THERE IS A COORDINATE TO WRITE: a board with no second object to point at
+        # answers `""`, and an empty coordinate is one every later read would special-case.
+        if number:
+            ProjectRegistry().attach_board(project.name, board_owner=owner, board_number=number)
     except BoardSetupError as exc:
         # THE PROJECT STAYS REGISTERED — tickets-only is legitimate — and the steps after this one
         # still run, so a project whose board was refused can still finish being initialised
         # (pre-pilot review: exiting here left the manifest unreachable for ever).
         return _step("board", STEP_FAILED, f"board: {exc}")
     except Exception as exc:  # noqa: BLE001 — a step that raised is a failed step, said
-        log.warning("the board step of %s raised", project.name, exc_info=True)
+        # ONE LINE, NO TRACEBACK: a terminal prints a warning's traceback above the steps, and a
+        # failure speaks by name (CONTRIBUTING.md); the step carries the cause.
+        log.warning("the board step of %s raised: %s", project.name,
+                    first_message(exc, limit=300))
         return _step("board", STEP_FAILED, f"board: {first_message(exc, limit=300)}")
-    # ONLY WHERE THERE IS A COORDINATE TO WRITE: a board with no second object to point at
-    # answers `""`, and an empty coordinate is one every later read would special-case.
-    if number:
-        ProjectRegistry().attach_board(project.name, board_owner=owner, board_number=number)
     return _step("board", STEP_DONE, f"board created with the platform's columns — {url}",
                  url=url)
 
@@ -7950,6 +7956,7 @@ def _the_context_step(name: str) -> dict | None:
         if not isinstance(forge, RepositoryCreatingForge):
             return None
         created, where = seed_context_repository(project, docs, sources=[name])
+        there = where or forge.clone_url(docs)
     except Exception as exc:  # noqa: BLE001 — the project is registered; the step is said
         log.warning("could not seed the context repository for %s (%s)", name, str(exc)[:200])
         return _step("context", STEP_FAILED, f"the product role's context repository could not "
@@ -7957,7 +7964,7 @@ def _the_context_step(name: str) -> dict | None:
                                              f"product module is unusable until it is")
     if not where:
         return _step("context", STEP_ALREADY, f"the product role's context repository is there "
-                                              f"— {forge.clone_url(docs)}")
+                                              f"— {there}")
     # WHICH OF THE TWO IT DID: "created" over a repository that was already there, because a push
     # failed last time and this run finished the job, is a small untruth that makes a person doubt
     # the rest of the output.
@@ -7971,38 +7978,48 @@ def _the_manifest_step(project, *, local: bool) -> tuple[dict, str]:
     import subprocess
 
     from openfactory.onboarding.starter import MANIFEST_TEMPLATE
+    from openfactory.util.causes import first_message
 
     name, where = project.name, project.repo_path
     if "://" in where or where.startswith("git@"):
         return _step("manifest", STEP_SKIPPED, f"{name} is registered by its clone URL — the "
                                                f"factory fetches the code itself, so there is no "
                                                f"checkout here to write a manifest into"), "main"
-    # WHICH BRANCH THIS CHECKOUT IS ON: the manifest names it, and `git init` still yields `master`
-    # on plenty of machines — a manifest naming a branch that does not exist made the pickup gate
-    # hold every card with nothing saying why. `symbolic-ref --short HEAD` answers on an unborn
-    # branch too, where `rev-parse --abbrev-ref HEAD` exits 128.
-    head = subprocess.run(["git", "-C", str(Path(where).expanduser()), "symbolic-ref", "--short",
-                           "HEAD"], capture_output=True, text=True, check=False)
-    named = (head.stdout or "").strip()
-    base_branch = named if head.returncode == 0 and named else "main"
+    base_branch = "main"
     try:
+        # WHICH BRANCH THIS CHECKOUT IS ON: the manifest names it, and `git init` still yields
+        # `master` on plenty of machines — a manifest naming a branch that does not exist made the
+        # pickup gate hold every card with nothing saying why. `symbolic-ref --short HEAD` answers
+        # on an unborn branch too, where `rev-parse --abbrev-ref HEAD` exits 128.
+        head = subprocess.run(["git", "-C", str(Path(where).expanduser()), "symbolic-ref",
+                               "--short", "HEAD"], capture_output=True, text=True, check=False)
+        named = (head.stdout or "").strip()
+        base_branch = named if head.returncode == 0 and named else "main"
         # THE ONE READER DECIDES WHETHER THIS CHECKOUT HAS A MANIFEST: a checkout still on the
         # directory's retired name is refused with what to rename, and nothing is written beside
         # the manifest it has (review, 2026-08-25).
         dest = namespace.resolve(Path(where).expanduser(), project.manifest_path, project=name)
+        if dest.exists():
+            return _step("manifest", STEP_ALREADY, f"manifest already exists: {dest}",
+                         path=str(dest)), base_branch
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        scaffold = MANIFEST_TEMPLATE.replace("base_branch: main", f"base_branch: {base_branch}")
+        if local:
+            # THE SOURCE SAYS WHOSE CONTEXT IT IS: the product module reads the pair from both
+            # ends, and on this runtime both are ours to write.
+            scaffold += "\n# The product role's context repository (created for you).\n"
+            scaffold += f"docs_repo: {name}-context\n"
+        dest.write_text(scaffold)
     except namespace.RetiredNamespace as exc:
         return _step("manifest", STEP_FAILED, str(exc)), base_branch
-    if dest.exists():
-        return _step("manifest", STEP_ALREADY, f"manifest already exists: {dest}",
-                     path=str(dest)), base_branch
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    scaffold = MANIFEST_TEMPLATE.replace("base_branch: main", f"base_branch: {base_branch}")
-    if local:
-        # THE SOURCE SAYS WHOSE CONTEXT IT IS: the product module reads the pair from both ends,
-        # and on this runtime both are ours to write.
-        scaffold += "\n# The product role's context repository (created for you).\n"
-        scaffold += f"docs_repo: {name}-context\n"
-    dest.write_text(scaffold)
+    except Exception as exc:  # noqa: BLE001 — a checkout that cannot be written is a failed step
+        # A CHECKOUT THAT CANNOT BE WRITTEN — read-only, or a path that cannot be made — raised
+        # out of the row and took the registration and the board before it down with it: the
+        # answer named neither, and the terminal printed a traceback (review of #1085, a `git
+        # init`'d directory made `chmod 555`).
+        log.warning("the manifest step of %s raised: %s", name, first_message(exc, limit=300))
+        return _step("manifest", STEP_FAILED, f"manifest: {first_message(exc, limit=300)}"), \
+            base_branch
     return _step("manifest", STEP_DONE, f"wrote {dest}" + (
         f" (base_branch: {base_branch})" if base_branch != "main" else ""),
         path=str(dest)), base_branch
@@ -8010,29 +8027,39 @@ def _the_manifest_step(project, *, local: bool) -> tuple[dict, str]:
 
 def _project_init_steps(name: str, *, repo_path: str, repo: str, board_owner: str,
                         language: str, provider: str) -> Outcome:
-    """`project_init`'s steps, in order, off the loop that called it."""
+    """`project_init`'s steps, in order, off the loop that called it. NONE RAISES: each says what
+    it came to, a failure included, so the answer names every step that ran."""
     from openfactory.registry import ProjectRegistry
+    from openfactory.util.causes import first_message
 
     registry = ProjectRegistry()
     try:
-        found = registry.get(name)
-    except KeyError:
-        found = None
-    if found is not None:
-        # NEVER OVER WHAT IS THERE: a registered project is initialised as it is registered, and an
-        # address given beside it changes nothing — `project_add` says when one differs.
-        steps = [_step("register", STEP_ALREADY, f"{name} is already registered")]
-    else:
-        asked, bad = _project_to_initialise(name, repo_path=repo_path, repo=repo,
-                                            language=language, provider=provider)
-        if bad is not None:
-            return bad
         try:
-            registry.add(asked)
-        except ValueError as exc:
-            return refused(CONFLICT, f"{name} was not registered — {exc}", project=name)
-        steps = [_step("register", STEP_DONE, f"registered {name} ({asked.tracker.repo})")]
-        found = registry.get(name)
+            found = registry.get(name)
+        except KeyError:
+            found = None
+        if found is not None:
+            # NEVER OVER WHAT IS THERE: a registered project is initialised as it is registered,
+            # and an address given beside it changes nothing — `project_add` says when one differs.
+            steps = [_step("register", STEP_ALREADY, f"{name} is already registered")]
+        else:
+            asked, bad = _project_to_initialise(name, repo_path=repo_path, repo=repo,
+                                                language=language, provider=provider)
+            if bad is not None:
+                return bad
+            try:
+                registry.add(asked)
+            except ValueError as exc:
+                return refused(CONFLICT, f"{name} was not registered — {exc}", project=name)
+            steps = [_step("register", STEP_DONE, f"registered {name} ({asked.tracker.repo})")]
+            found = registry.get(name)
+    except Exception as exc:  # noqa: BLE001 — a registry that cannot be written is a failed step
+        # A REGISTRY THAT CANNOT BE READ OR WRITTEN — its directory read-only, its file broken by
+        # hand — is the first step failing, said like any other. Nothing after it is tried: the
+        # board, the context and the manifest are all done on the registered project.
+        log.warning("the register step of %s raised: %s", name, first_message(exc, limit=300))
+        return _the_steps_came_to(name, [_step("register", STEP_FAILED,
+                                               f"register: {first_message(exc, limit=300)}")])
     steps.append(_the_board_step(found, board_owner=board_owner))
     # READ OFF THE ROW, never off what this run decided: the row converges, and the second run
     # registers nothing to decide from.

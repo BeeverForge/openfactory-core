@@ -541,7 +541,8 @@ def project_init(
     # context repository and scaffolds the manifest, each only if its result is missing, and says
     # what each step came to; what stays here is how a terminal shows them, the ways out only this
     # command's flags offer, the closing checklist, and the exit codes. EXIT 1 WHEN THE BOARD OR
-    # THE MANIFEST FAILED, after converging, as it always was: a script must notice those two. The
+    # THE MANIFEST FAILED, after converging, as it always was: a script must notice those two —
+    # and when the registration did, as a registry that could not be written always exited. The
     # context repository's seed was best-effort here before it was a step (#106's review), and a
     # failed one still exits 0 — the row says it failed, and the line below says what it costs.
     from openfactory.actions import STEP_ALREADY, STEP_DONE, STEP_FAILED, STEP_SKIPPED
@@ -584,6 +585,9 @@ def project_init(
                        "docs/project.yaml.example")
         elif one["step"] == "context" and one["state"] == STEP_FAILED:
             typer.echo(f"  `openfactory doctor {name}` will say the module is unusable until it is")
+    if any(one["step"] == "register" and one["state"] == STEP_FAILED for one in steps):
+        # NOTHING AFTER IT WAS TRIED, and the checklist below is about a project that is registered
+        raise typer.Exit(1)
 
     typer.echo("")
     # A CHECKLIST OF WHAT THIS COMMAND CANNOT DO — not a list of things still undone (pilot,

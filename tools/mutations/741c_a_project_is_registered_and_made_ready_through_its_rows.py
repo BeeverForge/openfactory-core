@@ -66,9 +66,9 @@ MUTATIONS = [
 
     # ── 4. only what is missing ────────────────────────────────────────────────────────────────
     ("`project_init` sets the language it was given on a project already registered", CATALOG,
-     '        steps = [_step("register", STEP_ALREADY, f"{name} is already registered")]\n',
-     '        if language:\n            registry.set_language(name, language)\n'
-     '        steps = [_step("register", STEP_ALREADY, f"{name} is already registered")]\n'),
+     '            steps = [_step("register", STEP_ALREADY, f"{name} is already registered")]\n',
+     '            if language:\n                registry.set_language(name, language)\n'
+     '            steps = [_step("register", STEP_ALREADY, f"{name} is already registered")]\n'),
     ("a review already open is proposed again", CATALOG,
      '    if found := (already_proposed(forge, result.docs_repo, branch) or ""):\n',
      '    if found := "":\n'),

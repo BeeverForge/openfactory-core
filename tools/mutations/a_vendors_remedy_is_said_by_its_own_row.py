@@ -58,10 +58,11 @@ MUTATIONS = [
      '             "see it.") if "github" in {found.forge.kind, found.tracker.kind} else ""\n'),
 
     # RE-PINNED 2026-10-23 (#741): `project init` maps onto the `project_init` row, so this
-    # code is the row's now, in `actions/catalog.py`; the claim is unchanged.
+    # code is the row's now, in `actions/catalog.py`; the claim is unchanged. RE-PINNED again
+    # 2026-10-24: the board step asks its tracker inside its guard (review of #1085).
     ("`project init` points every tracker at one vendor's recipe again", CATALOG,
-     '                                            f"to create" + (f" ({setup})" if setup else ""))\n',
-     '                                            f"to create" + " (azure_devops states: '
+     '                                                + (f" ({setup})" if setup else ""))\n',
+     '                                                + " (azure_devops states: '
      'docs/setup/azure-devops.md §3)")\n'),
 
     ("the door says `as GitHub` to whoever named whichever kind", DOORS,
