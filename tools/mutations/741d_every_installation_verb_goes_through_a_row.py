@@ -10,20 +10,29 @@ The claims, each a group of rows:
   1. a command that is no mapping at all and writes the installation is seen — through an instance
      built inline, a name bound to one, the people store, the schedule's hold reached as the
      module's attribute, and a row's runner called without the door;
-  2. every command that maps onto an installation row is seen the day it writes the installation
+  2. a write is seen past the command's own instance, in each shape `_reaches` says it reads — the
+     five an independent review put in `cli.py` (a registry handed to a helper, one a helper
+     returned, a class's method, `catalog.CATALOG["enable"].run(...)`, `import openfactory.x as
+     y`) and each other step the reading takes: a registry handed by name, through a thread, by a
+     parameter's annotation, by `registry or ProjectRegistry()`, a module imported whole, a writer
+     on another object's attribute by a name only the registry has, and a row's runner taken off
+     the catalogue by `.get`, by a loop over its items and by `actions.spec`;
+  3. every command that maps onto an installation row is seen the day it writes the installation
      itself again, beside its row — sixteen commands, `onboard` twice: from the command, and from
      the onboarding module it calls;
-  3. `onboard` creates the context repository through `product_init`, backfills the project as
+  4. `onboard` creates the context repository through `product_init`, backfills the project as
      re-read, and says what it made;
-  4. the walk is held to the app: a group it loses, a walk that stops at the root, a command whose
+  5. the walk is held to the app: a group it loses, a walk that stops at the root, a command whose
      body it cannot read and a function shadowed by another of its name are each seen;
-  5. the door is `perform`: a shell that runs its rows without it is seen by the positive twin,
-     which a static walk alone could not see;
-  6. the catalogue a front end reads says which rows are the installation's.
+  6. the door is `perform`: a shell that runs its rows without it is seen by the positive twin
+     (and, since claim 2's reading, by the guard too, which reads `CATALOG[name].run(...)` as
+     every row's runner);
+  7. the catalogue a front end reads says which rows are the installation's.
 
 The schedule's hold reached as the module's attribute (claim 1) is red only because the reading
 enters the schedule's pausing functions (slice 4); without that, the walk saw a hold by its name
-alone and this row survived.
+alone and this row survived. Each of claim 2's rows passed the walk the review was made on
+(`191a9fdc`).
 """
 
 TEST = "tests/test_the_installation_is_changed_through_its_rows.py"
@@ -38,6 +47,9 @@ ONBOARD_TEST = ("tests/test_onboard_builds_the_context_too.py::"
 CLI = "openfactory/cli.py"
 ONBOARDING = "openfactory/onboarding/onboard.py"
 API = "openfactory/api/app.py"
+
+#: The end of `cli.py`, where each of claim 2's commands is added.
+MAIN = 'if __name__ == "__main__":\n    app()\n'
 
 MUTATIONS = [
     # ── 1. a command that is no mapping writes the installation ─────────────────────────────────
@@ -73,7 +85,124 @@ MUTATIONS = [
      '    outcome = _perform("product_status", project=name)\n',
      GUARD),
 
-    # ── 2. each mapped command writes the installation itself again, beside its row ─────────────
+    # ── 2. past the command's own instance: each shape the walk reads ───────────────────────────
+    ("a command hands a registry to a helper that writes through its parameter", CLI,
+     MAIN,
+     "def _switch_off(registry, name):\n"
+     "    registry.set_enabled(name, False)\n\n\n"
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    _switch_off(ProjectRegistry(), name)\n\n\n" + MAIN,
+     GUARD),
+    ("a command hands a registry to a helper by the parameter's name", CLI,
+     MAIN,
+     "def _switch_off(name, registry):\n"
+     "    registry.set_enabled(name, False)\n\n\n"
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    _switch_off(name=name, registry=ProjectRegistry())\n\n\n" + MAIN,
+     GUARD),
+    ("a command writes through the registry a helper returned", CLI,
+     MAIN,
+     "def _the_registry():\n"
+     "    return ProjectRegistry()\n\n\n"
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    registry = _the_registry()\n"
+     "    registry.set_enabled(name, False)\n\n\n" + MAIN,
+     GUARD),
+    ("a command writes through a method of a class of its module, which calls another on `self`",
+     CLI, MAIN,
+     "class _Switch:\n"
+     "    def off(self, name):\n"
+     "        self._write(name)\n\n"
+     "    def _write(self, name):\n"
+     "        ProjectRegistry().set_enabled(name, False)\n\n\n"
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    _Switch().off(name)\n\n\n" + MAIN,
+     GUARD),
+    ("a command calls a row's runner off the catalogue by the row's name, without the door", CLI,
+     MAIN,
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    from openfactory.actions import catalog\n\n"
+     '    asyncio.run(catalog.CATALOG["enable"].run(project=name, enabled=False))\n\n\n' + MAIN,
+     GUARD),
+    ("a command creates a context repository through a module it imported under another name", CLI,
+     MAIN,
+     '@app.command("make-context")\n'
+     "def make_context_cmd(name: str) -> None:\n"
+     "    import openfactory.product.onboard as context\n\n"
+     "    context.create_context_repository(_get_project(name), name)\n\n\n" + MAIN,
+     GUARD),
+    ("a command creates a context repository through a module it imported whole", CLI,
+     MAIN,
+     '@app.command("make-context")\n'
+     "def make_context_cmd(name: str) -> None:\n"
+     "    import openfactory.product.onboard\n\n"
+     "    openfactory.product.onboard.create_context_repository(_get_project(name), name)\n\n\n"
+     + MAIN,
+     GUARD),
+    ("a command hands a registry on with the helper a thread runs", CLI,
+     MAIN,
+     "def _switch_off(registry, name):\n"
+     "    registry.set_enabled(name, False)\n\n\n"
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    asyncio.run(asyncio.to_thread(_switch_off, ProjectRegistry(), name))\n\n\n" + MAIN,
+     GUARD),
+    ("a helper writes through a parameter annotated as the registry, handed one from a tuple", CLI,
+     MAIN,
+     "def _switch_off(name: str, registry: ProjectRegistry) -> None:\n"
+     "    registry.set_enabled(name, False)\n\n\n"
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    for registry in (ProjectRegistry(),):\n"
+     "        _switch_off(name, registry)\n\n\n" + MAIN,
+     GUARD),
+    ("a helper writes through `registry or ProjectRegistry()`", CLI,
+     MAIN,
+     "def _switch_off(name, registry=None):\n"
+     "    registry = registry or ProjectRegistry()\n"
+     "    registry.set_enabled(name, False)\n\n\n"
+     '@app.command("switch-off")\n'
+     "def switch_off_cmd(name: str) -> None:\n"
+     "    _switch_off(name)\n\n\n" + MAIN,
+     GUARD),
+    ("a command sets a language through a registry held on another object", CLI,
+     MAIN,
+     '@app.command("set-english")\n'
+     "def set_english_cmd(name: str) -> None:\n"
+     "    from types import SimpleNamespace\n\n"
+     "    held = SimpleNamespace(registry=ProjectRegistry())\n"
+     '    held.registry.set_language(name, "en")\n\n\n' + MAIN,
+     GUARD),
+    ("a command runs the row it is given off the catalogue's `.get`, without the door", CLI,
+     MAIN,
+     '@app.command("run-row")\n'
+     "def run_row_cmd(row: str) -> None:\n"
+     "    from openfactory import actions as act_layer\n\n"
+     "    found = act_layer.CATALOG.get(row)\n"
+     "    asyncio.run(found.run())\n\n\n" + MAIN,
+     GUARD),
+    ("a command runs every row off the catalogue's items, without the door", CLI,
+     MAIN,
+     '@app.command("run-rows")\n'
+     "def run_rows_cmd() -> None:\n"
+     "    from openfactory.actions import CATALOG\n\n"
+     "    for _name, found in CATALOG.items():\n"
+     "        asyncio.run(found.run())\n\n\n" + MAIN,
+     GUARD),
+    ("a command runs a row found by `actions.spec`, without the door", CLI,
+     MAIN,
+     '@app.command("run-row")\n'
+     "def run_row_cmd(row: str) -> None:\n"
+     "    from openfactory import actions as act_layer\n\n"
+     "    asyncio.run(act_layer.spec(row).run())\n\n\n" + MAIN,
+     GUARD),
+
+    # ── 3. each mapped command writes the installation itself again, beside its row ─────────────
     ("`project add` registers the project itself", CLI,
      '    outcome = _perform("project_add", project=name, repo_path=repo_path,\n',
      "    from openfactory.contracts.project import Project\n"
@@ -185,7 +314,7 @@ MUTATIONS = [
      "        out.detail = (f\"{getattr(project, 'name', 'this project')} declares no context \"\n",
      GUARD),
 
-    # ── 3. onboard through product_init ─────────────────────────────────────────────────────────
+    # ── 4. onboard through product_init ─────────────────────────────────────────────────────────
     ("`onboard` backfills the project it held before the repository was made", CLI,
      '    return _get_project(name), context["state"] == STEP_DONE, ""\n',
      '    return project, context["state"] == STEP_DONE, ""\n',
@@ -195,7 +324,7 @@ MUTATIONS = [
      '    return _get_project(name), False, ""\n',
      RECORDER),
 
-    # ── 4. the walk is held to the app ──────────────────────────────────────────────────────────
+    # ── 5. the walk is held to the app ──────────────────────────────────────────────────────────
     ("the walk loses a command group", TEST,
      "            for name, sub in sorted(subs.items()):\n"
      "                yield from walk(sub, (*words, name))\n",
@@ -217,7 +346,7 @@ MUTATIONS = [
      'if __name__ == "__main__":\n    app()\n',
      WALK),
 
-    # ── 5. the door is perform ──────────────────────────────────────────────────────────────────
+    # ── 6. the door is perform ──────────────────────────────────────────────────────────────────
     ("the shell runs its rows without `perform` — no question of who acts, no audit line", CLI,
      "    return asyncio.run(act_layer.perform(\n"
      '        name, by=act_layer.Actor(id=who, display=who, via="cli", admin=True), **params))\n',
@@ -225,7 +354,7 @@ MUTATIONS = [
      '        by=act_layer.Actor(id=who, display=who, via="cli", admin=True), **params))\n',
      TWIN),
 
-    # ── 6. the catalogue says whose a row is ────────────────────────────────────────────────────
+    # ── 7. the catalogue says whose a row is ────────────────────────────────────────────────────
     ("the catalogue a front end reads stops saying which rows are the installation's", API,
      '         "installation": s.installation,\n',
      '         "installation": False,\n',
