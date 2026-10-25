@@ -140,6 +140,34 @@ def test_a_credential_the_release_refuses_is_named(gated):
     assert "client.credential" in _rules(report), _said(report)
 
 
+def _through(app, answer_for) -> httpx.Client:
+    """The app's own answers, but where `answer_for(request)` answers one instead."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        mine = answer_for(request)
+        if mine is not None:
+            return mine
+        real = app.request(request.method, str(request.url), headers=dict(request.headers))
+        return httpx.Response(real.status_code, content=real.content,
+                              headers={"content-type": real.headers.get("content-type", "")})
+
+    return httpx.Client(base_url="http://api.test", transport=httpx.MockTransport(handler))
+
+
+def test_a_credentialed_run_holds_the_401_of_no_credential_on_its_own(gated):
+    """The deployment refuses the credential nobody issued as it should, and answers a request
+    with NO credential as if it were open: that alone is the finding."""
+    def open_without_one(request):
+        if request.url.path == "/api/v1/whoami" and "authorization" not in request.headers:
+            return httpx.Response(200, json={"display": "anyone", "scopes": []})
+        return None
+
+    report = check_client(_through(gated, open_without_one),
+                          _manifest(("GET", "/api/v1/projects", [])), credential="the-operator")
+
+    assert _rules(report) == ["client.refusal-401"], _said(report)
+    assert "with no credential answered 200" in _said(report)
+
+
 # ── the default front end's manifest is what the page calls ─────────────────────────────────────
 
 def test_every_address_the_page_calls_is_a_route_of_its_manifest():
@@ -210,12 +238,13 @@ def test_a_manifest_of_what_the_api_has_passes(empty):
     ([("GET", "/api/v1/gone", [])], (), "client.route", "GET /api/v1/gone"),
     ([("POST", "/api/v1/whoami", [])], (), "client.route", "POST /api/v1/whoami"),
     ([("WS", "/api/v1/gone", [])], (), "client.route", "WS /api/v1/gone"),
+    ([("WS", "/api/product/stream", ["text"])], (), "client.route", "names fields"),
     ([("GET", "/api/v1/whoami", ["no_such_field"])], (), "client.field", "no_such_field"),
     ([("GET", "/api/v1/budget", ["rows.no_such_field"])], (), "client.field",
      "rows.no_such_field"),
     ([], (("no_such_kind", []),), "client.event", "no_such_kind"),
     ([], (("said", ["no_such_field"]),), "client.event-field", "no_such_field"),
-], ids=["route", "method", "socket", "field", "nested field", "event", "event field"])
+], ids=["route", "method", "socket", "socket's fields", "field", "nested field", "event", "event field"])
 def test_what_the_manifest_names_and_the_api_lacks_fails_naming_it(empty, routes, events, rule,
                                                                    named):
     report = check_client(empty, _manifest(*routes, events=events))
@@ -268,6 +297,26 @@ def test_an_api_of_another_release_is_named_with_both_versions(empty):
 
     assert _rules(report) == ["client.release"], _said(report)
     assert "0.0.1" in _said(report) and "pip install openfactory==0.0.1" in _said(report)
+
+
+def test_a_deprecated_alias_passes_with_a_note_naming_its_v1_address(empty):
+    report = check_client(empty, _manifest(("GET", "/api/budget", [])))
+
+    assert report.findings == [], _said(report)
+    assert "GET /api/budget is a deprecated alias: build on its /api/v1/ address" in report.notes
+
+
+@pytest.mark.parametrize("answer", [
+    httpx.Response(500, json={"detail": "the version could not be read"}),
+    httpx.Response(200, json=["0.8.0"]),
+], ids=["not 200", "not an object"])
+def test_a_version_route_that_does_not_say_the_release_is_named(empty, answer):
+    report = check_client(_lying(empty, "/api/v1/version", answer),
+                          _manifest(("GET", "/api/v1/whoami", [])))
+
+    assert _rules(report) == ["client.release"], _said(report)
+    assert f"answered {answer.status_code}, so the release the API runs is unknown" in _said(
+        report)
 
 
 def test_a_401_the_contract_does_not_name_is_named(gated):
@@ -347,6 +396,30 @@ def test_the_command_refuses_what_it_cannot_use_in_one_sentence(empty, monkeypat
 
     assert got.exit_code == 2 and said in got.output, got.output
     assert "Traceback" not in got.output
+
+
+def test_an_api_that_stops_answering_mid_run_is_one_sentence_and_exit_1(empty, monkeypatch):
+    """The description and `whoami` answer; every request after them times out."""
+    def then_silence(request):
+        if request.url.path in ("/openapi.json", "/api/v1/whoami"):
+            return None
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    got = _cli(monkeypatch, _through(empty, then_silence))
+
+    assert got.exit_code == 1, got.output
+    assert "the API at http://api.test stopped answering during the run: timed out" in got.output
+    assert "Traceback" not in got.output and not isinstance(got.exception, httpx.HTTPError)
+
+
+def test_the_command_asks_with_a_bounded_timeout():
+    """A read the API cannot answer is a finding of its own, never a run that hangs."""
+    from openfactory import cli
+
+    with cli._client_http("http://api.test") as http:
+        bounds = (http.timeout.connect, http.timeout.read, http.timeout.write, http.timeout.pool)
+
+    assert all(b is not None and 0 < b <= 60 for b in bounds), bounds
 
 
 def test_the_command_presents_the_credential_its_variable_holds(gated, monkeypatch):

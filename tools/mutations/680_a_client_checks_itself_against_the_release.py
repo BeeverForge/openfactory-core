@@ -105,6 +105,26 @@ MUTATIONS = [
      "    if me.status_code != 200:",
      "    if False:"),
 
+    ("a version route that does not answer 200 with an object passes", CLIENT,
+     "    if answer.status_code != 200 or not isinstance(body, dict):\n"
+     "        report.findings.append(_finding(\n            \"client.release\"",
+     "    if False:\n"
+     "        report.findings.append(_finding(\n            \"client.release\""),
+
+    ("a credentialed run does not hold the 401 of no credential", CLIENT,
+     "    for what, answer in ((\"no credential\", bare), (\"a credential nobody issued\", "
+     "stranger)):",
+     "    for what, answer in ((\"a credential nobody issued\", stranger),):"),
+
+    ("a deprecated alias passes without its note", CLIENT,
+     "            report.notes.append(f\"{name} is a deprecated alias: build on its /api/v1/ "
+     "address\")",
+     "            pass"),
+
+    ("a socket row naming fields passes", CLIENT,
+     "            elif route.fields:",
+     "            elif False:"),
+
     ("an address that does not answer raises", CLIENT,
      "    except httpx.HTTPError as exc:\n        report.findings.append(_finding(\n"
      "            \"client.reachable\"",
@@ -187,6 +207,14 @@ MUTATIONS = [
      "environment\")\n            raise typer.Exit(2)\n",
      "            typer.echo(f\"--token-env names {token_env}, and it is not set in this "
      "environment\")\n"),
+
+    ("an API that stops answering mid-run is a traceback", CLI,
+     "    except httpx.HTTPError as exc:\n        # the suite's first request",
+     "    except ZeroDivisionError as exc:\n        # the suite's first request"),
+
+    ("a request may wait for ever", CLI,
+     "    return httpx.Client(base_url=address.rstrip(\"/\"), timeout=10.0)",
+     "    return httpx.Client(base_url=address.rstrip(\"/\"), timeout=None)"),
 
     ("the credential its variable holds is not presented", CLI,
      "        credential = os.environ.get(token_env, \"\").strip()",
