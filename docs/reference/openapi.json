@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "OpenFactory",
-    "version": "0.7.0.dev0"
+    "version": "0.8.0.dev0"
   },
   "paths": {
     "/api/preview/{project}/{unit}": {
