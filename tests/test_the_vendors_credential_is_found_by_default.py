@@ -11,6 +11,12 @@ credential on a mixed deployment, and handing it to an ADO axis presents it as H
 reads back a 401 — a configured-looking credential failing as if revoked. So the vendor default
 sits BETWEEN the registry's `token_env` (always first: an explicit declaration) and the generic
 pair (last: correct exactly while one vendor exists).
+
+AND A VENDOR THAT NAMES ITS OWN VARIABLE IS ANSWERED BY IT, AND BY NOTHING AFTER IT (#874). The
+pair is the row that names none — GitHub's — and a project of no kind. A Jira project that named
+no `token_env`, on a deployment with no `JIRA_API_TOKEN`, was handed `OPENFACTORY_BOT_TOKEN` and
+sent it to the Jira site, which refused it as another account's (measured 2026-10-19). The rows
+this holds are read from the credential registry, so a row added later is held to it unasked.
 """
 
 from __future__ import annotations
@@ -114,3 +120,85 @@ def test_the_doctor_probe_with_the_pat_gets_past_presence(monkeypatch):
     reachable, _ = probes_for(_ado()).forge_reachable()
     assert seen["asked"] == "1"
     assert reachable is True
+
+
+# ── #874: a vendor that names its own variable is answered by it, and by nothing after it ──────
+
+def _rows_that_name_their_own_variable() -> list[str]:
+    """Every shipped kind whose row names a variable, needs a credential and resolves nothing
+    itself — the rows the generic pair must never answer for. Read from the registry, so a row
+    added later is held to this without anybody editing a list here."""
+    from openfactory.adapters.credential.registry import CREDENTIALS
+
+    return sorted(kind for kind, build in CREDENTIALS.items()
+                  if (row := build()).env and row.source is None and row.needs)
+
+
+def _variable_of(kind: str) -> str:
+    from openfactory.adapters.credential.registry import credential_row
+
+    return credential_row(kind).env
+
+
+def _on(kind: str, axis: str, **options) -> Project:
+    ref = ProviderRef(kind=kind, repo="DAR", options={"site": "acme.atlassian.net", **options})
+    return Project(name="j", repo_path="/tmp/x", **{axis: ref})
+
+
+def test_the_rows_this_holds_are_read_from_the_registry():
+    """A parametrisation over an empty list is a test that runs nothing: Jira is the row #874 was
+    found on, so it must be in the family."""
+    assert "jira" in _rows_that_name_their_own_variable()
+
+
+@pytest.mark.parametrize("axis", ["tracker", "forge"])
+@pytest.mark.parametrize("kind", _rows_that_name_their_own_variable())
+def test_a_vendor_that_names_its_own_variable_never_reads_the_generic_pair(kind, axis,
+                                                                            monkeypatch):
+    """Only the pair set → nothing: not `OPENFACTORY_<AXIS>_TOKEN`, not `OPENFACTORY_BOT_TOKEN`.
+    Its own variable set → that, and the pair is still not what answered."""
+    read = tracker_token_for if axis == "tracker" else forge_token_for
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "ghp_github_shaped")
+    monkeypatch.setenv(f"OPENFACTORY_{axis.upper()}_TOKEN", "ghp_the_axis_s_own")
+    assert read(_on(kind, axis)) is None
+    monkeypatch.setenv(_variable_of(kind), "the-vendor-s-own")
+    assert read(_on(kind, axis)) == "the-vendor-s-own"
+
+
+@pytest.mark.parametrize("kind", _rows_that_name_their_own_variable())
+def test_an_empty_token_env_on_such_a_vendor_falls_to_its_variable_and_no_further(kind,
+                                                                                  monkeypatch):
+    """The project's own declaration still wins; empty, it is the vendor's variable that is asked
+    next — and with that unset too, nothing: the warning used to say "falling back to this
+    deployment's own", and that is what it did."""
+    monkeypatch.delenv("ACME_OWN_TOKEN", raising=False)
+    monkeypatch.setenv("OPENFACTORY_TRACKER_TOKEN", "ghp_the_axis_s_own")
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "ghp_github_shaped")
+    project = _on(kind, "tracker", token_env="ACME_OWN_TOKEN")
+    assert tracker_token_for(project) is None
+    monkeypatch.setenv(_variable_of(kind), "the-vendor-s-own")
+    assert tracker_token_for(project) == "the-vendor-s-own"
+    monkeypatch.setenv("ACME_OWN_TOKEN", "this-project-s-own")
+    assert tracker_token_for(project) == "this-project-s-own"
+
+
+def test_a_jira_tracker_built_with_what_the_project_resolves_holds_no_github_token(monkeypatch):
+    """The measured defect: callers hand `build_tracker` the credential `tracker_token_for`
+    resolved, and with only the deployment's pair set that was a `ghs_…`, which the site answered
+    401 "different accounts". Now the tracker holds nothing, and says so (#749)."""
+    from openfactory.adapters.tracker.registry import build_tracker
+
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "ghs_github_shaped")
+    project = _on("jira", "tracker", email="somebody@acme.example")
+    tracker = build_tracker(project, token=tracker_token_for(project))
+    assert tracker.token is None
+
+
+def test_the_pair_still_answers_for_the_row_that_names_no_variable_and_for_no_kind(monkeypatch):
+    """The stop is the named row's, not every row's: a GitHub axis and a legacy project of no
+    kind read the pair as they always have."""
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "ghp_mine")
+    github = Project(name="gh", repo_path="/tmp/x", tracker=ProviderRef(kind="github", repo="a/r"))
+    assert tracker_token_for(github) == "ghp_mine"
+    blank = Project(name="old", repo_path="/tmp/x", tracker=ProviderRef(kind="", repo="a/r"))
+    assert tracker_token_for(blank) == "ghp_mine"

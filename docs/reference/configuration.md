@@ -503,7 +503,7 @@ Secrets and deployment coordinates. The ones you will actually set:
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` | the harness. Irreducible |
 | `OPENFACTORY_GH_APP_ID` · `OPENFACTORY_GH_APP_KEY` *(path)* or `OPENFACTORY_GH_APP_KEY_CONTENT` *(the PEM)* · `OPENFACTORY_GH_APP_INSTALLATION_ID` | the GitHub App |
-| `OPENFACTORY_BOT_TOKEN` | a static forge/tracker token instead of the App. `OPENFACTORY_TRACKER_TOKEN` / `OPENFACTORY_FORGE_TOKEN` override per axis |
+| `OPENFACTORY_BOT_TOKEN` | a static forge/tracker token instead of the App, for GitHub projects and projects that name no vendor. `OPENFACTORY_TRACKER_TOKEN` / `OPENFACTORY_FORGE_TOKEN` override per axis. A vendor that names its own variable (`JIRA_API_TOKEN`, `AZURE_DEVOPS_PAT`) never reads these |
 | `OPENFACTORY_BOT_NAME` · `OPENFACTORY_BOT_EMAIL` · `OPENFACTORY_BOT_LOGIN` | who the factory commits as |
 | *(the chat channel's variables)* | **not read by the core.** The rows that read them ship in the `openfactory-slack` add-on package and declare their own names (`plugins.environment`); the package's README lists them. Setting them on a core without the package switches nothing on — the channel is the panel and the notifier is the panel's |
 | `OPENFACTORY_PANEL_TOKEN` | **unset means the panel is OPEN** — and it is the SHARED token; approvals recorded under it have no name |

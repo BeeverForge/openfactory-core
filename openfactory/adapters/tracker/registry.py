@@ -91,10 +91,11 @@ def _jira(project, **kw):
     # Jira answers the empty token as an anonymous request (404 on the card, measured
     # 2026-10-19), so the saying is `jira._not_one_account`'s "no API token reached this
     # tracker … Set JIRA_API_TOKEN, or the variable the project's tracker.options.token_env
-    # names." (#749). Only when the deployment has no generic token pair either: a caller that
-    # passes `token=` resolved it through `credentials.tracker_token_for`, which falls back to
-    # that pair, so a GitHub token reaches Jira and reads as "different accounts" (measured on a
-    # Jira Cloud site, 2026-10-19).
+    # names." (#749). A caller that passes `token=` resolved it through
+    # `credentials.tracker_token_for`, which used to fall back to the deployment's generic pair
+    # when `JIRA_API_TOKEN` was unset, so a GitHub token reached Jira and read as "different
+    # accounts" (measured on a Jira Cloud site, 2026-10-19); since #874 that resolution stops at
+    # the vendor's own variable, so the token that reaches here is Jira's or None.
     from openfactory.credentials import axis_refusal, vendor_default
 
     # …AND NOT AFTER A REFUSAL (#822): `JIRA_API_TOKEN` is the step after the project's own
