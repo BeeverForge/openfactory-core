@@ -202,3 +202,93 @@ def test_the_pair_still_answers_for_the_row_that_names_no_variable_and_for_no_ki
     assert tracker_token_for(github) == "ghp_mine"
     blank = Project(name="old", repo_path="/tmp/x", tracker=ProviderRef(kind="", repo="a/r"))
     assert tracker_token_for(blank) == "ghp_mine"
+
+
+# ── …and the doors that held a token of their own (review of #1142) ───────────────────────────
+
+def _jira_tracker_github_forge(**tracker_options) -> Project:
+    return Project(name="mixed", repo_path="/tmp/x",
+                   tracker=ProviderRef(kind="jira", repo="DAR",
+                                       options={"site": "acme.atlassian.net", **tracker_options}),
+                   forge=ProviderRef(kind="github", repo="acme/api"))
+
+
+@pytest.mark.parametrize("kind", _rows_that_name_their_own_variable())
+def test_the_product_roles_board_does_not_hand_a_named_row_the_token_the_module_holds(
+        kind, monkeypatch):
+    """`product/board._credential(project, token)` read `tracker_token_for(project) or token`,
+    where `token` is the module's FORGE credential: a Jira board was built with the GitHub token
+    after the tracker had rightly resolved None (measured on #1142's first head)."""
+    from openfactory.product.board import _credential
+
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "ghs_github")
+    project = Project(name="mixed", repo_path="/tmp/x",
+                      tracker=ProviderRef(kind=kind, repo="DAR",
+                                          options={"site": "acme.atlassian.net"}),
+                      forge=ProviderRef(kind="github", repo="acme/api"))
+    assert _credential(project, "ghs_github") is None
+    monkeypatch.setenv(_variable_of(kind), "the-vendor-s-own")
+    assert _credential(project, "ghs_github") == "the-vendor-s-own"
+
+
+def test_the_held_token_still_serves_a_github_board_and_a_project_of_no_kind(monkeypatch):
+    """The positive twin: the held token exists for a GitHub board on a worker with no ambient
+    tracker credential, where the module carries a freshly minted App token."""
+    from openfactory.product.board import _credential
+
+    github = Project(name="gh", repo_path="/tmp/x", tracker=ProviderRef(kind="github", repo="a/r"))
+    assert _credential(github, "ghs_minted") == "ghs_minted"
+    blank = Project(name="old", repo_path="/tmp/x", tracker=ProviderRef(kind="", repo="a/r"))
+    assert _credential(blank, "ghs_minted") == "ghs_minted"
+    local = Project(name="here", repo_path="/tmp/x", tracker=ProviderRef(kind="local", repo="a/r"))
+    assert _credential(local, "ghs_minted") is None, "a row that needs nothing is handed nothing"
+
+
+def test_both_board_doors_read_the_one_rule():
+    """`ProductModule._board` and `product/board._credential` each spelled the fallback; the rule
+    lives in `credentials.tracker_token_or_held` and both read it, so they cannot part again."""
+    import inspect
+
+    from openfactory.product import board as pb
+    from openfactory.product.module import ProductModule
+
+    for src in (inspect.getsource(pb._credential), inspect.getsource(ProductModule._board)):
+        assert "tracker_token_or_held(" in src, src[:200]
+        assert "tracker_token_for(" not in src.split('"""')[-1], "the door spells its own fallback"
+
+
+def test_the_box_resolves_its_forge_credential_through_the_axis_and_no_pair_of_its_own(
+        monkeypatch):
+    """`boxed_job.main` read `forge_token_for(carried) or forge_token() or
+    deployment_forge_token(carried)`: for a forge row that names its own variable — an add-on's
+    `CredentialRow(env="GITLAB_TOKEN")` — the first step answers None and the second handed it the
+    pair (measured on #1142's first head). GitHub loses nothing: `forge_token_for` already ends in
+    the pair for the row that names none."""
+    from openfactory.adapters.credential import registry as rows
+    from openfactory.adapters.credential.registry import CredentialRow
+    from openfactory.runtime.boxed_job import forge_credential_of
+
+    monkeypatch.setitem(rows.CREDENTIALS, "gitlab", lambda: CredentialRow(env="GITLAB_TOKEN"))
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "ghs_github")
+    monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+    gitlab = Project(name="gl", repo_path="/tmp/x",
+                     tracker=ProviderRef(kind="github", repo="a/r"),
+                     forge=ProviderRef(kind="gitlab", repo="a/r"))
+    assert forge_credential_of(gitlab) is None
+    monkeypatch.setenv("GITLAB_TOKEN", "glpat-own")
+    assert forge_credential_of(gitlab) == "glpat-own"
+    github = Project(name="gh", repo_path="/tmp/x", tracker=ProviderRef(kind="github", repo="a/r"))
+    assert forge_credential_of(github) == "ghs_github"
+
+
+def test_the_doctors_remedy_names_the_pair_only_for_the_row_that_reads_it():
+    """`credential_missing_remedy("ACME_TOKEN")` told an add-on's operator that "a project that
+    names none is given the deployment's own OPENFACTORY_FORGE_TOKEN" — a variable that row never
+    reads since #874. The sentence is the resolution's own order, so it changes with it."""
+    from openfactory.doctor import credential_missing_remedy
+
+    named = credential_missing_remedy("ACME_TOKEN")
+    assert "ACME_TOKEN" in named and "token_env" in named
+    assert "OPENFACTORY_FORGE_TOKEN" not in named, named
+    bare = credential_missing_remedy("")
+    assert "OPENFACTORY_FORGE_TOKEN" in bare and "token_env" in bare

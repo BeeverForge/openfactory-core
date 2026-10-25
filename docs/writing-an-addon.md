@@ -99,6 +99,11 @@ vendor, built from what the row does declare — a credential row that names `AC
 `when_missing` is still told to set `ACME_TOKEN`. A callable that raises is logged and read as
 silence.
 
+A row that names its variable is answered by it, or by the `token_env` the project names, and by
+nothing after it: the deployment's own `OPENFACTORY_FORGE_TOKEN` / `OPENFACTORY_TRACKER_TOKEN` /
+`OPENFACTORY_BOT_TOKEN` is the credential of the row that names none (GitHub's), and a vendor's
+axis is never handed another system's token (#874).
+
 ## 2. Write the two files
 
 `pyproject.toml`:

@@ -130,11 +130,14 @@ def _credential(project, token: str | None) -> str | None:
     variable, so every GitHub project that exists behaves byte for byte as it did. The caller's
     token is consulted only after that — the one case being a worker with no ambient tracker
     credential at all, where `ProductModule.token` may be carrying a freshly minted GitHub App
-    token and dropping it would turn a working board read into a failing one. Same order,
-    deliberately, as `ProductModule._board()`."""
-    from openfactory.credentials import tracker_token_for
+    token and dropping it would turn a working board read into a failing one — AND ONLY FOR A
+    TRACKER ROW THAT NAMES NO VARIABLE (#874): on a Jira-tracker, GitHub-forge project this door
+    handed the Jira board the module's GitHub token after `tracker_token_for` had rightly answered
+    None (measured in the review of #1142). Same rule, deliberately, as `ProductModule._board()`:
+    `credentials.tracker_token_or_held` is the one place both read it."""
+    from openfactory.credentials import tracker_token_or_held
 
-    return tracker_token_for(project) or token
+    return tracker_token_or_held(project, token)
 
 
 def _tracker(project, credential: str | None):

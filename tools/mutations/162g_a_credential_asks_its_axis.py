@@ -45,13 +45,12 @@ MUTATIONS = [
 
     # ── the box ─────────────────────────────────────────────────────────────────────────────────
     # re-pinned 2026-10-19 (#822, second round): the pair is asked only after the refusal question
+    # RE-PINNED 2026-10-25 (#874): the resolution is `boxed_job.forge_credential_of`, the axis's
+    # own then the mint, with no pair step of the box's own any more
     ("the box goes back to a process-wide credential", BOX,
-     "        token = (forge_token_for(carried)\n"
-     "                 or (None if axis_refusal(carried, \"forge\")\n"
-     "                     else forge_token())      # honour OPENFACTORY_BOT_TOKEN for the "
-     "GitHub path\n"
-     "                 or deployment_forge_token(carried))",
-     "        token = forge_token()"),
+     "    return forge_token_for(carried) or deployment_forge_token(carried)\n",
+     "    from openfactory.credentials import forge_token\n"
+     "    return forge_token()\n"),
 
     # ── the ratchet ─────────────────────────────────────────────────────────────────────────────
     # The allow-list is gone: an exemption is a `# github-only:` sentence AT THE CALL now, so a

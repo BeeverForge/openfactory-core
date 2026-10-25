@@ -455,6 +455,33 @@ def tracker_token_for(project) -> str | None:
     return _axis_credential(project, "tracker", tracker_token)[1]
 
 
+def tracker_token_or_held(project, held: str | None) -> str | None:
+    """`tracker_token_for(project)`, else the credential the caller already HOLDS — and that only
+    for a tracker row that names no variable, resolves nothing itself and needs a credential, which
+    is the reference vendor's and a legacy project of no kind (#874).
+
+    THE DOOR THE PRODUCT ROLE'S BOARD CAME IN BY. `product/board._credential` and
+    `ProductModule._board` read `tracker_token_for(project) or token`, where `token` is the
+    module's FORGE credential: on a Jira-tracker, GitHub-forge project with only
+    `OPENFACTORY_BOT_TOKEN` set, the tracker resolved None since #874 and the board's `JiraTracker`
+    was still built with the GitHub token (measured in the review of #1142). The held token exists
+    for one case — a GitHub board on a worker with no ambient tracker credential, where the module
+    carries a freshly minted App token and dropping it would turn a working read into a failing
+    one — and that case is the row that names no variable. A row that names one, or resolves its
+    own, or needs none, is answered by `tracker_token_for` alone; and nothing after a refusal
+    (#822)."""
+    found = tracker_token_for(project)
+    if found:
+        return found
+    ref = getattr(project, "tracker", None)
+    if axis_refusal(project, "tracker"):
+        return None
+    row = _row(_kind_of(ref))
+    answered_alone = row is not None and bool(
+        row.env or row.source is not None or not getattr(row, "needs", True))
+    return None if answered_alone else held
+
+
 def forge_token() -> str | None:
     # A CHAIN, so a refused `OPENFACTORY_FORGE_TOKEN` is not answered by the bot's (#822)
     return credential_store.chain(("OPENFACTORY_FORGE_TOKEN", "OPENFACTORY_BOT_TOKEN")).value

@@ -409,11 +409,15 @@ MUTATIONS = [
      '    token = kw.get("token") or (None if refused\n'
      '                                else vendor_default(getattr(project, "tracker", None)))',
      '    token = kw.get("token") or vendor_default(getattr(project, "tracker", None))', FAMILY),
+    # RE-PINNED 2026-10-25 (#874): the box's pair step is gone (`boxed_job.forge_credential_of`
+    # reads the axis then the mint, both of which refuse on their own); the cut puts it back,
+    # unconditionally, which is what answered a refused reference with the pair
     ("the remote box takes the deployment's pair after a refused reference",
      "openfactory/runtime/boxed_job.py",
-     '                 or (None if axis_refusal(carried, "forge")\n'
-     "                     else forge_token())",
-     "                 or forge_token()", FAMILY),
+     "    return forge_token_for(carried) or deployment_forge_token(carried)\n",
+     "    from openfactory.credentials import forge_token\n"
+     "    return forge_token_for(carried) or forge_token() or deployment_forge_token(carried)\n",
+     FAMILY),
     ("the doctor's deployment forge credential mints over a refused pair", "openfactory/doctor.py",
      '    return forge_token() or (None if pair_refusal("forge") else github_app_token_from_env())',
      "    return forge_token() or github_app_token_from_env()", FAMILY),

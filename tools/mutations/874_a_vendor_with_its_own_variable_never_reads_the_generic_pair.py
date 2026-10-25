@@ -17,6 +17,8 @@ token — and sent it to the Jira site, which answered 401 "different accounts" 
 TEST = "tests/test_the_vendors_credential_is_found_by_default.py"
 CRED = "openfactory/credentials.py"
 ROWS = "openfactory/adapters/credential/registry.py"
+BOX = "openfactory/runtime/boxed_job.py"
+DOCTOR = "openfactory/doctor.py"
 
 MUTATIONS = [
     ("THE DEFECT ITSELF: the walk goes on past the vendor's own variable to the generic pair",
@@ -31,4 +33,19 @@ MUTATIONS = [
     ("Jira's row names no variable, so a Jira axis reads the pair like GitHub's", ROWS,
      '    return CredentialRow(env=SHIPPED_ENV["jira"])',
      '    return CredentialRow(env="")'),
+
+    # ── the doors that held a token of their own (review of #1142) ─────────────────────────────
+    ("the product role's board hands a named row the module's forge token again", CRED,
+     "    return None if answered_alone else held\n",
+     "    return held\n"),
+
+    ("the box puts its own pair back between the axis and the mint", BOX,
+     "    return forge_token_for(carried) or deployment_forge_token(carried)\n",
+     "    from openfactory.credentials import forge_token\n"
+     "    return forge_token_for(carried) or forge_token() or deployment_forge_token(carried)\n"),
+
+    ("the doctor tells a row that names its variable about the pair it never reads", DOCTOR,
+     '                f"in the environment the worker reads; this vendor reads nothing else")\n',
+     '                f"in the environment the worker reads; a project that names none is given "\n'
+     '                f"the deployment\'s own OPENFACTORY_FORGE_TOKEN")\n'),
 ]
