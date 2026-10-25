@@ -53,8 +53,9 @@ A refusal from `POST /api/act/{name}` is the action's whole outcome — `ok`, `m
 `data` and `detail` — and `data.reason` says why in a word a program branches on: the `code` itself
 where nothing finer applies, or one of `bad_parameters`, `bad_ref`, `out_of_scope`,
 `not_the_installations` (a credential scoped to an area, refused a row that changes the
-installation), `not_admin`, `engine_unreachable`, `raised`, `reported_nothing`, and
-`unknown_action` for a name no action has.
+installation), `not_admin`, `no_code_yet` (a row that needs the project's code, on a product that
+started before its code), `engine_unreachable`, `raised`, `reported_nothing`, and `unknown_action`
+for a name no action has.
 `GET /api/v1/actions` lists, as `refusals`, every reason each action can answer.
 
 **A product row's refusal is a refusal, not a 500.** When the product role declines a write on
