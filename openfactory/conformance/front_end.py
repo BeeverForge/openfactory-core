@@ -16,6 +16,12 @@ reads the addresses (`tests/test_the_front_end_api_is_a_contract.py`):
     claimed — the further one only where the release has it;
   · the method is the one the call's options name (`method:"POST"`), GET where they name none, WS
     for a `new WebSocket(…)`;
+  · what cannot be read off the text is written `?`, never guessed: a method in options that are
+    not an object literal (`mfetch(u,o)`), or named by something other than a string literal
+    (`method:m`), or that may come from a spread (`{...o}`); and an address whose route is itself
+    a runtime value (`/api/${x}`, `/api/v1/${x}`), which would otherwise reach every route of one
+    segment there. The suite names such a call, the way it names an address that reaches no
+    route;
   · the event kinds are the ones the page compares a frame's `kind` with (`m.kind==="said"`).
 
 Each address becomes the release's route it reaches. One that reaches none stays as the page
@@ -33,7 +39,7 @@ import re
 import sys
 from pathlib import Path
 
-from openfactory.conformance.client import SCHEMA
+from openfactory.conformance.client import SCHEMA, UNREAD, UNREAD_SEGMENT
 
 #: The page, where the package ships it.
 PAGE = Path(__file__).resolve().parents[1] / "api" / "panel.html"
@@ -45,6 +51,8 @@ _KIND = re.compile(r"\.kind\s*[!=]==\s*[\"'](\w+)[\"']")
 _METHOD = re.compile(r"\bmethod\s*:\s*[\"'](\w+)[\"']")
 _CALLEE = re.compile(r"(new\s+)?([A-Za-z_$][\w$]*)\s*\(\s*$")
 _PLUS = re.compile(r"\s*\+\s*")
+#: An address whose first segment after the API's own prefix is a runtime value.
+_UNREAD_ROUTE = re.compile(r"^/api/(?:v1/)?\0")
 _CLOSE = {"(": ")", "[": "]", "{": "}"}
 
 
@@ -100,10 +108,11 @@ def _call_end(code: str, at: int) -> int:
     return n
 
 
-def _addresses(code: str, found: re.Match) -> tuple[str, list[str]]:
-    """The text just before the literal, where its callee is, and the address it starts as the
+def _addresses(code: str, found: re.Match) -> tuple[str, list[str], int, bool]:
+    """The text just before the literal, where its callee is; the address it starts as the
     variants the page may call: the first reads an expression after a word as a query, the second
-    as a further segment."""
+    as a further segment; the index after the address, where the call's next argument is; and
+    whether the address can be read at all — one whose route is a runtime value cannot."""
     text = re.sub(r"\$\{[^}]*\}", "\0", found.group(2))
     text = re.sub(r"^\0//\0", "", text)
     n = found.end()
@@ -119,10 +128,14 @@ def _addresses(code: str, found: re.Match) -> tuple[str, list[str]]:
             end = _expression_end(code, n)
             text += "\0"
         n = end
-    pieces = text.split("?")[0].split("\0")
+    path = text.split("?")[0]
+    before = code[max(0, found.start() - 80):found.start()]
+    if _UNREAD_ROUTE.match(path):
+        return before, [path.replace("\0", UNREAD_SEGMENT)], n, False
+    pieces = path.split("\0")
     # an operand after a `/` is a segment; one after a word is a query or a further segment
     variants = [_join(pieces, after_a_word=""), _join(pieces, after_a_word="/x")]
-    return code[max(0, found.start() - 80):found.start()], list(dict.fromkeys(variants))
+    return before, list(dict.fromkeys(variants)), n, True
 
 
 def _join(pieces: list[str], *, after_a_word: str) -> str:
@@ -132,14 +145,52 @@ def _join(pieces: list[str], *, after_a_word: str) -> str:
     return text
 
 
-def _method(code: str, before: str, found: re.Match) -> str:
+def _top_level(options: str) -> str:
+    """An object literal's text with what its values nest blanked out, strings kept, so a key
+    found in it is the object's own and not a header's or a body's."""
+    out, depth, n = [], 0, 1
+    while n < len(options) - 1:
+        c = options[n]
+        if c in "'\"`":
+            end = _string_end(options, n)
+            if depth == 0:
+                out.append(options[n:end])
+            n = end
+            continue
+        if c in _CLOSE:
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth == 0:
+            out.append(c)
+        n += 1
+    return "".join(out)
+
+
+def _method(code: str, before: str, after: int) -> str:
+    """The method of the call whose address ends at `after`, or `UNREAD` where the text cannot
+    say it: options that are not an object literal, a `method` that is not a string literal, a
+    spread that may carry one."""
     callee = _CALLEE.search(before)
     if callee is None:
         return "GET"  # a link, an image, a download: the browser GETs it
     if callee.group(1) and callee.group(2) == "WebSocket":
         return "WS"
-    named = _METHOD.search(code[found.end():_call_end(code, found.end())])
-    return named.group(1).upper() if named else "GET"
+    rest = code[after:_call_end(code, after)].strip()
+    if not rest.startswith(","):
+        return "GET"
+    options = rest[1:].strip()
+    if not options:
+        return "GET"  # a trailing comma names nothing
+    if not options.startswith("{"):
+        return UNREAD
+    top = _top_level(options[:_call_end(options, 1) + 1])
+    named = _METHOD.search(top)
+    if named:
+        return named.group(1).upper()
+    if "..." in top or re.search(r"(?:^|,)\s*method\s*(?:[:,]|$)", top):
+        return UNREAD
+    return "GET"
 
 
 def _reaches(called: str, route: str) -> bool:
@@ -176,8 +227,11 @@ def calls(page: str) -> set[tuple[str, str]]:
     routes = _release_routes()
     out = set()
     for found in _ADDRESS.finditer(code):
-        before, variants = _addresses(code, found)
-        method = _method(code, before, found)
+        before, variants, after, readable = _addresses(code, found)
+        method = _method(code, before, after)
+        if not readable:
+            out.add((method, variants[0]))
+            continue
         for n, address in enumerate(variants):
             reached = {(m, p) for m, p in routes if m == method and _reaches(address, p)}
             if reached:

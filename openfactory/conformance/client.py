@@ -52,6 +52,12 @@ SCHEMA = "openfactory.client/1"
 #: writes them.
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "WS")
 
+#: What the default front end's reader writes for what it cannot read off a call — a method that is
+#: not a string literal in the call's own options, or an address whose route is a runtime value —
+#: so the run names that call instead of taking it for the GET, or every route, it might be.
+UNREAD = "?"
+UNREAD_SEGMENT = "${…}"
+
 #: The statuses the contract (section 2) names for EVERY route, which the description therefore does
 #: not repeat on each: no credential or one nobody issued, a credential outside the path's area, and
 #: a dependency that cannot answer right now — the identity provider, or the durable engine, which
@@ -149,7 +155,7 @@ def parse_manifest(data: object, *, source: str = "the manifest") -> Manifest:
         if not isinstance(row, dict) or set(row) - {"method", "path", "fields"}:
             raise refuse(f"{where} must be an object of `method`, `path` and `fields`")
         method, path = row.get("method"), row.get("path")
-        if method not in METHODS:
+        if method not in METHODS and method != UNREAD:
             raise refuse(f"{where}: `method` is {method!r}, and must be one of "
                          f"{', '.join(METHODS)}")
         if not isinstance(path, str) or not path.startswith("/"):
@@ -392,6 +398,15 @@ def check_client(http: httpx.Client, manifest: Manifest, *, credential: str | No
     paths = document["paths"]
     for route in manifest.routes:
         name = f"{route.method} {route.path}"
+        if route.method == UNREAD or UNREAD_SEGMENT in route.path:
+            what = "method" if route.method == UNREAD else "route"
+            report.findings.append(_finding(
+                "client.route", f"{name} is a call whose {what} cannot be read off the page: "
+                                f"write the method as a string literal in the call's options, "
+                                f"and the address with its route's segments as literals",
+                "a call the suite cannot read is one it cannot hold to a route, so it is named "
+                "instead of taken for the route it might be"))
+            continue
         if route.method == "WS":
             if route.path not in sockets:
                 report.findings.append(_finding(

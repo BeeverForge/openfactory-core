@@ -212,6 +212,43 @@ def test_the_explanation_of_a_call_is_not_a_call():
     assert calls(page) == calls(PAGE.read_text(encoding="utf-8"))
 
 
+@pytest.mark.parametrize("call", [
+    'const o={method:"DELETE"};mfetch("/api/whoami",o)',
+    'mfetch("/api/whoami",{method:m?"DELETE":"PUT"})',
+    'mfetch("/api/whoami",{...o})',
+], ids=["options in a variable", "method not a literal", "options spread"])
+def test_a_call_whose_method_the_page_does_not_write_is_named_never_read_as_a_get(empty, call):
+    page = _page(f"async function unread(m,o){{{call}}}")
+
+    added = calls(page) - calls(PAGE.read_text(encoding="utf-8"))
+    assert added == {("?", "/api/whoami")}, added
+    report = check_client(empty, parse_manifest(front_end(page)))
+
+    assert _rules(report) == ["client.route"], _said(report)
+    assert "? /api/whoami is a call whose method cannot be read off the page" in _said(report)
+
+
+def test_a_method_the_options_write_is_read_past_what_they_nest():
+    page = _page('async function nested(){await mfetch("/api/jobs",'
+                 '{headers:{method:"GET"},method:"POST"})}')
+
+    assert calls(page) - calls(PAGE.read_text(encoding="utf-8")) == {("POST", "/api/jobs")}
+
+
+@pytest.mark.parametrize("address", ["`/api/${x}`", '"/api/"+x', "`/api/v1/${x}`"])
+def test_an_address_whose_route_is_a_runtime_value_is_named_not_every_route(empty, address):
+    page = _page(f"async function any(x){{await api({address})}}")
+
+    added = calls(page) - calls(PAGE.read_text(encoding="utf-8"))
+    assert len(added) == 1 and {m for m, _p in added} == {"GET"}, added
+    ((_m, written),) = added
+    assert written.endswith("/${…}"), added
+    report = check_client(empty, parse_manifest(front_end(page)))
+
+    assert _rules(report) == ["client.route"], _said(report)
+    assert "whose route cannot be read off the page" in _said(report)
+
+
 def test_a_call_to_a_route_the_release_does_not_have_is_named_by_the_suite(empty):
     page = _page('async function gone(){await api("/api/no-such-read")}')
     assert ("GET", "/api/no-such-read") in calls(page)

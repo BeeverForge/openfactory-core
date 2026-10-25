@@ -143,6 +143,12 @@ page calls, with the method each call names, and the event kinds are the ones it
 deployment against it. `python -m openfactory.conformance.front_end` prints it, which is also a
 worked example of the shape.
 
+What cannot be read off the page's text is written so the run names it, never guessed: a call
+whose method is not a string literal in its own options (`mfetch(u, o)`, `method: m`, `{...o}`)
+has the method `?`, and an address whose route is itself a runtime value (`` `/api/${x}` ``) is
+written `/api/${…}`. Each fails `client.route`, naming the call, the way a call to a route the
+release does not have does.
+
 `tests/test_a_client_checks_itself_against_the_release.py` runs the suite with that manifest
 against the app on every run of the core's suite: populated, holding nothing, and with a
 credential. A change to the API that takes away something the page uses fails there, naming it.

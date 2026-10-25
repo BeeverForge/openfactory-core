@@ -133,8 +133,8 @@ MUTATIONS = [
 
     # ── 4. the default front end's manifest is what the page calls ────────────────────────────────
     ("every call is read as a GET", FRONT_END,
-     "    return named.group(1).upper() if named else \"GET\"",
-     "    return \"GET\""),
+     "    if named:\n        return named.group(1).upper()",
+     "    if named:\n        return \"GET\""),
 
     ("a socket is read as a GET", FRONT_END,
      "    if callee.group(1) and callee.group(2) == \"WebSocket\":\n        return \"WS\"\n",
@@ -164,6 +164,34 @@ MUTATIONS = [
     ("a call that reaches no route is dropped", FRONT_END,
      "            elif n == 0:\n                out.add((method, address))\n",
      ""),
+
+    ("options that are not an object literal are read as a GET", FRONT_END,
+     "        return UNREAD\n    top = _top_level(",
+     "        return \"GET\"\n    top = _top_level("),
+
+    ("a method that is not a string literal, or a spread, is read as a GET", FRONT_END,
+     "    if \"...\" in top or re.search(",
+     "    if False and re.search("),
+
+    ("a method a header nests is read as the call's", FRONT_END,
+     "    named = _METHOD.search(top)",
+     "    named = _METHOD.search(options)"),
+
+    ("an address whose route is a runtime value claims every route of one segment", FRONT_END,
+     "    if _UNREAD_ROUTE.match(path):",
+     "    if False:"),
+
+    ("a runtime value right after /api/v1/ claims every v1 route of one segment", FRONT_END,
+     "_UNREAD_ROUTE = re.compile(r\"^/api/(?:v1/)?\\0\")",
+     "_UNREAD_ROUTE = re.compile(r\"^/api/\\0\")"),
+
+    ("a call the page's reader could not read is taken for a route", CLIENT,
+     "        if route.method == UNREAD or UNREAD_SEGMENT in route.path:",
+     "        if False:"),
+
+    ("a call the page's reader could not read is refused as a manifest error", CLIENT,
+     "        if method not in METHODS and method != UNREAD:",
+     "        if method not in METHODS:"),
 
     ("the kinds the page branches on are not read", FRONT_END,
      "            \"events\": [{\"kind\": k} for k in sorted(set(_KIND.findall(_code(page))))]}",
