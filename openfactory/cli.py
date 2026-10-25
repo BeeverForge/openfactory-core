@@ -1134,6 +1134,12 @@ def conformance_client(
         typer.echo(f"      {f.detail}")
         if f.taught_by:
             typer.echo(f"      why: {f.taught_by}")
+    if any(f.rule == "client.credential" for f in report.findings):
+        # a credential the run cannot use is the run's configuration, not the API's answer: exit 2,
+        # as for an option, so a CI job tells a misconfigured secret from a client that broke
+        typer.echo(f"\nNOT CHECKED — the run's credential is not one the API takes, so nothing "
+                   f"was held for {declared.client}")
+        raise typer.Exit(2)
     if report.findings:
         typer.echo(f"\nNOT CONFORMANT — {len(report.findings)} rule(s) broken for "
                    f"{declared.client}")

@@ -17,9 +17,13 @@ WHAT IS PROVEN HERE:
     fails, naming it, and one naming only what it has passes;
   · an API answering outside what it promises — an unnamed status, a body outside its model, a
     refusal without a sentence, another release, the wrong 401 — fails, naming it;
+  · a call whose method or route the page's text cannot say is named, never guessed;
   · the suite only reads, a manifest it cannot read is refused in one sentence, and the command
-    says CONFORMANT or NOT CONFORMANT with the exit code a CI job branches on;
-  · the guide's manifest and command are ones the suite and the command take.
+    says CONFORMANT or NOT CONFORMANT with the exit code a CI job branches on — 2 for a credential
+    it cannot use, 1 for an API that stops answering mid-run, never a traceback, and never a run
+    that waits without bound;
+  · the guide's manifest, its command and the line it shows are ones the suite and the command
+    take and print.
 """
 
 from __future__ import annotations
@@ -433,6 +437,20 @@ def test_the_command_refuses_what_it_cannot_use_in_one_sentence(empty, monkeypat
 
     assert got.exit_code == 2 and said in got.output, got.output
     assert "Traceback" not in got.output
+
+
+@pytest.mark.parametrize("args", [[], ["--token-env", "MY_CLIENT_TOKEN"]],
+                         ids=["none given", "one the API refuses"])
+def test_a_credential_the_command_cannot_use_exits_2_naming_it(gated, monkeypatch, args):
+    """Exit 2, as for an option the suite cannot use: a CI job reads a misconfigured secret as
+    that, not as a client that broke the contract."""
+    monkeypatch.setenv("MY_CLIENT_TOKEN", "nobody-issued-this")
+
+    got = _cli(monkeypatch, gated, *args)
+
+    assert got.exit_code == 2, got.output
+    assert "FAIL  client.credential" in got.output and "NOT CHECKED" in got.output, got.output
+    assert "NOT CONFORMANT" not in got.output and "nobody-issued-this" not in got.output
 
 
 def test_an_api_that_stops_answering_mid_run_is_one_sentence_and_exit_1(empty, monkeypatch):

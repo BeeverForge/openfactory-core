@@ -1,6 +1,6 @@
 """#680 — a front end checks itself against a release, proven by breaking every rule it holds.
 
-SIX CLAIMS, each cut here and each required to go red:
+SEVEN CLAIMS, each cut here and each required to go red:
 
   1. **What the API answers is held, not only that a route exists.** An unnamed status, a body
      outside the release's model, a refusal without its sentence and a read never asked each pass
@@ -8,15 +8,21 @@ SIX CLAIMS, each cut here and each required to go red:
      the request leaves the success bodies unchecked.
   2. **What a client names and the API lacks fails, naming it** — a route, a socket, a field (a
      list's items read through), an event kind and its field.
-  3. **One release on both sides, and the 401 the contract names**: another release, the wrong
-     401, a gated deployment run without a credential and a credential it refuses each fail; an
-     address that does not answer is a finding, never a traceback.
+  3. **One release on both sides, and the 401 the contract names**: another release, a version
+     route that does not say one, the wrong 401 (with no credential as well as with one nobody
+     issued), a gated deployment run without a credential and a credential it refuses each fail;
+     an address that does not answer is a finding, never a traceback. A deprecated alias passes
+     with its note, and a socket row naming fields fails.
   4. **The default front end's manifest is what the page calls**: the method each call names, a
      socket, the comments left out, a segment and a further segment the page concatenates, a
-     call that reaches no route kept so the suite names it, and the kinds it branches on.
+     call that reaches no route kept so the suite names it, and the kinds it branches on. What
+     the text cannot say is named, never guessed: a method outside a literal in the call's own
+     options, and an address whose route is a runtime value.
   5. **The API describes the refusals the suite found**: the board, a product's attachments and
      its documents name their 404.
-  6. **The manifest and the command refuse by name** with the exit codes a CI job branches on.
+  6. **The manifest and the command refuse by name** with the exit codes a CI job branches on:
+     2 for a credential the run cannot use, 1 for an API that stops answering mid-run.
+  7. **A run never waits without bound**: the command's client has a finite timeout.
 
 The guard under test: `tests/test_a_client_checks_itself_against_the_release.py`.
 """
@@ -235,6 +241,10 @@ MUTATIONS = [
      "environment\")\n            raise typer.Exit(2)\n",
      "            typer.echo(f\"--token-env names {token_env}, and it is not set in this "
      "environment\")\n"),
+
+    ("a credential the run cannot use exits 1, as a broken client", CLI,
+     "                   f\"was held for {declared.client}\")\n        raise typer.Exit(2)\n",
+     "                   f\"was held for {declared.client}\")\n"),
 
     ("an API that stops answering mid-run is a traceback", CLI,
      "    except httpx.HTTPError as exc:\n        # the suite's first request",
