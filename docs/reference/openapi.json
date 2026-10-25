@@ -740,6 +740,16 @@
               }
             }
           },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -797,6 +807,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BoardRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
                 }
               }
             }
@@ -2047,6 +2067,16 @@
               }
             }
           },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2084,6 +2114,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AttachmentLimitsRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
                 }
               }
             }
@@ -2359,6 +2399,16 @@
               }
             }
           },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2396,6 +2446,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DocumentsRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no project of that name in this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Refusal"
                 }
               }
             }

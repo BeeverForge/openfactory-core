@@ -9,6 +9,11 @@ It is pinned: `tests/test_the_front_end_api_is_a_contract.py` fails when a route
 document does not list, when a row here names a route that does not exist or sits in another area,
 and when the default front end calls anything not listed here.
 
+What the routes **answer** is checked by the client contract suite, which ships in the package:
+`openfactory conformance-client <address>` holds a client's manifest — the routes, fields and event
+kinds it uses — against a running API, and the core's own suite holds the default front end to it.
+[The client contract suite](the-client-contract-suite.md) is the guide for a screen of one's own.
+
 ## 1. Credentials
 
 **One credential, three ways to present it**, read in this order by every route and every stream:
