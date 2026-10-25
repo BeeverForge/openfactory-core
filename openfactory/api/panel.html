@@ -4474,10 +4474,10 @@ function openJobLog(project,issue){
 }
 
 //: what the page holds between renders — the runs it read, and the one being read.
-let _logs={rows:null,error:"",loaded:"",events:null,eventsError:"",all:false};
+let _logs={rows:null,error:"",loaded:"",events:null,eventsError:"",all:false,request:0};
 
 async function renderLogsPage(){
-  const at=curLogs();
+  const at=curLogs(), path=location.pathname, request=++_logs.request;
   $("#app").innerHTML=`
     <div class="sechead"><span class="lbl">Logs</span><span class="rule"></span>
       <span class="cnt" id="logCnt">·</span>
@@ -4495,21 +4495,23 @@ async function renderLogsPage(){
         <input id="logq" placeholder="search project · ticket · state" autocomplete="off"
                oninput="paintLogList()">
         <select id="logstate" onchange="paintLogList()"></select>
-      </div><div id="loglist"></div></div>
+      </div><div id="loglist"><div class="empty">reading the journals…</div></div></div>
       <div id="logdetail"><div class="empty" style="padding:40px 24px">pick a run on the left to read its log</div></div>
     </div>`;
-  if(_logs.rows===null){
-    // `api()` used to hand back whatever came, for ANY status — an expired token answered an
-    // object, and so did a 500. Mapping over that threw and left a blank page, which read as
-    // "this deployment has no logs" when the truth was "the panel could not ask". A non-2xx
-    // REJECTS now (#181) and arrives in the `catch` carrying the server's sentence; the array
-    // check stays for a 2xx that is not a list.
-    try{
-      const r=await api("/api/jobs");
-      _logs.rows=Array.isArray(r)?r:[];
-      _logs.error=Array.isArray(r)?"":((r&&r.detail)||"the panel could not reach its own API");
-    }catch(e){ _logs.rows=[]; _logs.error=String((e&&e.message)||e) }
-  }
+  let rows,error="";
+  // `api()` used to hand back whatever came, for ANY status — an expired token answered an
+  // object, and so did a 500. Mapping over that threw and left a blank page, which read as
+  // "this deployment has no logs" when the truth was "the panel could not ask". A non-2xx
+  // REJECTS now (#181) and arrives in the `catch` carrying the server's sentence; the array
+  // check stays for a 2xx that is not a list.
+  try{
+    const r=await api("/api/jobs");
+    rows=Array.isArray(r)?r:[];
+    error=Array.isArray(r)?"":((r&&r.detail)||"the panel could not reach its own API");
+  }catch(e){ rows=[]; error=String((e&&e.message)||e) }
+  // Each visit reads again; an older visit must not paint over a newer route or response.
+  if(request!==_logs.request || location.pathname!==path)return;
+  _logs.rows=rows;_logs.error=error;
   paintLogList();
   if(at.project&&at.issue)loadJobLog(at.project,at.issue);
 }
