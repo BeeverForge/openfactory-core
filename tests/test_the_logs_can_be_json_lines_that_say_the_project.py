@@ -198,6 +198,9 @@ OUTSIDE_THE_LOG = {
         "main": "`python -m openfactory.api.openapi`, which writes the contract's document"},
     "openfactory/api/events.py": {
         "main": "`python -m openfactory.api.events`, which writes the event schema beside it"},
+    "openfactory/conformance/front_end.py": {
+        "main": "`python -m openfactory.conformance.front_end`, which prints the default front "
+                "end's manifest to a terminal"},
     "openfactory/adapters/extract/pdf.py": {
         "main": "the extraction's child process, whose stdout is the pipe its parent reads"},
     "openfactory/product/evaluation/__main__.py": {

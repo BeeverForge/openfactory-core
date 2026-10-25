@@ -1070,7 +1070,8 @@ def _client_http(address: str):
 
 @app.command("conformance-client")
 def conformance_client(
-    address: str = typer.Argument(..., help="where the API answers, e.g. http://localhost:8787"),
+    address: str = typer.Argument(..., help="where the API answers, e.g. "
+                                                 f"http://localhost:{_PANEL.default_port}"),
     manifest: str = typer.Option("", "--manifest", help="the JSON manifest of what your client "
                                                         "uses; without it, the default front "
                                                         "end's, read from the page this release "
