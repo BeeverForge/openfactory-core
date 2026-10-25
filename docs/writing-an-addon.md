@@ -101,8 +101,11 @@ silence.
 
 A row that names its variable is answered by it, or by the `token_env` the project names, and by
 nothing after it: the deployment's own `OPENFACTORY_FORGE_TOKEN` / `OPENFACTORY_TRACKER_TOKEN` /
-`OPENFACTORY_BOT_TOKEN` is the credential of the row that names none (GitHub's), and a vendor's
-axis is never handed another system's token (#874).
+`OPENFACTORY_BOT_TOKEN` is the credential of the row that names none (GitHub's), and the re-minting
+provider a construction point hands an adapter is the vendor row's own `provider` — a row that
+declares none is handed none (#874). The `token` / `token_provider` a builder receives are still the
+caller's resolution, so a builder reads its own `options.token_env` (or its declared `env`) first,
+as [docs/core/07-extensibility.md](core/07-extensibility.md) says.
 
 ## 2. Write the two files
 

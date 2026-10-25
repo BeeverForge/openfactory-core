@@ -1362,10 +1362,10 @@ def test_the_construction_rule_sees_the_worker_and_every_builder(tmp_path):
 NOT_A_CONSUMER: dict[str, str] = {
     module: "held by `test_every_construction_point_asks_the_refusal_before_it_falls_back`: its "
             "fall-back to the deployment's own asks `axis_refusal` first"
-    # `runtime/boxed_job.py` left this list with #874: it has no fall-back of its own any more —
-    # `forge_credential_of` is `forge_token_for` then the mint, both of which refuse on their own
-    for module in ("openfactory/runtime/temporal/view.py", "openfactory/product/module.py",
-                   "openfactory/factory.py")
+    # `runtime/boxed_job.py` and `factory.py` left this list with #874: neither has a fall-back of
+    # its own any more — the box's `forge_credential_of` is `forge_token_for` then the mint, and
+    # `bot_token_provider_for` is the vendor row's provider; each of those refuses on its own
+    for module in ("openfactory/runtime/temporal/view.py", "openfactory/product/module.py")
 } | {
     "openfactory/certify/pack.py": "it REDACTS what the store holds, and hiding a value opens no "
                                    "door: a refusal there is one value fewer to hide, never a "

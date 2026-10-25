@@ -244,17 +244,135 @@ def test_the_held_token_still_serves_a_github_board_and_a_project_of_no_kind(mon
     assert _credential(local, "ghs_minted") is None, "a row that needs nothing is handed nothing"
 
 
-def test_both_board_doors_read_the_one_rule():
-    """`ProductModule._board` and `product/board._credential` each spelled the fallback; the rule
-    lives in `credentials.tracker_token_or_held` and both read it, so they cannot part again."""
-    import inspect
-
-    from openfactory.product import board as pb
+@pytest.mark.parametrize("kind", _rows_that_name_their_own_variable())
+def test_the_product_role_places_cards_on_a_board_that_holds_no_token_of_another_system(
+        kind, monkeypatch):
+    """`ProductModule._board()` — where the product role places cards — DRIVEN, not read: it built
+    the board with `tracker_token_for(project) or self.token`, the module's FORGE credential, so a
+    Jira board on a GitHub-forge project was built with the GitHub token (review of #1142)."""
+    from openfactory.adapters import board as boards
     from openfactory.product.module import ProductModule
 
-    for src in (inspect.getsource(pb._credential), inspect.getsource(ProductModule._board)):
-        assert "tracker_token_or_held(" in src, src[:200]
-        assert "tracker_token_for(" not in src.split('"""')[-1], "the door spells its own fallback"
+    handed: list = []
+    monkeypatch.setattr(boards, "build_board",
+                        lambda project, *, token=None, **_: handed.append(token) or None)
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "ghs_github")
+    project = Project(name="mixed", repo_path="/tmp/x",
+                      tracker=ProviderRef(kind=kind, repo="DAR",
+                                          options={"site": "acme.atlassian.net"}),
+                      forge=ProviderRef(kind="github", repo="acme/api"))
+    module = ProductModule(project)
+    assert module.token == "ghs_github", "the module holds the forge's token, as it should"
+    module._board()
+    monkeypatch.setenv(_variable_of(kind), "the-vendor-s-own")
+    ProductModule(project)._board()
+    assert handed == [None, "the-vendor-s-own"], handed
+
+
+@pytest.mark.parametrize("kind", _rows_that_name_their_own_variable())
+def test_the_product_roles_board_read_hands_a_named_row_neither_a_token_nor_a_provider(
+        kind, monkeypatch):
+    """`ProductModule._read_board()` — THE board read of the product role: its column lookups,
+    the queue proposal, triage, refinement, alignment — DRIVEN through `read_board` to the
+    tracker's construction (second review of #1142). With the pair and the App both configured,
+    the named row is handed nothing of GitHub's; with its own variable, that."""
+    from openfactory.adapters.tracker import registry as trackers
+    from openfactory.product.module import ProductModule
+
+    _stub_the_app_minter(monkeypatch)
+    built: list = []
+    monkeypatch.setattr(trackers, "build_tracker", lambda project, *, token=None,
+                        token_provider=None: built.append((token, token_provider)) or None)
+    monkeypatch.setattr(ProductModule, "_board_was_read", lambda self, error: None)
+    monkeypatch.setenv("OPENFACTORY_BOT_TOKEN", "ghs_github")
+    project = Project(name="mixed", repo_path="/tmp/x",
+                      tracker=ProviderRef(kind=kind, repo="DAR",
+                                          options={"site": "acme.atlassian.net"}),
+                      forge=ProviderRef(kind="github", repo="acme/api"))
+    ProductModule(project)._read_board(fresh=True)
+    monkeypatch.setenv(_variable_of(kind), "the-vendor-s-own")
+    ProductModule(project)._read_board(fresh=True)
+    assert built == [(None, None), ("the-vendor-s-own", None)], built
+
+
+def test_a_refused_tracker_reference_is_handed_no_held_token_either(monkeypatch):
+    """NOTHING AFTER A REFUSAL (#822), at the board doors too: a GitHub tracker whose reference
+    the store refuses would otherwise be handed the token the caller holds, since GitHub's row is
+    the one the held token serves (second review of #1142)."""
+    from openfactory.adapters.credential_store.registry import STORE_VAR
+    from openfactory.product.board import _credential
+
+    monkeypatch.setenv(STORE_VAR, "fiel")  # a store nobody installed: every reference is refused
+    github = Project(name="gh", repo_path="/tmp/x", tracker=ProviderRef(kind="github", repo="a/r"))
+    assert _credential(github, "held") is None
+    monkeypatch.delenv(STORE_VAR)
+    assert _credential(github, "held") == "held"
+
+
+def test_a_row_that_resolves_its_own_credential_is_handed_no_held_token(monkeypatch):
+    """A row with a resolution of its own (`CredentialRow.source`, #373) and no variable named —
+    an add-on's — reads its own credential and is never handed the caller's: the held token is the
+    row-that-names-nothing's alone (second review of #1142)."""
+    from openfactory.adapters.credential import registry as rows
+    from openfactory.adapters.credential.registry import CredentialRow
+    from openfactory.product.board import _credential
+
+    monkeypatch.setitem(rows.CREDENTIALS, "acme",
+                        lambda: CredentialRow(source=lambda options: ("", None)))
+    acme = Project(name="ac", repo_path="/tmp/x", tracker=ProviderRef(kind="acme", repo="a/r"))
+    assert _credential(acme, "held") is None
+
+
+# ── …and the re-minting provider a construction point hands an adapter (review of #1142) ──────
+
+def _stub_the_app_minter(monkeypatch) -> None:
+    """The GitHub App trio configured, as far as the minter goes: `_bot_token_provider()` answers
+    a provider of `ghs_MINTED`. The pair is unset, so only the provider can answer."""
+    from openfactory import factory
+
+    monkeypatch.setattr(factory, "_bot_token_provider", lambda: (lambda: "ghs_MINTED"))
+
+
+@pytest.mark.parametrize("axis", ["tracker", "forge"])
+@pytest.mark.parametrize("kind", _rows_that_name_their_own_variable())
+def test_a_vendor_with_its_own_variable_is_handed_no_provider_of_the_github_app(
+        kind, axis, monkeypatch):
+    """`factory.bot_token_provider_for` returned the App minter for ANY vendor, and the poller's
+    queue scan, the worker's tracker and forge, the product role's board and the impediment sweep
+    hand it to an adapter whenever the project resolved no token: on an App deployment, a Jira
+    board was built holding `ghs_…` (measured on #1142's second head). It asks the vendor's row."""
+    from openfactory.factory import bot_token_provider_for
+
+    _stub_the_app_minter(monkeypatch)
+    assert bot_token_provider_for(_on(kind, axis), axis) is None
+
+
+def test_nor_is_an_add_on_row_that_declares_no_provider(monkeypatch):
+    from openfactory.adapters.credential import registry as rows
+    from openfactory.adapters.credential.registry import CredentialRow
+    from openfactory.factory import bot_token_provider_for
+
+    _stub_the_app_minter(monkeypatch)
+    monkeypatch.setitem(rows.CREDENTIALS, "gitlab", lambda: CredentialRow(env="GITLAB_TOKEN"))
+    gitlab = Project(name="gl", repo_path="/tmp/x", tracker=ProviderRef(kind="github", repo="a/r"),
+                     forge=ProviderRef(kind="gitlab", repo="a/r"))
+    assert bot_token_provider_for(gitlab, "forge") is None
+
+
+def test_the_github_row_and_a_project_of_no_kind_still_get_the_app_minter(monkeypatch):
+    """The positive twin: GitHub's row IS the App minter, and a legacy project of no kind is
+    served by the reference row, so every deployment that exists keeps its re-minting provider;
+    `local` needs nothing and is handed nothing."""
+    from openfactory.factory import bot_token_provider_for
+
+    _stub_the_app_minter(monkeypatch)
+    for kind in ("github", ""):
+        project = Project(name="p", repo_path="/tmp/x", tracker=ProviderRef(kind=kind, repo="a/r"))
+        for axis in ("tracker", "forge"):
+            provider = bot_token_provider_for(project, axis)
+            assert provider is not None and provider() == "ghs_MINTED", (kind, axis)
+    local = Project(name="here", repo_path="/tmp/x", tracker=ProviderRef(kind="local", repo="a/r"))
+    assert bot_token_provider_for(local, "tracker") is None
 
 
 def test_the_box_resolves_its_forge_credential_through_the_axis_and_no_pair_of_its_own(

@@ -19,6 +19,8 @@ CRED = "openfactory/credentials.py"
 ROWS = "openfactory/adapters/credential/registry.py"
 BOX = "openfactory/runtime/boxed_job.py"
 DOCTOR = "openfactory/doctor.py"
+MODULE = "openfactory/product/module.py"
+FACTORY = "openfactory/factory.py"
 
 MUTATIONS = [
     ("THE DEFECT ITSELF: the walk goes on past the vendor's own variable to the generic pair",
@@ -43,6 +45,25 @@ MUTATIONS = [
      "    return forge_token_for(carried) or deployment_forge_token(carried)\n",
      "    from openfactory.credentials import forge_token\n"
      "    return forge_token_for(carried) or forge_token() or deployment_forge_token(carried)\n"),
+
+    ("a refused tracker reference is answered by the token the caller holds", CRED,
+     '    ref = getattr(project, "tracker", None)\n    if axis_refusal(project, "tracker"):\n'
+     "        return None\n    row = _row(_kind_of(ref))\n",
+     '    ref = getattr(project, "tracker", None)\n    row = _row(_kind_of(ref))\n'),
+
+    ("a row with a resolution of its own is handed the token the caller holds", CRED,
+     "        row.env or row.source is not None or not getattr(row, \"needs\", True))\n",
+     "        row.env or not getattr(row, \"needs\", True))\n"),
+
+    ("the product role places cards on a board built with the module's forge token again", MODULE,
+     "            inner = build_board(self.project, token=tracker_token_or_held(self.project, "
+     "self.token))\n",
+     "            inner = build_board(self.project, token=self.token)\n"),
+
+    ("every vendor is handed the GitHub App's minter again when its project resolved no token",
+     FACTORY,
+     "    return row_s(project)\n",
+     "    return _bot_token_provider()\n"),
 
     ("the doctor tells a row that names its variable about the pair it never reads", DOCTOR,
      '                f"in the environment the worker reads; this vendor reads nothing else")\n',

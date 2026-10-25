@@ -428,9 +428,12 @@ MUTATIONS = [
      "        from openfactory.credentials import deployment_tracker_token, tracker_token_for\n",
      "        from openfactory.credentials import deployment_tracker_token, tracker_token\n"
      "        tracker_token_for = lambda _project: tracker_token()  # noqa: E731\n", FAMILY),
-    ("the guarded minter mints whatever the refusal", "openfactory/factory.py",
-     "    if axis_refusal(project, axis):\n        return None\n    return _bot_token_provider()",
-     "    return _bot_token_provider()", FAMILY),
+    # RE-PINNED 2026-10-25 (#874): `factory.bot_token_provider_for` is the vendor row's provider
+    # now, `credentials.deployment_tracker_provider`, and the refusal question moved there with it
+    ("the guarded minter mints whatever the refusal", "openfactory/credentials.py",
+     '    if axis_refusal(project, "tracker"):\n        return None\n'
+     '    return _deployment_provider(getattr(project, "tracker", None))',
+     '    return _deployment_provider(getattr(project, "tracker", None))', FAMILY),
 
     # ── every reader asks the store ─────────────────────────────────────────────────────────────
     ("readiness reads the door's tokens from the environment alone",
