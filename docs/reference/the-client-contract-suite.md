@@ -11,7 +11,7 @@ openfactory conformance-client http://localhost:8787 --manifest my-client.json -
 ```
 
 ```
-CONFORMANT — acme dashboard: 3 route(s) and 2 event kind(s) hold against http://localhost:8787, 6 answer(s) asked
+CONFORMANT — acme dashboard: 4 route(s) and 2 event kind(s) hold against http://localhost:8787, 5 answer(s) asked
 ```
 
 The suite only reads. It calls the typed reads your manifest names (the `GET` routes whose answer

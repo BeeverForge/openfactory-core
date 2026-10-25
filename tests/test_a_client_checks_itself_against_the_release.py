@@ -364,12 +364,21 @@ def _blocks(language: str) -> list[str]:
     return re.findall(rf"```{language}\n(.*?)```", GUIDE.read_text(encoding="utf-8"), flags=re.S)
 
 
-def test_the_guides_manifest_holds_against_the_release(empty):
+def test_the_guides_manifest_holds_against_the_release(gated, monkeypatch, tmp_path):
+    """Run as the guide's first command runs it — its manifest, a credential — and the line the
+    command prints is the one the guide shows, counts and all."""
     (example,) = [b for b in _blocks("json") if SCHEMA in b]
+    (shown,) = [line for line in GUIDE.read_text(encoding="utf-8").splitlines()
+                if line.startswith("CONFORMANT — ")]
+    mine = tmp_path / "my-client.json"
+    mine.write_text(example)
+    monkeypatch.setenv("MY_TOKEN", "the-operator")
 
-    report = check_client(empty, parse_manifest(json.loads(example)))
+    got = _cli(monkeypatch, gated, "--manifest", str(mine), "--token-env", "MY_TOKEN")
 
-    assert report.findings == [], _said(report)
+    assert got.exit_code == 0, got.output
+    (printed,) = [line for line in got.output.splitlines() if line.startswith("CONFORMANT — ")]
+    assert printed.replace("http://api.test", "http://localhost:8787") == shown, (printed, shown)
 
 
 def test_the_guides_commands_are_ones_the_command_takes():
