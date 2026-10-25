@@ -384,16 +384,24 @@ def _bot_token_provider():
 
 
 def bot_token_provider_for(project, axis: str):
-    """`_bot_token_provider()` for `project`'s `axis` — and None when that axis's own credential
-    is REFUSED by the credential store (#822). The minter is the last step of the axis's
-    resolution, and a refusal ends the resolution: every construction point that hands an
-    adapter the minter when the project holds no token asks this, not the minter itself
-    (`tests/test_a_refused_credential_opens_no_door.py` holds each one to that)."""
-    from openfactory.credentials import axis_refusal
+    """The re-minting provider this deployment holds for `project`'s `axis` VENDOR, or None — and
+    None when that axis's own credential is REFUSED by the credential store (#822). The provider
+    is the last step of the axis's resolution, and a refusal ends the resolution: every
+    construction point that hands an adapter a provider when the project holds no token asks this
+    (`tests/test_a_refused_credential_opens_no_door.py` holds each one to that).
 
-    if axis_refusal(project, axis):
-        return None
-    return _bot_token_provider()
+    THE VENDOR'S OWN, NEVER THE GITHUB APP'S FOR EVERYBODY (#874, review of #1142). This returned
+    `_bot_token_provider()`, the App minter, for any vendor: on a deployment with the App trio,
+    the poller's queue scan, the worker's tracker and forge, the product role's board and the
+    impediment sweep handed a Jira board or a `forge.gitlab` add-on a provider of `ghs_…` tokens
+    (measured on #1142's second head with the minter stubbed). It now asks the axis vendor's
+    credential row, as `build_runner` already did (`credentials.deployment_*_provider`): GitHub's
+    row is the App minter, through this module's `_bot_token_provider`; a row that declares no
+    provider gets None."""
+    from openfactory.credentials import deployment_forge_provider, deployment_tracker_provider
+
+    row_s = deployment_tracker_provider if axis == "tracker" else deployment_forge_provider
+    return row_s(project)
 
 
 def build_runner(project, issue: str, *, sandbox: str, image: str, review: bool, events=None,

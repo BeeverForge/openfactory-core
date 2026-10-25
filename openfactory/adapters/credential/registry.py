@@ -15,7 +15,9 @@ So the per-kind facts move here, into rows the same loader a stranger already us
 each optional:
 
     env       the variable this vendor's credential lives in BY DEFAULT — the registry's
-              `token_env` always wins, this answers for a deployment that named nothing
+              `token_env` always wins, this answers for a deployment that named nothing; and a
+              row that names one is answered by it and never by the generic pair, which is
+              the row that names none (#874)
     mint      what THIS DEPLOYMENT can mint for the vendor when a project names nothing —
               a token now, or None when the deployment holds nothing of that vendor's
     provider  the same as a re-minting PROVIDER for a job that outlives one token
@@ -225,7 +227,11 @@ SHIPPED_ENV: dict[str, str] = {
 
 
 def _jira() -> CredentialRow:
-    """A static API token; nothing a deployment could mint, nobody's login to discover."""
+    """A static API token; nothing a deployment could mint, nobody's login to discover.
+
+    NAMED, SO THE WALK ENDS HERE (#874): a Jira axis reads the project's `token_env` or this
+    variable, never the deployment's generic pair — that pair is a GitHub token on every
+    deployment that has one, and a Jira site answers it as another account's."""
     return CredentialRow(env=SHIPPED_ENV["jira"])
 
 

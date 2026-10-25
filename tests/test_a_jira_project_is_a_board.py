@@ -278,7 +278,9 @@ def test_a_project_names_its_OWN_tracker_credential(monkeypatch):
 
 def test_a_named_variable_that_is_EMPTY_is_said_out_loud(monkeypatch, caplog):
     """Falling back silently would authenticate a Jira project with a GitHub token and report an
-    empty queue — the exact failure, wearing the fix."""
+    empty queue — the exact failure, wearing the fix. Since #874 nothing falls back at all on a
+    Jira axis: the warning says the variable is empty and that nothing is used in its place, and
+    the answer is None, not the deployment's GitHub token."""
     from openfactory.contracts.project import Project, ProviderRef
     from openfactory.credentials import tracker_token_for
 
@@ -289,9 +291,9 @@ def test_a_named_variable_that_is_EMPTY_is_said_out_loud(monkeypatch, caplog):
                                           options={"token_env": "JIRA_API_TOKEN"}))
 
     with caplog.at_level("WARNING"):
-        tracker_token_for(project)
+        assert tracker_token_for(project) is None
 
-    assert "JIRA_API_TOKEN" in caplog.text and "wrong system" in caplog.text
+    assert "JIRA_API_TOKEN" in caplog.text and "nothing is used in its place" in caplog.text
 
 
 def test_the_poller_SCANS_a_jira_project_at_all(monkeypatch):

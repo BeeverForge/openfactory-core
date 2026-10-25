@@ -4944,12 +4944,13 @@ class ProductModule:
             # board in GitHub Projects or somewhere else is the registry's business, not the
             # product role's.
             from openfactory.adapters.board import build_board
-            from openfactory.credentials import tracker_token_for
+            from openfactory.credentials import tracker_token_or_held
 
             # Per project, for the reason spelled out at `_tracker`: the board axis reads the
             # tracker's credential, and a deployment's GitHub PAT offered to an Azure Boards board
-            # is the same wrong-system 401 wearing a different call site.
-            inner = build_board(self.project, token=tracker_token_for(self.project) or self.token)
+            # is the same wrong-system 401 wearing a different call site. The module's own forge
+            # token stands in only for a tracker row that names no variable (#874).
+            inner = build_board(self.project, token=tracker_token_or_held(self.project, self.token))
         return None if inner is None else _WatchedWrites(inner, self._write_outcome)
 
     def _board_to_ask(self):

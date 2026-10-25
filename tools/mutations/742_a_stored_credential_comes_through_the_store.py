@@ -409,11 +409,15 @@ MUTATIONS = [
      '    token = kw.get("token") or (None if refused\n'
      '                                else vendor_default(getattr(project, "tracker", None)))',
      '    token = kw.get("token") or vendor_default(getattr(project, "tracker", None))', FAMILY),
+    # RE-PINNED 2026-10-25 (#874): the box's pair step is gone (`boxed_job.forge_credential_of`
+    # reads the axis then the mint, both of which refuse on their own); the cut puts it back,
+    # unconditionally, which is what answered a refused reference with the pair
     ("the remote box takes the deployment's pair after a refused reference",
      "openfactory/runtime/boxed_job.py",
-     '                 or (None if axis_refusal(carried, "forge")\n'
-     "                     else forge_token())",
-     "                 or forge_token()", FAMILY),
+     "    return forge_token_for(carried) or deployment_forge_token(carried)\n",
+     "    from openfactory.credentials import forge_token\n"
+     "    return forge_token_for(carried) or forge_token() or deployment_forge_token(carried)\n",
+     FAMILY),
     ("the doctor's deployment forge credential mints over a refused pair", "openfactory/doctor.py",
      '    return forge_token() or (None if pair_refusal("forge") else github_app_token_from_env())',
      "    return forge_token() or github_app_token_from_env()", FAMILY),
@@ -424,9 +428,12 @@ MUTATIONS = [
      "        from openfactory.credentials import deployment_tracker_token, tracker_token_for\n",
      "        from openfactory.credentials import deployment_tracker_token, tracker_token\n"
      "        tracker_token_for = lambda _project: tracker_token()  # noqa: E731\n", FAMILY),
-    ("the guarded minter mints whatever the refusal", "openfactory/factory.py",
-     "    if axis_refusal(project, axis):\n        return None\n    return _bot_token_provider()",
-     "    return _bot_token_provider()", FAMILY),
+    # RE-PINNED 2026-10-25 (#874): `factory.bot_token_provider_for` is the vendor row's provider
+    # now, `credentials.deployment_tracker_provider`, and the refusal question moved there with it
+    ("the guarded minter mints whatever the refusal", "openfactory/credentials.py",
+     '    if axis_refusal(project, "tracker"):\n        return None\n'
+     '    return _deployment_provider(getattr(project, "tracker", None))',
+     '    return _deployment_provider(getattr(project, "tracker", None))', FAMILY),
 
     # ── every reader asks the store ─────────────────────────────────────────────────────────────
     ("readiness reads the door's tokens from the environment alone",

@@ -292,14 +292,20 @@ def test_the_box_resolves_the_forge_credential_the_PROJECT_names(monkeypatch):
 
 def test_and_the_box_actually_CALLS_it():
     """Reachability. The guard above proves the resolution is possible; nothing proved the box
-    performs it, and 'possible' is what the old comment already conceded."""
+    performs it, and 'possible' is what the old comment already conceded. Since #874 the box's
+    resolution is a function of its own, `forge_credential_of`, so both hops are held: `main`
+    calls it, and it calls `forge_token_for`."""
     from openfactory.runtime import boxed_job
 
-    src = inspect.getsource(boxed_job.main)
-    called = {getattr(n.func, "id", "") for n in ast.walk(ast.parse(inspect.cleandoc("\n" + src)))
-              if isinstance(n, ast.Call)}
+    def called(fn) -> set[str]:
+        src = inspect.getsource(fn)
+        return {getattr(n.func, "id", "") for n in ast.walk(ast.parse(inspect.cleandoc("\n" + src)))
+                if isinstance(n, ast.Call)}
 
-    assert "forge_token_for" in called, "the box still resolves its credential process-wide"
+    assert "forge_credential_of" in called(boxed_job.main), (
+        "the box no longer resolves its credential through the axis")
+    assert "forge_token_for" in called(boxed_job.forge_credential_of), (
+        "the box still resolves its credential process-wide")
 
 
 # ── 4. the ratchet ─────────────────────────────────────────────────────────────────────────────

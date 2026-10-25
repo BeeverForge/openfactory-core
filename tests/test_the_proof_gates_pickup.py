@@ -201,6 +201,37 @@ def test_scan_todo_polls_the_board_once_the_box_IS_proven(project, monkeypatch):
     assert issues == ["7"]
 
 
+def test_the_scan_hands_a_jira_board_no_token_minted_from_the_github_app(project, monkeypatch):
+    """#874, second review of #1142: the scan read `tracker_token_for(project)`, and when that was
+    empty called `bot_token_provider_for(project, "tracker")()` — the GitHub App's minter for any
+    vendor — and built the board with the result: on an App deployment a Jira board was polled
+    holding `ghs_…`. DRIVEN through the real `scan_todo`, the board builder spied: the Jira board
+    gets nothing, a GitHub board still gets the App's token."""
+    import asyncio
+
+    import openfactory.adapters.board as board_pkg
+    import openfactory.runtime.temporal.activities as acts
+    from openfactory import factory
+    from openfactory.contracts.project import ProviderRef
+    from openfactory.runtime.temporal.io import ScanInput
+
+    _a_valid_proof(project, monkeypatch)
+    for name in ("JIRA_API_TOKEN", "OPENFACTORY_TRACKER_TOKEN", "OPENFACTORY_BOT_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(factory, "_bot_token_provider", lambda: (lambda: "ghs_MINTED"))
+    handed: list = []
+    monkeypatch.setattr(board_pkg, "build_board", lambda p, *, token=None, **_: handed.append(
+        token) or type("_B", (), {"items_in_status": lambda s, x: []})())
+    monkeypatch.setattr(acts.ProjectRegistry, "get", lambda self, name: project)
+    for kind, options in (("jira", {"site": "acme.atlassian.net"}),
+                          ("github", {"board_owner": "o", "board_number": "1"})):
+        project.tracker = ProviderRef(kind=kind, repo="o/n", options=options)
+        asyncio.run(acts.scan_todo(ScanInput(
+            project="acme", board_owner="o", board_number="1", pickup_status="TO-DO")))
+
+    assert handed == [None, "ghs_MINTED"], handed
+
+
 def test_a_CLOSED_issue_in_the_pickup_column_is_never_re_run(project, monkeypatch, caplog):
     """FOUND LIVE, 2026-08-04: fx-py-simple#1 merged, its card stayed in TO-DO (that deployment's
     board move had failed), and the next tick RE-RAN the delivered ticket — a full agent pass

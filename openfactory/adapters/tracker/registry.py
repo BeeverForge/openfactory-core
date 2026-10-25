@@ -77,10 +77,13 @@ def _jira(project, **kw):
 
     status_map = with_the_queue(project, options, status_map, option="status_map") or {}
     # THE VENDOR'S OWN CREDENTIAL, NEVER THE CALLER'S PROVIDER — the same refusal the forge
-    # registry's Azure row makes, and it was missing here. `token_provider` on this axis is
-    # ALWAYS `factory._bot_token_provider`, the GitHub App minter: every caller that has no
-    # explicit token passes it. Honouring it meant the sweep that stopped handing this row a
-    # GitHub token as `token=` simply changed which door the same token came in by — a fix that
+    # registry's Azure row makes, and it was missing here. `token_provider` on this axis WAS
+    # always `factory._bot_token_provider`, the GitHub App minter, until #874: every caller
+    # that had no explicit token passed it. Callers now pass the vendor row's own provider
+    # (`factory.bot_token_provider_for`), which for this row is none. The refusal stays, since
+    # a caller's provider is still the caller's resolution (docs/core/07-extensibility.md).
+    # Honouring it meant the sweep that stopped handing this row a GitHub token as `token=`
+    # simply changed which door the same token came in by — a fix that
     # only looks like one, which is worse than the gap. Found by adversarial review, 2026-08-20,
     # measured: a Jira project with no `JIRA_API_TOKEN` still built a `JiraTracker` whose token
     # was the minted `ghs_…`, before AND after the sweep.
@@ -91,10 +94,11 @@ def _jira(project, **kw):
     # Jira answers the empty token as an anonymous request (404 on the card, measured
     # 2026-10-19), so the saying is `jira._not_one_account`'s "no API token reached this
     # tracker … Set JIRA_API_TOKEN, or the variable the project's tracker.options.token_env
-    # names." (#749). Only when the deployment has no generic token pair either: a caller that
-    # passes `token=` resolved it through `credentials.tracker_token_for`, which falls back to
-    # that pair, so a GitHub token reaches Jira and reads as "different accounts" (measured on a
-    # Jira Cloud site, 2026-10-19).
+    # names." (#749). A caller that passes `token=` resolved it through
+    # `credentials.tracker_token_for`, which used to fall back to the deployment's generic pair
+    # when `JIRA_API_TOKEN` was unset, so a GitHub token reached Jira and read as "different
+    # accounts" (measured on a Jira Cloud site, 2026-10-19); since #874 that resolution stops at
+    # the vendor's own variable, so the token that reaches here is Jira's or None.
     from openfactory.credentials import axis_refusal, vendor_default
 
     # …AND NOT AFTER A REFUSAL (#822): `JIRA_API_TOKEN` is the step after the project's own
@@ -152,10 +156,14 @@ def _azure_devops(project, **kw):
     # unconfigured deployment still moves cards correctly for every bucket the vendor classifies.
     state_map = _json_map(options.get("state_map", ""), project, "state_map")
     # THE VENDOR'S OWN CREDENTIAL, NEVER THE CALLER'S PROVIDER — the same refusal the forge
-    # registry's Azure row makes, and it was missing here. `token_provider` on this axis is
-    # ALWAYS `factory._bot_token_provider`, the GitHub App minter: every caller that has no
-    # explicit token passes it. Honouring it meant the sweep that stopped handing this row a
-    # GitHub token as `token=` simply changed which door the same token came in by — a fix that
+    # registry's Azure row makes, and it was missing here. `token_provider` on this axis WAS
+    # always `factory._bot_token_provider`, the GitHub App minter, until #874: every caller
+    # that had no explicit token passed it. Callers now pass the vendor row's own provider
+    # (`factory.bot_token_provider_for`), for this row its own resolution's (an `az` login),
+    # never the minter. The refusal stays, since a caller's provider is still the caller's
+    # resolution (docs/core/07-extensibility.md). Honouring it meant the sweep that stopped
+    # handing this row a GitHub token as `token=` simply changed which door the same token
+    # came in by — a fix that
     # only looks like one, which is worse than the gap. Found by adversarial review, 2026-08-20,
     # measured: a Jira project with no `JIRA_API_TOKEN` still built a `JiraTracker` whose token
     # was the minted `ghs_…`, before AND after the sweep.

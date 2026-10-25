@@ -1731,11 +1731,18 @@ def credential_missing_remedy(env: str = "") -> str:
     by default (`CredentialRow.env`), so a stranger's row that names `ACME_TOKEN` and has never
     heard of `when_missing` is still told to set `ACME_TOKEN`. With no row at all the resolution
     itself is the remedy, in its own order (`credentials._axis_credential`): the variable the
-    project names, then the deployment's own."""
-    named = f"set {env} — or the variable" if env else "set the variable"
-    return (f"{named} this project names in `forge.options.token_env` — in the environment the "
-            f"worker reads; a project that names none is given the deployment's own "
-            f"OPENFACTORY_FORGE_TOKEN")
+    project names, then the deployment's own.
+
+    AND THE DEPLOYMENT'S OWN IS SAID ONLY WHERE IT IS READ (#874): a row that names its variable
+    is answered by it or by `token_env` and by nothing after it, so telling its operator that "a
+    project that names none is given OPENFACTORY_FORGE_TOKEN" would send them to set a variable
+    the row never reads (review of #1142)."""
+    if env:
+        return (f"set {env} — or the variable this project names in `forge.options.token_env` — "
+                f"in the environment the worker reads; this vendor reads nothing else")
+    return ("set the variable this project names in `forge.options.token_env` — in the "
+            "environment the worker reads; a project that names none is given the deployment's "
+            "own OPENFACTORY_FORGE_TOKEN")
 
 
 def _board(p: Probes) -> Finding:

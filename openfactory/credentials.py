@@ -346,8 +346,9 @@ def _axis_answer(project, axis: str, generic, *, announce: bool = True):
     (measured 2026-08-26). The identity is the thing that answered, which survives a renewal.
 
     Resolution: `token_env` if named → the axis vendor's own default variable (its credential
-    row's `env`) → `generic()`, the axis's process-wide reader (`tracker_token` / `forge_token`,
-    passed as the function so the seam the harnesses patch stays the seam). `announce=False`
+    row's `env`), where the walk ends when the row names one (#874) → `generic()`, the axis's
+    process-wide reader (`tracker_token` / `forge_token`, passed as the function so the seam the
+    harnesses patch stays the seam), for the row that names no variable. `announce=False`
     keeps the named-but-empty warning from being said twice when a caller asks for the source
     and then the value.
 
@@ -395,9 +396,17 @@ def _axis_answer(project, axis: str, generic, *, announce: bool = True):
         if found.value:
             return found
         if announce:
-            log.warning("%s names %s as its %s credential and it is empty — falling back to "
-                        "this deployment's own, which is very likely the wrong system",
-                        getattr(project, "name", "?"), named, axis)
+            # WHAT IS ASKED NEXT, by row (#874): the vendor's own variable and nothing after it,
+            # or nothing at all when that is the variable it named — only the row that names no
+            # variable falls back to this deployment's own
+            default = vendor_default_env(ref)
+            log.warning("%s names %s as its %s credential and it is empty — %s",
+                        getattr(project, "name", "?"), named, axis,
+                        "nothing is used in its place" if default == named else
+                        f"`{default}`, the vendor's own variable, is asked instead, and nothing "
+                        f"after it" if default else
+                        "falling back to this deployment's own, which is very likely the wrong "
+                        "system")
     default = vendor_default_env(ref)
     if default:
         found = credential_store.lookup(default)
@@ -405,6 +414,13 @@ def _axis_answer(project, axis: str, generic, *, announce: bool = True):
             return _refused_at(project, axis, found, announce)
         if (found.value or "").strip():
             return Answer(reference=found.reference, value=found.value.strip())
+        # A VENDOR THAT NAMES ITS OWN VARIABLE IS ANSWERED BY IT, AND BY NOTHING AFTER IT (#874).
+        # The generic pair is the row that names none: GitHub's, and a legacy project of no kind.
+        # A Jira project that named no `token_env`, on a deployment with no `JIRA_API_TOKEN`, was
+        # handed `OPENFACTORY_BOT_TOKEN` — a GitHub token — and sent it to the Jira site, which
+        # refused it as another account's (measured 2026-10-19). None is the honest answer: the
+        # adapter says "no API token reached this tracker" and names the variable (#749).
+        return credential_store.NOTHING
     # A VENDOR THAT NEEDS NO CREDENTIAL NEVER REACHES THE GENERIC PAIR (ADR-0049 D1). The pair is
     # this DEPLOYMENT's, and on a machine that also runs a hosted project it is that project's
     # token: handing it to a row whose board is a local file would present one system's credential
@@ -434,8 +450,36 @@ def tracker_token_for(project) -> str | None:
     baked into the worker image; a token written there is a token in an image layer.
 
     Resolution: `token_env` if named → the axis vendor's own default variable (its credential
-    row's `env`) → the deployment-wide generic pair. A GitHub axis is unchanged."""
+    row's `env`), and nothing after it when the row names one (#874) → the deployment-wide
+    generic pair, for the row that names none. A GitHub axis is unchanged."""
     return _axis_credential(project, "tracker", tracker_token)[1]
+
+
+def tracker_token_or_held(project, held: str | None) -> str | None:
+    """`tracker_token_for(project)`, else the credential the caller already HOLDS — and that only
+    for a tracker row that names no variable, resolves nothing itself and needs a credential, which
+    is the reference vendor's and a legacy project of no kind (#874).
+
+    THE DOOR THE PRODUCT ROLE'S BOARD CAME IN BY. `product/board._credential` and
+    `ProductModule._board` read `tracker_token_for(project) or token`, where `token` is the
+    module's FORGE credential: on a Jira-tracker, GitHub-forge project with only
+    `OPENFACTORY_BOT_TOKEN` set, the tracker resolved None since #874 and the board's `JiraTracker`
+    was still built with the GitHub token (measured in the review of #1142). The held token exists
+    for one case — a GitHub board on a worker with no ambient tracker credential, where the module
+    carries a freshly minted App token and dropping it would turn a working read into a failing
+    one — and that case is the row that names no variable. A row that names one, or resolves its
+    own, or needs none, is answered by `tracker_token_for` alone; and nothing after a refusal
+    (#822)."""
+    found = tracker_token_for(project)
+    if found:
+        return found
+    ref = getattr(project, "tracker", None)
+    if axis_refusal(project, "tracker"):
+        return None
+    row = _row(_kind_of(ref))
+    answered_alone = row is not None and bool(
+        row.env or row.source is not None or not getattr(row, "needs", True))
+    return None if answered_alone else held
 
 
 def forge_token() -> str | None:
@@ -463,7 +507,8 @@ def forge_token_for(project) -> str | None:
     with the ADO pack rather than after it, because after it means finding it in a client's logs.
 
     Resolution: `token_env` if named → the axis vendor's own default variable (its credential
-    row's `env`) → the deployment-wide generic pair. A GitHub axis is unchanged."""
+    row's `env`), and nothing after it when the row names one (#874) → the deployment-wide
+    generic pair, for the row that names none. A GitHub axis is unchanged."""
     return _axis_credential(project, "forge", forge_token)[1]
 
 
