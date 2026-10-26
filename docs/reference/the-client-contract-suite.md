@@ -58,6 +58,7 @@ something it did not.
 | `client.reachable` | the address does not serve the API's description at `/openapi.json` |
 | `client.release` | the API runs another release than the suite's (the finding names both and the `pip install` that matches) |
 | `client.credential` | the deployment asks for a credential and none was given, or the one given is refused (exit 2: the run's configuration, not the API's answer) |
+| `client.dependency` | `whoami` answered `503`: a dependency the API needs (the identity provider, the durable engine) cannot answer right now, so nothing was held (exit 1: the deployment's state, not a bad secret) |
 | `client.refusal-401` | no credential, or one nobody issued, is not the contract's `401 {"detail": "unauthorized"}` |
 | `client.route` | a route the manifest names is not a route of the API, or not with that method |
 | `client.field` | a field the manifest names is not one the route's answer declares |
@@ -69,8 +70,9 @@ something it did not.
 A route named in the manifest that is a deprecated alias passes, with a `NOTE` naming its
 `/api/v1/` address. The run exits 0 when nothing is broken, and 1 otherwise, after listing every
 finding. A `client.credential` finding exits 2 instead, as an option the suite cannot use does: a
-credential missing or refused is the run's configuration, so a CI job can tell a misconfigured
-secret from a client that no longer conforms.
+credential missing or refused (`401`) is the run's configuration, so a CI job can tell a
+misconfigured secret from a client that no longer conforms. A `503` from `whoami` is not a refused
+credential: it is `client.dependency`, exit 1, and says to run again when the deployment answers.
 
 **The parameters.** `--param project=acme` fills a route's `{project}` and any query parameter its
 description declares by that name. A path parameter you do not fill is a name no deployment holds,

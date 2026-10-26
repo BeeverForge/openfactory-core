@@ -11,8 +11,9 @@ SEVEN CLAIMS, each cut here and each required to go red:
   3. **One release on both sides, and the 401 the contract names**: another release, a version
      route that does not say one, the wrong 401 (with no credential as well as with one nobody
      issued), a gated deployment run without a credential and a credential it refuses each fail;
-     an address that does not answer is a finding, never a traceback. A deprecated alias passes
-     with its note, and a socket row naming fields fails.
+     an address that does not answer is a finding, never a traceback. Only a 401 from `whoami`
+     refuses the credential: a 503 is the dependency it names, and stops the run. A deprecated
+     alias passes with its note, and a socket row naming fields fails.
   4. **The default front end's manifest is what the page calls**: the method each call names, a
      socket, the comments left out, a segment and a further segment the page concatenates, a
      call that reaches no route kept so the suite names it, and the kinds it branches on. What
@@ -108,8 +109,21 @@ MUTATIONS = [
      "        if False:"),
 
     ("a credential the API refuses is not named", CLIENT,
-     "    if me.status_code != 200:",
+     "    if me.status_code == 401:",
      "    if False:"),
+
+    ("a whoami that answers 503 is a refused credential", CLIENT,
+     "    if answer.status_code != 503:\n        return False",
+     "    if True:\n        return False"),
+
+    ("a run whose dependency cannot answer goes on to judge the release", CLIENT,
+     "    if any(f.rule in (\"client.credential\", \"client.dependency\") for f in "
+     "report.findings):",
+     "    if any(f.rule in (\"client.credential\",) for f in report.findings):"),
+
+    ("any answer of whoami but 200 is a refused credential", CLIENT,
+     "    if me.status_code == 401:",
+     "    if me.status_code != 200:"),
 
     ("a version route that does not answer 200 with an object passes", CLIENT,
      "    if answer.status_code != 200 or not isinstance(body, dict):\n"

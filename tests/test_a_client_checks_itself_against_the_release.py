@@ -20,7 +20,7 @@ WHAT IS PROVEN HERE:
   · a call whose method or route the page's text cannot say is named, never guessed;
   · the suite only reads, a manifest it cannot read is refused in one sentence, and the command
     says CONFORMANT or NOT CONFORMANT with the exit code a CI job branches on — 2 for a credential
-    it cannot use, 1 for an API that stops answering mid-run, never a traceback, and never a run
+    it cannot use, 1 for a dependency that cannot answer or an API that stops answering mid-run, never a traceback, and never a run
     that waits without bound;
   · the guide's manifest, its command and the line it shows are ones the suite and the command
     take and print.
@@ -451,6 +451,44 @@ def test_a_credential_the_command_cannot_use_exits_2_naming_it(gated, monkeypatc
     assert got.exit_code == 2, got.output
     assert "FAIL  client.credential" in got.output and "NOT CHECKED" in got.output, got.output
     assert "NOT CONFORMANT" not in got.output and "nobody-issued-this" not in got.output
+
+
+@pytest.mark.parametrize("args", [[], ["--token-env", "MY_CLIENT_TOKEN"]],
+                         ids=["no credential", "a credential"])
+def test_a_whoami_that_answers_503_is_the_dependency_not_the_credential(monkeypatch, args):
+    """The identity provider is down: every `whoami` answers the contract's 503. That is the
+    deployment's state, exit 1, never a misconfigured secret (exit 2)."""
+    def provider_down(request):
+        if request.url.path == "/openapi.json":
+            return httpx.Response(200, json={"paths": {}})
+        return httpx.Response(503, json={"detail": "the identity provider cannot answer right now"})
+
+    monkeypatch.setenv("MY_CLIENT_TOKEN", "the-operator")
+    got = _cli(monkeypatch, httpx.Client(base_url="http://api.test",
+                                         transport=httpx.MockTransport(provider_down)), *args)
+
+    assert got.exit_code == 1, got.output
+    assert "FAIL  client.dependency" in got.output, got.output
+    assert "the identity provider cannot answer right now" in got.output
+    assert "client.credential" not in got.output and "NOT CHECKED" not in got.output
+    assert "client.refusal-401" not in got.output and "NOTE" not in got.output, got.output
+    assert "client.release" not in got.output, "nothing past whoami is judged"
+
+
+def test_a_whoami_that_answers_neither_200_nor_401_to_the_credential_is_the_apis(gated):
+    """`whoami` is the read every credential may make, so it has no 403 for one: a 403 is the API's
+    answer, never a refused credential."""
+    def forbidden(request):
+        if request.url.path == "/api/v1/whoami" and request.headers.get(
+                "authorization") == "Bearer the-operator":
+            return httpx.Response(403, json={"detail": "not allowed"})
+        return None
+
+    report = check_client(_through(gated, forbidden), _manifest(("GET", "/api/v1/projects", [])),
+                          credential="the-operator")
+
+    assert _rules(report) == ["client.answer-status"], _said(report)
+    assert "answered 403" in _said(report)
 
 
 def test_an_api_that_stops_answering_mid_run_is_one_sentence_and_exit_1(empty, monkeypatch):

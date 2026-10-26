@@ -98,7 +98,8 @@ description names, a body in the release's model, or a refusal with its sentence
 `--manifest` it checks the default front end's, read from the page the package ships. It only reads.
 `--token-env` names the variable holding the credential and `--param name=value` fills a route's
 parameters. Exit 0 conformant, 1 with the findings, 2 for a manifest, an option or a credential it
-cannot use (none given to a deployment that asks for one, or one the API refuses).
+cannot use (none given to a deployment that asks for one, or one the API refuses with 401); a 503
+from `whoami` is a dependency that cannot answer, exit 1.
 Walked in [the client contract suite](the-client-contract-suite.md).
 
 ---

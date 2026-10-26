@@ -288,9 +288,15 @@ def _check_release(http: httpx.Client, credential: str | None, report: Report) -
 
 def _check_refusals(http: httpx.Client, credential: str | None, report: Report) -> None:
     """No credential, and one nobody issued, are both the contract's 401 — asked of `whoami`, the
-    read every credential may make. Without a credential to present the deployment must be open."""
+    read every credential may make. Without a credential to present the deployment must be open.
+
+    A 503 is none of these: the contract gives it to every route for a dependency that cannot
+    answer right now (the gate raises it before any 401 when the identity provider cannot be
+    read), so it is filed as `client.dependency` — the deployment's state, never a bad secret."""
     bare = http.get("/api/v1/whoami")
     report.asked += 1
+    if _unavailable(bare, report):
+        return
     if credential is None:
         if bare.status_code == 401:
             report.findings.append(_finding(
@@ -316,11 +322,39 @@ def _check_refusals(http: httpx.Client, credential: str | None, report: Report) 
                 "it showing a screen it may not read"))
     me = http.get("/api/v1/whoami", headers=_headers(credential))
     report.asked += 1
-    if me.status_code != 200:
+    if _unavailable(me, report):
+        return
+    # ONLY A 401 REFUSES THE CREDENTIAL ITSELF: `whoami` is the one read every credential may make
+    # whatever it is scoped to (`app._UNSCOPED_ROUTES`), so it has no 403 to give a credential, and
+    # any other answer is the API's, not the run's configuration
+    if me.status_code == 401:
         report.findings.append(_finding(
             "client.credential", f"the credential given was refused by GET /api/v1/whoami "
                                  f"({me.status_code}): check the variable --token-env names",
             "every read below would be judged by a refusal of the caller, not of the API"))
+    elif me.status_code != 200:
+        report.findings.append(_finding(
+            "client.answer-status", f"GET /api/v1/whoami, the read every credential may make, "
+                                    f"answered {me.status_code} {me.text[:200]!r} to the "
+                                    f"credential given, neither 200 nor its refusal (401)",
+            "a client asks whoami which screen to draw; an answer that is neither leaves it "
+            "guessing"))
+
+
+def _unavailable(answer: httpx.Response, report: Report) -> bool:
+    """Whether `whoami` answered the contract's 503, filed as the dependency it names."""
+    if answer.status_code != 503:
+        return False
+    body = _json(answer)
+    why = body.get("detail") if isinstance(body, dict) else None
+    report.findings.append(_finding(
+        "client.dependency", f"GET /api/v1/whoami answered 503"
+                             f"{f' ({why})' if isinstance(why, str) and why else ''}: a dependency "
+                             f"the API needs cannot answer right now, so nothing was held; run "
+                             f"again when it does",
+        "a 503 is the deployment's state, not the credential's; nothing it answers until then "
+        "says whether the client conforms"))
+    return True
 
 
 def _fill(path: str, params: dict[str, str]) -> str:
@@ -389,7 +423,7 @@ def check_client(http: httpx.Client, manifest: Manifest, *, credential: str | No
     # THE CREDENTIAL FIRST: every answer after it, the version's included, is judged with it, and a
     # caller the API refuses would be reported as an API that refuses everything
     _check_refusals(http, credential, report)
-    if any(f.rule == "client.credential" for f in report.findings):
+    if any(f.rule in ("client.credential", "client.dependency") for f in report.findings):
         return report
     if not _check_release(http, credential, report):
         return report
