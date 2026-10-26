@@ -23,7 +23,8 @@ SEVEN CLAIMS, each cut here and each required to go red:
   5. **The API describes the refusals the suite found**: the board, a product's attachments and
      its documents name their 404.
   6. **The manifest and the command refuse by name** with the exit codes a CI job branches on:
-     2 for a credential the run cannot use, 1 for an API that stops answering mid-run.
+     2 for a credential the run cannot use, 1 for an API that stops answering mid-run. The `?`
+     and `${…}` the page's reader writes are refused, exit 2, from a manifest someone wrote.
   7. **A run never waits without bound**: the command's client has a finite timeout.
 
 The guard under test: `tests/test_a_client_checks_itself_against_the_release.py`.
@@ -219,8 +220,16 @@ MUTATIONS = [
      "        if False:"),
 
     ("a call the page's reader could not read is refused as a manifest error", CLIENT,
-     "        if method not in METHODS and method != UNREAD:",
+     "        if method not in METHODS and not (from_the_reader and method == UNREAD):",
      "        if method not in METHODS:"),
+
+    ("a written manifest may name the method only the page's reader writes", CLIENT,
+     "        if method not in METHODS and not (from_the_reader and method == UNREAD):",
+     "        if method not in METHODS and method != UNREAD:"),
+
+    ("a written manifest may name a path with a runtime value", CLIENT,
+     "        if \"${\" in path and not from_the_reader:",
+     "        if False:"),
 
     ("the kinds the page branches on are not read", FRONT_END,
      "            \"events\": [{\"kind\": k} for k in sorted(set(_KIND.findall(_code(page))))]}",

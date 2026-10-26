@@ -39,7 +39,13 @@ import re
 import sys
 from pathlib import Path
 
-from openfactory.conformance.client import SCHEMA, UNREAD, UNREAD_SEGMENT
+from openfactory.conformance.client import (
+           SCHEMA,
+           UNREAD,
+           UNREAD_SEGMENT,
+           Manifest,
+           parse_manifest,
+)
 
 #: The page, where the package ships it.
 PAGE = Path(__file__).resolve().parents[1] / "api" / "panel.html"
@@ -248,6 +254,13 @@ def manifest(page: str | None = None) -> dict:
     return {"schema": SCHEMA, "client": CLIENT,
             "routes": [{"method": m, "path": p} for m, p in sorted(calls(page))],
             "events": [{"kind": k} for k in sorted(set(_KIND.findall(_code(page))))]}
+
+
+def declared(page: str | None = None) -> Manifest:
+    """The default front end's manifest as the suite holds it: the one manifest that may carry the
+    `?` and `${…}` this reader writes for what the page's text cannot say."""
+    return parse_manifest(manifest(page), source="the default front end's manifest",
+                          from_the_reader=True)
 
 
 def main(argv: list[str] | None = None) -> int:

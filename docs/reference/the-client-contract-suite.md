@@ -152,7 +152,8 @@ What cannot be read off the page's text is written so the run names it, never gu
 whose method is not a string literal in its own options (`mfetch(u, o)`, `method: m`, `{...o}`)
 has the method `?`, and an address whose route is itself a runtime value (`` `/api/${x}` ``) is
 written `/api/${…}`. Each fails `client.route`, naming the call, the way a call to a route the
-release does not have does.
+release does not have does. Only the reader may write them: in a manifest you write, the method
+`?` and a path with `${…}` are refused like any method or path the suite cannot read, exit 2.
 
 `tests/test_a_client_checks_itself_against_the_release.py` runs the suite with that manifest
 against the app on every run of the core's suite: populated, holding nothing, and with a

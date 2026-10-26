@@ -1092,17 +1092,11 @@ def conformance_client(
 
     import httpx
 
-    from openfactory.conformance.client import (
-               ManifestError,
-               check_client,
-               parse_manifest,
-               read_manifest,
-    )
-    from openfactory.conformance.front_end import manifest as front_end
+    from openfactory.conformance.client import ManifestError, check_client, read_manifest
+    from openfactory.conformance.front_end import declared as front_end
 
     try:
-        declared = (read_manifest(manifest) if manifest else
-                    parse_manifest(front_end(), source="the default front end's manifest"))
+        declared = read_manifest(manifest) if manifest else front_end()
     except ManifestError as exc:
         typer.echo(str(exc))
         raise typer.Exit(2) from None

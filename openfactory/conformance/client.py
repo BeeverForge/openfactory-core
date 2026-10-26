@@ -119,10 +119,16 @@ def _finding(rule: str, detail: str, why: str) -> Finding:
 
 # ── the manifest ────────────────────────────────────────────────────────────────────────────────
 
-def parse_manifest(data: object, *, source: str = "the manifest") -> Manifest:
+def parse_manifest(data: object, *, source: str = "the manifest",
+                   from_the_reader: bool = False) -> Manifest:
     """`data` as a manifest, or a `ManifestError` naming what is wrong with it. Nothing unknown is
     ignored: a key the suite does not read is a client believing it declared something it did
-    not."""
+    not.
+
+    `from_the_reader` is for the default front end's reader ALONE (`front_end.declared`): only it
+    writes the method `?` and the path segment `${…}` for what a page's text cannot say, so the
+    suite names that call. A manifest someone wrote names its methods and paths, and one that
+    writes either is refused like any other method or path it cannot hold to a route."""
     def refuse(what: str) -> ManifestError:
         return ManifestError(f"{source}: {what} — see docs/reference/the-client-contract-suite.md "
                              f"for the shape")
@@ -155,11 +161,14 @@ def parse_manifest(data: object, *, source: str = "the manifest") -> Manifest:
         if not isinstance(row, dict) or set(row) - {"method", "path", "fields"}:
             raise refuse(f"{where} must be an object of `method`, `path` and `fields`")
         method, path = row.get("method"), row.get("path")
-        if method not in METHODS and method != UNREAD:
+        if method not in METHODS and not (from_the_reader and method == UNREAD):
             raise refuse(f"{where}: `method` is {method!r}, and must be one of "
                          f"{', '.join(METHODS)}")
         if not isinstance(path, str) or not path.startswith("/"):
             raise refuse(f"{where}: `path` must be the route's path, as the contract writes it")
+        if "${" in path and not from_the_reader:
+            raise refuse(f"{where}: `path` {path!r} has a runtime value (`${{…}}`) where the "
+                         f"contract writes a parameter as `{{name}}`")
         parsed_routes.append(Route(method, path, fields_of(row, where)))
     parsed_events = []
     for n, row in enumerate(events):

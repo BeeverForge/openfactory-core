@@ -45,7 +45,7 @@ from openfactory.conformance.client import (
            check_client,
            parse_manifest,
 )
-from openfactory.conformance.front_end import PAGE, calls
+from openfactory.conformance.front_end import PAGE, calls, declared
 from openfactory.conformance.front_end import manifest as front_end
 from tests.test_the_front_end_api_is_a_contract import _called_by_the_page, _reaches
 from tests.test_the_read_routes_declare_their_model import bench  # noqa: F401 — the fixture
@@ -91,9 +91,9 @@ def test_the_default_front_end_holds_against_a_populated_release(bench):  # noqa
     bench.event_hooks = {
         "request": [lambda request: asked.append(request.method)],
         "response": [lambda answer: answered.update({str(answer.request.url): answer.status_code})]}
-    declared = parse_manifest(front_end())
+    ours = declared()
 
-    report = check_client(bench, declared, params=BENCH)
+    report = check_client(bench, ours, params=BENCH)
 
     assert report.findings == [], _said(report)
     # populated, so every read said yes and its BODY was held to its model, not only its refusal
@@ -104,7 +104,7 @@ def test_the_default_front_end_holds_against_a_populated_release(bench):  # noqa
     assert "http://testserver/api/address?repo_path=%2Fsrv%2Facme" in reads, sorted(reads)
     from openfactory.conformance.client import _release_reads
 
-    typed = [r for r in declared.routes if r.method == "GET" and r.path in _release_reads()]
+    typed = [r for r in ours.routes if r.method == "GET" and r.path in _release_reads()]
     assert report.asked >= len(typed) >= 18, (report.asked, len(typed))
     assert set(asked) == {"GET"}, f"the suite sent {sorted(set(asked))} — it may only read"
 
@@ -112,7 +112,7 @@ def test_the_default_front_end_holds_against_a_populated_release(bench):  # noqa
 def test_against_a_release_that_holds_nothing_every_read_answers_a_refusal_it_names(empty):
     """Every `{project}` is the probe no deployment holds, so each read that takes one answers
     its refusal — and each refusal is one the description names for that read."""
-    report = check_client(empty, parse_manifest(front_end()))
+    report = check_client(empty, declared())
 
     assert report.findings == [], _said(report)
     assert any("not checked" in n for n in report.notes), report.notes
@@ -125,7 +125,7 @@ def gated(empty, monkeypatch):
 
 
 def test_a_credentialed_run_checks_the_401_and_holds(gated):
-    report = check_client(gated, parse_manifest(front_end()), credential="the-operator")
+    report = check_client(gated, declared(), credential="the-operator")
 
     assert report.findings == [], _said(report)
     assert not any("not checked" in n for n in report.notes), report.notes
@@ -226,7 +226,7 @@ def test_a_call_whose_method_the_page_does_not_write_is_named_never_read_as_a_ge
 
     added = calls(page) - calls(PAGE.read_text(encoding="utf-8"))
     assert added == {("?", "/api/whoami")}, added
-    report = check_client(empty, parse_manifest(front_end(page)))
+    report = check_client(empty, declared(page))
 
     assert _rules(report) == ["client.route"], _said(report)
     assert "? /api/whoami is a call whose method cannot be read off the page" in _said(report)
@@ -262,7 +262,7 @@ def test_an_address_whose_route_is_a_runtime_value_is_named_not_every_route(empt
     assert len(added) == 1 and {m for m, _p in added} == {"GET"}, added
     ((_m, written),) = added
     assert written.endswith("/${…}"), added
-    report = check_client(empty, parse_manifest(front_end(page)))
+    report = check_client(empty, declared(page))
 
     assert _rules(report) == ["client.route"], _said(report)
     assert "whose route cannot be read off the page" in _said(report)
@@ -272,7 +272,7 @@ def test_a_call_to_a_route_the_release_does_not_have_is_named_by_the_suite(empty
     page = _page('async function gone(){await api("/api/no-such-read")}')
     assert ("GET", "/api/no-such-read") in calls(page)
 
-    report = check_client(empty, parse_manifest(front_end(page)))
+    report = check_client(empty, declared(page))
 
     assert _rules(report) == ["client.route"], _said(report)
     assert "GET /api/no-such-read" in _said(report)
@@ -395,6 +395,46 @@ def test_an_address_that_does_not_answer_is_named():
 
 
 # ── the manifest, and the command ───────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize(("route", "said"), [
+    ({"method": "?", "path": "/api/v1/whoami"}, "`method` is '?', and must be one of GET, POST"),
+    ({"method": "GET", "path": "/api/v1/${x}"}, "has a runtime value"),
+    ({"method": "GET", "path": "/api/v1/${…}"}, "has a runtime value"),
+], ids=["?", "${x}", "${…}"])
+def test_what_only_the_page_reader_writes_is_refused_from_a_written_manifest(empty, monkeypatch,
+                                                                             tmp_path, route,
+                                                                             said):
+    """`?` and `${…}` are the default front end's reader naming what a page's text cannot say. A
+    manifest someone wrote names its methods and paths: either is the exit-2 refusal, in one
+    sentence, never a run that fails `client.route`."""
+    mine = tmp_path / "mine.json"
+    mine.write_text(json.dumps({"schema": SCHEMA, "client": "acme dashboard", "routes": [route]}))
+
+    with pytest.raises(ManifestError) as refused:
+        parse_manifest(json.loads(mine.read_text()))
+    assert said in str(refused.value) and "\n" not in str(refused.value)
+
+    got = _cli(monkeypatch, empty, "--manifest", str(mine))
+
+    assert got.exit_code == 2, got.output
+    assert said in got.output and len(got.output.strip().splitlines()) == 1, got.output
+    assert "client.route" not in got.output and "Traceback" not in got.output
+
+
+def test_the_page_reader_alone_may_write_what_it_cannot_read():
+    """The same rows the reader writes: through `declared` they hold, and the page's own rows read
+    the same through either door."""
+    page = _page('async function unread(o,x){mfetch("/api/whoami",o);await api(`/api/${x}`)}')
+    data = front_end(page)
+
+    assert {("?", "/api/whoami"), ("GET", "/api/${…}")} <= {(r.method, r.path)
+                                                            for r in declared(page).routes}
+    with pytest.raises(ManifestError):
+        parse_manifest(data)
+    today = front_end()
+    assert declared().routes == parse_manifest(today).routes
+    assert len(today["routes"]) == 41, len(today["routes"])
+
 
 @pytest.mark.parametrize(("data", "said"), [
     ([], "not a JSON object"),
