@@ -14,8 +14,8 @@ reads the addresses (`tests/test_the_front_end_api_is_a_contract.py`):
     what the page concatenates to it: a `${…}` or an expression after a `/` is one segment, and an
     expression after a word is a query or a further segment, so the route either would reach is
     claimed — the further one only where the release has it;
-  · the method is the one the call's options name (`method:"POST"`), GET where they name none, WS
-    for a `new WebSocket(…)`;
+  · the method is the one the call's options name (`method:"POST"`, the key quoted or not), GET
+    where they name none, WS for a `new WebSocket(…)`;
   · what cannot be read off the text is written `?`, never guessed: a method in options that are
     not an object literal (`mfetch(u,o)`), or named by something other than a string literal
     (`method:m`), or that may come from a spread (`{...o}`); and an address whose route is itself
@@ -48,7 +48,8 @@ CLIENT = "the default front end"
 
 _ADDRESS = re.compile(r"(['\"`])((?:\$\{[^}]*\}//\$\{[^}]*\})?/api/(?:(?!\1).)*?)\1")
 _KIND = re.compile(r"\.kind\s*[!=]==\s*[\"'](\w+)[\"']")
-_METHOD = re.compile(r"\bmethod\s*:\s*[\"'](\w+)[\"']")
+#: The options' `method` key, bare or quoted (`method:`, `"method":`, `'method':`).
+_METHOD = re.compile(r"(?:\bmethod|([\"'])method\1)\s*:\s*[\"'](\w+)[\"']")
 _CALLEE = re.compile(r"(new\s+)?([A-Za-z_$][\w$]*)\s*\(\s*$")
 _PLUS = re.compile(r"\s*\+\s*")
 #: An address whose first segment after the API's own prefix is a runtime value.
@@ -187,8 +188,8 @@ def _method(code: str, before: str, after: int) -> str:
     top = _top_level(options[:_call_end(options, 1) + 1])
     named = _METHOD.search(top)
     if named:
-        return named.group(1).upper()
-    if "..." in top or re.search(r"(?:^|,)\s*method\s*(?:[:,]|$)", top):
+        return named.group(2).upper()
+    if "..." in top or re.search(r"(?:^|,)\s*(?:method|([\"'])method\1)\s*(?:[:,]|$)", top):
         return UNREAD
     return "GET"
 

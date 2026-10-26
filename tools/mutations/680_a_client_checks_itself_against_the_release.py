@@ -16,9 +16,10 @@ SEVEN CLAIMS, each cut here and each required to go red:
      alias passes with its note, and a socket row naming fields fails.
   4. **The default front end's manifest is what the page calls**: the method each call names, a
      socket, the comments left out, a segment and a further segment the page concatenates, a
-     call that reaches no route kept so the suite names it, and the kinds it branches on. What
-     the text cannot say is named, never guessed: a method outside a literal in the call's own
-     options, and an address whose route is a runtime value.
+     call that reaches no route kept so the suite names it, and the kinds it branches on; a
+     quoted `method` key is read as the bare one. What the text cannot say is named, never
+     guessed: a method outside a literal in the call's own options, and an address whose route
+     is a runtime value.
   5. **The API describes the refusals the suite found**: the board, a product's attachments and
      its documents name their 404.
   6. **The manifest and the command refuse by name** with the exit codes a CI job branches on:
@@ -153,7 +154,7 @@ MUTATIONS = [
 
     # ── 4. the default front end's manifest is what the page calls ────────────────────────────────
     ("every call is read as a GET", FRONT_END,
-     "    if named:\n        return named.group(1).upper()",
+     "    if named:\n        return named.group(2).upper()",
      "    if named:\n        return \"GET\""),
 
     ("a socket is read as a GET", FRONT_END,
@@ -192,6 +193,14 @@ MUTATIONS = [
     ("a method that is not a string literal, or a spread, is read as a GET", FRONT_END,
      "    if \"...\" in top or re.search(",
      "    if False and re.search("),
+
+    ("a quoted method key is read as a GET", FRONT_END,
+     "_METHOD = re.compile(r\"(?:\\bmethod|([\\\"'])method\\1)\\s*:",
+     "_METHOD = re.compile(r\"(\\bmethod)\\s*:"),
+
+    ("a quoted method key that is not a string literal is read as a GET", FRONT_END,
+     "re.search(r\"(?:^|,)\\s*(?:method|([\\\"'])method\\1)\\s*(?:[:,]|$)\", top)",
+     "re.search(r\"(?:^|,)\\s*method\\s*(?:[:,]|$)\", top)"),
 
     ("a method a header nests is read as the call's", FRONT_END,
      "    named = _METHOD.search(top)",

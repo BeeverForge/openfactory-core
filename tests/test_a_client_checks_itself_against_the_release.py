@@ -239,6 +239,21 @@ def test_a_method_the_options_write_is_read_past_what_they_nest():
     assert calls(page) - calls(PAGE.read_text(encoding="utf-8")) == {("POST", "/api/jobs")}
 
 
+@pytest.mark.parametrize(("call", "method"), [
+    ('mfetch("/api/jobs",{"method":"DELETE"})', "DELETE"),
+    ("mfetch(\"/api/jobs\",{'method':'DELETE'})", "DELETE"),
+    ('mfetch("/api/jobs",{headers:{},"method":"POST"})', "POST"),
+    ('mfetch("/api/jobs",{"method":m})', "?"),
+    ("mfetch(\"/api/jobs\",{'method':m?\"DELETE\":\"PUT\"})", "?"),
+], ids=["double quotes", "single quotes", "after another key", "quoted, not a literal",
+        "single quotes, a ternary"])
+def test_a_quoted_method_key_is_read_as_the_bare_one(call, method):
+    """`{"method":"DELETE"}` is the same options as `{method:"DELETE"}`: it is never the GET."""
+    page = _page(f"async function quoted(m){{await {call}}}")
+
+    assert calls(page) - calls(PAGE.read_text(encoding="utf-8")) == {(method, "/api/jobs")}
+
+
 @pytest.mark.parametrize("address", ["`/api/${x}`", '"/api/"+x', "`/api/v1/${x}`"])
 def test_an_address_whose_route_is_a_runtime_value_is_named_not_every_route(empty, address):
     page = _page(f"async function any(x){{await api({address})}}")
