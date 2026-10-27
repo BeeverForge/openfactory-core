@@ -129,8 +129,9 @@ DOCUMENTS = {
     "KimiAdapter.__doc__": lambda: KimiAdapter.__doc__,
     "KimiAdapter.ask.__doc__": lambda: KimiAdapter.ask.__doc__,
     "roles.__doc__": lambda: roles_module.__doc__,
-    "changes/362.limitation.md": lambda: (ROOT / "changes/362.limitation.md").read_text(
-        encoding="utf-8"),
+    # RETIRED (0.7.0's final): `changes/362.limitation.md` was read here until 0.7.0's notes were
+    # assembled, which removes every fragment it uses; its text is now 0.7.0's frozen section of
+    # `CHANGELOG.md`, which no later change may edit, so nothing is left here to guard.
     "ADR-0018 section 2": _adr_0018_section_2,
     "docs/configuration.md Kimi bullet": _configuration_kimi_bullet,
 }

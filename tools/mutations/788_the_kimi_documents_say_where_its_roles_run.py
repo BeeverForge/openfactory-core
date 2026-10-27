@@ -11,7 +11,7 @@ The claims, each held by a row of `TEST` (named per cut below):
     `KimiAdapter.ask`.
   - C3. No document says a Kimi judging role is kept in a box or that its edit cannot outlive the
     run: the module, class and `ask()` docstrings of `kimi.py`, the `roles.py` module docstring,
-    `changes/362.limitation.md`, ADR-0018 §2 and the Kimi bullet of `docs/configuration.md`. One
+    ADR-0018 §2 and the Kimi bullet of `docs/configuration.md`. One
     cut per document puts a false clause back (three of them the very text main carried on
     620bb577). The ADR's original sentences under the table stay as history, so its cut puts the
     false clause INSIDE the 2026-10-20 amendment, where no later amendment answers it.
@@ -37,6 +37,10 @@ The claims, each held by a row of `TEST` (named per cut below):
     commits from" names the review, where it runs and that its write can reach the pull request.
     One cut per document drops the review clause; one puts "every `ask()` runs" back.
 
+RETIRED (0.7.0's final): the four cuts of `changes/362.limitation.md`, one each for C3 to C6.
+Assembling 0.7.0's notes removes the fragment, and its text is now 0.7.0's frozen section of
+`CHANGELOG.md`, so the guard no longer reads it and these rows would point at no file.
+
 RE-PINNED (#788, review round 2, R2.1): the C3 and C5 anchors in `kimi.py`, `roles.py`, the 0.7.0
 note and the configuration bullet moved when each gained the review clause; each cut still makes
 the same claim false.
@@ -61,7 +65,6 @@ REVIEW = (TEST + "::test_each_document_names_the_review_wherever_it_says_where_t
 
 KIMI = "openfactory/adapters/agent/kimi.py"
 ROLES = "openfactory/adapters/agent/roles.py"
-NOTE = "changes/362.limitation.md"
 ADR = "docs/adr/0018-harness-roles.md"
 CONF = "docs/configuration.md"
 WORKTREE = "openfactory/adapters/sandbox/worktree.py"
@@ -115,10 +118,6 @@ MUTATIONS = [
      "writes inside their ephemeral box.\n",
      NO_BOX.format("roles.__doc__")),
 
-    ("C3 the 0.7.0 limitation note says again that no such edit outlives the run", NOTE,
-     "can reach the pull request; nothing confines a write to any of them.",
-     "can reach the pull request; no such edit outlives the run.",
-     NO_BOX.format("changes/362.limitation.md")),
 
     # RE-PINNED (#788, task 21): the amendment's planner sentences grew the hold, so the cut now
     # anchors on the amendment's last line, still inside the dated paragraph.
@@ -154,10 +153,6 @@ MUTATIONS = [
      "is one of its own (a temporary directory",
      NAMES.format("roles.__doc__")),
 
-    ("C4 the 0.7.0 limitation note no longer says nothing commits from the directory", NOTE,
-     "in a directory nothing commits from,",
-     "in a directory of their own,",
-     NAMES.format("changes/362.limitation.md")),
 
     ("C4 the ADR-0018 amendment no longer says nothing commits from the rooms", ADR,
      "Each is a room\nnothing commits from, so",
@@ -200,11 +195,6 @@ MUTATIONS = [
      "except the independent\nreview",
      EXCEPT.format("roles.__doc__")),
 
-    ("C5 the 0.7.0 limitation note drops the env context --ask exception", NOTE,
-     "except `env context --ask`, which asks in the checkout it is pointed at, where a write is "
-     "left in that working tree, and the independent review",
-     "except the independent review",
-     EXCEPT.format("changes/362.limitation.md")),
 
     ("C5 the ADR-0018 amendment lists the target checkout among the rooms nothing commits from "
      "again", ADR,
@@ -262,11 +252,6 @@ MUTATIONS = [
      ";",
      REVIEW.format("roles.__doc__")),
 
-    ("C6 the 0.7.0 limitation note drops the review exception", NOTE,
-     ", and the independent review, which runs in the job's box on the job's workspace before "
-     "the push, where its write can reach the pull request;",
-     ";",
-     REVIEW.format("changes/362.limitation.md")),
 
     ("C6 the ADR-0018 amendment drops the review exception", ADR,
      ",\nand the independent review, which runs in the job's box on the job's workspace before "
