@@ -9,12 +9,15 @@ agent again with the rest of `.claude/`. Rows 5-9 come from the review of #510: 
 images under a tag `install.sh` never pulls, a candidate moving the floating `1`, `latest` pushed
 on every final tag, a hyphenated version refused by the declared-version guard, and SECURITY.md
 promising fixes on `main` only again. Since #1126 SECURITY.md states the legacy line's rule in the
-words a reporter reads, agreeing with docs/RELEASING.md, which it points at for the process.
+words a reporter reads, agreeing with docs/RELEASING.md, which it points at for the process. Rows
+10-12 come from the review of #1150: SECURITY.md promising fixes on `main` only with a capital
+letter, and each of the legacy rule's two homes giving `release/0.7` every fix.
 """
 
 TEST = "tests/test_a_release_candidate_is_published_as_a_pre_release.py"
 
 WORKFLOW = ".github/workflows/release.yml"
+LEGACY = TEST + "::test_the_legacy_line_reads_the_same_in_both_its_homes"
 
 MUTATIONS = [
     ("a candidate is published as a final release", WORKFLOW,
@@ -76,4 +79,17 @@ MUTATIONS = [
      "Which lines receive fixes, and how a fix is released, is\n",
      "Pre-1.0: only the `main` branch receives fixes. Which lines receive fixes, and how a fix is "
      "released, is\n"),
+
+    ("SECURITY.md promises fixes on `main` only again, as a sentence of its own", "SECURITY.md",
+     "Which lines receive fixes, and how a fix is released, is\n",
+     "Only the `main` branch receives fixes. Which lines receive fixes, and how a fix is "
+     "released, is\n"),
+
+    ("SECURITY.md gives release/0.7 every fix", "SECURITY.md",
+     "`release/0.7` receives security fixes only,", "`release/0.7` receives every fix,",
+     LEGACY),
+
+    ("docs/RELEASING.md §6 gives release/0.7 every fix", "docs/RELEASING.md",
+     "`release/0.7` gets security fixes\n  only,", "`release/0.7` gets every fix,",
+     LEGACY),
 ]

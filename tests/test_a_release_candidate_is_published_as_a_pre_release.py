@@ -97,7 +97,27 @@ def test_the_supported_versions_have_one_home():
     section = text.split("## Supported versions", 1)[1].split("\n## ", 1)[0]
 
     assert "docs/RELEASING.md" in section, section
-    assert "only the `main` branch" not in section, section
+    assert "only the `main` branch" not in " ".join(section.split()).lower(), section
+
+
+def test_the_legacy_line_reads_the_same_in_both_its_homes():
+    """Since #1126 the 0.7 rule has two homes: SECURITY.md, which a reporter reads, and
+    docs/RELEASING.md §6, which the release manager follows. Two homes for one policy is how
+    SECURITY.md once said "only `main`" while release lines were patched (review of #510), so each
+    home states every term of the rule: which branch, what it takes, until when, and no other
+    (review of #1150). §6 is narrowed to the bullet that names `release/0.7`: the general rule's
+    "The line before it gets security fixes only" would otherwise answer for it."""
+    security = (ROOT / "SECURITY.md").read_text().split("## Supported versions", 1)[1]
+    security = security.split("\n## ", 1)[0]
+    patches = (ROOT / "docs" / "RELEASING.md").read_text().split("### 6. Patch releases", 1)[1]
+    items = patches.split("\n### ", 1)[0].split("\n- ")
+    legacy = [item for item in items if "`release/0.7`" in item]
+    assert len(legacy) == 1, f"docs/RELEASING.md §6 states the legacy line in {len(legacy)} items"
+    for name, home in (("SECURITY.md", security), ("docs/RELEASING.md §6", legacy[0])):
+        flat = " ".join(home.split()).lower()
+        for term in ("`release/0.7`", "security fixes only", "beeverforge 1.0 ships",
+                     "no other openfactory line"):
+            assert term in flat, f"{name} no longer states {term!r} of the legacy line's rule"
 
 
 def test_the_release_process_and_its_agent_are_tracked():
