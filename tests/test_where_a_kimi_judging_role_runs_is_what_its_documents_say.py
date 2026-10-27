@@ -24,8 +24,8 @@ in the pushed branch. They are green on main by design. The first three turn red
 which is when the wording must change back.
 
 THE DOCUMENT ROWS READ TEXT, AND HERE THE TEXT IS THE THING. CONTRIBUTING's rule is that a guard
-reads the thing rather than text about it; a release note and a docstring are read by a person, so
-their sentences are what is checked. They are read as the code exports them (`__doc__`) or parsed
+reads the thing rather than text about it; a docstring, an ADR section and a configuration bullet
+are read by a person, so their sentences are what is checked. They are read as the code exports them (`__doc__`) or parsed
 by heading and bullet, never grepped across a whole file, so a comment beside a fix cannot satisfy
 them. ADR-0018 is history and is amended, not rewritten (#783's amendment is the precedent): a claim
 in its §2 stands until a later dated amendment in the same section says where the roles run.
@@ -129,8 +129,9 @@ DOCUMENTS = {
     "KimiAdapter.__doc__": lambda: KimiAdapter.__doc__,
     "KimiAdapter.ask.__doc__": lambda: KimiAdapter.ask.__doc__,
     "roles.__doc__": lambda: roles_module.__doc__,
-    "changes/362.limitation.md": lambda: (ROOT / "changes/362.limitation.md").read_text(
-        encoding="utf-8"),
+    # RETIRED 2026-10-27 (#1149): `changes/362.limitation.md` was read here until 0.7.0's notes were
+    # assembled, which removes every fragment it uses; its text is now 0.7.0's frozen section of
+    # `CHANGELOG.md`, which no later change may edit, so nothing is left here to guard.
     "ADR-0018 section 2": _adr_0018_section_2,
     "docs/configuration.md Kimi bullet": _configuration_kimi_bullet,
 }
