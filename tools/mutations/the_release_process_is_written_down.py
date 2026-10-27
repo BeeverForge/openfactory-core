@@ -8,7 +8,8 @@ the version check reading the tag the way the document declares it. Row 4 ignore
 agent again with the rest of `.claude/`. Rows 5-9 come from the review of #510: a candidate's
 images under a tag `install.sh` never pulls, a candidate moving the floating `1`, `latest` pushed
 on every final tag, a hyphenated version refused by the declared-version guard, and SECURITY.md
-stating a policy of its own again.
+promising fixes on `main` only again. Since #1126 SECURITY.md states the legacy line's rule in the
+words a reporter reads, agreeing with docs/RELEASING.md, which it points at for the process.
 """
 
 TEST = "tests/test_a_release_candidate_is_published_as_a_pre_release.py"
@@ -71,7 +72,7 @@ MUTATIONS = [
 
     # RE-PINNED (#1126): the section now opens with the legacy line, so the cut anchors on the
     # sentence that still points at docs/RELEASING.md.
-    ("SECURITY.md states a supported-versions policy of its own again", "SECURITY.md",
+    ("SECURITY.md promises fixes on `main` only again", "SECURITY.md",
      "Which lines receive fixes, and how a fix is released, is\n",
      "Pre-1.0: only the `main` branch receives fixes. Which lines receive fixes, and how a fix is "
      "released, is\n"),

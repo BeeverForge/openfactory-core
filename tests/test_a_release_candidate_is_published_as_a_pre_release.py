@@ -89,8 +89,10 @@ def test_the_candidate_s_version_is_a_pre_release_to_pip():
 def test_the_supported_versions_have_one_home():
     """`SECURITY.md` is what a reporter reads and what GitHub's Security tab shows. It said "only
     `main` receives fixes" while docs/RELEASING.md patches release lines (review of #510): two
-    homes for one policy, in the one place where being wrong costs something. It points at the
-    process now, and states no policy of its own."""
+    homes for one policy, in the one place where being wrong costs something. Since #1126 it
+    states the legacy line's rule (`release/0.7` takes security fixes only, until BeeverForge 1.0)
+    in the words a reporter reads, the same rule docs/RELEASING.md §6 gives, and points at
+    docs/RELEASING.md for the process. It must never again promise fixes on `main` alone."""
     text = (ROOT / "SECURITY.md").read_text()
     section = text.split("## Supported versions", 1)[1].split("\n## ", 1)[0]
 
