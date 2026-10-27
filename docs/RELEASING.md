@@ -479,9 +479,10 @@ and what the workaround is.
   optional, and its rehearsal is not.
 - **Which lines get patches:** the latest minor line. The line before it gets security fixes only,
   and only when the release manager decides so.
-- **OpenFactory 0.7 is the last OpenFactory line** (#1126): the project continues as BeeverForge.
-  `release/0.7` gets security fixes only, as 0.7.x patches, until BeeverForge 1.0 ships, and no
-  other OpenFactory line gets any fix. `SECURITY.md` says so to the people who report.
+- **OpenFactory 0.7 is the last OpenFactory line** (#1126). From 0.7.0 this replaces the rule
+  above for OpenFactory: the project continues as BeeverForge, `release/0.7` gets security fixes
+  only, as 0.7.x patches, until BeeverForge 1.0 ships, and no other OpenFactory line gets any fix.
+  `SECURITY.md` says so to the people who report.
 
 ### 7. A security release
 
