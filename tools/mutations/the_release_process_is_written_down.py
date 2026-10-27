@@ -69,8 +69,10 @@ MUTATIONS = [
      "tests/test_the_wheel_is_published_under_the_name_the_docs_tell_you_to_install.py::"
      "test_what_a_tag_could_carry_includes_a_candidate"),
 
+    # RE-PINNED (#1126): the section now opens with the legacy line, so the cut anchors on the
+    # sentence that still points at docs/RELEASING.md.
     ("SECURITY.md states a supported-versions policy of its own again", "SECURITY.md",
-     "Which release lines receive security fixes, and how a fix is released, is\n",
-     "Pre-1.0: only the `main` branch receives fixes. Which release lines receive security fixes, "
-     "and how a fix is released, is\n"),
+     "Which lines receive fixes, and how a fix is released, is\n",
+     "Pre-1.0: only the `main` branch receives fixes. Which lines receive fixes, and how a fix is "
+     "released, is\n"),
 ]
