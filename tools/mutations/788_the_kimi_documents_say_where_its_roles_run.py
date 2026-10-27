@@ -37,7 +37,7 @@ The claims, each held by a row of `TEST` (named per cut below):
     commits from" names the review, where it runs and that its write can reach the pull request.
     One cut per document drops the review clause; one puts "every `ask()` runs" back.
 
-RETIRED (0.7.0's final): the four cuts of `changes/362.limitation.md`, one each for C3 to C6.
+RETIRED 2026-10-27 (#1149): the four cuts of `changes/362.limitation.md`, one each for C3 to C6.
 Assembling 0.7.0's notes removes the fragment, and its text is now 0.7.0's frozen section of
 `CHANGELOG.md`, so the guard no longer reads it and these rows would point at no file.
 
@@ -118,6 +118,8 @@ MUTATIONS = [
      "writes inside their ephemeral box.\n",
      NO_BOX.format("roles.__doc__")),
 
+    # RETIRED 2026-10-27 (#1149): the C3 cut of `changes/362.limitation.md`. Assembling
+    # 0.7.0's notes removes the fragment; its text is 0.7.0's frozen CHANGELOG.md section.
 
     # RE-PINNED (#788, task 21): the amendment's planner sentences grew the hold, so the cut now
     # anchors on the amendment's last line, still inside the dated paragraph.
@@ -153,6 +155,8 @@ MUTATIONS = [
      "is one of its own (a temporary directory",
      NAMES.format("roles.__doc__")),
 
+    # RETIRED 2026-10-27 (#1149): the C4 cut of `changes/362.limitation.md`. Assembling
+    # 0.7.0's notes removes the fragment; its text is 0.7.0's frozen CHANGELOG.md section.
 
     ("C4 the ADR-0018 amendment no longer says nothing commits from the rooms", ADR,
      "Each is a room\nnothing commits from, so",
@@ -195,6 +199,8 @@ MUTATIONS = [
      "except the independent\nreview",
      EXCEPT.format("roles.__doc__")),
 
+    # RETIRED 2026-10-27 (#1149): the C5 cut of `changes/362.limitation.md`. Assembling
+    # 0.7.0's notes removes the fragment; its text is 0.7.0's frozen CHANGELOG.md section.
 
     ("C5 the ADR-0018 amendment lists the target checkout among the rooms nothing commits from "
      "again", ADR,
@@ -252,6 +258,8 @@ MUTATIONS = [
      ";",
      REVIEW.format("roles.__doc__")),
 
+    # RETIRED 2026-10-27 (#1149): the C6 cut of `changes/362.limitation.md`. Assembling
+    # 0.7.0's notes removes the fragment; its text is 0.7.0's frozen CHANGELOG.md section.
 
     ("C6 the ADR-0018 amendment drops the review exception", ADR,
      ",\nand the independent review, which runs in the job's box on the job's workspace before "
