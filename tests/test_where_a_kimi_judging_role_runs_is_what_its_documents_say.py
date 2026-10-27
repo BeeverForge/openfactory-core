@@ -24,8 +24,8 @@ in the pushed branch. They are green on main by design. The first three turn red
 which is when the wording must change back.
 
 THE DOCUMENT ROWS READ TEXT, AND HERE THE TEXT IS THE THING. CONTRIBUTING's rule is that a guard
-reads the thing rather than text about it; a release note and a docstring are read by a person, so
-their sentences are what is checked. They are read as the code exports them (`__doc__`) or parsed
+reads the thing rather than text about it; a docstring, an ADR section and a configuration bullet
+are read by a person, so their sentences are what is checked. They are read as the code exports them (`__doc__`) or parsed
 by heading and bullet, never grepped across a whole file, so a comment beside a fix cannot satisfy
 them. ADR-0018 is history and is amended, not rewritten (#783's amendment is the precedent): a claim
 in its §2 stands until a later dated amendment in the same section says where the roles run.
