@@ -16,6 +16,8 @@ import ast
 import runpy
 from pathlib import Path
 
+from tests.the_tree_read_once import parsed
+
 ROOT = Path(__file__).resolve().parent.parent
 FRAGMENTS = {p.relative_to(ROOT).as_posix() for p in (ROOT / "changes").glob("*.md")}
 
@@ -28,7 +30,7 @@ def _docstrings(tree: ast.AST) -> set[int]:
 
 
 def _fragments_named(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = parsed(path)
     skip = _docstrings(tree)
     return [node.value for node in ast.walk(tree)
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
