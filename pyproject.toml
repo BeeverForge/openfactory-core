@@ -1,6 +1,6 @@
 [project]
 name = "openfactory"
-version = "0.7.0-rc.1"
+version = "0.7.0"
 description = "A framework to run software tickets autonomously with coding agents — policies authorize actions, humans evaluate results."
 # THE PAGE PyPI SHOWS, WRITTEN FOR PyPI (#368). Until 0.4.0 the project declared no long
 # description, and the index said "The author of this package has not provided a project
