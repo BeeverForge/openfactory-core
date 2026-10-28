@@ -1,5 +1,11 @@
-blank_issues_enabled: true
+# OpenFactory is now BeeverForge, and this repository is the legacy 0.7 line: it takes security
+# fixes only, until BeeverForge 1.0 ships (SECURITY.md). New issues go to BeeverForge; a security
+# report on 0.7 is still made privately here.
+blank_issues_enabled: false
 contact_links:
-  - name: Security report
-    url: https://github.com/Open-Factory-Digital/openfactory-core/security/advisories/new
+  - name: A bug, a question or an idea (BeeverForge)
+    url: https://github.com/BeeverForge/beeverforge-oss/issues/new/choose
+    about: OpenFactory continues as BeeverForge. New issues and pull requests go to BeeverForge/beeverforge-oss.
+  - name: Security report on OpenFactory 0.7
+    url: https://github.com/BeeverForge/openfactory-core/security/advisories/new
     about: Please report vulnerabilities privately, never as a public issue. See SECURITY.md.
