@@ -49,7 +49,7 @@ MUTATIONS = [
      '    return _step("context", STEP_DONE, f"context repository created "', TEST),
 
     ("the repository is created and left EMPTY — a checkout of `main` fails as before", SEED,
-     '        git("push", "-q", "--", "origin", "HEAD:main")', "        pass", TEST),
+     '        git(*gitpin.pinned(["push", "-q", "--", "origin", "HEAD:main"]))', "        pass", TEST),
 
     ("the seed says nothing about which product it is for", SEED,
      '        seed.write_text(f"product: {name}\\nsources:{listed}\\n"',
@@ -67,9 +67,9 @@ MUTATIONS = [
 
     ("a failure to seed takes the registration down with it", CATALOG,
      '    except Exception as exc:  # noqa: BLE001 — the project is registered; the step is said\n'
-     '        log.warning("could not seed the context repository for %s (%s)", name, str(exc)[:200])',
+     '        said = gitpin.without_pin(str(exc))',
      '    except ValueError as exc:\n'
-     '        log.warning("could not seed the context repository for %s (%s)", name, str(exc)[:200])',
+     '        said = gitpin.without_pin(str(exc))',
      TEST),
 
     ("the failure is silent, so the module is off and the reason is an hour away", CATALOG,

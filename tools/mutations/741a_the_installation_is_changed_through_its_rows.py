@@ -191,10 +191,12 @@ MUTATIONS = [
     ("`product_declare` stops refusing a repository that begins like an option", CATALOG,
      '    if repo.startswith("-"):\n', '    if False and repo.startswith("-"):\n', GITMARK),
     ("a value reaches git with no end-of-options marker before it", ONBOARD,
-     '_git(["ls-remote", "--heads", "--", url])',
-     '_git(["ls-remote", "--heads", url])', GITMARK),
+     '_git(gitpin.pinned(["ls-remote", "--heads", "--", url]))',
+     '_git(gitpin.pinned(["ls-remote", "--heads", url]))', GITMARK),
     ("a wrapper handed git's words one by one loses its end-of-options marker", PIPELINE,
-     '_git("remote", "set-url", "--", "origin", "https://invalid.local/scrubbed.git", cwd=repo)',
-     '_git("remote", "set-url", "origin", "https://invalid.local/scrubbed.git", cwd=repo)',
+     '_git(*gitpin.pinned(["remote", "set-url", "--", "origin", "https://invalid.local/scrubbed.git"]),\n'
+     '         cwd=repo)',
+     '_git(*gitpin.pinned(["remote", "set-url", "origin", "https://invalid.local/scrubbed.git"]),\n'
+     '         cwd=repo)',
      GITMARK),
 ]

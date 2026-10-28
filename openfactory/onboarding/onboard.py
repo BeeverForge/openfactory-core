@@ -55,7 +55,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from openfactory import namespace
+from openfactory import gitpin, namespace
 from openfactory.util import yaml_io
 
 if TYPE_CHECKING:
@@ -447,7 +447,7 @@ def onboard_product_context(project, *, sources: list[str],
 
     root = Path(tempfile.mkdtemp(prefix="openfactory-context-"))
     try:
-        rc, log_out = _git(["clone", "--no-local", "--", url, str(root / "docs")])
+        rc, log_out = _git(gitpin.pinned(["clone", "--no-local", "--", url, str(root / "docs")]))
         if rc != 0:
             out.detail = f"could not clone {docs_repo}: {scrub(log_out)[-200:]}"
             return out
@@ -516,10 +516,10 @@ def onboard_product_context(project, *, sources: list[str],
                          ["-C", str(docs_clone), "commit", "-m",
                           f"{getattr(project, 'name', 'product')}: declare this product and "
                           f"its backfilled context"],
-                         ["-C", str(docs_clone), "push", "-u", "--", url, base]):
+                         gitpin.pinned(["-C", str(docs_clone), "push", "-u", "--", url, base])):
                 rc, log_out = _git(args)
                 if rc != 0:
-                    out.detail = f"git {args[2]} failed: {scrub(log_out)[-200:]}"
+                    out.detail = f"git {gitpin.subcommand(args)} failed: {scrub(log_out)[-200:]}"
                     return out
             out.ok = True
             out.detail = (f"{docs_repo} was born empty — the declaration and backfill are its "
@@ -533,10 +533,11 @@ def onboard_product_context(project, *, sources: list[str],
                      # the bot's OWN onboarding branch — a retry after a partial failure must
                      # replace, not dead-lock on a non-fast-forward (product init's rule); safe
                      # only BECAUSE the port said no open review exists on it
-                     ["-C", str(docs_clone), "push", "--force", "-u", "--", url, branch]):
+                     gitpin.pinned(["-C", str(docs_clone), "push", "--force", "-u", "--", url,
+                                    branch])):
             rc, log_out = _git(args)
             if rc != 0:
-                out.detail = f"git {args[2]} failed: {scrub(log_out)[-200:]}"
+                out.detail = f"git {gitpin.subcommand(args)} failed: {scrub(log_out)[-200:]}"
                 return out
         out.pr = open_review_request(
             forge, repo=docs_repo, head=branch, base=base,

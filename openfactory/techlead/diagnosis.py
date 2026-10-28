@@ -44,6 +44,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from openfactory import gitpin
 from openfactory.adapters.forge.registry import repo_of
 from openfactory.util import scratch
 
@@ -224,14 +225,15 @@ def _checkout(project, ref: str) -> tuple[Path, bool]:
         # function's contract is `(tmp, False)` on anything going wrong — never an exception into a
         # diagnosis whose only job is to explain one.
         url = clone_url_for(project, repo, token=token)
-        subprocess.run(["git", "clone", "--no-local", "--depth", "1", "--", url, str(tmp)],
+        subprocess.run(gitpin.argv(["clone", "--no-local", "--depth", "1", "--", url, str(tmp)]),
                        check=True, capture_output=True, timeout=120)
         # Scrub the tokened URL from .git/config — the read-only agent CAN read that file, and
         # nothing fetches or pushes this throwaway checkout again. Derived from the URL actually
         # used, because asking the registry for a token-free one does not give one: the Azure row
         # mints its credential from a provider and signs the URL regardless of what we passed.
-        subprocess.run(["git", "-C", str(tmp), "remote", "set-url", "--", "origin",
-                        _URL_CREDENTIAL.sub(r"\1", url)], capture_output=True, timeout=15)
+        subprocess.run(gitpin.argv(["-C", str(tmp), "remote", "set-url", "--", "origin",
+                                    _URL_CREDENTIAL.sub(r"\1", url)]),
+                       capture_output=True, timeout=15)
         return tmp, True
     except Exception as exc:  # noqa: BLE001 — degrade to reasoning without the checkout
         # The diagnosis still answers, and the answer is thinner than it reads — which is the
@@ -239,7 +241,7 @@ def _checkout(project, ref: str) -> tuple[Path, bool]:
         # tokened URL, and truncation is not redaction. The regex first, because it catches a
         # credential the adapter minted and this function never held.
         log.warning("diagnosing %s without a checkout (%s)", ref,
-                    scrubbed(_URL_CREDENTIAL.sub(r"\1***@", str(exc)), token))
+                    scrubbed(_URL_CREDENTIAL.sub(r"\1***@", gitpin.without_pin(str(exc))), token))
         return tmp, False
 
 

@@ -19,16 +19,16 @@ AUTHORING = "openfactory/product/authoring.py"
 MUTATIONS = [
     # 1. the clones a path reaches
     ("TODAY'S DEFECT: the cache clones a path file by file", CACHE,
-     '            rc, out = _git(["clone", "--no-local",\n',
-     '            rc, out = _git(["clone",\n'),
+     '            rc, out = _git(gitpin.pinned(["clone", "--no-local",\n',
+     '            rc, out = _git(gitpin.pinned(["clone",\n'),
     ("the box clones the cache file by file again, without hardlinks", BOX,
-     '["git", "clone", "--no-local", "--", str(repo_path), str(host_clone)]',
-     '["git", "clone", "--local", "--no-hardlinks", "--", str(repo_path), str(host_clone)]'),
+     '["clone", "--no-local", "--", str(repo_path), str(host_clone)]',
+     '["clone", "--local", "--no-hardlinks", "--", str(repo_path), str(host_clone)]'),
 
     # 2. every clone, and the guard
     ("a clone that writes a requirement copies the objects directory", AUTHORING,
-     '        rc, out = _git(["clone", "--no-local", "--branch", base, "--", clone_url, str(tmp)])',
-     '        rc, out = _git(["clone", "--branch", base, "--", clone_url, str(tmp)])'),
+     '        rc, out = _git(gitpin.pinned(["clone", "--no-local", "--branch", base, "--", clone_url,\n',
+     '        rc, out = _git(gitpin.pinned(["clone", "--branch", base, "--", clone_url,\n'),
     ("the guard reads lists and never a call's own arguments", TEST,
      "        elif isinstance(node, ast.Call):\n            items = node.args\n",
      ""),

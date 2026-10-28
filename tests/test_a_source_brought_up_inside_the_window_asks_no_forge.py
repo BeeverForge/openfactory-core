@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pytest
 
+from openfactory import gitpin
 from openfactory.product import sources
 from openfactory.runtime import repo_cache
 from openfactory.runtime.repo_cache import SparseRepoCache
@@ -91,7 +92,7 @@ def git_calls(monkeypatch) -> dict[str, int]:
 
     def counting(args, *a, **kw):
         if isinstance(args, (list, tuple)) and args and args[0] == "git":
-            sub = next(x for x in args[1:] if not str(x).startswith("-"))
+            sub = gitpin.subcommand(args)
             counts[sub] = counts.get(sub, 0) + 1
         return real(args, *a, **kw)
 

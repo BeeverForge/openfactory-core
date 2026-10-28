@@ -29,6 +29,8 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from openfactory import gitpin
+
 RESULT_PREFIX = "OPENFACTORY_RESULT_JSON:"
 _DONE = {"pr_open", "merged", "done", "awaiting_prod_approval"}
 
@@ -212,8 +214,8 @@ def _a_count(raw: str | None) -> int:
 
 def _clone(cfg: BoxConfig, dest: Path, token: str | None) -> None:
     p = subprocess.run(
-        ["git", "clone", "--no-local", "--no-single-branch", "--", clone_url(cfg, token=token),
-         str(dest)],
+        gitpin.argv(["clone", "--no-local", "--no-single-branch", "--", clone_url(cfg, token=token),
+                     str(dest)]),
         capture_output=True, text=True, timeout=300,
     )
     if p.returncode != 0:
@@ -225,8 +227,8 @@ def _clone(cfg: BoxConfig, dest: Path, token: str | None) -> None:
     # executor's no-git instruction; #232 pushed a stray branch this way).
     if token:
         subprocess.run(
-            ["git", "-C", str(dest), "remote", "set-url", "--", "origin",
-             clone_url(cfg, token=None)],
+            gitpin.argv(["-C", str(dest), "remote", "set-url", "--", "origin",
+                         clone_url(cfg, token=None)]),
             capture_output=True, text=True, timeout=30,
         )
 

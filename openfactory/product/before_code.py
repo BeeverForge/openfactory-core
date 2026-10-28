@@ -52,6 +52,8 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from openfactory import gitpin
+
 log = logging.getLogger("openfactory.product.before_code")
 
 #: The kinds of refusal these acts make, in the action layer's words — the row maps them.
@@ -252,7 +254,7 @@ def start_before_code(name: str, docs_repo: str, *, provider: str = "", token_en
             created, _ = seed_context_repository(project, coordinate, sources=[])
         except Exception as exc:  # noqa: BLE001 — the project is registered; the reason is said
             log.warning("could not create the context repository %s for %s (%s)", coordinate,
-                        name, str(exc)[:200])
+                        name, gitpin.without_pin(str(exc))[:200])
     reachable, why = _reachable(project, coordinate)
     active, link, reason = _link(project)
     return Started(project=name, docs_repo=coordinate, kind=kind, registered=registered,
@@ -410,8 +412,8 @@ def _list_in_context(project, would_be, entry: str) -> bool:
         with semaphore.held(project), tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "context"
             cloned = subprocess.run(
-                ["git", "clone", "--no-local", "-q", *(["--branch", branch] if branch else []),
-                 "--", url, str(root)],
+                gitpin.argv(["clone", "--no-local", "-q", *(["--branch", branch] if branch else []),
+                             "--", url, str(root)]),
                 capture_output=True, text=True, timeout=_GIT_TIMEOUT, check=False)
             if cloned.returncode != 0:
                 raise Refused(UNAVAILABLE, f"{project.name}'s context repository "
@@ -452,11 +454,11 @@ def _list_in_context(project, would_be, entry: str) -> bool:
             onto = branch or onto or "main"
             for args in (["add", "--", PRODUCT_YAML],
                          ["commit", "-qm", f"{project.name}: its first source, {entry}"],
-                         ["push", "-q", "--", "origin", f"HEAD:{onto}"]):
+                         gitpin.pinned(["push", "-q", "--", "origin", f"HEAD:{onto}"])):
                 done = git(*args, cwd=root)
                 if done.returncode != 0:
                     raise Refused(UNAVAILABLE, f"`sources:` in {cfg.docs_repo} could not be "
-                                               f"written ({args[0]}: "
+                                               f"written ({gitpin.subcommand(args)}: "
                                                f"{scrub(done.stderr or '').strip()[-200:]}) — "
                                                f"the registry was not changed, so running this "
                                                f"again is safe")

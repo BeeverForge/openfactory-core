@@ -30,7 +30,7 @@ import time
 from collections.abc import Callable
 from typing import NamedTuple
 
-from openfactory import namespace, preview
+from openfactory import gitpin, namespace, preview
 from openfactory.preview.plan import CardRef, Unit
 from openfactory.util.bounded import BoundedDict
 
@@ -272,7 +272,8 @@ def ls_remote(remote: str, branch: str) -> str | None:
     if not remote or not branch:
         return None
     try:
-        done = subprocess.run(["git", "ls-remote", "--heads", "--", remote, f"refs/heads/{branch}"],
+        done = subprocess.run(gitpin.argv(["ls-remote", "--heads", "--", remote,
+                                           f"refs/heads/{branch}"]),
                               capture_output=True, text=True, timeout=20, check=False,
                               env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
     except (OSError, subprocess.SubprocessError) as exc:

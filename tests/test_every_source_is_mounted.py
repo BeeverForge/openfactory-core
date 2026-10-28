@@ -24,10 +24,12 @@ What is pinned:
 from __future__ import annotations
 
 import http.server
+import ipaddress
 import logging
 import os
 import re
 import shutil
+import ssl
 import stat
 import subprocess
 import threading
@@ -36,6 +38,7 @@ from pathlib import Path
 
 import pytest
 
+from openfactory import gitpin
 from openfactory.contracts import AgentRunResult
 from openfactory.contracts.product import ProductConfig
 from openfactory.contracts.project import Project, ProviderRef
@@ -206,8 +209,38 @@ class _Reader(_Recording):
         return super().ask(sandbox=sandbox, workspace=workspace, prompt=prompt, phase=phase)
 
 
-def _secret_server() -> tuple[http.server.HTTPServer, str]:
-    """A forge that refuses every credential it is shown — `401` to every request."""
+def _certificate(where: Path) -> tuple[Path, Path]:
+    """A self-signed certificate for 127.0.0.1 and its key: the forge below speaks https, the one
+    transport besides ssh and file the core's git calls may use (#931)."""
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+    now = datetime.datetime.now(datetime.UTC)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+            .public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=1))
+            .not_valid_after(now + datetime.timedelta(hours=1))
+            .add_extension(x509.SubjectAlternativeName(
+                [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(key, hashes.SHA256()))
+    cert_file, key_file = where / "forge.crt", where / "forge.key"
+    cert_file.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_file.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                                           serialization.PrivateFormat.PKCS8,
+                                           serialization.NoEncryption()))
+    return cert_file, key_file
+
+
+def _secret_server(where: Path, monkeypatch) -> tuple[http.server.HTTPServer, str]:
+    """A forge that refuses every credential it is shown — `401` to every request, over https
+    with a certificate git is told to trust."""
 
     class Refuses(http.server.BaseHTTPRequestHandler):
         def _no(self) -> None:
@@ -221,9 +254,14 @@ def _secret_server() -> tuple[http.server.HTTPServer, str]:
         def log_message(self, *args) -> None:
             return
 
+    cert, key = _certificate(where)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert, key)
+    monkeypatch.setenv("GIT_SSL_CAINFO", str(cert))
     server = http.server.HTTPServer(("127.0.0.1", 0), Refuses)
+    server.socket = tls.wrap_socket(server.socket, server_side=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server, f"http://x-access-token:{SECRET}@127.0.0.1:{server.server_address[1]}/o/r.git"
+    return server, f"https://x-access-token:{SECRET}@127.0.0.1:{server.server_address[1]}/o/r.git"
 
 
 def _closed_port() -> int:
@@ -277,8 +315,9 @@ def test_every_source_is_named_in_the_prompt_with_the_repository_it_is(bed):
 
 # ── 2. a source that cannot be mounted is named, with why ──────────────────────────────────────
 
-def test_a_source_the_credential_may_not_read_is_named_as_not_authorised(bed):
-    server, url = _secret_server()
+def test_a_source_the_credential_may_not_read_is_named_as_not_authorised(bed, tmp_path,
+                                                                        monkeypatch):
+    server, url = _secret_server(tmp_path, monkeypatch)
     try:
         bed.urls["harbourline-tracking"] = url
         harness = _Recording()
@@ -297,7 +336,7 @@ def test_a_source_the_credential_may_not_read_is_named_as_not_authorised(bed):
 
 
 def test_a_source_whose_forge_cannot_be_reached_is_named_as_unreachable(bed):
-    bed.urls["harbourline-web"] = f"http://127.0.0.1:{_closed_port()}/acme/web.git"
+    bed.urls["harbourline-web"] = f"https://127.0.0.1:{_closed_port()}/acme/web.git"
     harness = _Recording()
     bed.module(agent=harness).answer("what does the quote page show?")
 
@@ -409,12 +448,13 @@ def test_a_url_in_sources_is_cloned_from_the_projects_forge_not_from_its_host(mo
     assert "tok" not in repr(got) and "evil.example" not in repr(got)
 
 
-def test_no_credential_reaches_a_path_a_prompt_a_log_or_the_disk(bed, caplog):
+def test_no_credential_reaches_a_path_a_prompt_a_log_or_the_disk(bed, caplog, tmp_path,
+                                                                  monkeypatch):
     """A clone URL carries the token. The prompt gets a fixed sentence, the log a scrubbed one,
     the cache persists the public URL — and nothing under the cache is named after it."""
     bed.urls["harbourline-pricing"] = bed.urls["harbourline-pricing"].replace(
         "file://", f"file://x-access-token:{SECRET}@")
-    server, url = _secret_server()
+    server, url = _secret_server(tmp_path, monkeypatch)
     bed.urls["harbourline-tracking"] = url
     harness = _Recording()
     try:
@@ -538,7 +578,7 @@ def _git_calls_about_the_sources(monkeypatch) -> dict[str, int]:
     def counting(args, *a, **kw):
         if (isinstance(args, (list, tuple)) and args and args[0] == "git"
                 and about_a_source(args, kw.get("cwd"))):
-            sub = next(x for x in args[1:] if not str(x).startswith("-"))
+            sub = gitpin.subcommand(args)
             counts[sub] = counts.get(sub, 0) + 1
         return real(args, *a, **kw)
 

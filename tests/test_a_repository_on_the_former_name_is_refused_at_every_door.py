@@ -41,6 +41,7 @@ from openfactory import cli, namespace
 from openfactory import registry as registry_module
 from openfactory.actions.base import CONFLICT, Actor
 from openfactory.actions.catalog import _env_apply_impl, _env_read
+from openfactory.gitpin import subcommand
 
 #: The class the CLI bound at import — what every test's patch must leave alone.
 REAL_REGISTRY = registry_module.ProjectRegistry
@@ -380,7 +381,7 @@ def product_init(monkeypatch):
 
         def _fake_git(cmd, **kw):
             seen.append(list(cmd))
-            if cmd[:2] == ["git", "clone"]:
+            if cmd[:1] == ["git"] and subcommand(cmd) == "clone":
                 shape(Path(cmd[-1]))
             return _Done()
 

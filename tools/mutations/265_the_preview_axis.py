@@ -140,8 +140,8 @@ MUTATIONS = [
     # twice (the trees it starts from, then the ones its compose file reaches) — one indent less
     # RE-PINNED 2026-10-10 (#594): every clone passes `--no-local`
     ("the checkout shares object files with the cache a container could write through", COMPOSE,
-     '        r = _git("clone", "--no-local", "--quiet",\n',
-     '        r = _git("clone", "--local", "--quiet",\n'),
+     '        r = _git(*gitpin.pinned(["clone", "--no-local", "--quiet",\n',
+     '        r = _git(*gitpin.pinned(["clone", "--local", "--quiet",\n'),
     ("the change is checked out at the branch's tip, not at the head the forge reported",
      COMPOSE,
      "    head = s.head or _git(", "    head = _git("),

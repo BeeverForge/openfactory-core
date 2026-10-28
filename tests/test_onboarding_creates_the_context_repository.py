@@ -23,6 +23,7 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
+from openfactory import gitpin
 from openfactory.cli import app
 
 
@@ -171,7 +172,7 @@ def test_the_create_run_reaches_the_plan_instead_of_refusing_its_own_record(onbo
         returncode, stdout, stderr = 0, "", ""
 
     def _fake_git(cmd, **kw):
-        if cmd[:2] == ["git", "clone"]:
+        if cmd[:1] == ["git"] and gitpin.subcommand(cmd) == "clone":
             Path(cmd[-1]).mkdir(parents=True, exist_ok=True)
         return _Done()
 
@@ -206,7 +207,7 @@ def test_the_context_repository_is_reached_THROUGH_THE_PORT_on_any_vendor(onboar
 
     def _fake_git(cmd, **kw):
         seen.append(list(cmd))
-        if cmd[:2] == ["git", "clone"]:
+        if cmd[:1] == ["git"] and gitpin.subcommand(cmd) == "clone":
             from pathlib import Path
 
             Path(cmd[-1]).mkdir(parents=True, exist_ok=True)
@@ -218,7 +219,7 @@ def test_the_context_repository_is_reached_THROUGH_THE_PORT_on_any_vendor(onboar
     result = CliRunner().invoke(app, ["product", "init", "acme", "--write"])
 
     assert result.exit_code == 0, result.output
-    cloned = next(c for c in seen if c[:2] == ["git", "clone"])
+    cloned = next(c for c in seen if c[:1] == ["git"] and gitpin.subcommand(c) == "clone")
     assert "dev.azure.com" in " ".join(cloned), (
         f"the clone URL was not asked of the forge: {cloned}")
     assert not any("gh" == c[0] for c in seen), "it still shells out to `gh`"

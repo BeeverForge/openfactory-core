@@ -49,8 +49,10 @@ MUTATIONS = [
     # ── 2. sparse, and on demand ───────────────────────────────────────────────────────────────
     # RE-PINNED 2026-10-10 (#594): every clone passes `--no-local`
     ("every source is cloned whole — history and all", CACHE,
-     '            cloned = _git_out(["clone", "--no-local", "--filter=blob:none", "--no-checkout",',
-     '            cloned = _git_out(["clone", "--no-local", "--no-checkout",'),
+     '            cloned = _git_out(gitpin.pinned(["clone", "--no-local", "--filter=blob:none",\n'
+     '                                             "--no-checkout",',
+     '            cloned = _git_out(gitpin.pinned(["clone", "--no-local",\n'
+     '                                             "--no-checkout",'),
 
     ("the cone is never set, so the pictures and the font are checked out and fetched", CACHE,
      "        if cone is not None:",

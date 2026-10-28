@@ -167,9 +167,10 @@ MUTATIONS = [
     ("`history=True` clones shallow anyway, so every caller downstream gets the shallow refusal "
      "and the whole path is decoration",
      "openfactory/onboarding/propose_manifest.py",
-     ('    rc, out = (_git(["clone", "--no-local", "--filter=blob:none",\n'
-      '                     *(["--branch", base] if base else []), "--", clone_url, str(tmp)])\n'
-      "               if history else _git(shallow))"),
+     ('    rc, out = (_git(gitpin.pinned(["clone", "--no-local", "--filter=blob:none",\n'
+      '                                   *(["--branch", base] if base else []), "--", clone_url,\n'
+      '                                   str(tmp)]))\n'
+      '               if history else _git(shallow))'),
      "    rc, out = _git(shallow)"),
 
     ("a server without `uploadpack.allowFilter` gets no fallback, so asking for history makes the "

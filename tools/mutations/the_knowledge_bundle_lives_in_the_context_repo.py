@@ -57,15 +57,14 @@ MUTATIONS = [
      "guess reads as 'nothing published' — and the next publish tries to push disconnected "
      "history onto the real branch, rejected forever",
      "openfactory/knowledge/pipeline.py",
-     '    rc, out = _git("clone", "--no-local", "--depth", "1", "--", remote_url, str(pub))\n'
-     "    if rc != 0:\n"
-     '        _log.info("knowledge: could not clone the context repository (%s)", '
-     "out.strip()[:200])",
-     '    rc, out = _git("clone", "--no-local", "--depth", "1", "--branch", "main", "--", remote_url, '
-     'str(pub))\n'
-     "    if rc != 0:\n"
-     '        _log.info("knowledge: could not clone the context repository (%s)", '
-     "out.strip()[:200])"),
+     '    rc, out = _git(*gitpin.pinned(["clone", "--no-local", "--depth", "1", "--", remote_url,\n'
+     '                                   str(pub)]))\n'
+     '    if rc != 0:\n'
+     '        _log.info("knowledge: could not clone the context repository (%s)", out.strip()[:200])',
+     '    rc, out = _git(*gitpin.pinned(["clone", "--no-local", "--depth", "1", "--branch", "main", "--",\n'
+     '                                   remote_url, str(pub)]))\n'
+     '    if rc != 0:\n'
+     '        _log.info("knowledge: could not clone the context repository (%s)", out.strip()[:200])'),
 
     ("the source-name flattening is dropped, so two source repos in one multirepo project "
      "collide on the same .okf/repos/ folder and clobber each other's bundle",
