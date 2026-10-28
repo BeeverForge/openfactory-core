@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from openfactory import gitpin
+from tests.the_tree_read_once import could_say, parsed, source_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -101,6 +102,25 @@ def test_a_pinned_clone_of_a_file_remote_succeeds(hostile):
     assert by_url.returncode == 0, by_url.stderr
 
 
+def test_a_pinned_clone_cannot_recurse_into_a_local_submodule(hostile):
+    sub = hostile / "sub"
+    top = hostile / "top"
+    for repo in (sub, top):
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "commit", "-q", "--allow-empty", "-m", "a"], check=True)
+    subprocess.run(["git", "-C", str(top), "-c", "protocol.file.allow=always",
+                    "submodule", "add", "-q", str(sub), "s"], check=True)
+    subprocess.run(["git", "-C", str(top), "-c", "user.name=t", "-c", "user.email=t@t",
+                    "commit", "-qm", "add submodule"], check=True)
+
+    done = _run(gitpin.argv(["clone", "--recurse-submodules", "--", str(top),
+                              str(hostile / "recursive")]))
+
+    assert done.returncode != 0
+    assert "transport 'file' not allowed" in done.stderr, done.stderr
+
+
 def test_a_pin_survives_a_runner_that_adds_git_itself(hostile):
     marker = hostile / "ran"
 
@@ -163,7 +183,7 @@ def test_the_pin_sets_each_transport_by_name():
     assert gitpin.PIN[::2] == ("-c",) * len(settings)
     assert settings == {"protocol.allow": "never",
                         "protocol.https.allow": "always", "protocol.ssh.allow": "always",
-                        "protocol.file.allow": "always",
+                        "protocol.file.allow": "user",
                         "protocol.ext.allow": "never", "protocol.fd.allow": "never",
                         "protocol.http.allow": "never", "protocol.git.allow": "never",
                         "protocol.ftp.allow": "never", "protocol.ftps.allow": "never"}
@@ -173,17 +193,16 @@ def test_the_pin_sets_each_transport_by_name():
 
 # ── the guard ───────────────────────────────────────────────────────────────────────────────────
 
-REMOTE = ("clone", "fetch", "ls-remote", "push")
+REMOTE = ("clone", "fetch", "ls-remote", "push", "pull", "submodule")
 WRAPPERS = ("pinned", "argv")
 
 
 def _is_remote(words: list[str | None]) -> bool:
-    """Whether constant `words` are a remote-reaching git argv: after an optional "git" and any
-    `-C x` pairs, a remote subcommand, or `remote set-url`."""
-    i = 1 if words[:1] == ["git"] else 0
-    while words[i:i + 1] == ["-C"]:
-        i += 2
-    return i < len(words) and (words[i] in REMOTE or words[i:i + 2] == ["remote", "set-url"])
+    """Find a remote command even past options, variables and starred argument lists."""
+    if not words or words[0] not in (None, "git", "remote", *REMOTE):
+        return False
+    return any(word in REMOTE or words[i:i + 2] == ["remote", "set-url"]
+               for i, word in enumerate(words))
 
 
 def _is_wrapper(call: ast.Call) -> bool:
@@ -193,10 +212,9 @@ def _is_wrapper(call: ast.Call) -> bool:
     return isinstance(f, ast.Name) and f.id in WRAPPERS
 
 
-def _unpinned(source: str) -> list[str]:
-    """`<line>` for every remote-reaching git argv in `source` that is not the direct argument
+def _unpinned(tree: ast.AST) -> list[str]:
+    """`<line>` for every remote-reaching git argv in `tree` that is not the direct argument
     of `gitpin.pinned` / `gitpin.argv`."""
-    tree = ast.parse(source)
     wrapped = {id(a) for node in ast.walk(tree)
                if isinstance(node, ast.Call) and _is_wrapper(node) for a in node.args}
     found = []
@@ -218,7 +236,8 @@ def test_every_remote_reaching_git_call_goes_through_the_pin():
     missing = [f"{path.relative_to(ROOT)}:{line}"
                for path in sorted((ROOT / "openfactory").rglob("*.py"))
                if path.name != "gitpin.py"
-               for line in _unpinned(path.read_text(encoding="utf-8"))]
+               if could_say(source_text(path), r"clone|fetch|ls-remote|push|pull|submodule|set-url")
+               for line in _unpinned(parsed(path))]
     assert missing == [], f"a remote-reaching git call reads the machine's transports: {missing}"
 
 
@@ -230,7 +249,12 @@ def test_the_guard_sees_each_shape_of_a_remote_call():
               'shallow = ["clone", "--no-local", url]\n'
               '_git(["remote", "set-url", "--", "origin", u])\n'
               'run(("git", "ls-remote", "--", u))\n'
-              'fetch = ["fetch", "--", u] if u else []\n')
+              'fetch = ["fetch", "--", u] if u else []\n'
+              'subprocess.run(["git", "-C", str(root), *ident, "push", "--", "origin", b])\n'
+              '_git(repo, "fetch", "--", url)\n'
+              'subprocess.run(["git", "-c", "http.extraHeader=x", "clone", "--", u, d])\n'
+              'subprocess.run(["git", "pull", "--", u])\n'
+              '_git(["submodule", "update", "--init"])\n')
     passed = ('_git(gitpin.pinned(["clone", "--no-local", url, str(tmp)]))\n'
               'subprocess.run(gitpin.argv(["-C", x, "fetch", "--", url]))\n'
               '_git(*gitpin.pinned(["push", "--", "origin", b]))\n'
@@ -238,8 +262,8 @@ def test_the_guard_sees_each_shape_of_a_remote_call():
               '_git(["remote", "get-url", "origin"])\n'
               '_git(["rev-parse", "HEAD"])\n'
               'fetch = gitpin.pinned(["fetch", "--", u]) if u else []\n')
-    assert _unpinned(caught) == ["1", "2", "3", "4", "5", "6", "7"]
-    assert _unpinned(passed) == []
+    assert _unpinned(ast.parse(caught)) == [str(i) for i in range(1, 13)]
+    assert _unpinned(ast.parse(passed)) == []
 
 
 # ── docs and release note ───────────────────────────────────────────────────────────────────────
@@ -257,6 +281,9 @@ def test_the_pin_carries_its_release_note():
     note = (ROOT / "changes" / "931.security.md").read_text(encoding="utf-8").strip()
     assert note
     assert not note.splitlines()[0].rstrip().endswith("(#931)")
+    upgrade = (ROOT / "changes" / "931.upgrade.md").read_text(encoding="utf-8")
+    for word in ("http://", "git://", "https://", "ssh"):
+        assert word in upgrade
 
 
 # ── the pin in an error's text ──────────────────────────────────────────────────────────────────
@@ -274,6 +301,62 @@ def test_an_error_s_text_reads_without_the_pin():
         "status 128.")
     assert gitpin.without_pin(line) == "git fetch -- origin"
     assert gitpin.without_pin("git clone x") == "git clone x"
+
+
+@pytest.mark.parametrize("door", ["context", "product_start"])
+@pytest.mark.parametrize("failed_command", ["clone", "push"])
+def test_a_failed_context_seed_names_the_command(door, failed_command, monkeypatch, caplog):
+    from types import SimpleNamespace
+
+    from openfactory import registry
+    from openfactory.actions import catalog
+    from openfactory.adapters.forge import registry as forge_registry
+    from openfactory.product import before_code
+
+    project = SimpleNamespace(name="acme")
+
+    class Forge:
+        def create_repository(self, **kwargs):
+            return "acme-context", True
+
+        def clone_url(self, *args, **kwargs):
+            return "/srv/acme-context"
+
+    class Registry:
+        def __init__(self):
+            self.project = project if door == "context" else None
+
+        def get(self, name):
+            if self.project is None:
+                raise KeyError(name)
+            return self.project
+
+        def add(self, row):
+            self.project = row
+
+    def run(argv, **kwargs):
+        command = gitpin.subcommand(argv)
+        if command == failed_command:
+            raise subprocess.CalledProcessError(128, argv, stderr="rejected")
+        return subprocess.CompletedProcess(argv, 1 if command == "rev-parse" else 0,
+                                           stdout="", stderr="")
+
+    monkeypatch.setattr(registry, "ProjectRegistry", Registry)
+    monkeypatch.setattr(forge_registry, "build_forge", lambda project: Forge())
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(before_code, "_reachable", lambda *args: (False, "unreachable"))
+    monkeypatch.setattr(before_code, "_link", lambda *args: (False, "", "unlinked"))
+
+    if door == "context":
+        step = catalog._the_context_step("acme")
+        assert step["state"] == "failed"
+        assert failed_command in step["said"]
+        assert "protocol.allow" not in step["said"]
+    else:
+        before_code.start_before_code("acme", "acme-context", provider="local")
+
+    assert failed_command in caplog.text
+    assert "protocol.allow" not in caplog.text
 
 
 def test_a_failed_push_in_the_declaration_step_names_push(tmp_path, monkeypatch):

@@ -7992,9 +7992,10 @@ def _the_context_step(name: str) -> dict | None:
         created, where = seed_context_repository(project, docs, sources=[name])
         there = where or forge.clone_url(docs)
     except Exception as exc:  # noqa: BLE001 — the project is registered; the step is said
-        log.warning("could not seed the context repository for %s (%s)", name, str(exc)[:200])
+        said = gitpin.without_pin(str(exc))
+        log.warning("could not seed the context repository for %s (%s)", name, said[:200])
         return _step("context", STEP_FAILED, f"the product role's context repository could not "
-                                             f"be created ({exc}) — the doctor will say the "
+                                             f"be created ({said}) — the doctor will say the "
                                              f"product module is unusable until it is")
     if not where:
         return _step("context", STEP_ALREADY, f"the product role's context repository is there "

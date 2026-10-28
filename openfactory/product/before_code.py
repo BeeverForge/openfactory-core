@@ -254,7 +254,7 @@ def start_before_code(name: str, docs_repo: str, *, provider: str = "", token_en
             created, _ = seed_context_repository(project, coordinate, sources=[])
         except Exception as exc:  # noqa: BLE001 — the project is registered; the reason is said
             log.warning("could not create the context repository %s for %s (%s)", coordinate,
-                        name, str(exc)[:200])
+                        name, gitpin.without_pin(str(exc))[:200])
     reachable, why = _reachable(project, coordinate)
     active, link, reason = _link(project)
     return Started(project=name, docs_repo=coordinate, kind=kind, registered=registered,

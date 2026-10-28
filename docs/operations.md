@@ -252,13 +252,16 @@ Every git call the core makes on the host that reaches a remote (`clone`, `fetch
 `openfactory/gitpin.py`. Those calls may use only:
 
 - **https** and **ssh**: the GitHub and Azure DevOps forges, and `git@…` / `ssh://…` remotes;
-- **file**: the local forge's repository paths and clones of the worker's cache.
+- **file**, for user-initiated calls: the local forge's repository paths and clones of the worker's
+  cache. Git-initiated operations such as recursive submodule clones are refused, as with Git's
+  default `protocol.file.allow=user`.
 
 **ext**, **fd**, **http**, **git**, **ftp** and **ftps** are refused whatever the machine's
 git configuration says, and any other protocol is refused by the `protocol.allow=never` default.
 A `-c` overrides only the same key, so the pin sets that default and each of these transports by
 name, before the subcommand: a machine's `protocol.ext.allow=always` does not let a remote named
-`ext::…` run a command on the host. A remote on plain `http://` is refused too; use `https://`.
+`ext::…` run a command on the host. Remotes on plain `http://` or `git://` are refused too; use
+`https://` or ssh.
 
 Known gap: a `GIT_ALLOW_PROTOCOL` environment variable in the core's environment still
 overrides these settings. Do not set it for the core's process.
