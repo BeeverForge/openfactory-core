@@ -1127,6 +1127,13 @@ def _read(path: str, model: type[BaseModel], *, refusals: dict[int, str] | None 
     return register
 
 
+#: The 404 of a read that takes `{project}` and answers `_project_or_404`, as the description says it.
+#: THREE READS ANSWERED IT AND THEIR DESCRIPTION NAMED ONLY 200 AND 422 — the board, a product's
+#: attachments and its documents — which the client contract suite found on its first run against
+#: the default front end's manifest (2026-10-25): a client branching on the statuses the
+#: description names had no 404 to branch on.
+_NO_SUCH_PROJECT = "no project of that name in this deployment"
+
 #: The addresses `_read` served under `/api/v1`, as the router matches them.
 _VERSIONED_READS: list[re.Pattern] = []
 
@@ -2054,7 +2061,8 @@ def _updated_before(stamp: str, since) -> bool:
     return (then if then.tzinfo else then.replace(tzinfo=UTC)) < since
 
 
-@_read("/api/board/{project}", read_models.BoardRead)
+@_read("/api/board/{project}", read_models.BoardRead, refusals={
+    404: _NO_SUCH_PROJECT})
 def board_view(project: str, card: str = "", pr: str = "") -> dict:
     """This project's board, through the ports — one read, for every kind (ADR-0049 D6).
 
@@ -3392,7 +3400,8 @@ def _attachment_conversation(request: Request, proj) -> tuple[str, str]:
     return product_chat.conversation_for(_actor(request), proj, asked)
 
 
-@_read("/api/product/{project}/attachments", read_models.AttachmentLimitsRead)
+@_read("/api/product/{project}/attachments", read_models.AttachmentLimitsRead, refusals={
+    404: _NO_SUCH_PROJECT})
 def product_attachment_limits(project: str, request: Request) -> dict:
     """What a message may carry, said BEFORE a file is sent — the types the rows read, the largest
     file and how many at once — and, for a conversation the page names (`room`, `session`), the
@@ -3567,7 +3576,8 @@ def product_system(project: str) -> dict:
     return out
 
 
-@_read("/api/product/{project}/documents", read_models.DocumentsRead)
+@_read("/api/product/{project}/documents", read_models.DocumentsRead, refusals={
+    404: _NO_SUCH_PROJECT})
 def product_documents(project: str, request: Request) -> dict:
     """The product's context repository as its ingestion found it (#269 slice 1): how many
     documents were read, and EVERY ONE THAT COULD NOT BE, with its type, its audience and why.

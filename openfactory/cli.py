@@ -1059,6 +1059,90 @@ def conformance_adapter(
     typer.echo(f"CONFORMANT — {kind} adapter holds every rule this platform has paid for")
 
 
+def _client_http(address: str):
+    """The HTTP client the client suite asks the API through — one seam, so the suite's own tests
+    hand it the app in-process instead of a socket. Ten seconds a request: the suite only reads,
+    and a read the API cannot answer in that is a finding of its own, not a run that hangs."""
+    import httpx
+
+    return httpx.Client(base_url=address.rstrip("/"), timeout=10.0)
+
+
+@app.command("conformance-client")
+def conformance_client(
+    address: str = typer.Argument(..., help="where the API answers, e.g. "
+                                                 f"http://localhost:{_PANEL.default_port}"),
+    manifest: str = typer.Option("", "--manifest", help="the JSON manifest of what your client "
+                                                        "uses; without it, the default front "
+                                                        "end's, read from the page this release "
+                                                        "ships"),
+    token_env: str = typer.Option("", "--token-env", help="the environment variable holding the "
+                                                          "credential to present; the credential "
+                                                          "itself is never an argument"),
+    param: list[str] = typer.Option(None, "--param",  # noqa: B008 — typer's own idiom
+                                    help="name=value for a route's parameters, e.g. "
+                                         "project=acme; repeatable"),
+) -> None:
+    """Check YOUR client against this release's API: every route, field and event kind it uses.
+
+    The suite reads and changes nothing: it asks the API at ADDRESS for the routes your manifest
+    names and holds each answer to the release's models, statuses and refusals. Run it with the
+    release the API runs."""
+    import os
+
+    import httpx
+
+    from openfactory.conformance.client import ManifestError, check_client, read_manifest
+    from openfactory.conformance.front_end import declared as front_end
+
+    try:
+        declared = read_manifest(manifest) if manifest else front_end()
+    except ManifestError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(2) from None
+    credential = None
+    if token_env:
+        credential = os.environ.get(token_env, "").strip()
+        if not credential:
+            typer.echo(f"--token-env names {token_env}, and it is not set in this environment")
+            raise typer.Exit(2)
+    params = {}
+    for given in param or []:
+        name, eq, value = given.partition("=")
+        if not eq or not name:
+            typer.echo(f"--param {given!r} must be name=value")
+            raise typer.Exit(2)
+        params[name] = value
+    try:
+        with _client_http(address) as http:
+            report = check_client(http, declared, credential=credential, params=params)
+    except httpx.HTTPError as exc:
+        # the suite's first request is the one `check_client` speaks for; a later one that fails
+        # mid-run (the API went away) is said here, in one line, never as a traceback
+        typer.echo(f"the API at {address} stopped answering during the run: {exc}")
+        raise typer.Exit(1) from None
+    for note in report.notes:
+        typer.echo(f"NOTE  {note}")
+    for f in report.findings:
+        typer.echo(f"FAIL  {f.rule}")
+        typer.echo(f"      {f.detail}")
+        if f.taught_by:
+            typer.echo(f"      why: {f.taught_by}")
+    if any(f.rule == "client.credential" for f in report.findings):
+        # a credential the run cannot use is the run's configuration, not the API's answer: exit 2,
+        # as for an option, so a CI job tells a misconfigured secret from a client that broke
+        typer.echo(f"\nNOT CHECKED — the run's credential is not one the API takes, so nothing "
+                   f"was held for {declared.client}")
+        raise typer.Exit(2)
+    if report.findings:
+        typer.echo(f"\nNOT CONFORMANT — {len(report.findings)} rule(s) broken for "
+                   f"{declared.client}")
+        raise typer.Exit(1)
+    typer.echo(f"CONFORMANT — {declared.client}: {len(declared.routes)} route(s) and "
+               f"{len(declared.events)} event kind(s) hold against {address}, "
+               f"{report.asked} answer(s) asked")
+
+
 box_app = typer.Typer(help="The ephemeral environment a job runs in.")
 app.add_typer(box_app, name="box")
 
