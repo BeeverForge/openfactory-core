@@ -1,5 +1,11 @@
 # OpenFactory
 
+> **OpenFactory continues as BeeverForge.** 0.7.0 is the last OpenFactory release: the name is
+> another company's trademark, so the project was renamed. BeeverForge 0.1.0 is OpenFactory 0.7.0
+> under the new name, at [github.com/BeeverForge/beeverforge-oss](https://github.com/BeeverForge/beeverforge-oss)
+> and on PyPI as `beeverforge`. New issues and pull requests go there; the open issues here are
+> being moved across where they still apply.
+
 **An autonomous software factory.** It takes tickets from your board and returns reviewed pull
 requests — planned, implemented, validated by *your* test suite, independently reviewed, and
 merged under the policy you chose. Humans stop authorising every step and start evaluating
