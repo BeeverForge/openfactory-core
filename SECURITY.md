@@ -77,7 +77,9 @@ interesting surface is well-defined:
 
 ## Supported versions
 
-Which release lines receive security fixes, and how a fix is released, is
-[docs/RELEASING.md](docs/RELEASING.md) ("Patch releases" and "A security release"): the latest
-minor line always, and the line before it when the release manager decides so. A fix lands on
-`main` and on each release branch that receives it.
+OpenFactory 0.7 is the last OpenFactory release line: the project continues as
+[BeeverForge](https://github.com/BeeverForge/beeverforge-oss). Until BeeverForge 1.0 ships,
+`release/0.7` receives security fixes only, released as 0.7.x patches, and no other OpenFactory
+line receives any fix. Which lines receive fixes, and how a fix is released, is
+[docs/RELEASING.md](docs/RELEASING.md) ("Patch releases" and "A security release"). A fix lands on
+`main` and on `release/0.7`.
